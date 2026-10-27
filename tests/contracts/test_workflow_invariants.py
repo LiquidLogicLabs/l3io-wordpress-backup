@@ -139,3 +139,66 @@ def test_release_notes_never_start_from_a_floating_tag() -> None:
     assert previous is not None, "no step with id 'previous' computes the lower bound"
     assert "--match 'v[0-9]*.[0-9]*.[0-9]*'" in str(previous.get("run", ""))
     assert steps.index(previous) < steps.index(builder)
+
+
+def _compute_next_version(
+    tmp_path: pathlib.Path, tags: list[str], env: dict[str, str]
+) -> tuple[int, str]:
+    """Run release.yml's real "compute the next version" script in a scratch repo."""
+    import os
+    import subprocess
+
+    jobs = _jobs(WORKFLOWS[0].parent / "release.yml")
+    step = next(
+        s
+        for job in jobs.values()
+        for s in job.get("steps") or []
+        if s.get("id") == "next"
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "init", "-q"], check=True)  # noqa: S603
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "c"], check=True)  # noqa: S603
+    for tag in tags:
+        subprocess.run([*git, "tag", tag], check=True)  # noqa: S603
+    out = tmp_path / "out"
+    out.touch()
+    full_env = {
+        "PATH": os.environ["PATH"],
+        "GITHUB_OUTPUT": str(out),
+        "BUMP": "patch",
+        **env,
+    }
+    proc = subprocess.run(  # noqa: S603
+        ["bash", "-c", str(step["run"])],  # noqa: S607
+        cwd=repo,
+        env=full_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, out.read_text() + proc.stdout + proc.stderr
+
+
+def test_a_failed_tag_lookup_is_a_first_release_only_when_no_release_tag_exists(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The lookup step tolerates the action erroring when no v*.*.* tag exists.
+
+    A failure for any other reason -- network, auth, a broken action -- must not
+    be read as "first release": with v0.0.1 already tagged that would compute
+    v0.0.1 again.
+    """
+    failed = {"LATEST_OK": "failure", "HAS_TAG": "", "IS_VALID": ""}
+    code, out = _compute_next_version(
+        tmp_path / "first", ["baseline-pre-rewrite"], failed
+    )
+    assert code == 0, out
+    assert "version=0.0.1" in out
+
+    code, out = _compute_next_version(
+        tmp_path / "later", ["baseline-pre-rewrite", "v0.0.1"], failed
+    )
+    assert code != 0, f"a failed lookup with v0.0.1 tagged must stop the release: {out}"
+    assert "version=" not in out
