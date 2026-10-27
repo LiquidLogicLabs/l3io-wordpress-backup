@@ -450,3 +450,14 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   `services:`) **permits** a collapse under act and does not require one; `services:` still
   requires it — agreed by database 2026-10-27. Stated gap: a port bound through `make` or a
   script is visible only through the marker.
+- [done] **Gap pass 2 decisions (Shawn, 2026-10-27):** proposal P3 became **Epic 8**
+  (E008-S01-001, depends on Epics 2–6; binds Epics 4/5 into Epic 2's `cli/` hooks) instead
+  of an Epic 2 sprint S03, which would have made Epic 2 depend on Epics 4 and 5. Epic 7 adds
+  **one static import** to `cli/restore.py` (ownership grant), not a name-resolved module.
+  Mechanisms 2–5 accepted (no-op tracer default; in-root `wp-config.php` excluded from
+  extraction; cutover recovery finishes forward; a database moved to another server is kept).
+- [done] All round-1 and round-2 OPENs marked resolved from the gap map, except two: the Run
+  Journal location under `--snapshot-dir` (E003-S02-005, for the gate's architect) and the
+  stored `siteurl`/`home` read (waits on database's planned `site_urls()`, requested
+  2026-10-27). 37 bare spec pointers in E002 stories gained their `Spec:` prefix; every
+  dimension of all 29 stories now ends with a resolving `Spec:` line.

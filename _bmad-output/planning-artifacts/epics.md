@@ -130,13 +130,15 @@ _Not applicable — this product has no graphical surface. It ships a CLI and an
 | 4 | **Archive lifecycle** | Epic 2 | `adapters/crypto`, `core/exclusions`, the v0 fixture Archives and their tests | 3 |
 | 5 | **Credential providers and readiness** | Epic 2 | `adapters/{credential_providers,preflight}` | 2 |
 | 6 | **Embed in Python automation** | Epic 2 | `api/*`, `adapters/tracing` | 4 |
-| 7 | **Move a site to a new URL** | Epic 3 | `adapters/wpcli`, the relocation logic in `core/` | 4 |
+| 7 | **Move a site to a new URL** | Epic 3 | `adapters/wpcli`, the relocation logic in `core/`, one static import line in `cli/restore.py` | 4 |
+| 8 | **Wire the parallel epics into the commands** | Epics 2, 3, 4, 5, 6 | the binding bodies of Epic 2's `cli/` hook functions (see the ownership notes) | 1 |
 
 ```
-Epic 1 ──▶ Epic 2 ──┬──▶ Epic 3 ──▶ Epic 7
- (done)  (skeleton) ├──▶ Epic 4
-                    ├──▶ Epic 5
-                    └──▶ Epic 6
+Epic 1 ──▶ Epic 2 ──┬──▶ Epic 3 ──┬──▶ Epic 7
+ (done)  (skeleton) │            └──────────────┐
+                    ├──▶ Epic 4 ────────────────┤
+                    ├──▶ Epic 5 ────────────────┼──▶ Epic 8 (wiring)
+                    └──▶ Epic 6 ────────────────┘
 ```
 
 **Epics 3, 4, 5 and 6 run in parallel.** Four agents, no shared files.
@@ -158,7 +160,17 @@ would make Epic 2 depend on Epic 3. Every other module under `cli/` stays Epic 2
 Epic 7 plugs relocation into Epic 3's restore through **seams Epic 3 provides** (2026-10-27):
 a `relocation` field on `RestoreRequest`, a `SEARCH_REPLACE` phase slot in the runner, the
 staging hook for the target database, and passthrough of the `--new-*` flags in
-`cli/restore.py`. Epic 7 fills those seams from its own modules and never edits Epic 3's.
+`cli/restore.py`. Epic 7 fills those seams from its own modules and never edits Epic 3's — with one
+exception, granted 2026-10-27: Epic 7 adds the single static import of its
+`RestoreExtension` implementation to `cli/restore.py`, rather than `cli/restore.py`
+resolving Epic 7's module by name at run time. A static import is visible to mypy and
+import-linter; a name looked up at run time is not.
+**Epic 8 (2026-10-27)** fills the hook functions Epic 2 leaves in `cli/` for Epics 4 and 5
+(`cli/credentials.py`, the accepted-and-explained encryption, exclusion and credential flags
+and the `doctor` subcommand, the `Preflight` binding) once those epics exist. It was proposed
+as an Epic 2 sprint S03, which would have made Epic 2 depend on Epics 4 and 5; as a final
+epic the graph stays acyclic and no closed epic is reopened. Epic 3's `cli/restore.py` and
+Epic 6's `api/` reach every binding through those functions and need no edit.
 
 **Why this shape, and what it costs.** The organising constraint is not story
 independence — it is *which files two agents would edit at once*. Under the previous
@@ -765,3 +777,33 @@ So that I never end up with files restored and content URLs still pointing at pr
 **And** the failure names WP-CLI, states why it was needed, and points at installation guidance
 **And** a non-relocating restore does not require WP-CLI at all
 **And** no partial relocation — config rewritten, content not — can result from its absence
+
+---
+
+## Epic 8: Wire the parallel epics into the commands
+
+Added 2026-10-27. Integration only: it binds what Epics 4 and 5 deliver into the hook
+functions Epic 2 leaves in `cli/`, so none of Epics 3–6 edits `cli/` and no closed epic is
+reopened.
+
+**Owns exclusively:** the binding bodies of Epic 2's `cli/` hook functions named in the
+Epic List ownership notes.
+
+### Story 8.1: Bind the parallel epics' providers into the composition roots
+
+**Implements:** FR-14 (CLI selectability), FR-27 (diagnostic subcommand), FR-4/FR-5 (binding only), AD-9, AD-13, AD-26.
+
+
+As an operator,
+I want the credential providers, tool checks and encryption that later epics deliver to work from the same commands I already run,
+So that `backup`, `restore` and `doctor` behave as documented without any root assembling them differently.
+
+**Acceptance Criteria:**
+
+**Given** Epics 4 and 5 have landed
+**When** `wpbackup2 backup`, `restore`, `verify` or `doctor` runs
+**Then** credentials come from Epic 5's chains in the order `domain/credentials.py` declares, for the WordPress account and the administrator alike
+**And** every external binary the plan needs is checked by Epic 5's `BinaryPreflight` before the first command adapter
+**And** `wpbackup2 doctor` prints the FR-27 diagnosis and exits `OK` or `NOT_READY`
+**And** no flag that now works is still refused as not implemented
+
