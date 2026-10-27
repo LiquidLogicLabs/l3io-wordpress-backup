@@ -11,6 +11,8 @@ depend on (marked "Added 2026-10-20" there).
 
 ## P1 — Give restore the database, file and config operations it needs
 
+> **Created 2026-10-20 as E002-S02-009** (`c58b741`).
+
 - **Epic / sprint:** E002, sprint S02 (needs the ports E002-S02-007 adds and the Run machinery of S02).
 - **Classification:** complex — it binds the only destructive operations the product performs (drop database, clear a Site Root, rewrite `wp-config.php`) to their real effects.
 - **depends_on:** E002-S01-001, E002-S01-003, E002-S02-004, E002-S02-007.
@@ -104,6 +106,8 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 ---
 
 ## P2 — Drive a restore from the command line
+
+> **Created 2026-10-27 as E003-S01-006**, in Epic 3 with an ownership grant for `cli/restore.py` (Shawn's decision), not in Epic 2 as proposed below.
 
 - **Epic / sprint:** E002, sprint S02.
 - **Classification:** complex — the composition root for the product's most dangerous operation: every restore safety rule meets here, and a wrong binding destroys a site.

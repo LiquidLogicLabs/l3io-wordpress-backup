@@ -125,8 +125,8 @@ _Not applicable — this product has no graphical surface. It ships a CLI and an
 
 | # | Epic | Depends on | Owns exclusively | Stories |
 |---|---|---|---|---|
-| 2 | **Walking skeleton — take a backup and prove it** | Epic 1 | `domain/*` (including `domain/archive_format` and its v0 classifier), `ports/*`, `core/backup`, `cli/*`, `adapters/{tar,database,store,lock,config_writer}` | 8 |
-| 3 | **Restore without destroying it** | Epic 2 | `core/restore`, `adapters/{journal,staging}` | 5 |
+| 2 | **Walking skeleton — take a backup and prove it** | Epic 1 | `domain/*` (including `domain/archive_format` and its v0 classifier), `ports/*`, `core/backup`, `cli/*`, `adapters/{tar,database,store,lock,config_writer}` | 9 |
+| 3 | **Restore without destroying it** | Epic 2 | `core/restore`, `adapters/{journal,staging}`, `cli/restore.py` | 6 |
 | 4 | **Archive lifecycle** | Epic 2 | `adapters/crypto`, `core/exclusions`, the v0 fixture Archives and their tests | 3 |
 | 5 | **Credential providers and readiness** | Epic 2 | `adapters/{credential_providers,preflight}` | 2 |
 | 6 | **Embed in Python automation** | Epic 2 | `api/*`, `adapters/tracing` | 4 |
@@ -152,6 +152,9 @@ is the one place that calls `l3io-wp-database` (ADR-0015); it replaces the forme
 `adapters/config_writer` moved from Epic 7 to Epic 2 (2026-10-20): restore's `DB_NAME`
 cutover (AD-18) writes `wp-config.php` before relocation exists. Epic 7 keeps `adapters/wpcli`
 and the relocation logic, and calls the writer.
+`cli/restore.py` and its one dispatch arm in `cli/__init__.py` are Epic 3's (2026-10-27): the
+restore composition root calls Epic 3's `core/restore` and executor, so owning it in Epic 2
+would make Epic 2 depend on Epic 3. Every other module under `cli/` stays Epic 2's.
 
 **Why this shape, and what it costs.** The organising constraint is not story
 independence — it is *which files two agents would edit at once*. Under the previous
@@ -343,13 +346,30 @@ So that an overrunning nightly job cannot race a manual restore.
 **And** a lock whose holding process is gone is reclaimable with a logged warning; a live one is an error
 **And** it binds CLI and library callers identically
 
+### Story 2.9: Give restore the database, file and config operations it needs
+
+**Implements:** FR-7, FR-9 (the operations), AD-18 items 2–4, AD-28, AD-29; ADR-0015.
+
+
+As an operator,
+I want restore's destructive operations performed only through the family packages that already do them safely,
+So that a restore can never drop, clear or rewrite more than the plan says.
+
+**Acceptance Criteria:**
+
+**Given** the restore halves of `DatabaseQuery`/`DatabaseCommand`, `SiteFilesQuery`/`SiteFilesCommand` and `ConfigQuery`/`ConfigCommand` (E002-S02-007)
+**When** a composition root binds the real adapters
+**Then** every database operation goes through `l3io-wordpress-database` v0.1.0 and this package issues no SQL
+**And** existence is answered only by the administrator (AD-29)
+**And** `wp-config.php` is written only through `adapters/config_writer`, which delegates the write and its verification to `l3io-wordpress-config` and keeps the file's mode (AD-18.4)
+
 ---
 
 ## Epic 3: Restore a site without destroying it
 
 The safety work, and the epic where getting it wrong destroys a customer's site.
 
-**Owns exclusively:** `core/restore`, `adapters/{journal,staging}`
+**Owns exclusively:** `core/restore`, `adapters/{journal,staging}`, `cli/restore.py` and its dispatch arm
 
 ### Story 3.1: Restore files and database from an archive
 
@@ -448,6 +468,25 @@ So that a power cut does not silently produce a half-restored site that still bo
 **And** the Dump loads into a staging database through `l3io-wp-database`'s `ensure` and `load(replace=)`, with the live name switched only by that atomic write after the load is checked
 **And** the database that loses the cutover is removed with database's `drop_database`, never by SQL issued here
 **And** an interrupted load therefore leaves the live site on its original database, untouched
+
+### Story 3.6: Drive a restore from the command line
+
+**Implements:** FR-6, FR-7, FR-8, FR-19 (restore path), AD-5, AD-16, AD-17, AD-18.1, AD-19, AD-25, AD-26.
+
+
+As an operator,
+I want `wpbackup2 restore` to resolve what I asked for once and carry it through every phase,
+So that the mode I typed is the mode performed and every safety step runs in order.
+
+**Acceptance Criteria:**
+
+**Given** `wpbackup2 restore --wp-dir <Site Root> --archive <Archive>` with any flag combination
+**When** it runs
+**Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S02-006's table and passed explicitly to every phase
+**And** the Site Lock is taken and an incomplete Run Journal is refused before any Site state is read beyond canonicalising the path
+**And** the Archive is verified before the Safety Snapshot and before any destructive phase
+**And** a target with no `wp-config.php` gets its Site Descriptor from the Archive's config member
+**And** a Dry Run binds no-op commands and refuses wherever the real Run would
 
 ---
 
