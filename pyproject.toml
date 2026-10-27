@@ -1,11 +1,8 @@
 [project]
 name = "l3io-wordpress-backup"
-# ONE version literal for this distribution, at src/l3io/wp/backup/__init__.py.
-# It was two -- here and there -- with nothing comparing them, so the tag could
-# agree with pyproject while __version__ (which is in __all__, so it is the value
-# users see) said something else. They happened to agree, which means a v1.0.0 tag
-# would have gone green and proved nothing. Now there is no second value to drift
-# from: hatchling reads the module literal at build time.
+# The version is the git tag (AD-30): hatch-vcs derives it at build time and
+# `__version__` reads it back from the installed metadata. There is no literal
+# here or in the package to drift from the tag. See [tool.hatch.version].
 dynamic = ["version"]
 description = "WordPress backup, restore and relocation for automation"
 readme = "README.md"

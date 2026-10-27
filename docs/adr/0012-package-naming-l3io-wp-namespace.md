@@ -100,5 +100,5 @@ The Decision first required the republished fork to carry "a version above 1.4",
 only mattered while it was to reuse the `wpconfigr` name, where PyPI had burned the
 `wpconfigr-1.4` filename. Under a new distribution name no filename is burned and no
 version floor applies. Every family package restarted its versioning: config and database
-released **v0.1.0**, and backup's first release is **1.0.0** (AD-22 makes its rewrite a
-major version). The body now says "a new name" where it said "a version above 1.4".
+released **v0.1.0**, and backup's first release is **v0.0.1** (2026-10-27).
+The body now says "a new name" where it said "a version above 1.4".

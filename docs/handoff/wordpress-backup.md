@@ -51,7 +51,7 @@ Frozen outward surface (this is the constraint everything else bends around):
 - The **v0 archive read path**, forever. v1 is the only write format.
 - The **Python API is explicitly not preserved** — redesigned freely.
 
-Version restarts at **1.0.0** under the new name. Two sibling repos (`wordpress-config` →
+Versioning restarts under the new name. *(Was "at 1.0.0"; the first release is **v0.0.1**, cut 2026-10-27 to match config and database — see `release.yml` and AD-22's 2026-10-27 note.)* Two sibling repos (`wordpress-config` →
 `l3io-wp-config`, `wordpress-database` → `l3io-wp-database`) are being renamed in parallel by
 their own sessions; imports are PEP 420 namespace (`from l3io.wp import backup`), see
 `docs/adr/0012-*` and `#ad-27`.

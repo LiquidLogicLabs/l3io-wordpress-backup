@@ -97,7 +97,7 @@ This document provides the complete epic and story breakdown for l3io-wp-backup,
   is accepted, a bare path means `file:`, any other scheme is a named error. The grammar
   lives in `domain/`, owned by Epic 2, because AD-22 makes accepted values a breaking
   surface and v1.1's remote schemes must not need a major bump.
-- **Stage 1 is complete**: PEP 420 layout under `src/l3io/wp/backup/`, uv packaging at 1.0.0,
+- **Stage 1 is complete**: PEP 420 layout under `src/l3io/wp/backup/`, uv packaging with the version from the git tag (AD-30; first release v0.0.1),
   contract gates (`tools/check_purity.py`, `tools/check_mode_defaults.py`, `tests/contracts/`),
   all five CI jobs green locally under act with the working tree intact. The legacy
   `wpbackup2/` tree is **kept on disk, excluded** from tests and lint, until AD-22 decides
