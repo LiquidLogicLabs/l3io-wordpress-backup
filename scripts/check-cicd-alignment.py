@@ -683,18 +683,53 @@ def check_ruff(repo: pathlib.Path, R: Reporter) -> None:
         )
 
 
-def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
-    """Under act, collapse an axis only where it multiplies host-bound services.
+#: Job-level env naming host ports a job binds OUTSIDE `services:` -- e.g. a step
+#: that runs `docker run -p 127.0.0.1:33399:3306`. Agreed with database 2026-10-27.
+HOST_PORTS_ENV = "L3IO_ACT_HOST_PORTS"
+_DOCKER_PUBLISH = re.compile(r"\bdocker\s+run\b[^\n]*\s(?:-p|--publish)[\s=]")
 
-    act runs `--network host`, so every leg of a job with `services` binds the same
-    host port and all but one fail. A job with no services has nothing to collide
-    on, and collapsing it under act just stops checking the versions it exists for.
+
+def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
+    """Under act, collapse an axis only where its legs would collide on a host port.
+
+    act runs `--network host`. A job with `services` starts every leg's containers
+    up front, so the legs collide and the axis MUST be collapsed. A job that binds
+    host ports from inside a step declares them in `L3IO_ACT_HOST_PORTS`; its legs
+    start containers one at a time under `make ci`'s `--concurrent-jobs 1`, so a
+    collapse is PERMITTED but not required. A job with neither has nothing to
+    collide on, and collapsing it only stops act checking what the axis covers.
+
+    Coverage, stated rather than implied: an undeclared `docker run -p` written
+    directly in a step's `run:` is reported. One reached through `make` or a script
+    is NOT visible here -- the declaration is the only signal for those.
     """
     for name, job in (ci_doc.get("jobs") or {}).items():
+        env = job.get("env") or {}
+        declared = [
+            p.strip()
+            for p in str(env.get(HOST_PORTS_ENV) or "").split(",")
+            if p.strip()
+        ]
+        bad = [p for p in declared if not p.isdigit()]
+        if bad:
+            R(
+                "act",
+                f"ci.yml job `{name}` {HOST_PORTS_ENV} holds non-port values {bad}",
+            )
+        run_code = "\n".join(
+            line
+            for st in job.get("steps") or []
+            for line in str(st.get("run", "")).splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        if not declared and _DOCKER_PUBLISH.search(run_code):
+            R(
+                "act",
+                f"ci.yml job `{name}` publishes a host port with `docker run -p` "
+                f"but does not declare it in {HOST_PORTS_ENV}",
+            )
         matrix = (job.get("strategy") or {}).get("matrix") or {}
         axes = {k: str(v) for k, v in matrix.items() if k not in ("include", "exclude")}
-        if not axes:
-            continue
         has_services = bool(job.get("services"))
         for axis, expr in axes.items():
             collapses = "vars.LOCAL_ACT" in expr
@@ -704,11 +739,12 @@ def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
                     f"ci.yml job `{name}` has services but axis `{axis}` is not "
                     "collapsed under vars.LOCAL_ACT -- legs collide on the host port",
                 )
-            if not has_services and collapses:
+            if not has_services and not declared and collapses:
                 R(
                     "act",
-                    f"ci.yml job `{name}` has no services but collapses axis `{axis}` "
-                    "under vars.LOCAL_ACT -- act stops checking what the axis covers",
+                    f"ci.yml job `{name}` binds no host port but collapses axis "
+                    f"`{axis}` under vars.LOCAL_ACT -- act stops checking what the "
+                    "axis covers",
                 )
 
 
