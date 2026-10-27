@@ -104,3 +104,5 @@
 {"agent": "bmad-agent-architect", "epic": "E002", "event": "dispatch_close", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:30:32Z"}
 {"cause": "cli", "epic": "002", "event": "issue_opened", "key": "BL-E002-022", "session": null, "severity": "Low", "ts": "2026-10-27T22:30:32Z"}
 {"cause": "cli", "epic": "002", "event": "issue_opened", "key": "BL-E002-023", "session": null, "severity": "Low", "ts": "2026-10-27T22:30:33Z"}
+{"agent": "l3io-story-enrich", "epic": "E003", "event": "dispatch_open", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:39:53Z"}
+{"agent": "l3io-story-enrich", "epic": "E003", "event": "dispatch_close", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:49:40Z"}
