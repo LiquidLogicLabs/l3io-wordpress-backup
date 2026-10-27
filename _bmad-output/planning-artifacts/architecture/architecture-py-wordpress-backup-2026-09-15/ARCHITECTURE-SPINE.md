@@ -108,6 +108,8 @@ graph TD
 
   **Member roles are enumerated** — `dump`, `site-root`, `config` — and every member path is role-prefixed and non-escaping. A `wp-config.php` living outside the Site Root (FR-29) is carried as a `config`-role member with its original location recorded as Manifest *metadata*, never as a `../` path. Checksums are computed over **bytes as stored**. A Manifest is written on every Archive and read before every restore. The supported format range is derived from committed fixture Archives exercised in CI — never a hand-maintained list.
 
+*(Amended by [ADR-0017](../../../../docs/adr/0017-manifest-v1-member-index.md), 2026-10-27: the v1 member index is pinned, and the supported versions are a constant in `domain/archive_format` that a test holds equal to the fixture set.)*
+
 ### AD-7 — Credentials reach a subprocess by file, never by argument or environment
 
 > **Mechanism delegated, 2026-10-20 ([ADR-0015](../../../../docs/adr/0015-credentials-delegated-to-database.md)).** `l3io-wp-database` v0.1.0 owns every MySQL client invocation (`dump`, `load`) and passes credentials through an anonymous-pipe option file (its ADR-0002), which is stronger than the on-disk `0600` file described below: nothing reaches disk and a crash leaves nothing behind. **This package invokes no MySQL client tool**, guarded by `tests/contracts/test_no_mysql_client.py`. The invariant still binds this package for everything it emits itself — enforcement items 1–4 below; item 5, the option file, is database's to assert. The text below is kept as the record of the original mechanism.
@@ -210,6 +212,8 @@ graph TD
 - **Binds:** FR-8, FR-19, FR-20, FR-28, all composition roots
 - **Prevents:** a nested composition root forking the Run. The Safety Snapshot (FR-8) is naturally implemented by calling the backup entry point — the DRY choice, and compliant with every other AD — which would create a second Run ID, reconfigure `structlog` a second time, race two `finally` blocks over one workspace, and deadlock against the Site Lock the outer Run already holds, making *every* destructive restore refuse
 - **Rule:** a Run Context — Run ID, workspace, logger, Site Lock, clock, bound adapter set — is created exactly once, by the outermost composition root, and passed inward. An entry point that receives a Run Context **joins** it and creates nothing. The Site Lock is re-entrant for its holder. Creating a Run Context while one is active is an error, not a second Run.
+
+*(Amended by [ADR-0016](../../../../docs/adr/0016-run-context-binds-adapters-once.md), 2026-10-27: the Run Context is opened without adapters; the composition root that opened it binds them exactly once, after the Site Lock and the `wp-config.php` read.)*
 
 ### AD-17 — Restore phase order is data, not a diagram
 

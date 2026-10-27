@@ -1,4 +1,4 @@
-next: 16
+next: 20
 reserved:
 - number: 14
   slug: age-encryption-via-database
@@ -8,3 +8,19 @@ reserved:
   slug: credentials-delegated-to-database
   epic: E002
   reserved_at: '2026-10-20T17:49:12Z'
+- number: 16
+  slug: run-context-binds-adapters-once
+  epic: E002
+  reserved_at: '2026-10-27T21:43:41Z'
+- number: 17
+  slug: manifest-v1-member-index
+  epic: E002
+  reserved_at: '2026-10-27T21:43:41Z'
+- number: 18
+  slug: redaction-at-the-boundary
+  epic: E002
+  reserved_at: '2026-10-27T21:43:42Z'
+- number: 19
+  slug: backup-dry-run-scope
+  epic: E002
+  reserved_at: '2026-10-27T21:43:43Z'

@@ -349,6 +349,8 @@ An operator can request a Dry Run of any operation, and the Dry Run performs all
 - A Dry Run reports the actions it would take, in order.
 - After a Dry Run, the Site and every Storage Target are unchanged.
 
+*(Amended by [ADR-0019](../../../../docs/adr/0019-backup-dry-run-scope.md), 2026-10-27: "performs Verification" applies to the restore path; a backup Dry Run has no Archive to verify.)*
+
 #### FR-20: Structured logging correlated by Run ID
 
 Every log record carries a Run ID, and log output is machine-parseable. Realizes UJ-1, UJ-4.
