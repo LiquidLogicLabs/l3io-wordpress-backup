@@ -618,7 +618,7 @@ So that I can embed it in a provisioning pipeline without shelling out.
 
 **Given** the installed distribution
 **When** a caller imports it
-**Then** backup, restore, verification and pruning are all available without invoking a subprocess or parsing output
+**Then** backup, restore and verification are all available without invoking a subprocess or parsing output *(pruning removed 2026-10-27: it is FR-17, out of scope until v1.1 per the FR Coverage Map)*
 **And** the public API is fully annotated and passes `mypy --strict`
 **And** every operation available on the CLI is available through the API
 **And** constructing a Site Descriptor with invalid or incomplete values fails at construction with a named error, not at use
