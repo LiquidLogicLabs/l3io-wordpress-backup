@@ -211,10 +211,18 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: ${{ !vars.LOCAL_ACT }}
       - name: install mysql client and WP-CLI
+        env:
+          WP_CLI_VERSION: "2.12.0"
+          WP_CLI_SHA512: "be928f6b8ca1e8dfb9d2f4b75a13aa4aee0896f8a9a0a1c45cd5d2c98605e6172e6d014dda2e27f88c98befc16c040cbb2bd1bfa121510ea5cdf5f6a30fe8832"
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends mysql-client php-cli
-          curl -sSLo /tmp/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+          # Pinned and checksummed (2026-10-27). The gh-pages "latest" phar moved under
+          # every run, and story E007-S01-004 makes this version the supported minimum.
+          # The sha512 is the release's own published value, hardcoded here because a
+          # checksum fetched beside the file proves nothing about the file.
+          curl -sSLo /tmp/wp "https://github.com/wp-cli/wp-cli/releases/download/v${WP_CLI_VERSION}/wp-cli-${WP_CLI_VERSION}.phar"
+          echo "${WP_CLI_SHA512}  /tmp/wp" | sha512sum -c -
           sudo install -m 0755 /tmp/wp /usr/local/bin/wp
           wp --info --allow-root
       - run: uv sync --locked --all-extras --dev

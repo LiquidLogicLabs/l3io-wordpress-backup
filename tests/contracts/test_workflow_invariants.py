@@ -13,6 +13,7 @@ that no longer contains what matters.
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 import yaml
@@ -202,3 +203,42 @@ def test_a_failed_tag_lookup_is_a_first_release_only_when_no_release_tag_exists(
     )
     assert code != 0, f"a failed lookup with v0.0.1 tagged must stop the release: {out}"
     assert "version=" not in out
+
+
+def _wp_cli_installs() -> list[tuple[str, str, dict]]:
+    found = []
+    for wf in WORKFLOWS:
+        for name, job in _jobs(wf).items():
+            for step in job.get("steps") or []:
+                run = str(step.get("run", ""))
+                code = "\n".join(
+                    line
+                    for line in run.splitlines()
+                    if not line.lstrip().startswith("#")
+                )
+                if "wp-cli" in code:
+                    found.append((f"{wf.name}:{name}", code, step))
+    return found
+
+
+def test_wp_cli_is_installed_somewhere() -> None:
+    """Scope assertion: the pin test below must have a step to examine."""
+    assert _wp_cli_installs(), "no workflow step installs WP-CLI"
+
+
+def test_wp_cli_is_pinned_and_checksummed() -> None:
+    """A moving "latest" phar made the WP-CLI under test change between runs.
+
+    E007-S01-004 makes the CI version the supported minimum, so it must be one
+    release, verified against a checksum written into the workflow.
+    """
+    for where, run, step in _wp_cli_installs():
+        env = step.get("env") or {}
+        assert "gh-pages" not in run, f"{where}: installs the moving gh-pages phar"
+        assert re.fullmatch(r"\d+\.\d+\.\d+", str(env.get("WP_CLI_VERSION", ""))), (
+            f"{where}: WP_CLI_VERSION is not a pinned x.y.z release"
+        )
+        assert re.fullmatch(r"[0-9a-f]{128}", str(env.get("WP_CLI_SHA512", ""))), (
+            f"{where}: WP_CLI_SHA512 is not a hardcoded sha512"
+        )
+        assert "sha512sum -c" in run, f"{where}: the download is never verified"
