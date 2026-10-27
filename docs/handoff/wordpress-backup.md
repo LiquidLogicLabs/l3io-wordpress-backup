@@ -445,3 +445,8 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
      brought into line in the same change.
 - [todo] Second Epic 2/Epic 3 gap pass for the round-2 OPEN items, then `/l3io-plan reorg`
   (sprint move), steps 04–06, and the E002 gate re-run with both reviewers.
+- [done] **F1/F2 landed** (`667c8c2`, marker `2807769`); WP-CLI pinned (`e26ff5f`). All three
+  family repos report 0 findings. `L3IO_ACT_HOST_PORTS` (job env, host ports bound outside
+  `services:`) **permits** a collapse under act and does not require one; `services:` still
+  requires it — agreed by database 2026-10-27. Stated gap: a port bound through `make` or a
+  script is visible only through the marker.
