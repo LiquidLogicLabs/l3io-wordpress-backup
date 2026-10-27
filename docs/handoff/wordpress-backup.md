@@ -495,3 +495,19 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   `bmad-agent-architect`), route 1's last step. Two OPENs go to it: the Run Journal location
   under `--snapshot-dir` (E003-S02-005); E008's declared depends_on E003/E006 has no story
   edge (`unneeded-epic-dependency`) — keep, or drop to let E008 run in phase 3.
+- [done] **E002 arch gate PASSED** (2026-10-27) — route 1 complete. Re-run with both reviewers
+  found 1 BLOCKER / 15 MAJOR, all caused by the append-only gap passes and the reorgs; 28 of
+  the 29 original findings were closed. Resolved by ADRs 0016–0019 + the 0015 amendment
+  (`8131002`) and an in-place story reconciliation with three splits (E002-S01-010,
+  E002-S02-011, E002-S02-012; `4130fc2`). Each reviewer re-checked only its own findings: 9/9
+  and 13/13 resolved. MINORs deferred: BL-E002-005…023. Record:
+  `_bmad-output/implementation-artifacts/epic-002/arch/arch-gate-review.md`.
+- [todo] **Before Epic 3 runs:** E003-S02-005 and E003-S01-006 must adopt the 8 changes in
+  `gate-reconciliation-2026-10-27.md` ("Changes Epic 3 must adopt": `load_dump` signature,
+  location-only database calls, the journal ports now in E002-S02-012, adapter binding after
+  the lock, `CredentialSpec`, `RunContextActiveError` → REFUSED, re-pointed story refs). Plus
+  ADR-0017's Concern (absolute/out-of-root symlinks vs AD-11) and the journal location under
+  `--snapshot-dir` — both for Epic 3's gate.
+- [todo] A fresh `/l3io-plan` snapshot: `plan-2026-10-27-v1.yaml` predates the splits (E002 is
+  now 12 stories); execution reads phases only, which are unchanged, but the estimate blocks
+  are stale.

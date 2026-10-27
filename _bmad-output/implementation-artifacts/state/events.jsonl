@@ -97,3 +97,10 @@
 {"agent": "arch-gate-adr", "epic": "E002", "event": "dispatch_close", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T21:51:58Z"}
 {"agent": "l3io-story-enrich", "epic": "E002", "event": "dispatch_open", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T21:52:09Z"}
 {"agent": "l3io-story-enrich", "epic": "E002", "event": "dispatch_close", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:14:57Z"}
+{"agent": "l3io-arch-review", "epic": "E002", "event": "dispatch_open", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:16:03Z"}
+{"agent": "bmad-agent-architect", "epic": "E002", "event": "dispatch_open", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:16:03Z"}
+{"cause": "cli", "epic": "002", "event": "issue_opened", "key": "BL-E002-021", "session": null, "severity": "Low", "ts": "2026-10-27T22:29:39Z"}
+{"agent": "l3io-arch-review", "epic": "E002", "event": "dispatch_close", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:30:32Z"}
+{"agent": "bmad-agent-architect", "epic": "E002", "event": "dispatch_close", "session": "l3io-pm-cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-10-27T22:30:32Z"}
+{"cause": "cli", "epic": "002", "event": "issue_opened", "key": "BL-E002-022", "session": null, "severity": "Low", "ts": "2026-10-27T22:30:32Z"}
+{"cause": "cli", "epic": "002", "event": "issue_opened", "key": "BL-E002-023", "session": null, "severity": "Low", "ts": "2026-10-27T22:30:33Z"}

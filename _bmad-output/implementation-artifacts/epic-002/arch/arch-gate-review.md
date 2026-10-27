@@ -14,6 +14,16 @@
   `reviewer-bmad-agent-architect-2026-10-27.md` (1 BLOCKER, 14 MAJOR, 10 MINOR).
 - **Verdict:** **BLOCKED** — 1 BLOCKER, 15 MAJOR (6 confirmed by both reviewers, 9 single-source;
   all block per §5). MINORs deferred to the issues file.
+- **Resolution (§6), 2026-10-27:** ADRs 0016–0019 and the 0015 amendment (`8131002`); story
+  reconciliation and the AG-42 splits (`4130fc2`, record:
+  `_bmad-output/planning-artifacts/gate-reconciliation-2026-10-27.md`). Re-validated by each
+  reviewer on only its own findings and the sections the reconciliation changed:
+  `recheck-l3io-arch-review-2026-10-27.md` — **9/9 resolved**, 1 new MINOR;
+  `recheck-bmad-agent-architect-2026-10-27.md` — **13/13 resolved**, 2 new MINOR.
+- **Final verdict:** **PASSED** — 0 blocking findings after one resolution pass. The 3 new MINORs
+  are deferred (BL-E002-021…023). Open for Epic 3's own gate: the 8 changes E003 must adopt
+  (reconciliation record, "Changes Epic 3 must adopt"), and ADR-0017's Concern on absolute or
+  out-of-root symlinks under AD-11's extraction filter.
 - **Previous findings AG-1…AG-29:** both reviewers independently mark **28 closed**, each with
   the story section that closes it. AG-28 (sprint 01 needs what sprint 02 delivers) is closed
   for its original cause and **recurs in a new form as AG-30**.

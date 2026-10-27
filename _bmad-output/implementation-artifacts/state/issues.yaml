@@ -1,5 +1,5 @@
 next:
-  '002': 21
+  '002': 24
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -137,3 +137,27 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+- key: BL-E002-021
+  epic: '002'
+  sprint: ''
+  title: "E002-S01-006: ExplicitCredentialSpec.__repr__ in domain/ emits the literal '***', which its own test_single_redaction.py forbids outside adapters/redaction.py — omit the password from repr without the literal, keep the guard exemption-free"
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: New MINOR from the 2026-10-27 gate re-check (l3io-arch-review); see epic-002/arch/recheck-l3io-arch-review-2026-10-27.md.
+- key: BL-E002-022
+  epic: '002'
+  sprint: ''
+  title: 'E002-S01-005: phase() (adapters/phase.py) is said to take its exit code from exit_code_for (cli/exit.py); adapters/ may not import cli/ — read type(exc).exit_code directly'
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: New MINOR from the 2026-10-27 gate re-check (bmad-agent-architect); see epic-002/arch/recheck-bmad-agent-architect-2026-10-27.md.
+- key: BL-E002-023
+  epic: '002'
+  sprint: ''
+  title: 'E002-S01-006: two tests cover BackupRequest/VerifyRequest and every driver exception, which E002-S01-004 (later in sprint 1) creates — state that S01-004 extends both checks so S01-006 merges green alone'
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: New MINOR from the 2026-10-27 gate re-check (bmad-agent-architect); see epic-002/arch/recheck-bmad-agent-architect-2026-10-27.md.
