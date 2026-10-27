@@ -154,10 +154,10 @@ anything it already names. Established there:
 - **Ownership changes**: `adapters/config_writer` is Epic 2's (Epic 7 calls it);
   `cli/restore.py` and its dispatch arm are Epic 3's (E003-S01-006). Every other `cli/`
   module is Epic 2's.
-- **Dependencies, current pins**: `l3io-wordpress-database` at rev `47384ba` (v0.1.0 plus
+- **Dependencies, current pins**: `l3io-wordpress-database` **v0.2.0** at rev `48a7da9` (v0.1.0 plus
   `passphrase=` on `encrypt`/`decrypt`/`dump`/`load`; import `encrypt`, `decrypt`,
   `check_passphrase` from the package root — verify with
-  `git -C ../l3io-wordpress-database show 47384ba:src/l3io/wp/database/<file>.py`);
+  `git -C ../l3io-wordpress-database show v0.2.0:src/l3io/wp/database/<file>.py`);
   `l3io-wordpress-config` **v0.1.1** (`set()` keeps mode and owner, fsyncs, raises
   `ConfigWriteError` rather than change the owner, **never creates** a `wp-config.php`).
 - **Spine amendments** (read via the spec index): AD-17 (the `DB_NAME` cutover is

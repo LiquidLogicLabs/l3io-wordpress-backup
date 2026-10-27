@@ -461,3 +461,8 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   stored `siteurl`/`home` read (waits on database's planned `site_urls()`, requested
   2026-10-27). 37 bare spec pointers in E002 stories gained their `Spec:` prefix; every
   dimension of all 29 stories now ends with a resolving `Spec:` line.
+- [done] **Database re-pinned to v0.2.0** (`48a7da9`, released 2026-10-27; only change past
+  `47384ba` is its own opentelemetry-sdk dev pin). The `database` extra is now
+  `>=0.2.0,<0.3`; `encryption` is still deferred to story 4.3. Database has planned
+  `site_urls()` (stored `siteurl`/`home`, a sibling of `schema_version`) and asks whether
+  backup wants it as 0.2.1 or can wait for 0.3.0 — Shawn's call when relocation is near.

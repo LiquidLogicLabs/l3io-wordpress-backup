@@ -97,9 +97,9 @@ Accepted by Shawn, 2026-10-27, superseding the passphrase bullet above where the
   - **cli** (fallback): stock `age` ≥ 1.3 with `age-plugin-batchpass`, the secret on
     `AGE_PASSPHRASE_FD`, never in argv. Rejected on 2026-10-20, accepted now as a
     fallback where the binder wheel is not installed.
-- **This package pins database by rev to `47384ba`** (2026-10-27) and re-pins to v0.2.0
-  when it is tagged. It imports `encrypt`, `decrypt` and `check_passphrase` from the
-  package root, which 47384ba exports.
+- **This package pinned database by rev to `47384ba`** (2026-10-27), then to the
+  **v0.2.0** release (`48a7da9`, same day; the `database` extra is `>=0.2.0,<0.3`). It
+  imports `encrypt`, `decrypt` and `check_passphrase` from the package root.
 - **The `encryption` extra is not taken yet.** It pulls the binder, and uv ignores a
   dependency's own `[tool.uv.sources]`, so it would build the Rust binder from source.
   Story E004-S01-003 adds it together with a source for the binder's release wheels.
