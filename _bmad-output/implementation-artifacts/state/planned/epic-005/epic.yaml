@@ -2,7 +2,7 @@ key: 'E005'
 title: 'Credential providers and environment readiness'
 goal: 'Deliberately small. Both stories are additive to seams the skeleton already owns, so they parallelize cleanly rather than justifying a bigger epic.'
 status: backlog
-updated_at: '2026-10-27T21:04:36Z'
+updated_at: '2026-10-27T21:06:16Z'
 origin: epics.md
 origin_note: goal and title taken from planning-artifacts/epics.md
 estimate:

@@ -485,3 +485,13 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   evidence; 25 uncertain ones deliberately left out) and epic edges from `epics.md` plus three
   the story edges require — E006→E003, E007→E002, E007→E005. `plan-graph.py`: 0 cycles, 0
   unbacked cross-epic edges, 4 phases (E002 | E003,E004,E005 | E006,E007 | E008).
+- [done] **`/l3io-plan` complete — `plan-2026-10-27-v1.yaml`**, readiness **green** (29/29),
+  `stories_elaborated: 29`. Phases: E002 | E003,E004,E005 | E006,E007 | E008; critical path
+  E002 → E003 → E006 → E008, 87–99 h wall-clock; projected cost $33–$38 at
+  `claude-opus-5` rates. `readiness-report.md` re-graded, `elaboration-summary.md` written.
+  The 8 `cross-epic-coupling` warnings are the walking-skeleton design (Epic 2 lands the
+  shared contracts), not a reorg candidate.
+- [todo] **E002 arch-gate re-run with both reviewers** (`l3io-arch-review` and
+  `bmad-agent-architect`), route 1's last step. Two OPENs go to it: the Run Journal location
+  under `--snapshot-dir` (E003-S02-005); E008's declared depends_on E003/E006 has no story
+  edge (`unneeded-epic-dependency`) — keep, or drop to let E008 run in phase 3.

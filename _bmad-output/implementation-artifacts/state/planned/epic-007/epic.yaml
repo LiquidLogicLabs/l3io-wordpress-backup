@@ -2,7 +2,7 @@ key: 'E007'
 title: 'Move a site to a new URL'
 goal: 'The largest greenfield block, and the one capability that most distinguishes this from `mysqldump | tar`. Needs Epic 3''s restore path.'
 status: backlog
-updated_at: '2026-10-27T21:04:37Z'
+updated_at: '2026-10-27T21:06:18Z'
 origin: epics.md
 origin_note: goal and title taken from planning-artifacts/epics.md
 estimate:

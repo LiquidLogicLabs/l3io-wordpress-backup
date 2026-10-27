@@ -1,80 +1,31 @@
 # Readiness Report
 
-Generated: 2026-10-20T14:38:36Z
-Gate result: amber (Red on the literal technical-AC rule; resolved by Shawn's route-1 choice, 2026-10-20 — see below)
-Stories checked: 26
+Generated: 2026-10-27T21:05:58Z
+Gate result: green
+Stories checked: 29
+
+Re-run by /l3io-plan step 03 §5 after route-1 elaboration (2026-10-20 to 2026-10-27). The
+first run of this report (commit 7578d34) graded all 26 then-existing stories Red/Amber on
+technical and business ACs; that version is in git history.
 
 ## Findings
 
 | Node | Check | Result | Detail |
 |---|---|---|---|
-| E002-S01-001 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S01-001 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S01-002 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S01-002 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S01-003 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S01-003 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S02-004 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S02-004 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S02-005 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S02-005 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S02-006 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S02-006 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S02-007 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S02-007 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E002-S02-008 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E002-S02-008 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E003-S01-001 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E003-S01-001 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E003-S01-002 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E003-S01-002 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E003-S02-003 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E003-S02-003 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E003-S02-004 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E003-S02-004 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E003-S02-005 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E003-S02-005 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E004-S01-001 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E004-S01-001 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E004-S01-002 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E004-S01-002 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E004-S01-003 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E004-S01-003 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E005-S01-001 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E005-S01-001 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E005-S01-002 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E005-S01-002 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E006-S01-001 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E006-S01-001 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E006-S01-002 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E006-S01-002 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E006-S01-003 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E006-S01-003 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E006-S01-004 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E006-S01-004 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E007-S01-001 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E007-S01-001 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E007-S01-002 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E007-S01-002 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E007-S01-003 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E007-S01-003 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
-| E007-S01-004 | Technical ACs | 🔴 Red → elaborate | Document exists with functional ACs only; no `## Technical acceptance criteria` |
-| E007-S01-004 | Business ACs | 🟡 Amber | No `## Business acceptance criteria` / `### Outcome` |
+| all 29 stories | Technical ACs | 🟢 Green | all six dimensions present and filled, each ending in a resolving `Spec:` pointer |
+| all 29 stories | Business ACs | 🟢 Green | `### Outcome` non-empty |
+| all 29 stories | Classification | 🟢 Green | simple / standard / complex |
+| all 29 stories | Estimate block | 🟢 Green | present |
+| all 29 stories | depends_on validity | 🟢 Green | 133 edges, every key exists, no cycle (plan-graph.py) |
+| all 29 stories | Sprint assignment | 🟢 Green | every story in a named sprint |
 
-All 26 stories: classification, estimate block, sprint assignment and `depends_on` are Green.
-
-## Why Red does not halt this run
-
-Step 02 grades a story document that exists but has no technical-AC heading Red, on the
-reading that someone wrote an empty story. Here the documents are the `epics.md` user-value
-ACs verbatim (the arch gate verified this byte-for-byte on `E002-S01-001`), because step 03
-never ran when the plan was first made (`stories_elaborated: 0`). On 2026-10-20 Shawn chose
-remediation route 1 for the E002 arch gate: elaborate all 26 stories, fix the `epics.md`
-defects, then re-run the gate with both reviewers. That choice is the content decision the
-Red grade asks for, so every story is routed to step 03.
+Two items remain OPEN in story text and do not affect these grades: the Run Journal location
+under `--snapshot-dir` (E003-S02-005, for the arch gate's architect) and the stored
+`siteurl`/`home` read (E007-S01-003, waiting on l3io-wordpress-database's planned
+`site_urls()`).
 
 ## Summary
 
-- Green: 0 stories fully green
-- Amber: 26 (business ACs)
-- Red: 26 (technical ACs, routed to elaboration by route 1)
+- Green: 29
+- Amber: 0
+- Red: 0

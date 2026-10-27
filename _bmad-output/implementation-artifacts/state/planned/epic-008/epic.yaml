@@ -2,7 +2,7 @@ key: 'E008'
 title: Wire the parallel epics into the commands
 goal: 'Integration after the parallel epics: bind Epics 4 and 5''s providers into the hooks Epic 2 leaves in cli/, so Epics 3–6 never edit cli/ and no closed epic is reopened.'
 status: backlog
-updated_at: '2026-10-27T21:04:37Z'
+updated_at: '2026-10-27T21:06:18Z'
 origin_note: created 2026-10-27 from gap-pass-2 proposal P3 (elaboration-proposed-stories.md), re-homed from an Epic 2 sprint S03 to avoid an epic cycle (Shawn)
 estimate:
   man_hours_low: 9.7

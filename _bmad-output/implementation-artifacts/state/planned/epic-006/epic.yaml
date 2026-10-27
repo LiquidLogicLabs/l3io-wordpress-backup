@@ -2,7 +2,7 @@ key: 'E006'
 title: 'Embed it in Python automation'
 goal: 'The PRD''s stated wager, and what SM-1 measures.'
 status: backlog
-updated_at: '2026-10-27T21:04:36Z'
+updated_at: '2026-10-27T21:06:17Z'
 origin: epics.md
 origin_note: goal and title taken from planning-artifacts/epics.md
 estimate:
