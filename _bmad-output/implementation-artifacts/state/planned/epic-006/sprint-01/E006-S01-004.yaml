@@ -4,7 +4,7 @@ sprint: 'S01'
 title: See spans in a pipeline that already has tracing
 classification: standard
 status: backlog
-updated_at: '2026-10-27T21:06:11Z'
+updated_at: '2026-10-27T22:15:34Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -29,3 +29,4 @@ depends_on:
 - 'E002-S01-006'
 - 'E002-S02-007'
 - 'E002-S02-008'
+- 'E002-S02-012'

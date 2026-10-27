@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Verify an archive without touching a site
 classification: standard
 status: backlog
-updated_at: '2026-10-27T21:06:06Z'
+updated_at: '2026-10-27T22:15:52Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -26,3 +26,4 @@ estimate:
     cache_read: 88
 depends_on:
 - 'E002-S01-001'
+- 'E002-S01-010'

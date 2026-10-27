@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Branch automation on what happened
 classification: standard
 status: backlog
-updated_at: '2026-10-27T21:06:06Z'
+updated_at: '2026-10-27T22:15:52Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -31,3 +31,5 @@ depends_on:
 - 'E002-S01-002'
 - 'E002-S01-004'
 - 'E002-S01-006'
+- 'E002-S01-003'
+- 'E002-S01-010'

@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Point a restored site at a new host and database
 classification: standard
 status: backlog
-updated_at: '2026-10-27T21:06:12Z'
+updated_at: '2026-10-27T22:15:34Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -32,3 +32,4 @@ depends_on:
 - 'E003-S01-001'
 - 'E003-S01-006'
 - 'E003-S02-005'
+- 'E002-S01-010'

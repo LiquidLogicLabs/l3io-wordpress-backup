@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Source credentials from somewhere other than the command line
 classification: standard
 status: backlog
-updated_at: '2026-10-27T21:06:10Z'
+updated_at: '2026-10-27T22:15:32Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -29,3 +29,6 @@ depends_on:
 - 'E002-S01-005'
 - 'E002-S01-006'
 - 'E002-S02-007'
+- 'E002-S01-010'
+- 'E002-S02-011'
+- 'E002-S02-012'
