@@ -1,5 +1,5 @@
 next:
-  '002': 5
+  '002': 21
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -9,3 +9,131 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/arch/arch-gate-review.md (AG-25)
+- key: BL-E002-005
+  epic: '002'
+  sprint: ''
+  title: 'Timestamp spelling differs: Manifest created_at uses +00:00 (S01-001), log records use Z (S01-004) — pick one per the Consistency Conventions'
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+- key: BL-E002-006
+  epic: '002'
+  sprint: ''
+  title: domain/storage_target.parse_storage_target takes raw text but domain/ may not import urllib — parse in an adapter or pass parts, never hand-split URLs
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+- key: BL-E002-007
+  epic: '002'
+  sprint: ''
+  title: "Stale cross-references: 'proposed story P3' is Epic 8 (E008-S01-001); S02-007 points at an old proposal instead of E002-S02-009; old sprint-split wording"
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+- key: BL-E002-008
+  epic: '002'
+  sprint: ''
+  title: epics.md gives Epic 2 cli/* exclusively but cli/restore.py is Epic 3's; Epic 2's ownership cell omits adapters the stories add (workspace, redaction, noop, site_files)
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+- key: BL-E002-009
+  epic: '002'
+  sprint: ''
+  title: --wp-config validation vs Site Lock order differs between S01-001 and S01-004
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+- key: BL-E002-010
+  epic: '002'
+  sprint: ''
+  title: RunContext.site_lock typed as the SiteLock port in S01-004 but holds a LockHandle in S02-008
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+- key: BL-E002-011
+  epic: '002'
+  sprint: ''
+  title: S01-004 AC1 (Run ID across subprocess boundaries) depends on an upstream l3io-wp-database fix with no stated fallback
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+- key: BL-E002-012
+  epic: '002'
+  sprint: ''
+  title: S02-008 test_site_lock_signals.py needs a blocking-hook test seam that no story defines
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+- key: BL-E002-013
+  epic: '002'
+  sprint: ''
+  title: S01-001's LocalArchiveStore has no default verify; S01-001 does not say which verifier its root binds before S01-003 lands
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+- key: BL-E002-014
+  epic: '002'
+  sprint: ''
+  title: 'Duplicated Spec pointer lines within one block (S01-001 #ad-6 and #ad-21, others)'
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+- key: BL-E002-015
+  epic: '002'
+  sprint: ''
+  title: VERIFY and PUBLISH are separate BackupSteps each emitting phase_completed, but verification happens inside publish (S01-001/S01-002)
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+- key: BL-E002-016
+  epic: '002'
+  sprint: ''
+  title: S01-002 says Epic 3 adds restore's --mode; S01-005 (decided) registers it in Epic 2
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+- key: BL-E002-017
+  epic: '002'
+  sprint: ''
+  title: WpConfigWriter.read_constants has no key restriction — AD-3 tension (Site Descriptor is the one parse of wp-config.php)
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+- key: BL-E002-018
+  epic: '002'
+  sprint: ''
+  title: ADR-0015 says restore uses load(replace=); S02-007/S02-009 forbid replace= (it is a confirmation token in database) — fix ADR-0015's wording
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+- key: BL-E002-019
+  epic: '002'
+  sprint: ''
+  title: UnboundSearchReplace.relocate_content raises a bare RuntimeError, which S01-005 classes as a non-BackupError defect
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+- key: BL-E002-020
+  epic: '002'
+  sprint: ''
+  title: Manifest.source is a mutable dict on a frozen, slotted dataclass — not hashable or truly immutable
+  source: arch-gate
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.

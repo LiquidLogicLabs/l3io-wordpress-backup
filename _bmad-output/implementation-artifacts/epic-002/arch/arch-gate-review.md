@@ -1,4 +1,59 @@
-# Arch gate review — E002 "Walking skeleton — take a backup and prove it"
+# Arch gate review — E002 "Walking skeleton — take a backup and prove it" (re-run)
+
+- **Date:** 2026-10-27
+- **Work type:** CODE
+- **Reviewers run:** `l3io-arch-review` (Mode B) **and** `bmad-agent-architect`, in parallel.
+  *Departure from step-04 §4, recorded:* the step runs `l3io-arch-review` alone and escalates
+  only on a blocking finding. Route 1 (Shawn, 2026-10-20) asked for both reviewers, and the
+  2026-09-27 gate deferred the architect review to exactly this point.
+- **Scope:** 9 story files, `epic-002/sprint-01` (E002-S01-001…006) and `epic-002/sprint-02`
+  (E002-S02-007…009) — derived count of `{story_file_paths}`.
+- **Spec alignment:** ON; reviewers opened only the pointed-to ranges (each report ends with
+  `Sections read:`).
+- **Raw reports:** `reviewer-l3io-arch-review-2026-10-27.md` (0 BLOCKER, 8 MAJOR, 11 MINOR),
+  `reviewer-bmad-agent-architect-2026-10-27.md` (1 BLOCKER, 14 MAJOR, 10 MINOR).
+- **Verdict:** **BLOCKED** — 1 BLOCKER, 15 MAJOR (6 confirmed by both reviewers, 9 single-source;
+  all block per §5). MINORs deferred to the issues file.
+- **Previous findings AG-1…AG-29:** both reviewers independently mark **28 closed**, each with
+  the story section that closes it. AG-28 (sprint 01 needs what sprint 02 delivers) is closed
+  for its original cause and **recurs in a new form as AG-30**.
+
+## Root cause
+
+Not a design reversal. The two gap passes (2026-10-20, 2026-10-27) were **append-only**: each
+added contracts as "Added …" blocks and never reconciled the text above them, and the
+2026-10-27 reorgs moved three stories into sprint 1 after their text had been written against
+sprint 2. So several stories now carry two signatures for one thing, two owners for one type,
+and sprint-01 criteria that need sprint-02 deliverables. Both reviewers reached this
+independently.
+
+## Findings
+
+| ID | Sev | Source | Finding |
+|---|---|---|---|
+| AG-30 | BLOCKER | architect; l3io-arch-review (as MAJOR) | Sprint 01 cannot close green: S01-005's exit-code test needs `LOCKED` (from S02-008's `SiteLockedError`) and maps `PreflightFailedError` (S02-007); S01-004's `drive_backup` calls `real_adapters`/`dry_run_adapters` (S02-007) and asserts Site Lock behaviour (S02-008) |
+| AG-31 | MAJOR confirmed | both | `RunContext.adapters` is required when `open_run` creates the context, but adapters are built only after the lock is taken and `wp-config.php` read; `AdapterSet` is defined by both S01-004 and S02-007 |
+| AG-32 | MAJOR confirmed | both | Dependency cycle S01-005 ↔ S01-006 (`UsageError` and the accepted-and-explained set one way, `depends_on` the other); S01-004/005/006 lack their edge to S01-003 |
+| AG-33 | MAJOR confirmed | both | Stale database baseline: stories cite `l3io-wordpress-database` v0.1.0, rev `47384ba`, passphrase "arriving in 0.2.0"; `pyproject.toml` pins `>=0.2.0,<0.3` at `48a7da9`. S01-006's "< 0.2.0" refusal path and its test can no longer run |
+| AG-34 | MAJOR confirmed | both | S02-009 marks the config-writer mode/fsync tests `xfail(strict=True)`, but the pinned `l3io-wordpress-config` v0.1.1 already fixes both: they XPASS and fail CI |
+| AG-35 | MAJOR confirmed | both | Three refusals (`UnsupportedStorageSchemeError`, existing final Archive, `RunContextActiveError`) exit `FAILED`, not `REFUSED`, under the chosen class-attribute mechanism: none subclasses `RefusedError` |
+| AG-36 | MAJOR confirmed | both | `BackupError.__str__` (in `domain/`) redacting through the Run's registry needs imports from `adapters/` and `cli/`, which the import-linter layers forbid |
+| AG-37 | MAJOR single | architect | Superseded signatures left in place beside their replacements (`write_archive`, `site_descriptor_from_wp_config`, `build_backup_plan`, `extract_archive`, `DumpReadiness`/`Readiness`, `match` vs class-attribute exit mapping); S01-003 keeps a v0 `MEMBER_MISSING` rule the AD-23 amendment contradicts |
+| AG-38 | MAJOR single | architect | The supported format set is defined as "the committed fixtures under `tests/`", which the installed package cannot read at runtime |
+| AG-39 | MAJOR single | architect | The v1 Manifest member index leaves directories, empty directories, symlinks and the `manifest.json` exemption undefined — format v1 is frozen at first release |
+| AG-40 | MAJOR single | architect | S02-007 cannot complete `real_adapters` before S02-009 (the real restore adapters) exists, and still points at the old "proposed story" |
+| AG-41 | MAJOR single | architect | Epic 3's E003-S02-005 needs `RunJournalQuery`/`RunJournalCommand`/`NoopRunJournal` and a different `load_dump` signature; no E002 story declares them, and `ports/*` is Epic 2's |
+| AG-42 | MAJOR single | architect | Three stories are too large for one dev loop: S01-001 (~17 modules), S01-005 (restore vocabulary, 24-row flag table, ~15 flags, `doctor`), S02-007 (every restore port) |
+| AG-43 | MAJOR single | l3io-arch-review | `l3io.wp.database` is called from `cli/credentials.py` and the composition root, although `adapters/database.py` is the only permitted caller; `BackupRequest.credentials` exposes database's `CredentialSource` on Epic 6's public surface |
+| AG-44 | MAJOR single | l3io-arch-review | A backup Dry Run's execution is undefined: the no-op dump writes nothing, the archive writer (a function, not a port) would read and hash it, and FR-19's "a Dry Run performs Verification" has nothing to verify |
+
+MINORs (21 raw, deduplicated below) are deferred to the issues file per §5; the confirmed ones
+— timestamp spelling (`Z` vs `+00:00`), `parse_storage_target` taking raw text, stale P3 /
+sprint references — are marked `confirmed`.
+
+---
+
+# Previous gate (2026-09-27) — E002 "Walking skeleton — take a backup and prove it"
 
 - **Date:** 2026-09-27
 - **Work type:** CODE
