@@ -132,3 +132,37 @@ anything it already names. Established there:
   `adapters/{tar,database,store,lock,redaction,noop}` is Epic 2's. A later story that needs
   a change there writes it as a dependency on Epic 2 (`OPEN:` if Epic 2's stories do not
   already provide it), never as its own edit.
+
+## Since round 1 (E002 gap pass ee18747, decisions a865618, 2026-10-27) — also binding
+
+- **Epic 2 now also provides** (read the "Added 2026-10-20" parts of the E002 stories):
+  `domain/restore.py` (`RestoreMode`, `RestorePhase`, `OverrideSet`, `SnapshotPolicy`);
+  `domain/exclusion.py`; the Manifest `origin` and `exclusions` keys; `ports/crypto.MemberCipher`;
+  restore ports `SiteFilesQuery`/`SiteFilesCommand`, `DatabaseQuery`/`DatabaseCommand`,
+  `ConfigQuery`/`ConfigCommand` with no-op twins and `AdapterSet` fields;
+  `cli/passphrase.py::resolve_passphrase` (AD-26: argument, then
+  `L3IO_WP_BACKUP_PASSPHRASE`, then a TTY prompt); the Run-Context-joining entry point
+  `cli/backup.py::backup(site, scope, target, *, ctx, cipher, exclusion, origin)`;
+  `site_descriptor_from_archive_config`. E002-S02-009 implements the restore adapters,
+  including `adapters/config_writer` (the only caller of `l3io.wp.config.WpConfigFile`).
+- **Exit codes route by class attribute**: each `BackupError` subclass declares
+  `exit_code: ClassVar[ExitCode]`. A later epic declares it on its own subclasses and never
+  edits `cli/exit.py`. Still: no new `ExitCode` member outside Epic 2.
+- **Flags**: `all-clean` needs `--cleanfirst` (files) **and** `--drop-database` (database);
+  `--force` only waives the non-empty-target refusal. Epic 2 owns `cli/parser.py`; a later
+  epic that needs a flag writes `OPEN:` naming it rather than adding it.
+- **Ownership changes**: `adapters/config_writer` is Epic 2's (Epic 7 calls it);
+  `cli/restore.py` and its dispatch arm are Epic 3's (E003-S01-006). Every other `cli/`
+  module is Epic 2's.
+- **Dependencies, current pins**: `l3io-wordpress-database` at rev `47384ba` (v0.1.0 plus
+  `passphrase=` on `encrypt`/`decrypt`/`dump`/`load`; import `encrypt`, `decrypt`,
+  `check_passphrase` from the package root — verify with
+  `git -C ../l3io-wordpress-database show 47384ba:src/l3io/wp/database/<file>.py`);
+  `l3io-wordpress-config` **v0.1.1** (`set()` keeps mode and owner, fsyncs, raises
+  `ConfigWriteError` rather than change the owner, **never creates** a `wp-config.php`).
+- **Spine amendments** (read via the spec index): AD-17 (the `DB_NAME` cutover is
+  `LOAD_DUMP`'s last journaled step), AD-18 items 3–4, AD-22 (versions restart; first
+  release v0.0.1), AD-23 (`wp-root/` alone is a files-only v0), AD-26 (unencrypted Snapshot
+  proceeds with a warning; explicit opt-out).
+- `pathspec` and `platformdirs` are already accepted dependencies. A new one needs its
+  Existing-library check and the library's current version verified.
