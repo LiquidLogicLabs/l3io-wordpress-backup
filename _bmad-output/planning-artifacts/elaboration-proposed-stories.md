@@ -74,7 +74,7 @@ Spec: _bmad-output/planning-artifacts/prds/prd-py-wordpress-backup-2026-09-12/pr
 
 ### Observability requirements
 
-- Each command emits E002-S02-005's `phase_completed`-shaped record under its own name (`database_ensured`, `dump_loaded`, `grants_revoked`, `database_dropped`, `site_root_cleaned`, `config_written`) with location or path, `duration_ms` and the outcome flags; `config_written` names the **keys** written, never values (`DB_PASSWORD` is a key that may be written by relocation). `database_surveyed` carries `observed_by="administrator"`.
+- Each command emits E002-S01-004's `phase_completed`-shaped record under its own name (`database_ensured`, `dump_loaded`, `grants_revoked`, `database_dropped`, `site_root_cleaned`, `config_written`) with location or path, `duration_ms` and the outcome flags; `config_written` names the **keys** written, never values (`DB_PASSWORD` is a key that may be written by relocation). `database_surveyed` carries `observed_by="administrator"`.
 - database's own operation events flow through unchanged.
 
 Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-10--one-logger-one-run-id-bound-at-the-composition-root
@@ -111,8 +111,8 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 - **Epic / sprint:** E002, sprint S02.
 - **Classification:** complex — the composition root for the product's most dangerous operation: every restore safety rule meets here, and a wrong binding destroys a site.
-- **depends_on:** E002-S01-001, E002-S01-003, E002-S02-004, E002-S02-005, E002-S02-006, E002-S02-007, E002-S02-008, P1, **and E003-S01-001**.
-- **Sequencing note for the orchestrator:** this root calls Epic 3's `core/restore.build_restore_plan` and `adapters/restore_runner.execute_restore` (E003-S01-001), so it is the one Epic 2 story that lands **after** story 3.1's pure core and executor (which 3.1 can build and test without a CLI). The story-level graph stays acyclic: E002 sprints 1–2 → E003-S01-001 → P2 → the end-to-end criteria of E003-S01-002…S02-005. Until P2 lands, `wpbackup2 restore` stays accepted-and-explained (exit `USAGE`, E002-S02-006). If the orchestrator prefers, P2 can be keyed into Epic 3's sprint 1 with an Epic List ownership note granting `cli/restore.py` and its one dispatch arm — the alternative E003-S01-001 proposed; this proposal keeps `cli/*` single-owner as decision 1 asks.
+- **depends_on:** E002-S01-001, E002-S01-003, E002-S02-004, E002-S01-004, E002-S01-005, E002-S02-007, E002-S02-008, P1, **and E003-S01-001**.
+- **Sequencing note for the orchestrator:** this root calls Epic 3's `core/restore.build_restore_plan` and `adapters/restore_runner.execute_restore` (E003-S01-001), so it is the one Epic 2 story that lands **after** story 3.1's pure core and executor (which 3.1 can build and test without a CLI). The story-level graph stays acyclic: E002 sprints 1–2 → E003-S01-001 → P2 → the end-to-end criteria of E003-S01-002…S02-005. Until P2 lands, `wpbackup2 restore` stays accepted-and-explained (exit `USAGE`, E002-S01-005). If the orchestrator prefers, P2 can be keyed into Epic 3's sprint 1 with an Epic List ownership note granting `cli/restore.py` and its one dispatch arm — the alternative E003-S01-001 proposed; this proposal keeps `cli/*` single-owner as decision 1 asks.
 - **Implements:** FR-6, FR-7, FR-8, FR-19 (restore path), AD-5, AD-16, AD-17, AD-18.1, AD-19, AD-25, AD-26.
 
 As an operator,
@@ -123,7 +123,7 @@ So that the mode I typed is the mode performed and every safety step runs in ord
 
 **Given** `wpbackup2 restore --wp-dir <Site Root> --archive <Archive>` with any flag combination
 **When** it runs
-**Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S02-006's table and passed explicitly to every phase
+**Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S01-005's table and passed explicitly to every phase
 **And** the Site Lock is taken and an incomplete Run Journal is refused before any Site state is read beyond canonicalising the path
 **And** the Archive is verified before the Safety Snapshot and before any destructive phase
 **And** a target with no `wp-config.php` gets its Site Descriptor from the Archive's config member
@@ -158,7 +158,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
   4. `VERIFY`: E002-S01-003's `verify_archive`; failure → `VerificationFailedError`; the `ArchiveView` is kept for planning.
   5. **Site Descriptor.** `site_descriptor_from_wp_config(site_root)` when the target has `wp-config.php`; otherwise `site_descriptor_from_archive_config(site_root, <config member extracted into the workspace>)` (E002-S01-001). Neither present → `InvalidSiteDescriptorError`. A files-only v0 Archive with a Mode naming the database is refused by the plan (`ArchiveHasNoDumpError`, AD-23 amended) before step 7.
   6. `TargetState` from `SiteFilesQuery` and `DatabaseQuery.survey_target`; `build_restore_plan(site, mode, overrides, view, target)` (Epic 3) — which applies the FR-7 guard.
-  7. `execute_restore(plan, ports, take_snapshot, journal)` (Epic 3), where `take_snapshot(scope)` calls E002-S02-005's `backup(site, scope, file:<snapshot path>, ctx=ctx, cipher=request.cipher, exclusion=INCLUDE_EVERYTHING, origin=ManifestOrigin(SAFETY_SNAPSHOT, mode.value, ctx.run_id))` and, when `request.cipher is None`, writes `safety snapshot is NOT encrypted: <path>` to stderr and logs WARNING `safety_snapshot_unencrypted` with `path` (AD-26, decided 2026-10-20).
+  7. `execute_restore(plan, ports, take_snapshot, journal)` (Epic 3), where `take_snapshot(scope)` calls E002-S01-004's `backup(site, scope, file:<snapshot path>, ctx=ctx, cipher=request.cipher, exclusion=INCLUDE_EVERYTHING, origin=ManifestOrigin(SAFETY_SNAPSHOT, mode.value, ctx.run_id))` and, when `request.cipher is None`, writes `safety snapshot is NOT encrypted: <path>` to stderr and logs WARNING `safety_snapshot_unencrypted` with `path` (AD-26, decided 2026-10-20).
   8. Print the plan (Dry Run) or the database report and Snapshot path; return `ExitCode.OK` or raise.
 - **`RestorePhase` is driven, not re-listed.** The root iterates nothing itself; it passes the plan to the executor. A contract test fails if `cli/restore.py` names any `RestorePhase` member other than through `plan.phases`.
 
@@ -220,8 +220,8 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 - **Epic / sprint:** E002, a new sprint S03 (after Epics 4 and 5 land).
 - **Classification:** moderate — no new behaviour of its own; it replaces pre-Epic-5 bodies and bindings in Epic 2's `cli/` with calls into modules Epics 4 and 5 deliver, and lifts the accepted-and-explained flags they make real.
-- **depends_on:** E002-S02-004, E002-S02-006, E002-S02-007, E005-S01-001, E005-S01-002, E004-S01-001, E004-S01-003.
-- **Sequencing note for the orchestrator:** Epics 3, 4, 5 and 6 run in parallel **after** Epic 2 closes, so no Epic 2 story in sprints 1–2 can import `adapters/credential_providers`, `adapters/preflight` or `adapters/crypto`; and those epics may not edit `cli/`. Epic 2's sprints 1–2 therefore leave seams (E002-S02-004's `cli/credentials.py`, E002-S02-006's accepted-and-explained flags and `doctor` subcommand, E002-S02-007's `Preflight` binding) and this story fills them. Epic 3's `cli/restore.py` (E003-S01-006) reaches every binding through those Epic 2 functions, so it needs **no** edit when this lands. Epic 6's `api/` calls the same functions. Epic 7 is not involved (it reaches restore through E003-S01-006's extension point). The Epic 4 bindings are included because no Epic 4 story owns lifting the encryption and exclusion flags' accepted-and-explained status either; drop them here if the orchestrator assigns that elsewhere.
+- **depends_on:** E002-S02-004, E002-S01-005, E002-S02-007, E005-S01-001, E005-S01-002, E004-S01-001, E004-S01-003.
+- **Sequencing note for the orchestrator:** Epics 3, 4, 5 and 6 run in parallel **after** Epic 2 closes, so no Epic 2 story in sprints 1–2 can import `adapters/credential_providers`, `adapters/preflight` or `adapters/crypto`; and those epics may not edit `cli/`. Epic 2's sprints 1–2 therefore leave seams (E002-S02-004's `cli/credentials.py`, E002-S01-005's accepted-and-explained flags and `doctor` subcommand, E002-S02-007's `Preflight` binding) and this story fills them. Epic 3's `cli/restore.py` (E003-S01-006) reaches every binding through those Epic 2 functions, so it needs **no** edit when this lands. Epic 6's `api/` calls the same functions. Epic 7 is not involved (it reaches restore through E003-S01-006's extension point). The Epic 4 bindings are included because no Epic 4 story owns lifting the encryption and exclusion flags' accepted-and-explained status either; drop them here if the orchestrator assigns that elsewhere.
 - **Implements:** FR-14 (CLI selectability), FR-27 (diagnostic subcommand), FR-4/FR-5 (binding only), AD-9, AD-13, AD-26.
 
 As an operator,
@@ -296,7 +296,7 @@ Spec: _bmad-output/planning-artifacts/prds/prd-py-wordpress-backup-2026-09-12/pr
 
 ### Testability approach
 
-- The accepted-and-explained test of E002-S02-006 fails until every flag here is bound and undeclared — it is this story's completion check, with scope from the parser.
+- The accepted-and-explained test of E002-S01-005 fails until every flag here is bound and undeclared — it is this story's completion check, with scope from the parser.
 - `tests/unit/cli/test_root_preflight.py`: platform first; passphrase requirements appended only in passphrase mode; `real_adapters` and `dry_run_adapters` bind the same `RootPreflight`; E002-S02-007's `test_preflight_order.py` passes with it bound.
 - `tests/unit/cli/test_doctor.py`: exit `OK`/`NOT_READY` from `ready`; JSON when not a TTY; the JSON parses and every `Diagnosis` field is present (fields from `dataclasses.fields`).
 - E002-S02-004's `test_credential_sources_built_once.py` still passes: the delegation lives only in `cli/credentials.py`.

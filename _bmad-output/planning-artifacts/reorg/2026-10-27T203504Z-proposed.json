@@ -1,0 +1,1370 @@
+{
+ "planned": [
+  {
+   "key": "E002",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 82.4,
+    "man_hours_high": 93.63,
+    "hitl_hours_low": 4.78,
+    "hitl_hours_high": 5.43,
+    "elapsed_hours_low": 27.47,
+    "elapsed_hours_high": 31.21,
+    "tokens_k_min": 1931,
+    "tokens_k_max": 2194,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 7.98,
+    "cost_high": 9.06,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 20.62,
+      "man_hours_high": 23.44,
+      "hitl_hours_low": 1.24,
+      "hitl_hours_high": 1.41,
+      "elapsed_hours_low": 6.88,
+      "elapsed_hours_high": 7.81,
+      "tokens_k_min": 484,
+      "tokens_k_max": 550,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 1.99,
+      "cost_high": 2.28,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E002-S01-001",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E002-S01-002",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 3.75,
+        "hitl_hours": 0.25,
+        "elapsed_hours": 1.25,
+        "tokens_k": {
+         "total": 88,
+         "input": 13,
+         "output": 4,
+         "cache_write": 27,
+         "cache_read": 44
+        },
+        "cost": 0.36,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "high"
+       }
+      },
+      {
+       "key": "E002-S01-003",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E002-S02-005",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E002-S02-006",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      }
+     ]
+    },
+    {
+     "key": "S02",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 49.5,
+      "man_hours_high": 56.25,
+      "hitl_hours_low": 2.83,
+      "hitl_hours_high": 3.21,
+      "elapsed_hours_low": 16.5,
+      "elapsed_hours_high": 18.75,
+      "tokens_k_min": 1159,
+      "tokens_k_max": 1318,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 4.78,
+      "cost_high": 5.44,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E002-S02-004",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "low"
+       }
+      },
+      {
+       "key": "E002-S02-007",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E002-S02-008",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E002-S02-009",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E003",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 77.55,
+    "man_hours_high": 88.12,
+    "hitl_hours_low": 4.28,
+    "hitl_hours_high": 4.87,
+    "elapsed_hours_low": 25.85,
+    "elapsed_hours_high": 29.38,
+    "tokens_k_min": 1813,
+    "tokens_k_max": 2060,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 7.49,
+    "cost_high": 8.5,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 24.75,
+      "man_hours_high": 28.12,
+      "hitl_hours_low": 1.38,
+      "hitl_hours_high": 1.56,
+      "elapsed_hours_low": 8.25,
+      "elapsed_hours_high": 9.38,
+      "tokens_k_min": 579,
+      "tokens_k_max": 658,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 2.39,
+      "cost_high": 2.72,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E003-S01-001",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E003-S01-002",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "low"
+       }
+      },
+      {
+       "key": "E003-S01-006",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        }
+       }
+      }
+     ]
+    },
+    {
+     "key": "S02",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 41.25,
+      "man_hours_high": 46.88,
+      "hitl_hours_low": 2.27,
+      "hitl_hours_high": 2.58,
+      "elapsed_hours_low": 13.75,
+      "elapsed_hours_high": 15.62,
+      "tokens_k_min": 964,
+      "tokens_k_max": 1095,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 3.97,
+      "cost_high": 4.52,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E003-S02-003",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "low"
+       }
+      },
+      {
+       "key": "E003-S02-004",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E003-S02-005",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "low"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E004",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 24.23,
+    "man_hours_high": 27.54,
+    "hitl_hours_low": 1.46,
+    "hitl_hours_high": 1.66,
+    "elapsed_hours_low": 8.08,
+    "elapsed_hours_high": 9.18,
+    "tokens_k_min": 569,
+    "tokens_k_max": 646,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 2.34,
+    "cost_high": 2.66,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 20.62,
+      "man_hours_high": 23.44,
+      "hitl_hours_low": 1.24,
+      "hitl_hours_high": 1.41,
+      "elapsed_hours_low": 6.88,
+      "elapsed_hours_high": 7.81,
+      "tokens_k_min": 484,
+      "tokens_k_max": 550,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 1.99,
+      "cost_high": 2.28,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E004-S01-001",
+       "status": "backlog",
+       "classification": "simple",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 3.75,
+        "hitl_hours": 0.25,
+        "elapsed_hours": 1.25,
+        "tokens_k": {
+         "total": 88,
+         "input": 13,
+         "output": 4,
+         "cache_write": 27,
+         "cache_read": 44
+        },
+        "cost": 0.36,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "high"
+       }
+      },
+      {
+       "key": "E004-S01-002",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E004-S01-003",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E005",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 14.54,
+    "man_hours_high": 16.53,
+    "hitl_hours_low": 0.89,
+    "hitl_hours_high": 1.01,
+    "elapsed_hours_low": 4.85,
+    "elapsed_hours_high": 5.51,
+    "tokens_k_min": 341,
+    "tokens_k_max": 388,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 1.4,
+    "cost_high": 1.59,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 12.38,
+      "man_hours_high": 14.06,
+      "hitl_hours_low": 0.76,
+      "hitl_hours_high": 0.86,
+      "elapsed_hours_low": 4.12,
+      "elapsed_hours_high": 4.69,
+      "tokens_k_min": 290,
+      "tokens_k_max": 330,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 1.19,
+      "cost_high": 1.35,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E005-S01-001",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E005-S01-002",
+       "status": "backlog",
+       "classification": "simple",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 3.75,
+        "hitl_hours": 0.25,
+        "elapsed_hours": 1.25,
+        "tokens_k": {
+         "total": 88,
+         "input": 13,
+         "output": 4,
+         "cache_write": 27,
+         "cache_read": 44
+        },
+        "cost": 0.36,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "high"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E006",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 48.47,
+    "man_hours_high": 55.08,
+    "hitl_hours_low": 2.75,
+    "hitl_hours_high": 3.12,
+    "elapsed_hours_low": 16.15,
+    "elapsed_hours_high": 18.36,
+    "tokens_k_min": 1135,
+    "tokens_k_max": 1290,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 4.68,
+    "cost_high": 5.31,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 41.25,
+      "man_hours_high": 46.88,
+      "hitl_hours_low": 2.34,
+      "hitl_hours_high": 2.66,
+      "elapsed_hours_low": 13.75,
+      "elapsed_hours_high": 15.62,
+      "tokens_k_min": 966,
+      "tokens_k_max": 1098,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 3.98,
+      "cost_high": 4.53,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E006-S01-001",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E006-S01-002",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E006-S01-003",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "low"
+       }
+      },
+      {
+       "key": "E006-S01-004",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E007",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 43.62,
+    "man_hours_high": 49.57,
+    "hitl_hours_low": 2.5,
+    "hitl_hours_high": 2.84,
+    "elapsed_hours_low": 14.54,
+    "elapsed_hours_high": 16.53,
+    "tokens_k_min": 1021,
+    "tokens_k_max": 1161,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 4.21,
+    "cost_high": 4.79,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 37.12,
+      "man_hours_high": 42.19,
+      "hitl_hours_low": 2.13,
+      "hitl_hours_high": 2.42,
+      "elapsed_hours_low": 12.38,
+      "elapsed_hours_high": 14.06,
+      "tokens_k_min": 869,
+      "tokens_k_max": 988,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 3.57,
+      "cost_high": 4.06,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E007-S01-001",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      },
+      {
+       "key": "E007-S01-002",
+       "status": "backlog",
+       "classification": "simple",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 3.75,
+        "hitl_hours": 0.25,
+        "elapsed_hours": 1.25,
+        "tokens_k": {
+         "total": 88,
+         "input": 13,
+         "output": 4,
+         "cache_write": 27,
+         "cache_read": 44
+        },
+        "cost": 0.36,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "high"
+       }
+      },
+      {
+       "key": "E007-S01-003",
+       "status": "backlog",
+       "classification": "complex",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 15.0,
+        "hitl_hours": 0.81,
+        "elapsed_hours": 5.0,
+        "tokens_k": {
+         "total": 350,
+         "input": 52,
+         "output": 18,
+         "cache_write": 105,
+         "cache_read": 175
+        },
+        "cost": 1.45,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "low"
+       }
+      },
+      {
+       "key": "E007-S01-004",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        },
+        "confidence": "medium"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E008",
+   "status": "backlog",
+   "depends_on": [],
+   "lane": null,
+   "estimate": {
+    "man_hours_low": 9.7,
+    "man_hours_high": 11.02,
+    "hitl_hours_low": 0.57,
+    "hitl_hours_high": 0.64,
+    "elapsed_hours_low": 3.23,
+    "elapsed_hours_high": 3.67,
+    "tokens_k_min": 228,
+    "tokens_k_max": 259,
+    "closure_ratios": {
+     "man_hours": 1.0,
+     "hitl_hours": 1.0,
+     "elapsed_hours": 1.0,
+     "tokens_k": 1.0
+    },
+    "orchestration_ratios": {
+     "man_hours": 0,
+     "hitl_hours": 0,
+     "elapsed_hours": 0,
+     "tokens_k": 0
+    },
+    "cost_low": 0.93,
+    "cost_high": 1.07,
+    "model": "claude-opus-5",
+    "confidence": "medium"
+   },
+   "sprints": [
+    {
+     "key": "S01",
+     "status": "backlog",
+     "estimate": {
+      "man_hours_low": 8.25,
+      "man_hours_high": 9.38,
+      "hitl_hours_low": 0.48,
+      "hitl_hours_high": 0.55,
+      "elapsed_hours_low": 2.75,
+      "elapsed_hours_high": 3.12,
+      "tokens_k_min": 194,
+      "tokens_k_max": 220,
+      "closure_ratios": {
+       "man_hours": 1.0,
+       "hitl_hours": 1.0,
+       "elapsed_hours": 1.0,
+       "tokens_k": 1.0
+      },
+      "orchestration_ratios": {
+       "man_hours": 0,
+       "hitl_hours": 0,
+       "elapsed_hours": 0,
+       "tokens_k": 0
+      },
+      "cost_low": 0.81,
+      "cost_high": 0.91,
+      "model": "claude-opus-5",
+      "confidence": "medium"
+     },
+     "stories": [
+      {
+       "key": "E008-S01-001",
+       "status": "backlog",
+       "classification": "standard",
+       "depends_on": [],
+       "previous_keys": [],
+       "estimate": {
+        "man_hours": 7.5,
+        "hitl_hours": 0.44,
+        "elapsed_hours": 2.5,
+        "tokens_k": {
+         "total": 176,
+         "input": 26,
+         "output": 9,
+         "cache_write": 53,
+         "cache_read": 88
+        },
+        "cost": 0.73,
+        "model": "claude-opus-5",
+        "fix_factor": 1.25,
+        "scope_ratios": {
+         "man_hours": 1.0,
+         "hitl_hours": 1.0,
+         "elapsed_hours": 1.0,
+         "tokens_k": 1.0
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "active": [],
+ "archived": []
+}

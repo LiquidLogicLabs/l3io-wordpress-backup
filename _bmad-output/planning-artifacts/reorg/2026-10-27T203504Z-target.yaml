@@ -1,0 +1,91 @@
+target:
+  - key: E002-S01-001
+    epic: E002
+    sprint: S01
+  - key: E002-S01-002
+    epic: E002
+    sprint: S01
+  - key: E002-S01-003
+    epic: E002
+    sprint: S01
+  - key: E002-S02-004
+    epic: E002
+    sprint: S02
+  - key: E002-S02-005
+    epic: E002
+    sprint: S01
+    order: 1
+  - key: E002-S02-006
+    epic: E002
+    sprint: S01
+    order: 2
+  - key: E002-S02-007
+    epic: E002
+    sprint: S02
+  - key: E002-S02-008
+    epic: E002
+    sprint: S02
+  - key: E002-S02-009
+    epic: E002
+    sprint: S02
+  - key: E003-S01-001
+    epic: E003
+    sprint: S01
+  - key: E003-S01-002
+    epic: E003
+    sprint: S01
+  - key: E003-S01-006
+    epic: E003
+    sprint: S01
+  - key: E003-S02-003
+    epic: E003
+    sprint: S02
+  - key: E003-S02-004
+    epic: E003
+    sprint: S02
+  - key: E003-S02-005
+    epic: E003
+    sprint: S02
+  - key: E004-S01-001
+    epic: E004
+    sprint: S01
+  - key: E004-S01-002
+    epic: E004
+    sprint: S01
+  - key: E004-S01-003
+    epic: E004
+    sprint: S01
+  - key: E005-S01-001
+    epic: E005
+    sprint: S01
+  - key: E005-S01-002
+    epic: E005
+    sprint: S01
+  - key: E006-S01-001
+    epic: E006
+    sprint: S01
+  - key: E006-S01-002
+    epic: E006
+    sprint: S01
+  - key: E006-S01-003
+    epic: E006
+    sprint: S01
+  - key: E006-S01-004
+    epic: E006
+    sprint: S01
+  - key: E007-S01-001
+    epic: E007
+    sprint: S01
+  - key: E007-S01-002
+    epic: E007
+    sprint: S01
+  - key: E007-S01-003
+    epic: E007
+    sprint: S01
+  - key: E007-S01-004
+    epic: E007
+    sprint: S01
+  - key: E008-S01-001
+    epic: E008
+    sprint: S01
+retire: []

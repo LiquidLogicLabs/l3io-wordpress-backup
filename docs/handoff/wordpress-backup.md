@@ -466,3 +466,14 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   `>=0.2.0,<0.3`; `encryption` is still deferred to story 4.3. Database has planned
   `site_urls()` (stored `siteurl`/`home`, a sibling of `schema_version`) and asks whether
   backup wants it as 0.2.1 or can wait for 0.3.0 — Shawn's call when relocation is near.
+- [done] **Sprint move applied — reorg R0001** (Shawn, 2026-10-27; undoable via
+  `/l3io-plan` "undo that reorg"): story 2.5 **E002-S02-005 → E002-S01-004**, story 2.6
+  **E002-S02-006 → E002-S01-005**. Mind the near-collision: `E002-S01-004` (Run Context,
+  2.5) vs `E002-S02-004` (credentials, 2.4). E002 sprint 1 now 5 stories / 11.25 h, sprint 2
+  4 / 15.0 h (was 3 / 6.25 and 6 / 20.0). 104 citations in story docs, `epics.md`, the
+  brief and the proposals file rewritten to the new keys; records (gap map, readiness report,
+  gate review, state `previous_keys`) keep the old ones, and the gap map carries a note.
+- [todo] **No story or epic records `depends_on` in state** — `plan-graph.py` sees 29
+  isolated stories and 0 edges, though the story documents state their dependencies in prose.
+  `/l3io-plan` step 05 builds phases from the state fields, so they must be recorded there
+  before steps 04–06 can produce a real plan.

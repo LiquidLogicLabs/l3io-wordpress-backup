@@ -1,0 +1,31 @@
+rationale: |
+  Reorg proposal — 0 retirements, 2 stories re-placed (accepted by Shawn, 2026-10-27).
+  WHY
+    Sprint 1 depends on the two stories it moves. The E002 elaboration found that sprint-1
+    stories 2.1-2.3 need the Run Context and workspace (2.5) and the exit codes (2.6),
+    which sprint 2 delivers (AG-28). Shawn decided on 2026-10-20 to move both into sprint 1.
+    Story 2.4 stays: ADR-0015 removed its transport dependency.
+    It also fixes a measured imbalance: the analyzer reported sprint-imbalance on E002 with a
+    3.2x ratio (6.25 h vs 20.0 h); in the proposed plan the finding disappears (11.25 h vs
+    15.0 h).
+  MOVES
+    Moves: E002-S02-005 "Trace a run end to end by one identifier" -> E002 sprint 01 (re-keyed)
+           E002-S02-006 "Branch automation on what happened" -> E002 sprint 01 (re-keyed)
+    Stays: everything else in E002, and all of E003-E008.
+    Untouched: no epic is active or archived.
+pre_hash: "sha256:961813b5c334017e96b51df2adb2523fe94bdf8aa0b9ed3351c1552aa172f13b"
+operations:
+  - op: reparent-story
+    story: E002-S02-005
+    new_key: E002-S01-004
+    from_epic: E002
+    from_sprint: S02
+    to_epic: E002
+    to_sprint: S01
+  - op: reparent-story
+    story: E002-S02-006
+    new_key: E002-S01-005
+    from_epic: E002
+    from_sprint: S02
+    to_epic: E002
+    to_sprint: S01
