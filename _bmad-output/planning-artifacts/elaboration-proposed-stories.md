@@ -211,3 +211,100 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 stdlib `argparse` for parsing (already in use) and `getpass` (through E002-S02-004's chain); everything else is this package's own Epic 2/3 contracts. No new dependency.
 
 Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#stack
+
+---
+
+## P3 — Bind the parallel epics' providers into the composition roots
+
+> **Proposed 2026-10-27 by the second E002/E003 gap pass** (round 2 of `/l3io-plan` step 03). No story file or state node exists.
+
+- **Epic / sprint:** E002, a new sprint S03 (after Epics 4 and 5 land).
+- **Classification:** moderate — no new behaviour of its own; it replaces pre-Epic-5 bodies and bindings in Epic 2's `cli/` with calls into modules Epics 4 and 5 deliver, and lifts the accepted-and-explained flags they make real.
+- **depends_on:** E002-S02-004, E002-S02-006, E002-S02-007, E005-S01-001, E005-S01-002, E004-S01-001, E004-S01-003.
+- **Sequencing note for the orchestrator:** Epics 3, 4, 5 and 6 run in parallel **after** Epic 2 closes, so no Epic 2 story in sprints 1–2 can import `adapters/credential_providers`, `adapters/preflight` or `adapters/crypto`; and those epics may not edit `cli/`. Epic 2's sprints 1–2 therefore leave seams (E002-S02-004's `cli/credentials.py`, E002-S02-006's accepted-and-explained flags and `doctor` subcommand, E002-S02-007's `Preflight` binding) and this story fills them. Epic 3's `cli/restore.py` (E003-S01-006) reaches every binding through those Epic 2 functions, so it needs **no** edit when this lands. Epic 6's `api/` calls the same functions. Epic 7 is not involved (it reaches restore through E003-S01-006's extension point). The Epic 4 bindings are included because no Epic 4 story owns lifting the encryption and exclusion flags' accepted-and-explained status either; drop them here if the orchestrator assigns that elsewhere.
+- **Implements:** FR-14 (CLI selectability), FR-27 (diagnostic subcommand), FR-4/FR-5 (binding only), AD-9, AD-13, AD-26.
+
+As an operator,
+I want the credential providers, tool checks and encryption that later epics deliver to work from the same commands I already run,
+So that `backup`, `restore` and `doctor` behave as documented without any root assembling them differently.
+
+**Acceptance Criteria:**
+
+**Given** Epics 4 and 5 have landed
+**When** `wpbackup2 backup`, `restore`, `verify` or `doctor` runs
+**Then** credentials come from Epic 5's chains in the order `domain/credentials.py` declares, for the WordPress account and the administrator alike
+**And** every external binary the plan needs is checked by Epic 5's `BinaryPreflight` before the first command adapter
+**And** `wpbackup2 doctor` prints the FR-27 diagnosis and exits `OK` or `NOT_READY`
+**And** no flag that now works is still refused as not implemented
+
+## Business acceptance criteria
+
+### Outcome
+
+The flags and subcommand Epic 2 registered ahead of their implementations now work: `--admin-credentials-aws-*`, `--db-credentials-aws-*`, the environment variables of FR-14, `doctor`, and (Epic 4) encryption and exclusion flags. A reviewer can tell it happened by running each previously accepted-and-explained flag and seeing it take effect, and by `wpbackup2 doctor --json` on a host missing `age` reporting `ready: false` with exit 7.
+
+Spec: _bmad-output/planning-artifacts/prds/prd-py-wordpress-backup-2026-09-12/prd.md#54-credentials-and-secrets
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-13--external-tools-are-checked-at-the-port-before-the-first-effect
+
+### Non-goals
+
+- Any provider, probe, cipher or exclusion logic — Epics 4 and 5 own it; this story only calls it.
+- Relocation and WP-CLI — Epic 7, through E003-S01-006's extension point.
+- Changing `cli/restore.py` — not needed (sequencing note).
+
+## Technical acceptance criteria
+
+### Interface contracts
+
+- **`cli/credentials.py` bodies (E002-S02-004's seam).** `wordpress_source(...)` delegates to `adapters/credential_providers.wordpress_credentials(explicit=..., wp_config=..., aws_secret_id=..., aws_region=...)` and `admin_source(...)` to `admin_credentials(...)`, both taking their step order from `domain/credentials.py`'s tuples; the signatures of the two `cli/credentials` functions do not change. Requires E005-S01-001's `wordpress_credentials` to accept the AWS pair (E005 follow-up in the round-2 gap map).
+- **`AdminCredentialsRequiredError`'s message** names `--admin-username`/`--admin-password`, `--admin-credentials-aws-secret-id`, and `L3IO_WP_BACKUP_ADMIN_USER`/`L3IO_WP_BACKUP_ADMIN_PASSWORD`, reading the variable names from Epic 5's constants (no second literal).
+- **`RootPreflight` (`cli/context.py`)** wraps E005-S01-002's `BinaryPreflight(environ=os.environ)` and is what `real_adapters`/`dry_run_adapters` bind as `AdapterSet.preflight` (replacing the `check_dump`-only binding of E002-S02-007): its `check(requirements)` first raises `PreflightFailedError(tool="platform", ...)` when `unsupported_platform()` returns a reason, then appends `passphrase_backend_requirements(environ=..., needed_for=...)` when the bound cipher is in passphrase mode, then delegates. Every root — `cli/backup.py`, `cli/verify.py`, Epic 3's `cli/restore.py`, Epic 6's `api/` — gets it through `real_adapters` and adds nothing.
+- **`cli/doctor.py::run_doctor(args) -> int`** builds `diagnose(preflight=RootPreflight(...), environ=os.environ, target=<--archive parsed>, database=<DatabaseQuery.check_dump when --wp-dir is given>)` and renders `Diagnosis` as text on a TTY, `to_dict()` as JSON otherwise or with `--json`; returns `OK` when `ready`, else `NOT_READY`. It opens a Run without a Site Lock (it changes nothing).
+- **Epic 4 bindings.** The roots build the cipher from the encryption flags with Epic 4's `adapters/crypto` factory and bind Epic 4's exclusion set from `--exclude`/`--no-default-excludes`, in one Epic 2 helper both `run_backup` and `run_restore` already call through `real_adapters`' arguments.
+- The accepted-and-explained declarations for every flag above are removed in the same change.
+
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-9--credential-resolution-is-an-explicit-call-not-a-property-read
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-13--external-tools-are-checked-at-the-port-before-the-first-effect
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-26--one-passphrase-resolution-chain-or-no-encryption-at-all
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-4--dry-run-is-adapter-selection-never-a-conditional
+Spec: _bmad-output/planning-artifacts/epics.md#epic-list
+
+### Error and edge case handling
+
+- Conflicting credential sources: Epic 5's `CredentialSourceConflictError` → `USAGE`, before the lock.
+- `--admin-credentials-aws-*`/`--db-credentials-aws-*` without the `aws` extra: `MissingExtraError(extra="aws")` → `NOT_READY`, raised when the chain is built, not at import (AD-8).
+- Windows: `PreflightFailedError(tool="platform")` → `NOT_READY` before any other check, files-only Runs included.
+- `doctor` with an unreachable database: the diagnosis records database's finding codes and `ready: false`; exit `NOT_READY`, never `UNREACHABLE` (doctor reports, it does not fail on what it reports).
+
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-8--an-optional-dependency-is-an-optional-import
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-13--external-tools-are-checked-at-the-port-before-the-first-effect
+
+### Observability requirements
+
+- `credential_source_selected` (INFO) with the chain's label (`explicit`, `environment`, `wp-config`, `aws-secrets-manager`) — never a value.
+- `preflight_checked` (INFO) per requirement with `name`, `found`, `needed_for`.
+
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-10--one-logger-one-run-id-bound-at-the-composition-root
+
+### Security considerations
+
+- Every resolved password and passphrase is registered with the Run's `SecretRegistry` before use; `credential_sentinel` (E002-S02-004) runs over backup, restore and `doctor --json` with each provider.
+- `doctor` never prints a credential, an environment variable's value, or a secret id's resolved content.
+
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-7--credentials-reach-a-subprocess-by-file-never-by-argument-or-environment
+Spec: _bmad-output/planning-artifacts/prds/prd-py-wordpress-backup-2026-09-12/prd.md#54-credentials-and-secrets
+
+### Testability approach
+
+- The accepted-and-explained test of E002-S02-006 fails until every flag here is bound and undeclared — it is this story's completion check, with scope from the parser.
+- `tests/unit/cli/test_root_preflight.py`: platform first; passphrase requirements appended only in passphrase mode; `real_adapters` and `dry_run_adapters` bind the same `RootPreflight`; E002-S02-007's `test_preflight_order.py` passes with it bound.
+- `tests/unit/cli/test_doctor.py`: exit `OK`/`NOT_READY` from `ready`; JSON when not a TTY; the JSON parses and every `Diagnosis` field is present (fields from `dataclasses.fields`).
+- E002-S02-004's `test_credential_sources_built_once.py` still passes: the delegation lives only in `cli/credentials.py`.
+
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#consistency-conventions
+
+### Existing-library check
+
+Nothing new: Epic 5's providers wrap `l3io-wordpress-database`'s `CredentialChain`/`Environment`/`AwsSecretsManager`; `BinaryPreflight` uses `shutil.which`, `subprocess` and `packaging`; rendering uses stdlib `json`.
+
+Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#stack
