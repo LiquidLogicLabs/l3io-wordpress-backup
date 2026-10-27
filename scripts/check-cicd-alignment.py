@@ -17,6 +17,7 @@ Exit 0 = all repos conform. Exit 1 = at least one finding.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import pathlib
 import re
 import sys
@@ -138,7 +139,7 @@ def check_namespace(ci_blob: str, pub_blob: str, is_ns: bool, R: Reporter) -> No
         )
 
 
-def check_version_single_source(repo: pathlib.Path, pub_blob: str, R: Reporter) -> None:
+def check_version_single_source(repo: pathlib.Path, R: Reporter) -> None:
     """The git TAG is the version: no literal anywhere, and the vcs wiring intact.
 
     Shawn's ruling, after both the two-literal shape and the literal+dynamic shape
@@ -567,6 +568,165 @@ def check_publish(doc: dict, R: Reporter) -> str:
     return yaml.safe_dump(doc)
 
 
+# ------------------------------------------------- F1: aligned 2026-10-27
+#
+# Four alignments config and database landed (config 1e9a9d0, database d0d0cb9)
+# and Shawn approved enforcing here. Each was holding by memory; each check below
+# was proved by planting the violation it exists to catch.
+
+
+def check_floating_tags(rel_doc: dict, R: Reporter) -> None:
+    """release.yml moves v<major> and v<major>.<minor> AFTER the tag, BEFORE publish.
+
+    Moved before the tag exists, the floating tag points at the previous release;
+    moved after the publish dispatch, a consumer following v<major> can be handed a
+    release whose publish has not started.
+    """
+    for name, job in (rel_doc.get("jobs") or {}).items():
+        steps = job.get("steps") or []
+        uses = [str(st.get("uses", "")) for st in steps]
+        create = [i for i, u in enumerate(uses) if "git-action-tag-create-update" in u]
+        if not create:
+            continue
+        floating = [
+            i for i, u in enumerate(uses) if "git-action-tag-floating-version" in u
+        ]
+        dispatch = [
+            i
+            for i, u in enumerate(uses)
+            if "git-action-trigger-workflow" in u and i > create[0]
+        ]
+        if not floating:
+            R(
+                "rel",
+                f"release.yml job `{name}` creates a tag "
+                "but never moves the floating tags",
+            )
+            continue
+        if floating[0] < create[0]:
+            R(
+                "rel",
+                f"release.yml job `{name}` moves floating tags BEFORE creating the tag",
+            )
+        if dispatch and floating[0] > dispatch[0]:
+            R(
+                "rel",
+                f"release.yml job `{name}` moves floating tags "
+                "AFTER dispatching publish",
+            )
+        return
+    R("rel", "release.yml has no step using git-action-tag-create-update")
+
+
+def check_publish_shape(pub_doc: dict, R: Reporter) -> None:
+    """version-gate reads the tag; the release job is gated, not merely ordered.
+
+    The `needs` list is NOT compared literally: config and database differ there
+    legitimately (database runs AD-27 inside smoke). What is checked is that the
+    release cannot be cut when a gate failed or publish-pypi failed or was cancelled.
+    """
+    jobs = pub_doc.get("jobs") or {}
+    gate = jobs.get("version-gate") or {}
+    if not any(
+        "git-action-tag-info" in str(st.get("uses", ""))
+        for st in gate.get("steps") or []
+    ):
+        R("pub", "version-gate does not read the tag with git-action-tag-info")
+    rel = jobs.get("release") or {}
+    needs = rel.get("needs") or []
+    needs = [needs] if isinstance(needs, str) else list(needs)
+    cond = " ".join(str(rel.get("if", "")).split())
+    for gate_job in ("smoke", "publish-pypi"):
+        if gate_job not in needs:
+            R("pub", f"release does not need `{gate_job}`")
+    for gate_job in [n for n in needs if n not in ("publish-pypi",)]:
+        if f"needs.{gate_job}.result == 'success'" not in cond:
+            R("pub", f"release `if:` does not require `{gate_job}` to succeed")
+    rejects = (
+        "needs.publish-pypi.result != 'failure'" in cond
+        and "needs.publish-pypi.result != 'cancelled'" in cond
+    ) or (
+        "needs.publish-pypi.result == 'success'" in cond
+        and "needs.publish-pypi.result == 'skipped'" in cond
+    )
+    if not rejects:
+        R(
+            "pub",
+            "release `if:` does not reject a failed or cancelled publish-pypi",
+        )
+
+
+#: ruff rules every family repo selects on top of its own base, and what tests
+#: may ignore. Config and database already carry exactly these.
+RUFF_REQUIRED = {"ARG", "TRY", "EM", "S"}
+RUFF_TEST_IGNORES = {"S101", "S105", "S106", "S107", "ARG"}
+
+
+def check_ruff(repo: pathlib.Path, R: Reporter) -> None:
+    import tomllib
+
+    try:
+        ruff = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        R("ruff", f"pyproject.toml unreadable, so the ruff set was not checked: {e}")
+        return
+    lint = ((ruff.get("tool") or {}).get("ruff") or {}).get("lint") or {}
+    missing = RUFF_REQUIRED - set(lint.get("select") or [])
+    if missing:
+        R("ruff", f"[tool.ruff.lint] select lacks {sorted(missing)}")
+    pfi = lint.get("per-file-ignores") or {}
+    tests = [set(v) for k, v in pfi.items() if k.startswith("tests/")]
+    if not tests or not any(t >= RUFF_TEST_IGNORES for t in tests):
+        R(
+            "ruff",
+            f"no tests/* per-file-ignores carrying {sorted(RUFF_TEST_IGNORES)}",
+        )
+
+
+def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
+    """Under act, collapse an axis only where it multiplies host-bound services.
+
+    act runs `--network host`, so every leg of a job with `services` binds the same
+    host port and all but one fail. A job with no services has nothing to collide
+    on, and collapsing it under act just stops checking the versions it exists for.
+    """
+    for name, job in (ci_doc.get("jobs") or {}).items():
+        matrix = (job.get("strategy") or {}).get("matrix") or {}
+        axes = {k: str(v) for k, v in matrix.items() if k not in ("include", "exclude")}
+        if not axes:
+            continue
+        has_services = bool(job.get("services"))
+        for axis, expr in axes.items():
+            collapses = "vars.LOCAL_ACT" in expr
+            if has_services and not collapses:
+                R(
+                    "act",
+                    f"ci.yml job `{name}` has services but axis `{axis}` is not "
+                    "collapsed under vars.LOCAL_ACT -- legs collide on the host port",
+                )
+            if not has_services and collapses:
+                R(
+                    "act",
+                    f"ci.yml job `{name}` has no services but collapses axis `{axis}` "
+                    "under vars.LOCAL_ACT -- act stops checking what the axis covers",
+                )
+
+
+def in_scope(repo: pathlib.Path) -> str | None:
+    """None when `repo` is a family package; otherwise why it is skipped.
+
+    Derived from the source of truth -- the shared namespace a family package ships
+    -- not from a directory glob or a name prefix. A family repo that loses its
+    namespace is therefore printed as skipped, not silently dropped.
+    """
+    wp = repo / "src" / "l3io" / "wp"
+    if not wp.is_dir():
+        return "not an l3io.wp package (no src/l3io/wp/)"
+    if not any(d.is_dir() and not d.name.startswith("__") for d in wp.iterdir()):
+        return "not an l3io.wp package (src/l3io/wp/ holds no <area>)"
+    return None
+
+
 # ---------------------------------------------------------------- driver
 
 
@@ -585,11 +745,15 @@ def main() -> int:
     a = ap.parse_args()
     root = pathlib.Path(a.root)
 
-    repos = sorted(
+    candidates = sorted(
         p.parent
         for p in root.glob("*/pyproject.toml")
         if (p.parent / ".github" / "workflows").is_dir()
     )
+    skipped = [(c, why) for c in candidates if (why := in_scope(c)) is not None]
+    repos = [c for c in candidates if in_scope(c) is None]
+    for c, why in skipped:
+        print(f"SKIP {c.name}: {why}")
     if not repos:
         print(f"no package repos found under {root}", file=sys.stderr)
         return 2
@@ -645,7 +809,17 @@ def main() -> int:
 
         is_ns = (repo / "src" / "l3io").is_dir()
         check_namespace(ci_blob, pub_blob, is_ns, R)
-        check_version_single_source(repo, pub_blob, R)
+        check_ruff(repo, R)
+        for path, check in (
+            (ci_p, check_act_matrix),
+            (pub_p, check_publish_shape),
+            (wf / "release.yml", check_floating_tags),
+        ):
+            if path.is_file():
+                # A parse failure is reported once, by the pass that owns the file.
+                with contextlib.suppress(yaml.YAMLError):
+                    check(load(path), R)
+        check_version_single_source(repo, R)
         check_release_process(repo, R)
         check_action_refs(repo, R, online=online)
         check_release_dispatch(repo, R)

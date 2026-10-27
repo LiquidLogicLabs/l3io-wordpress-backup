@@ -42,7 +42,8 @@ def _restore_subparser(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
             subparser = action.choices[RESTORE_COMMAND]
             assert isinstance(subparser, argparse.ArgumentParser)
             return subparser
-    raise AssertionError("the CLI parser registers no subcommands at all")
+    msg = "the CLI parser registers no subcommands at all"
+    raise AssertionError(msg)
 
 
 def _mode_selecting_dimensions(

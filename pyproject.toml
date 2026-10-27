@@ -217,9 +217,11 @@ target-version = "py311"
 select = [
   "A",    # builtin shadowing
   "ANN",  # annotations — the spine requires a full annotation on every public surface
+  "ARG",  # unused arguments (family set, aligned 2026-10-27)
   "B",    # bugbear
   "C4",   # comprehensions
   "E",    # pycodestyle errors
+  "EM",   # exception messages built outside the raise (family set)
   "F",    # pyflakes
   "I",    # import sorting
   "PT",   # pytest style
@@ -229,13 +231,14 @@ select = [
   "SIM",
   "SLF",  # private member access
   "TID",  # tidy imports
+  "TRY",  # exception-handling anti-patterns (family set)
   "UP",   # pyupgrade
   "W",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests assert, and the contract tests deliberately build hostile fixtures.
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S105", "S106", "S107", "ARG"]
 # The gates are scripts: they print their findings and read files by path.
 "tools/**" = ["S101"]
 # Developer scripts run `git` and `gh` from PATH with fixed argument vectors.

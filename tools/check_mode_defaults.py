@@ -118,13 +118,15 @@ def _check(path: Path, tree: ast.Module) -> Iterator[str]:
 
 def main() -> int:
     if not PACKAGE_ROOT.is_dir():
-        raise SystemExit(
+        msg = (
             f"AD-5 scope error: {PACKAGE_ROOT} does not exist. The guard would "
             f"otherwise report success over an empty set."
         )
+        raise SystemExit(msg)
     files = sorted(PACKAGE_ROOT.rglob("*.py"))
     if not files:
-        raise SystemExit(f"AD-5 scope error: no Python modules under {PACKAGE_ROOT}.")
+        msg = f"AD-5 scope error: no Python modules under {PACKAGE_ROOT}."
+        raise SystemExit(msg)
 
     failures: list[str] = []
     for path in files:

@@ -278,10 +278,11 @@ def _pure_files() -> list[Path]:
     for layer in PURE_LAYERS:
         directory = PACKAGE_ROOT / layer
         if not directory.is_dir():
-            raise SystemExit(
+            msg = (
                 f"AD-1 scope error: {directory} does not exist. The guard would "
                 f"otherwise report success over an empty set."
             )
+            raise SystemExit(msg)
         files.extend(sorted(directory.rglob("*.py")))
     return files
 

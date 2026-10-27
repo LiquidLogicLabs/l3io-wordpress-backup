@@ -291,7 +291,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ${{ vars.LOCAL_ACT && fromJSON('["3.11"]') || fromJSON('["3.11","3.12","3.13","3.14"]') }}
+        # Full axis under act too (aligned 2026-10-27): this job starts no services,
+        # so its legs cannot collide on a host port, and collapsing it only stopped
+        # act from checking the versions it exists for. Checked by
+        # scripts/check-cicd-alignment.py.
+        python: ["3.11", "3.12", "3.13", "3.14"]
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-verify-py${{ matrix.python }}
       DIST_DIR: ${{ vars.LOCAL_ACT && format('/tmp/l3io-dist-verify-py{0}', matrix.python) || 'dist-verify' }}
