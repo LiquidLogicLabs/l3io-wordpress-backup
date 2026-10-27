@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Fail before starting when a required tool is missing
 classification: simple
 status: backlog
-updated_at: '2026-09-26T15:25:30Z'
+updated_at: '2026-10-27T21:04:33Z'
 estimate:
   man_hours: 3.75
   hitl_hours: 0.25
@@ -24,3 +24,7 @@ estimate:
     elapsed_hours: 1.0
     tokens_k: 1.0
   confidence: high
+depends_on:
+- 'E002-S01-005'
+- 'E002-S01-006'
+- 'E002-S02-007'

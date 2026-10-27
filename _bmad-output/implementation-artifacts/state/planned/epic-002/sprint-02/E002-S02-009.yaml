@@ -4,7 +4,7 @@ sprint: 'S02'
 title: Give restore the database, file and config operations it needs
 classification: complex
 status: backlog
-updated_at: '2026-10-20T21:32:01Z'
+updated_at: '2026-10-27T21:04:30Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
@@ -23,3 +23,9 @@ estimate:
     hitl_hours: 1.0
     elapsed_hours: 1.0
     tokens_k: 1.0
+depends_on:
+- 'E002-S01-001'
+- 'E002-S01-003'
+- 'E002-S01-004'
+- 'E002-S01-006'
+- 'E002-S02-007'

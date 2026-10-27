@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Drive a restore from the command line
 classification: complex
 status: backlog
-updated_at: '2026-10-27T18:08:54Z'
+updated_at: '2026-10-27T21:04:31Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
@@ -23,3 +23,13 @@ estimate:
     hitl_hours: 1.0
     elapsed_hours: 1.0
     tokens_k: 1.0
+depends_on:
+- 'E002-S01-001'
+- 'E002-S01-003'
+- 'E002-S01-004'
+- 'E002-S01-005'
+- 'E002-S01-006'
+- 'E002-S02-007'
+- 'E002-S02-008'
+- 'E002-S02-009'
+- 'E003-S01-001'

@@ -1,10 +1,10 @@
-key: 'E002-S02-004'
+key: 'E002-S01-006'
 epic: 'E002'
-sprint: 'S02'
+sprint: 'S01'
 title: Supply credentials without exposing them
 classification: complex
 status: backlog
-updated_at: '2026-09-26T15:25:26Z'
+updated_at: '2026-10-27T21:04:29Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
@@ -24,3 +24,7 @@ estimate:
     elapsed_hours: 1.0
     tokens_k: 1.0
   confidence: low
+previous_keys:
+- E002-S02-004
+depends_on:
+- 'E002-S01-001'

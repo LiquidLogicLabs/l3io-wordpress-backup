@@ -1,5 +1,5 @@
 version: 1
-next: 2
+next: 3
 entries:
 - id: 'R0001'
   at: '2026-10-27T20:51:24Z'
@@ -31,6 +31,30 @@ entries:
   - op: reparent-story
     story: E002-S02-006
     new_key: E002-S01-005
+    from_epic: E002
+    from_sprint: S02
+    to_epic: E002
+    to_sprint: S01
+- id: 'R0002'
+  at: '2026-10-27T21:03:58Z'
+  rationale: |
+    Reorg proposal — 0 retirements, 1 story re-placed (accepted by Shawn, 2026-10-27).
+    WHY
+      The dependency extraction for /l3io-plan step 05 found two sprint-1 stories depending on
+      a sprint-2 one: E002-S01-004 (Run Context) installs E002-S02-004's redact_event in its
+      logging chain, and E002-S01-005 (exit codes) translates the AWS credential flags through
+      E002-S02-004's wordpress_source. Story 2.4 had stayed in sprint 2 because ADR-0015 removed
+      its transport dependency; this dependency is a different one.
+    MOVES
+      Moves: E002-S02-004 "Supply credentials without exposing them" -> E002 sprint 01 (re-keyed)
+      Stays: everything else in E002, and all of E003-E008.
+      Untouched: no epic is active or archived.
+  pre_hash: 'sha256:cca681584a250c82e729e3307ef3fecf4766d1647ab5a9fb3e819bc7d6901241'
+  post_hash: 'sha256:7dfcd5d185ddf577231b967d7d30fd1f6fbeafd7d865525894f4ad26c2ad1e61'
+  operations:
+  - op: reparent-story
+    story: E002-S02-004
+    new_key: E002-S01-006
     from_epic: E002
     from_sprint: S02
     to_epic: E002

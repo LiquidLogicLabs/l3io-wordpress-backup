@@ -1,0 +1,502 @@
+# generated 2026-10-27 by dependency extraction for /l3io-plan step 05
+edges:
+  - from: E002-S01-002
+    to: E002-S01-001
+    evidence: "epic-002/sprint-01/stories/E002-S01-002.md:50 — - **`domain/backup_scope.py`** (created by E002-S01-001 with `ALL` only; completed here): `class BackupScope(StrEnum): FILES = 'files'; DATABASE = 'database';"
+  - from: E002-S01-003
+    to: E002-S01-001
+    evidence: "epic-002/sprint-01/stories/E002-S01-003.md:59 — ificationResult` composes probe + classify + `core/verify`; E002-S01-001's `LocalArchiveStore` is bound to a wrapper that raises `VerificationFailedError(resu"
+  - from: E002-S01-004
+    to: E002-S01-001
+    evidence: "epic-002/sprint-01/stories/E002-S01-004.md:54 — , tz-aware), `workspace: Path` (AD-12's private workspace — E002-S01-001's `run_workspace` moves under the Run Context here; no other code creates a workspace"
+  - from: E002-S01-004
+    to: E002-S01-006
+    evidence: "epic-002/sprint-01/stories/E002-S01-004.md:56 — o`; *(Epic 6's `trace_id`/`span_id` processor slots here)*; E002-S01-006's `redact_event`; then the renderer — `JSONRenderer()` for `json`, `ConsoleRenderer()"
+  - from: E002-S01-005
+    to: E002-S01-001
+    evidence: "epic-002/sprint-01/stories/E002-S01-005.md:53 — translation: a `match` over the package's exception classes (E002-S01-001's `domain/errors.py` hierarchy) — `CredentialsError` → `CREDENTIALS`; `DatabaseUnrea"
+  - from: E002-S01-005
+    to: E002-S01-002
+    evidence: "epic-002/sprint-01/stories/E002-S01-005.md:66 — -mode` chooses the parts restored (`db` → database, through E002-S01-002's one CLI→domain mapping; restore reuses `CLI_MODE_TO_SCOPE`, no second spelling tabl"
+  - from: E002-S01-005
+    to: E002-S01-004
+    evidence: "epic-002/sprint-01/stories/E002-S01-005.md:127 — - `run_finished` (E002-S01-004) carries `exit_code` as the integer and `exit_reason` as the member name; the failing phase's `phase_completed` record carries"
+  - from: E002-S01-005
+    to: E002-S01-006
+    evidence: "epic-002/sprint-01/stories/E002-S01-005.md:97 — s-*` pair). Neither takes a password value. Translated into `cli/credentials.wordpress_source(aws_secret_id=..., aws_region=...)` (E002-S01-006); accepted-and"
+  - from: E002-S01-006
+    to: E002-S01-001
+    evidence: "epic-002/sprint-02/stories/E002-S01-006.md:54 — - **Clean `repr` (AD-7 item 3, AG-14).** `SiteDescriptor.__repr__` (E002-S01-001; it holds no credential) and every package type that holds or wraps a credent"
+  - from: E002-S02-007
+    to: E002-S01-004
+    evidence: "epic-002/sprint-02/stories/E002-S02-007.md:55 — - **`AdapterSet`** (frozen dataclass in `cli/context.py`, carried by E002-S01-004's Run Context): one field per port half. Two constructors only, both in comp"
+  - from: E002-S02-007
+    to: E002-S01-001
+    evidence: "epic-002/sprint-02/stories/E002-S02-007.md:66 — - **`ports/crypto.py::MemberCipher` (defined by E002-S01-001; E004-S01-003 item 1)** is a transform — neither query nor command (it changes no Site, database"
+  - from: E002-S02-007
+    to: E002-S01-003
+    evidence: "epic-002/sprint-02/stories/E002-S02-007.md:64 — esult(members: int, bytes: int)`, whose real implementation delegates to E002-S01-003's `extract_archive` (the single AD-11 extraction function; no second pat"
+  - from: E002-S02-007
+    to: E002-S01-002
+    evidence: "epic-002/sprint-02/stories/E002-S02-007.md:109 — ry Run: no credential resolution and no database preflight, matching the real `files` plan (E002-S01-002)."
+  - from: E002-S02-007
+    to: E002-S01-006
+    evidence: "epic-002/sprint-02/stories/E002-S02-007.md:131 — in a real Run. The `planned_action` rendering is covered by E002-S01-006's `credential_sentinel` fixture, run once in Dry Run mode."
+  - from: E002-S02-008
+    to: E002-S02-007
+    evidence: "epic-002/sprint-02/stories/E002-S02-008.md:52 — - **`ports/lock.py` — `SiteLock` (command-only port, on E002-S02-007's allowance).** `acquire(site_root: Path, holder: LockHolder) -> LockHandle`; `LockHandle"
+  - from: E002-S02-008
+    to: E002-S01-004
+    evidence: "epic-002/sprint-02/stories/E002-S02-008.md:57 — cquired by the outermost composition root (AD-16, AD-19).** `open_run` (E002-S01-004) gains `site_root: Path | None`; when given, it acquires the lock **after"
+  - from: E002-S02-008
+    to: E002-S01-005
+    evidence: "epic-002/sprint-02/stories/E002-S02-008.md:35 — temd timer, a shell or a library caller, as the same user — exits `LOCKED` (E002-S01-005) before reading any Site state, changes nothing, and names the holder"
+  - from: E002-S02-008
+    to: E002-S01-001
+    evidence: "epic-002/sprint-02/stories/E002-S02-008.md:53 — and `..` resolved), computed once by the composition root — the same value E002-S01-001 puts in the Site Descriptor. The lock file name is `sha256(str(canonic"
+  - from: E002-S02-009
+    to: E002-S01-001
+    evidence: "epic-002/sprint-02/stories/E002-S02-009.md:15 — output/planning-artifacts/elaboration-proposed-stories.md`. Depends on E002-S01-001, E002-S01-003, E002-S01-006, E002-S02-007.)*"
+  - from: E002-S02-009
+    to: E002-S01-003
+    evidence: "epic-002/sprint-02/stories/E002-S02-009.md:52 — wp-dir`, stated as a heuristic in the docstring); `extract` delegates to E002-S01-003's `extract_archive` unchanged."
+  - from: E002-S02-009
+    to: E002-S01-006
+    evidence: "epic-002/sprint-02/stories/E002-S02-009.md:15 — roposed-stories.md`. Depends on E002-S01-001, E002-S01-003, E002-S01-006, E002-S02-007.)*"
+  - from: E002-S02-009
+    to: E002-S02-007
+    evidence: "epic-002/sprint-02/stories/E002-S02-009.md:63 — - `LocalSiteFiles` implements E002-S02-007's two additions: `file_exists(path)` with `os.path.exists` semantics (follows symlinks, as PHP's `file_exists` does"
+  - from: E002-S02-009
+    to: E002-S01-004
+    evidence: "epic-002/sprint-02/stories/E002-S02-009.md:82 — - Each command emits E002-S01-004's `phase_completed`-shaped record under its own name (`database_ensured`, `dump_loaded`, `grants_revoked`, `database_dropped"
+  - from: E003-S01-001
+    to: E002-S01-001
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:56 — error classes subclass `BackupError` in `domain/errors.py`, which E002-S01-001 provides for ('later stories add subclasses here')."
+  - from: E003-S01-001
+    to: E002-S01-003
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:62 — ve step (moved from story 2.3, AG-29).** The `VERIFY` phase calls E002-S01-003's `adapters/tar.py::verify_archive` on the Archive and gets a `VerificationResu"
+  - from: E003-S01-001
+    to: E002-S01-004
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:61 — oreOutcome`. It walks `plan.phases` in order and, for each, runs E002-S01-004's `adapters/phase.py::phase(p.value)` context so every phase emits `phase_comple"
+  - from: E003-S01-001
+    to: E002-S01-005
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:68 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S01-005** — `domain/restore.py` (`RestoreMode`, `RestorePhase` with the AD-17 amendment, `O"
+  - from: E003-S01-001
+    to: E002-S02-007
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:64 — ** The restore composition root builds the adapter set with E002-S02-007's `dry_run_adapters(...)`: same query instances, no-op command halves. Every query —"
+  - from: E003-S01-001
+    to: E002-S02-009
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:69 — ConfigQuery`/`Command`, no-op twins, `AdapterSet` fields) + **E002-S02-009** (real adapters). See signature drift above)* Formerly OPEN: **restore ports are n"
+  - from: E003-S01-001
+    to: E002-S01-006
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:142 — - E002-S01-006's `credential_sentinel` fixture is applied to a full restore (its documented obligation on this story): no credential in any log record at any"
+  - from: E003-S01-002
+    to: E003-S01-001
+    evidence: "epic-003/sprint-01/stories/E003-S01-002.md:55 — ode, overrides: OverrideSet, target: TargetState) -> None`, called by `build_restore_plan` (story 3.1) before any phase is planned; `mode` has no default (AD-"
+  - from: E003-S01-002
+    to: E003-S01-006
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
+  - from: E003-S01-002
+    to: E002-S01-005
+    evidence: "epic-003/sprint-01/stories/E003-S01-002.md:58 — exit codes.** `NonEmptyTargetError` is a `RefusedError`, so E002-S01-005's `cli/exit.py::exit_code_for` maps it to `ExitCode.REFUSED` with no new arm — E002-S"
+  - from: E003-S01-002
+    to: E002-S02-007
+    evidence: "epic-003/sprint-01/stories/E003-S01-002.md:60 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E003-S01-006** and **E002-S02-007**)* Formerly OPEN: **depends on story 3.1's OPENs** — the rest"
+  - from: E003-S01-002
+    to: E002-S01-004
+    evidence: "epic-003/sprint-01/stories/E003-S01-002.md:89 — - Carries `run_id` through `merge_contextvars` (E002-S01-004)."
+  - from: E003-S01-002
+    to: E002-S01-006
+    evidence: "epic-003/sprint-01/stories/E003-S01-002.md:95 — :port/name` only — never a username or password; covered by E002-S01-006's `credential_sentinel` applied to the refusal path."
+  - from: E003-S01-006
+    to: E003-S01-001
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:15 — alls Epic 3's `core/restore` and `adapters/restore_runner`. Depends on E003-S01-001 and on Epic 2's E002-S01-001, E002-S01-003, E002-S01-006 through E002-S02-"
+  - from: E003-S01-006
+    to: E002-S01-001
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:59 — g(site_root, <config member extracted into the workspace>)` (E002-S01-001). Neither present → `InvalidSiteDescriptorError`. A files-only v0 Archive with a Mod"
+  - from: E003-S01-006
+    to: E002-S01-003
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:58 — 4. `VERIFY`: E002-S01-003's `verify_archive`; failure → `VerificationFailedError`; the `ArchiveView` is kept for planning."
+  - from: E003-S01-006
+    to: E002-S01-004
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:61 — _snapshot, journal)` (Epic 3), where `take_snapshot(scope)` calls E002-S01-004's `backup(site, scope, file:<snapshot path>, ctx=ctx, cipher=request.cipher, ex"
+  - from: E003-S01-006
+    to: E002-S01-005
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:26 — **Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S01-005's table and passed explicitly to every phase"
+  - from: E003-S01-006
+    to: E002-S01-006
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:53 — sword`; cipher configuration from the encryption flags plus E002-S01-006's `resolve_passphrase`; then calls **`drive_restore(request: RestoreRequest, *, ctx:"
+  - from: E003-S01-006
+    to: E002-S02-007
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:79 — re_wordpress_source=ext.wordpress_source(), tracer=tracer)` (E002-S02-007; `dry_run_adapters` likewise); step 3's requirement list is Epic 3's own plus `ext.r"
+  - from: E003-S01-006
+    to: E002-S02-008
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:55 — pters(...) | dry_run_adapters(...), site_root=canonical)` — the Site Lock is acquired here (E002-S02-008); log `restore_mode_resolved` with `restore_mode`, `o"
+  - from: E003-S01-006
+    to: E002-S02-009
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:15 — on E003-S01-001 and on Epic 2's E002-S01-001, E002-S01-003, E002-S01-006 through E002-S02-009. Until it lands, `wpbackup2 restore` stays accepted-and-explaine"
+  - from: E003-S02-003
+    to: E003-S01-001
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:54 — estore.py`), which builds the `take_snapshot` callable that story 3.1's executor runs for the `SNAPSHOT` phase. Conventions as recorded in story 3.1."
+  - from: E003-S02-003
+    to: E003-S01-006
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
+  - from: E003-S02-003
+    to: E002-S01-004
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:56 — AG-11).** `take_snapshot` calls E002's backup entry point, the one E002-S01-004's joining test calls, passing the restore's `RunContext`. That entry point go"
+  - from: E003-S02-003
+    to: E002-S02-008
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:57 — - **The Site Lock is re-entrant for the holder, so there is no deadlock (E002-S02-008).** The restore's `open_run(site_root=...)` holds the `LockHandle` in `R"
+  - from: E003-S02-003
+    to: E002-S01-002
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:88 — the snapshot scope is `FILES`, so no database is contacted (E002-S01-002 behaviour of the `files` scope)."
+  - from: E003-S02-003
+    to: E002-S01-001
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:69 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S01-001** — optional `Manifest.origin` (`ManifestOrigin(kind=SAFETY_SNAPSHOT, restore_mode,"
+  - from: E003-S02-003
+    to: E002-S01-005
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:67 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S01-005** — both registered as `restore options` (not AD-25 dimensions, stated in the table"
+  - from: E003-S02-003
+    to: E002-S01-006
+    evidence: "epic-003/sprint-02/stories/E003-S02-003.md:114 — - E002-S01-006's `credential_sentinel` covers the snapshot path, because it runs inside the full restore that story 3.1 instruments."
+  - from: E003-S02-004
+    to: E003-S01-001
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:68 — eport cannot say `restored` for a load that did not happen. `RestoreOutcome` (story 3.1) carries `database: DatabaseRestoreReport | None`. This field is `None"
+  - from: E003-S02-004
+    to: E003-S01-006
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
+  - from: E003-S02-004
+    to: E002-S02-007
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:77 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S02-007** (Protocols, `DatabaseTargetState`, `EnsureOutcome`, `NoopDatabase`) + **E002-S02-"
+  - from: E003-S02-004
+    to: E002-S02-009
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:77 — , `DatabaseTargetState`, `EnsureOutcome`, `NoopDatabase`) + **E002-S02-009** (real calls). Adopt the `DatabaseLocation` signature)* Formerly OPEN: **`survey_t"
+  - from: E003-S02-004
+    to: E002-S01-001
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:78 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S01-001** — `RefusedError`, `AdminCredentialsRequiredError(CredentialsError)`, `DatabaseRef"
+  - from: E003-S02-004
+    to: E002-S01-003
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:78 — , `ProvisioningFailedError`, `ConfigWriteFailedError`, plus `ArchiveHasNoDumpError` (E002-S01-003), `UsageError` (E002-S01-005), `LoadFailedError` (P1). Class"
+  - from: E003-S02-004
+    to: E002-S01-005
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:69 — s either return `OK` or raise'). Each failure maps through `cli/exit.py::exit_code_for` with no new `ExitCode`:"
+  - from: E003-S02-004
+    to: E002-S01-004
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:110 — end, verdict warnings) carry the restore's `run_id` through `merge_contextvars` (E002-S01-004)."
+  - from: E003-S02-004
+    to: E002-S01-006
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:117 — tions, and never logged, printed or placed in an exception. E002-S01-006's `credential_sentinel` fixture is extended to seed the administrator password too, a"
+  - from: E003-S02-005
+    to: E003-S01-001
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:73 — requires).** After the post-load check passes, the keys of E003-S01-001's `CUTOVER_KEYS` (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, in that order) whos"
+  - from: E003-S02-005
+    to: E003-S01-006
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:117 — 02-S01-005 registers `--resolve-interrupted-run RUN_ID` and E003-S01-006 step 2 performs the resolution.)* The acknowledgement's CLI surface is `--resolve-int"
+  - from: E003-S02-005
+    to: E003-S02-004
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:70 — tabase(Connection(host, staging, port), admin, wordpress)` (story 3.4's wrapper over `ensure`). This creates the staging database, and the WordPress user and"
+  - from: E003-S02-005
+    to: E002-S02-009
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:73 — value})` call per key**, inside one journaled step. That is E002-S02-009's `WpConfigWriter` over `l3io.wp.config.WpConfigFile.set` (v0.1.1), which for each ke"
+  - from: E003-S02-005
+    to: E002-S02-007
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:135 — or site.database_location()`, then `.with_name(load_name)` (E002-S02-007's `DatabaseLocation`; nothing re-parses a host string). `ensure`, `load`, `survey` an"
+  - from: E003-S02-005
+    to: E002-S01-003
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:80 — asses `exclude=frozenset({PurePosixPath('wp-config.php')})` (E002-S01-003, E002-S02-007), and `CLEAN`'s `keep` contains `wp-config.php`, so the target's file"
+  - from: E003-S02-005
+    to: E002-S01-005
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:117 — - *(Corrected 2026-10-27 — resolved, no longer open: E002-S01-005 registers `--resolve-interrupted-run RUN_ID` and E003-S01-006 step 2 performs the resolution"
+  - from: E003-S02-005
+    to: E002-S01-004
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:177 — - All records carry `run_id` (E002-S01-004)."
+  - from: E003-S02-005
+    to: E002-S01-006
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:191 — dumps` (never string formatting). The `credential_sentinel` fixture (E002-S01-006) scans journal files after a full restore."
+  - from: E004-S01-001
+    to: E002-S01-001
+    evidence: "epic-004/sprint-01/stories/E004-S01-001.md:62 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S01-001** (a: `Manifest.exclusions`; b: `ports/exclusion.ExclusionPolicy`, `adapters/tar.co"
+  - from: E004-S01-001
+    to: E002-S01-005
+    evidence: "epic-004/sprint-01/stories/E004-S01-001.md:62 — usion.py` — Epic 4 imports them instead of defining them) + **E002-S01-005** (c: `--exclude`, `--no-default-excludes`, `--list-default-excludes`) + **E002-S02"
+  - from: E004-S01-001
+    to: E002-S02-007
+    evidence: "epic-004/sprint-01/stories/E004-S01-001.md:62 — ude`, `--no-default-excludes`, `--list-default-excludes`) + **E002-S02-007** (`AdapterSet.exclusion`; Dry Run names the set). Epic 4's `ExclusionSet` satisfie"
+  - from: E004-S01-001
+    to: E002-S01-003
+    evidence: "epic-004/sprint-01/stories/E004-S01-001.md:80 — *.log` across plugins) produces a Manifest that stays under E002-S01-003's Manifest size cap — asserted by test; if a pattern set ever produced a Manifest ove"
+  - from: E004-S01-002
+    to: E002-S01-003
+    evidence: "epic-004/sprint-01/stories/E004-S01-002.md:57 — *The supported set is derived, not declared (AD-6, AG-6).** E002-S01-003's `tests/contracts/test_supported_formats.py` treats every fixture under `tests/fixtu"
+  - from: E004-S01-002
+    to: E002-S01-001
+    evidence: "epic-004/sprint-01/stories/E004-S01-002.md:105 — d fails on any hit outside `domain/archive_format.py`. This extends E002-S01-001's member-name grep, which this story does not edit. (b) For every `BackupScop"
+  - from: E004-S01-002
+    to: E002-S01-006
+    evidence: "epic-004/sprint-01/stories/E004-S01-002.md:95 — e.sql` contains no string from the operator-secret patterns E002-S01-006's sentinel uses."
+  - from: E004-S01-003
+    to: E002-S01-001
+    evidence: "epic-004/sprint-01/stories/E004-S01-003.md:82 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — all six seams provided by E002-S01-001, E002-S01-006, E002-S01-005 and E002-S02-007; the bindings"
+  - from: E004-S01-003
+    to: E002-S01-006
+    evidence: "epic-004/sprint-01/stories/E004-S01-003.md:69 — secret this adapter is handed is registered with the Run's `SecretRegistry` (E002-S01-006) at construction: each identity string, and the passphrase. That is"
+  - from: E004-S01-003
+    to: E002-S01-005
+    evidence: "epic-004/sprint-01/stories/E004-S01-003.md:82 — d 1 — all six seams provided by E002-S01-001, E002-S01-006, E002-S01-005 and E002-S02-007; the bindings land in E008-S01-001)* Formerly OPEN: the seams this s"
+  - from: E004-S01-003
+    to: E002-S02-007
+    evidence: "epic-004/sprint-01/stories/E004-S01-003.md:84 — ts/`, e.g. `ports/crypto.py::MemberCipher`, transform-only, on E002-S02-007's query/command allowance beside `ArchiveProbe`."
+  - from: E004-S01-003
+    to: E002-S01-003
+    evidence: "epic-004/sprint-01/stories/E004-S01-003.md:80 — lity is asserted on the Manifest's structure, not on bytes. E002-S01-003's fixture-derived supported-set test picks it up from the directory."
+  - from: E005-S01-001
+    to: E002-S01-001
+    evidence: "epic-005/sprint-01/stories/E005-S01-001.md:87 — - `wp_config`, the `WpConfigFile` from E002-S01-001."
+  - from: E005-S01-001
+    to: E002-S01-006
+    evidence: "epic-005/sprint-01/stories/E005-S01-001.md:113 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E002-S01-006** (`cli/credentials.py` seam + contract test that no root builds a source itself) +"
+  - from: E005-S01-001
+    to: E002-S01-005
+    evidence: "epic-005/sprint-01/stories/E005-S01-001.md:106 — and carries `given: tuple[str, ...]`. It is declared here, subclassing E002-S01-005's `UsageError` and inheriting its `exit_code`. It adds no `ExitCode` and"
+  - from: E005-S01-001
+    to: E002-S02-007
+    evidence: "epic-005/sprint-01/stories/E005-S01-001.md:142 — *Dry Run:** the same chains are built and resolved for real (E002-S02-007: 'credential resolution … execute[s] for real'). A Dry Run fails exactly where the r"
+  - from: E005-S01-002
+    to: E002-S02-007
+    evidence: "epic-005/sprint-01/stories/E005-S01-002.md:85 — **`BinaryPreflight` implements `ports/preflight.Preflight` (E002-S02-007).** `check(requirements: Sequence[ToolRequirement]) -> Sequence[ToolStatus]` is a pur"
+  - from: E005-S01-002
+    to: E002-S01-005
+    evidence: "epic-005/sprint-01/stories/E005-S01-002.md:65 — eflight before the first command adapter'. All are Epic 2's (E002-S02-007, E002-S01-005)."
+  - from: E005-S01-002
+    to: E002-S01-006
+    evidence: "epic-005/sprint-01/stories/E005-S01-002.md:159 — output line, truncated to 200 characters and passed through E002-S01-006's `redact`. A hung `--version` is bounded by the 10-second timeout and never blocks t"
+  - from: E006-S01-001
+    to: E003-S01-006
+    evidence: "epic-006/sprint-01/stories/E006-S01-001.md:123 — 03-S01-006's frozen `RestoreRequest` from its arguments and calls `cli/restore.py::drive_restore(request, ctx=context)`. That covers every step in E003-S01-00"
+  - from: E006-S01-001
+    to: E002-S01-004
+    evidence: "epic-006/sprint-01/stories/E006-S01-001.md:128 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E002-S01-004** — `drive_backup(BackupRequest, *, ctx, tracer=None) -> BackupResult`, `drive_veri"
+  - from: E006-S01-001
+    to: E002-S01-001
+    evidence: "epic-006/sprint-01/stories/E006-S01-001.md:187 — ost_init__`, at construction, through the re-exported class (FR-22, E002-S01-001). A `site` path that does not exist or has no readable `wp-config.php` raises"
+  - from: E006-S01-001
+    to: E002-S02-008
+    evidence: "epic-006/sprint-01/stories/E006-S01-001.md:189 — ntextvars` are per thread. The second one is refused by the lock registry (E002-S02-008), never deadlocked."
+  - from: E006-S01-001
+    to: E002-S01-006
+    evidence: "epic-006/sprint-01/stories/E006-S01-001.md:214 — kup and verify requests) shows no credential or passphrase. E002-S01-006's walked `__repr__` contract test covers them by annotation, with no list."
+  - from: E006-S01-002
+    to: E006-S01-001
+    evidence: "epic-006/sprint-01/stories/E006-S01-002.md:89 — nd every entry point in `api/__all__` is decorated with it. E006-S01-001's `backup`, `restore` and `verify` are wrapped in this story."
+  - from: E006-S01-002
+    to: E002-S01-006
+    evidence: "epic-006/sprint-01/stories/E006-S01-002.md:136 — 14). `BackupError.__str__` already passes through the Run's `SecretRegistry.redact` (E002-S01-006). `UnexpectedError`'s message never contains the wrapped exc"
+  - from: E006-S01-002
+    to: E002-S01-001
+    evidence: "epic-006/sprint-01/stories/E006-S01-002.md:149 — rs`, `cli`, `core` and `api` subpackages and found at least the classes E002-S01-001 introduces, so an empty or partial walk cannot pass. That attacks the sco"
+  - from: E006-S01-002
+    to: E002-S01-005
+    evidence: "epic-006/sprint-01/stories/E006-S01-002.md:163 — member and is not `OK`. The scope comes from `api.__all__`, mirroring E002-S01-005's test from the library side."
+  - from: E006-S01-003
+    to: E006-S01-001
+    evidence: "epic-006/sprint-01/stories/E006-S01-003.md:93 — whose object is defined under `cli/` other than through an explicit re-export recorded in E006-S01-001. Those are `BackupResult`, `RestoreOutcome`, `RunConte"
+  - from: E006-S01-003
+    to: E002-S01-006
+    evidence: "epic-006/sprint-01/stories/E006-S01-003.md:132 — ity` or `identities` whose `__repr__` is not overridden. It reuses E002-S01-006's walked `__repr__` check, with scope narrowed to the public set."
+  - from: E006-S01-004
+    to: E002-S01-004
+    evidence: "epic-006/sprint-01/stories/E006-S01-004.md:95 — e_ids` sits in `cli/logging.py::configure_logging`'s chain, in the slot E002-S01-004 reserves:** after `format_exc_info` and before `redact_event`, so the ids"
+  - from: E006-S01-004
+    to: E002-S01-006
+    evidence: "epic-006/sprint-01/stories/E006-S01-004.md:89 — - **`process.command_args` goes through `adapters/redaction.py::redact_argv`** using the Run's `SecretRegistry`. That is the single implementation (E002-S02-0"
+  - from: E006-S01-004
+    to: E002-S02-007
+    evidence: "epic-006/sprint-01/stories/E006-S01-004.md:98 — figure_logging(trace_processors=...)` in the reserved slot; **E002-S02-007** (`AdapterSet.tracer`, allowance). Epic 6 fills them by passing its `Tracer` from"
+  - from: E006-S01-004
+    to: E002-S02-008
+    evidence: "epic-006/sprint-01/stories/E006-S01-004.md:98 — `; no stub-ordering needed)* Formerly OPEN:` (E002-S01-004, with E002-S02-008 for the lock ordering) — **the three call sites are in Epic 2's modules.**"
+  - from: E007-S01-001
+    to: E003-S01-001
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:109 — 0-27, per elaboration-gap-map.md round 2 — **decision 2** + **E003-S01-001** (`RestoreRelocation`, `build_restore_plan(..., relocation=)`, predicate rows, `un"
+  - from: E007-S01-001
+    to: E003-S02-005
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:109 — runner `REWRITE_CONFIG`/`SEARCH_REPLACE`/lay-down slots) + **E003-S02-005** (staging hook: load name/location, `--new-db-name` straight load) + **E003-S01-00"
+  - from: E007-S01-001
+    to: E003-S01-006
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:109 — hook: load name/location, `--new-db-name` straight load) + **E003-S01-006** (`RestoreRequest.relocation`, flag passthrough, extension point))* Formerly OPEN:"
+  - from: E007-S01-001
+    to: E002-S02-009
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:104 — `ConfigCommand.set_constants(config_file, values)`. That is E002-S02-009's `WpConfigWriter`, which delegates each key to `l3io.wp.config.WpConfigFile.set` (v0"
+  - from: E007-S01-001
+    to: E002-S01-001
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:68 — - Changed: `domain/errors.py`, by adding subclasses only. E002-S01-001 provides for this ('later stories add subclasses here'), and E003 used the same precede"
+  - from: E007-S01-001
+    to: E002-S01-004
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:162 — - **`REWRITE_CONFIG`** runs inside E002-S01-004's `phase()` context, so it emits `phase_completed` with `phase='REWRITE_CONFIG'`, `keys_changed` and `duration"
+  - from: E007-S01-001
+    to: E002-S01-006
+    evidence: "epic-007/sprint-01/stories/E007-S01-001.md:88 — d)` credential source. The root registers it with the Run's `SecretRegistry` (E002-S01-006) before building anything else."
+  - from: E007-S01-002
+    to: E002-S01-001
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:89 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E002-S01-001** (`locate_wp_config` by `wp-load.php`'s rule, `config/wp-config.php` member in eve"
+  - from: E007-S01-002
+    to: E002-S01-003
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:89 — 1 Archive, `Manifest.config_path`, `ConfigLocation` enum) + **E002-S01-003** (classifier feeds `ArchiveView.config_path`))* Formerly OPEN: **No E002 story wri"
+  - from: E007-S01-002
+    to: E002-S02-009
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:83 — rent, view, roles=frozenset({MemberRole.CONFIG}))`. That is E002-S02-009's adapter over E002-S01-003's single `extract_archive`, with `filter='data'` and cont"
+  - from: E007-S01-002
+    to: E002-S01-005
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:95 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E002-S01-005** (flag on backup and restore) + **E002-S01-001** (backup: `locate_wp_config(stated"
+  - from: E007-S01-002
+    to: E003-S01-006
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:96 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E003-S01-006** (`ext.resolve` at step 5 with `SiteFilesQuery`) + **E003-S01-001** (lay-down as `"
+  - from: E007-S01-002
+    to: E003-S01-001
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:96 — S01-006** (`ext.resolve` at step 5 with `SiteFilesQuery`) + **E003-S01-001** (lay-down as `EXTRACT`'s first journaled step; `config_file` seam) + **E003-S02-0"
+  - from: E007-S01-002
+    to: E003-S02-005
+    evidence: "epic-007/sprint-01/stories/E007-S01-002.md:96 — as `EXTRACT`'s first journaled step; `config_file` seam) + **E003-S02-005** (config path in journal header and cutover; claim corrected))* Formerly OPEN: **I"
+  - from: E007-S01-003
+    to: E002-S02-007
+    evidence: "epic-007/sprint-01/stories/E007-S01-003.md:116 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E002-S02-007** — `ports/search_replace.SearchReplaceCommand` (command-only, docstring reason), `"
+  - from: E007-S01-003
+    to: E003-S01-001
+    evidence: "epic-007/sprint-01/stories/E007-S01-003.md:124 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 2 — **E003-S01-001** (runner arm, `ExecutionReport.search_replace`) + **E003-S01-006** (`RestoreOutcom"
+  - from: E007-S01-003
+    to: E003-S01-006
+    evidence: "epic-007/sprint-01/stories/E007-S01-003.md:124 — -S01-001** (runner arm, `ExecutionReport.search_replace`) + **E003-S01-006** (`RestoreOutcome.search_replace`, printed by `run_restore`; implementation bound"
+  - from: E007-S01-003
+    to: E002-S01-006
+    evidence: "epic-007/sprint-01/stories/E007-S01-003.md:150 — - **`wp_cli_invoked` (DEBUG)** per `wp` call, with `argv=redact_argv(argv)` (E002-S01-006), `cwd`, `step` (`read_urls`, `preview`, `replace` or `recount`), `e"
+  - from: E007-S01-004
+    to: E002-S02-007
+    evidence: "epic-007/sprint-01/stories/E007-S01-004.md:67 — ome-url (FR-12); install: https://wp-cli.org/#installing'`. `ToolRequirement` is E002-S02-007's type. It must be placed where `core/` may name it; E003-S01-00"
+  - from: E007-S01-004
+    to: E005-S01-002
+    evidence: "epic-007/sprint-01/stories/E007-S01-004.md:79 — - *(Resolved 2026-10-27: E005-S01-002 now requires executing `wp cli version`, no `--path`, `--allow-root` only as root, cwd the Run workspace; E002-S02-007 s"
+  - from: E007-S01-004
+    to: E003-S01-006
+    evidence: "epic-007/sprint-01/stories/E007-S01-004.md:72 — The restore composition root runs `Preflight.check(...)` at E003-S01-006's step 3 (`PREFLIGHT`). That is after the Site Lock and the incomplete-journal check,"
+  - from: E008-S01-001
+    to: E002-S01-005
+    evidence: "epic-008/sprint-01/stories/E008-S01-001.md:90 — - The accepted-and-explained test of E002-S01-005 fails until every flag here is bound and undeclared — it is this story's completion check, with scope from t"
+  - from: E008-S01-001
+    to: E002-S02-007
+    evidence: "epic-008/sprint-01/stories/E008-S01-001.md:52 — dapters`/`dry_run_adapters` bind as `AdapterSet.preflight` (replacing the `check_dump`-only binding of E002-S02-007): its `check(requirements)` first raises `"
+  - from: E008-S01-001
+    to: E002-S01-006
+    evidence: "epic-008/sprint-01/stories/E008-S01-001.md:50 — - **`cli/credentials.py` bodies (E002-S01-006's seam).** `wordpress_source(...)` delegates to `adapters/credential_providers.wordpress_credentials(explicit=.."
+  - from: E008-S01-001
+    to: E005-S01-001
+    evidence: "epic-008/sprint-01/stories/E008-S01-001.md:50 — tures of the two `cli/credentials` functions do not change. Requires E005-S01-001's `wordpress_credentials` to accept the AWS pair (E005 follow-up in the roun"
+  - from: E008-S01-001
+    to: E005-S01-002
+    evidence: "epic-008/sprint-01/stories/E008-S01-001.md:52 — - **`RootPreflight` (`cli/context.py`)** wraps E005-S01-002's `BinaryPreflight(environ=os.environ)` and is what `real_adapters`/`dry_run_adapters` bind as `Ad"
+  - from: E008-S01-001
+    to: E004-S01-001
+    evidence: "added by the orchestrator 2026-10-27 — elaboration-proposed-stories.md P3 depends_on lists E004-S01-001; the story text says 'Epic 4's exclusion bindings', not the key"
+  - from: E008-S01-001
+    to: E004-S01-003
+    evidence: "added by the orchestrator 2026-10-27 — elaboration-proposed-stories.md P3 depends_on lists E004-S01-003; the story text says 'Epic 4's cipher', not the key"
+uncertain:
+  - from: E002-S01-001
+    to: E002-S02-007
+    evidence: "epic-002/sprint-01/stories/E002-S01-001.md:62 — split into queries and commands from the first line (AD-4; the mechanism is carried by E002-S02-007, AG-12).** `ArchiveStoreQuery.exists(target) -> bool`; `A"
+    reason: "Port query/command split mechanism (AG-12 check) is credited to E002-S02-007, but S01-001 must ship the split ports itself; S02-007 depends on S01-001 — reverse edge would be a cycle."
+  - from: E002-S01-001
+    to: E002-S01-002
+    evidence: "epic-002/sprint-01/stories/E002-S01-001.md:61 — 12). `BackupScope` is the domain enum E002-S01-002 defines; until that story lands, this story defines `BackupScope.ALL` only in `domain/backup_scope.py` and"
+    reason: "S01-001 defines BackupScope.ALL itself until S01-002 lands — explicitly not blocking."
+  - from: E002-S01-004
+    to: E002-S02-007
+    evidence: "epic-002/sprint-01/stories/E002-S01-004.md:75 — through `cli/credentials.wordpress_source` (E002-S01-006); `real_adapters(...)`/`dry_run_adapters(...)` selected by `request.dry_run`; then `backup(site, sco"
+    reason: "Gap-pass-2 drive_backup selects dry_run_adapters (S02-007), and Tracer joins S02-007 allowance; but S02-007 builds AdapterSet on S01-004 Run Context (kept edge S02-007->S01-004); taking both is a cycle."
+  - from: E002-S01-004
+    to: E002-S02-008
+    evidence: "epic-002/sprint-01/stories/E002-S01-004.md:75 — en(ctx, adapters=..., site_root=canonical, tracer=tracer)` (the Site Lock before credentials, E002-S02-008); `locate_wp_config` and the descriptor (E002-S01-0"
+    reason: "Gap-pass-2 drive_backup calls join_or_open with the Site Lock; but Non-goals say S02-008 adds the lock to the Run Context and S02-008 extends open_run (kept edge S02-008->S01-004)."
+  - from: E002-S01-006
+    to: E002-S01-004
+    evidence: "epic-002/sprint-02/stories/E002-S01-006.md:53 — - **Logging pipeline position.** `redact_event` is installed by E002-S01-004's `configure_logging` as the **last processor before the renderer**, for both str"
+    reason: "S02-004 says the registry lives in the Run Context but 'before that story lands, the backup composition root creates one' — not blocking. Note: S01-004 (sprint 1) -> S02-004 (sprint 2) is kept as an edge, a cross-sprint backward dependency introduced by reorg R0001."
+  - from: E002-S01-006
+    to: E002-S01-005
+    evidence: "epic-002/sprint-02/stories/E002-S01-006.md:139 — ` argument is `UsageError` naming Epic 5 until P3 binds it (the test reads the accepted-and-explained set, E002-S01-005)."
+    reason: "S02-004 test reads S01-005 accepted-and-explained set for aws_* args; S01-005 translates flags into S02-004 wordpress_source (kept S01-005->S02-004); both would cycle."
+  - from: E002-S01-005
+    to: E002-S02-008
+    evidence: "epic-002/sprint-01/stories/E002-S01-005.md:53 — `, `UnsupportedFormatVersionError` → `VERIFICATION_FAILED`; `SiteLockedError` (E002-S02-008) → `LOCKED`; `MissingExtraError` and a preflight failure → `NOT_RE"
+    reason: "exit_code_for maps SiteLockedError from S02-008; but S02-008 needs ExitCode.LOCKED from S01-005 (kept). Mapping arm can land with S02-008 — coordination."
+  - from: E002-S01-005
+    to: E003-S01-001
+    evidence: "epic-002/sprint-01/stories/E002-S01-005.md:60 — e restore vocabulary every epic consumes and none redefines (AD-5, AD-17, AD-25; E003-S01-001, E003-S01-002, E003-S02-003).**"
+    reason: "domain/restore.py is defined in S01-005 for Epic 3 consumers; the E003 keys are the requesters (reverse direction). Listed for completeness, not an edge."
+  - from: E003-S01-001
+    to: E002-S01-002
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:36 — store that did not happen (FR-2's restore-side consequence, assigned here by E002-S01-002)."
+    reason: "Responsibility assignment, not a called artifact; BackupScope/mapping reach restore via E002-S01-005."
+  - from: E003-S01-001
+    to: E003-S02-005
+    evidence: "epic-003/sprint-01/stories/E003-S01-001.md:95 — - `LOAD_DUMP`: E003-S02-005's staging, with the load target and location from `relocation` (the staging hook there)."
+    reason: "Executor phase arms reference S02-005 staging/exclude; but S01-001 Non-goals say it only schedules S02-005 phases, and S02-005 depends on S01-001 (CUTOVER_KEYS)."
+  - from: E003-S01-002
+    to: E003-S02-004
+    evidence: "epic-003/sprint-01/stories/E003-S01-002.md:57 — mputed by `SiteFilesQuery.is_empty(site_root)`. `database`: E003-S02-004's `DatabaseTargetState`, from database's `survey` with administrator credentials (`da"
+    reason: "S01-002 guard consumes the administrator-read DatabaseTargetState that S02-004 supplies (E003-S02-004.md:48 says so), but the type is E002-S02-007 and the survey adapter E002-S02-009. If real: sprint-1 story depends on a sprint-2 story."
+  - from: E003-S01-006
+    to: E003-S02-005
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:56 — 2. `RunJournalQuery.incomplete(site_root)` (E003-S02-005): a record → `IncompleteRunError` unless `resolve_run_id` equals its `run_id`, in which case the jo"
+    reason: "Restore root step 2 calls S02-005 journal query; but S02-005 end-to-end criteria run through S01-006 (kept S02-005->S01-006). Cycle if both."
+  - from: E003-S01-006
+    to: E003-S02-004
+    evidence: "epic-003/sprint-01/stories/E003-S01-006.md:73 — _encrypted: bool`, `database: DatabaseRestoreReport | None` (FR-9, E003-S02-004), `search_replace: SearchReplaceReport | None` (E007-S01-003), `resolved_run_i"
+    reason: "RestoreOutcome carries S02-004 DatabaseRestoreReport; field type, likely coordination; S02-004 e2e runs through S01-006."
+  - from: E003-S02-004
+    to: E003-S02-005
+    evidence: "epic-003/sprint-02/stories/E003-S02-004.md:47 — ase, the cutover, and removing the database that loses it — story 3.5. This story reports on what 3.5's sequence did."
+    reason: "S02-004 reports on what S02-005 sequence did (restored requires 3.5 post-load check); S02-005 uses S02-004 ensure wrapper (kept S02-005->S02-004)."
+  - from: E003-S02-005
+    to: E003-S02-003
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:114 — kup') / 'snapshots' / sha256(canonical Site Root)`. This is story 3.3's default snapshot directory, under the same per-user state root as E002-S02-008's `lock"
+    reason: "Journal lives in S02-003 snapshot directory; path formula is restated, may be shared code or just consistency."
+  - from: E003-S02-005
+    to: E002-S02-008
+    evidence: "epic-003/sprint-02/stories/E003-S02-005.md:243 — | Per-user state directory | `platformdirs` | Per E002-S02-008. |"
+    reason: "Uses the platformdirs dependency S02-008 adds; trivial, consistency."
+  - from: E004-S01-001
+    to: E002-S01-004
+    evidence: "epic-004/sprint-01/stories/E004-S01-001.md:88 — n a pattern would have matched `wp-config.php`. Field names follow E002-S01-004's log schema."
+    reason: "Convention reference for log field names."
+  - from: E005-S01-001
+    to: E002-S01-004
+    evidence: "epic-005/sprint-01/stories/E005-S01-001.md:157 — - Records carry the Run ID through `merge_contextvars` (E002-S01-004). This module binds nothing itself."
+    reason: "Records carry Run ID via S01-004; module binds nothing itself — observability assertion only."
+  - from: E005-S01-002
+    to: E002-S01-004
+    evidence: "epic-005/sprint-01/stories/E005-S01-002.md:178 — ID through `merge_contextvars`, and UTC ISO-8601 timestamps (E002-S01-004). Nothing in this module configures logging."
+    reason: "Records carry Run ID/UTC timestamps via S01-004 — observability assertion only."
+  - from: E005-S01-001
+    to: E003-S01-006
+    evidence: "epic-005/sprint-01/stories/E005-S01-001.md:115 — - `cli/restore.py::run_restore` (Epic 3, E003-S01-006) builds `RestoreRequest.admin` as a bare `Explicit` today. It must call `admin_credentials(...)` inste"
+    reason: "Restore root must call admin_credentials; resolved so S01-006 needs no edit and Epic 8 binds it — coordination."
+  - from: E005-S01-002
+    to: E003-S01-006
+    evidence: "epic-005/sprint-01/stories/E005-S01-002.md:140 — (Epic 2) and in the restore root (`cli/restore.py`, Epic 3, E003-S01-006 step 3) is an edit in their modules."
+    reason: "Binding BinaryPreflight in the restore root is done by Epic 8 — coordination."
+  - from: E006-S01-001
+    to: E002-S01-003
+    evidence: "epic-006/sprint-01/stories/E006-S01-001.md:128 — ced to translation and printing; AST test)* Formerly OPEN:` (E002-S01-004 / E002-S01-003) — **an argument-free backup and verify driver.**"
+    reason: "drive_verify credited to S01-004 in resolution; S01-003 owns run_verify/verify_archive — likely transitively covered."
+  - from: E006-S01-004
+    to: E006-S01-002
+    evidence: "epic-006/sprint-01/stories/E006-S01-004.md:85 — `error.type` to the exception's qualified class name, which after E006-S01-002 is always a package type. `record_exception` and `set_status_on_exception` are"
+    reason: "error.type is a package type only after S01-002 translation; span test may or may not depend on it."
+  - from: E007-S01-003
+    to: E002-S01-001
+    evidence: "epic-007/sprint-01/stories/E007-S01-003.md:123 — - *(Partly resolved 2026-10-27: E002-S01-001 reserves `source.stored_siteurl`/`stored_home`; filling them waits on `l3io-wordpress-database`'s planned `site_u"
+    reason: "Partly resolved: S01-001 reserves keys; filling waits on an external library."
+  - from: E007-S01-003
+    to: E007-S01-004
+    evidence: "epic-007/sprint-01/stories/E007-S01-003.md:96 — - `wp` is the path that preflight resolved (story 7.4);"
+    reason: "Uses the wp path preflight resolved (story 7.4) and required_tools gains WP-CLI requirement from 7.4; could be fake-bound in tests."

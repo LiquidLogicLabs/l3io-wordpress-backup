@@ -1,6 +1,6 @@
 # E003/E004 `OPEN:` lines → what now satisfies them (E002 gap pass, 2026-10-20)
 
-> **Keys changed 2026-10-27 (reorg R0001):** E002-S02-005 is now **E002-S01-004** and E002-S02-006 is now **E002-S01-005** (moved to sprint 1). This map is a record and keeps the keys it was written with; the story documents use the new keys.
+> **Keys changed 2026-10-27 (reorg R0001):** E002-S02-005 is now **E002-S01-004** and E002-S02-006 is now **E002-S01-005** (moved to sprint 1), and (reorg R0002) E002-S02-004 is now **E002-S01-006**. This map is a record and keeps the keys it was written with; the story documents use the new keys.
 
 For the orchestrator updating Epics 3 and 4. Paths are relative to
 `_bmad-output/implementation-artifacts/`. "P1"/"P2" are the proposed stories in

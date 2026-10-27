@@ -477,3 +477,11 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   isolated stories and 0 edges, though the story documents state their dependencies in prose.
   `/l3io-plan` step 05 builds phases from the state fields, so they must be recorded there
   before steps 04–06 can produce a real plan.
+- [done] **Reorg R0002** (Shawn, 2026-10-27): story 2.4 **E002-S02-004 → E002-S01-006**,
+  because sprint-1 stories E002-S01-004/-005 need its redaction and credential sources. E002
+  sprint 1 is now 6 stories, sprint 2 three. 129 citations rewritten.
+- [done] **Dependency graph recorded in state** (Shawn approved the extraction 2026-10-27):
+  133 story edges (`_bmad-output/planning-artifacts/dependency-extraction.yaml`, each with
+  evidence; 25 uncertain ones deliberately left out) and epic edges from `epics.md` plus three
+  the story edges require — E006→E003, E007→E002, E007→E005. `plan-graph.py`: 0 cycles, 0
+  unbacked cross-epic edges, 4 phases (E002 | E003,E004,E005 | E006,E007 | E008).

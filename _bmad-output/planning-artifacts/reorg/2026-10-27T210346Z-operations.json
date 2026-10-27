@@ -1,0 +1,15 @@
+{
+  "operations": [
+    {
+      "op": "reparent-story",
+      "story": "E002-S02-004",
+      "to_epic": "E002",
+      "to_sprint": "S01",
+      "from": [
+        "E002",
+        "S02"
+      ]
+    }
+  ],
+  "count": 1
+}

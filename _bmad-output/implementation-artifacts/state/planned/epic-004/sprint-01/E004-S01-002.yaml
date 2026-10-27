@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Read an archive written before the rewrite
 classification: standard
 status: backlog
-updated_at: '2026-09-26T15:25:30Z'
+updated_at: '2026-10-27T21:04:32Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -24,3 +24,7 @@ estimate:
     elapsed_hours: 1.0
     tokens_k: 1.0
   confidence: medium
+depends_on:
+- 'E002-S01-001'
+- 'E002-S01-003'
+- 'E002-S01-006'

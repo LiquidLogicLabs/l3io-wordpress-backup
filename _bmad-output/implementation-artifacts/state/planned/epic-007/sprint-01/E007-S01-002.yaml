@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Restore a site whose config lives outside the site root
 classification: simple
 status: backlog
-updated_at: '2026-09-26T15:25:32Z'
+updated_at: '2026-10-27T21:04:34Z'
 estimate:
   man_hours: 3.75
   hitl_hours: 0.25
@@ -24,3 +24,11 @@ estimate:
     elapsed_hours: 1.0
     tokens_k: 1.0
   confidence: high
+depends_on:
+- 'E002-S01-001'
+- 'E002-S01-003'
+- 'E002-S01-005'
+- 'E002-S02-009'
+- 'E003-S01-001'
+- 'E003-S01-006'
+- 'E003-S02-005'

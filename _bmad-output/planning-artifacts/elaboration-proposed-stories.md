@@ -15,7 +15,7 @@ depend on (marked "Added 2026-10-20" there).
 
 - **Epic / sprint:** E002, sprint S02 (needs the ports E002-S02-007 adds and the Run machinery of S02).
 - **Classification:** complex — it binds the only destructive operations the product performs (drop database, clear a Site Root, rewrite `wp-config.php`) to their real effects.
-- **depends_on:** E002-S01-001, E002-S01-003, E002-S02-004, E002-S02-007.
+- **depends_on:** E002-S01-001, E002-S01-003, E002-S01-006, E002-S02-007.
 - **Implements:** FR-7, FR-9 (the operations), AD-18 items 2–4, AD-28, AD-29; ADR-0015.
 
 As an operator,
@@ -81,7 +81,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 ### Security considerations
 
-- The administrator password and any `DB_PASSWORD` value passed to `set_constants` are registered with the `SecretRegistry` before use; E002-S02-004's `credential_sentinel` is applied to each adapter's contract test.
+- The administrator password and any `DB_PASSWORD` value passed to `set_constants` are registered with the `SecretRegistry` before use; E002-S01-006's `credential_sentinel` is applied to each adapter's contract test.
 - No SQL, `GRANT` or identifier quoting in this package (AD-28 is satisfied by database's escaping); `tests/contracts/test_no_sql_ddl.py` (Epic 3's name, created here because these are the call sites) scans `src/` for DDL keywords in string literals.
 - A widened `wp-config.php` mode exposes `DB_PASSWORD` (NFR-3): the mode test below is the release gate for restore.
 
@@ -111,7 +111,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 - **Epic / sprint:** E002, sprint S02.
 - **Classification:** complex — the composition root for the product's most dangerous operation: every restore safety rule meets here, and a wrong binding destroys a site.
-- **depends_on:** E002-S01-001, E002-S01-003, E002-S02-004, E002-S01-004, E002-S01-005, E002-S02-007, E002-S02-008, P1, **and E003-S01-001**.
+- **depends_on:** E002-S01-001, E002-S01-003, E002-S01-006, E002-S01-004, E002-S01-005, E002-S02-007, E002-S02-008, P1, **and E003-S01-001**.
 - **Sequencing note for the orchestrator:** this root calls Epic 3's `core/restore.build_restore_plan` and `adapters/restore_runner.execute_restore` (E003-S01-001), so it is the one Epic 2 story that lands **after** story 3.1's pure core and executor (which 3.1 can build and test without a CLI). The story-level graph stays acyclic: E002 sprints 1–2 → E003-S01-001 → P2 → the end-to-end criteria of E003-S01-002…S02-005. Until P2 lands, `wpbackup2 restore` stays accepted-and-explained (exit `USAGE`, E002-S01-005). If the orchestrator prefers, P2 can be keyed into Epic 3's sprint 1 with an Epic List ownership note granting `cli/restore.py` and its one dispatch arm — the alternative E003-S01-001 proposed; this proposal keeps `cli/*` single-owner as decision 1 asks.
 - **Implements:** FR-6, FR-7, FR-8, FR-19 (restore path), AD-5, AD-16, AD-17, AD-18.1, AD-19, AD-25, AD-26.
 
@@ -150,7 +150,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 ### Interface contracts
 
-- **`cli/restore.py::run_restore(args) -> int`** (dispatched from `cli/__init__.py::main`) does only argument translation: `FlagCombination` from the `restore mode` group → `resolve_flags` (AD-25); `SnapshotPolicy` from `--no-safety-snapshot`; administrator source from `--admin-username`/`--admin-password`; cipher configuration from the encryption flags plus E002-S02-004's `resolve_passphrase`; then calls **`drive_restore(request: RestoreRequest, *, ctx: RunContext | None) -> RestoreOutcome`**, the function the library root also calls. Frozen `RestoreRequest(site_root: Path, archive: StorageTarget, mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, snapshot_dir: Path | None, resolve_run_id: str | None, admin: CredentialSource | None, cipher: MemberCipher | None, dry_run: bool)` — `mode`, `overrides` and `snapshot` have no defaults (AD-5). No function below `run_restore` receives `args`.
+- **`cli/restore.py::run_restore(args) -> int`** (dispatched from `cli/__init__.py::main`) does only argument translation: `FlagCombination` from the `restore mode` group → `resolve_flags` (AD-25); `SnapshotPolicy` from `--no-safety-snapshot`; administrator source from `--admin-username`/`--admin-password`; cipher configuration from the encryption flags plus E002-S01-006's `resolve_passphrase`; then calls **`drive_restore(request: RestoreRequest, *, ctx: RunContext | None) -> RestoreOutcome`**, the function the library root also calls. Frozen `RestoreRequest(site_root: Path, archive: StorageTarget, mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, snapshot_dir: Path | None, resolve_run_id: str | None, admin: CredentialSource | None, cipher: MemberCipher | None, dry_run: bool)` — `mode`, `overrides` and `snapshot` have no defaults (AD-5). No function below `run_restore` receives `args`.
 - **`drive_restore` order (each step before the next; nothing destructive before step 7):**
   1. `join_or_open(ctx, adapters=real_adapters(...) | dry_run_adapters(...), site_root=canonical)` — the Site Lock is acquired here (E002-S02-008); log `restore_mode_resolved` with `restore_mode`, `overrides`, `snapshot_policy`.
   2. `RunJournalQuery.incomplete(site_root)` (E003-S02-005): a record → `IncompleteRunError` unless `resolve_run_id` equals its `run_id`, in which case the journal is resolved (moved to `resolved/`, `resolved_by="cli"`) and the Run **stops** with `OK` after reporting — resolving and restoring are never one command.
@@ -191,7 +191,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 ### Security considerations
 
-- Administrator password and any passphrase registered before first use; `credential_sentinel` (E002-S02-004) applied to a full restore here — the obligation E002-S02-004 placed on "a full restore" is discharged by this story's test, and `test_credential_hygiene.py`'s restore tripwire is satisfied by it.
+- Administrator password and any passphrase registered before first use; `credential_sentinel` (E002-S01-006) applied to a full restore here — the obligation E002-S01-006 placed on "a full restore" is discharged by this story's test, and `test_credential_hygiene.py`'s restore tripwire is satisfied by it.
 - The archive-config path (step 5) extracts only `MemberRole.CONFIG` into the `0700` workspace through `extract_archive` (AD-11); it is never copied into the Site Root by this root.
 
 Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-7--credentials-reach-a-subprocess-by-file-never-by-argument-or-environment
@@ -208,7 +208,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 ### Existing-library check
 
-stdlib `argparse` for parsing (already in use) and `getpass` (through E002-S02-004's chain); everything else is this package's own Epic 2/3 contracts. No new dependency.
+stdlib `argparse` for parsing (already in use) and `getpass` (through E002-S01-006's chain); everything else is this package's own Epic 2/3 contracts. No new dependency.
 
 Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#stack
 
@@ -220,8 +220,8 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 - **Epic / sprint:** E002, a new sprint S03 (after Epics 4 and 5 land).
 - **Classification:** moderate — no new behaviour of its own; it replaces pre-Epic-5 bodies and bindings in Epic 2's `cli/` with calls into modules Epics 4 and 5 deliver, and lifts the accepted-and-explained flags they make real.
-- **depends_on:** E002-S02-004, E002-S01-005, E002-S02-007, E005-S01-001, E005-S01-002, E004-S01-001, E004-S01-003.
-- **Sequencing note for the orchestrator:** Epics 3, 4, 5 and 6 run in parallel **after** Epic 2 closes, so no Epic 2 story in sprints 1–2 can import `adapters/credential_providers`, `adapters/preflight` or `adapters/crypto`; and those epics may not edit `cli/`. Epic 2's sprints 1–2 therefore leave seams (E002-S02-004's `cli/credentials.py`, E002-S01-005's accepted-and-explained flags and `doctor` subcommand, E002-S02-007's `Preflight` binding) and this story fills them. Epic 3's `cli/restore.py` (E003-S01-006) reaches every binding through those Epic 2 functions, so it needs **no** edit when this lands. Epic 6's `api/` calls the same functions. Epic 7 is not involved (it reaches restore through E003-S01-006's extension point). The Epic 4 bindings are included because no Epic 4 story owns lifting the encryption and exclusion flags' accepted-and-explained status either; drop them here if the orchestrator assigns that elsewhere.
+- **depends_on:** E002-S01-006, E002-S01-005, E002-S02-007, E005-S01-001, E005-S01-002, E004-S01-001, E004-S01-003.
+- **Sequencing note for the orchestrator:** Epics 3, 4, 5 and 6 run in parallel **after** Epic 2 closes, so no Epic 2 story in sprints 1–2 can import `adapters/credential_providers`, `adapters/preflight` or `adapters/crypto`; and those epics may not edit `cli/`. Epic 2's sprints 1–2 therefore leave seams (E002-S01-006's `cli/credentials.py`, E002-S01-005's accepted-and-explained flags and `doctor` subcommand, E002-S02-007's `Preflight` binding) and this story fills them. Epic 3's `cli/restore.py` (E003-S01-006) reaches every binding through those Epic 2 functions, so it needs **no** edit when this lands. Epic 6's `api/` calls the same functions. Epic 7 is not involved (it reaches restore through E003-S01-006's extension point). The Epic 4 bindings are included because no Epic 4 story owns lifting the encryption and exclusion flags' accepted-and-explained status either; drop them here if the orchestrator assigns that elsewhere.
 - **Implements:** FR-14 (CLI selectability), FR-27 (diagnostic subcommand), FR-4/FR-5 (binding only), AD-9, AD-13, AD-26.
 
 As an operator,
@@ -256,7 +256,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 ### Interface contracts
 
-- **`cli/credentials.py` bodies (E002-S02-004's seam).** `wordpress_source(...)` delegates to `adapters/credential_providers.wordpress_credentials(explicit=..., wp_config=..., aws_secret_id=..., aws_region=...)` and `admin_source(...)` to `admin_credentials(...)`, both taking their step order from `domain/credentials.py`'s tuples; the signatures of the two `cli/credentials` functions do not change. Requires E005-S01-001's `wordpress_credentials` to accept the AWS pair (E005 follow-up in the round-2 gap map).
+- **`cli/credentials.py` bodies (E002-S01-006's seam).** `wordpress_source(...)` delegates to `adapters/credential_providers.wordpress_credentials(explicit=..., wp_config=..., aws_secret_id=..., aws_region=...)` and `admin_source(...)` to `admin_credentials(...)`, both taking their step order from `domain/credentials.py`'s tuples; the signatures of the two `cli/credentials` functions do not change. Requires E005-S01-001's `wordpress_credentials` to accept the AWS pair (E005 follow-up in the round-2 gap map).
 - **`AdminCredentialsRequiredError`'s message** names `--admin-username`/`--admin-password`, `--admin-credentials-aws-secret-id`, and `L3IO_WP_BACKUP_ADMIN_USER`/`L3IO_WP_BACKUP_ADMIN_PASSWORD`, reading the variable names from Epic 5's constants (no second literal).
 - **`RootPreflight` (`cli/context.py`)** wraps E005-S01-002's `BinaryPreflight(environ=os.environ)` and is what `real_adapters`/`dry_run_adapters` bind as `AdapterSet.preflight` (replacing the `check_dump`-only binding of E002-S02-007): its `check(requirements)` first raises `PreflightFailedError(tool="platform", ...)` when `unsupported_platform()` returns a reason, then appends `passphrase_backend_requirements(environ=..., needed_for=...)` when the bound cipher is in passphrase mode, then delegates. Every root — `cli/backup.py`, `cli/verify.py`, Epic 3's `cli/restore.py`, Epic 6's `api/` — gets it through `real_adapters` and adds nothing.
 - **`cli/doctor.py::run_doctor(args) -> int`** builds `diagnose(preflight=RootPreflight(...), environ=os.environ, target=<--archive parsed>, database=<DatabaseQuery.check_dump when --wp-dir is given>)` and renders `Diagnosis` as text on a TTY, `to_dict()` as JSON otherwise or with `--json`; returns `OK` when `ready`, else `NOT_READY`. It opens a Run without a Site Lock (it changes nothing).
@@ -288,7 +288,7 @@ Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-bac
 
 ### Security considerations
 
-- Every resolved password and passphrase is registered with the Run's `SecretRegistry` before use; `credential_sentinel` (E002-S02-004) runs over backup, restore and `doctor --json` with each provider.
+- Every resolved password and passphrase is registered with the Run's `SecretRegistry` before use; `credential_sentinel` (E002-S01-006) runs over backup, restore and `doctor --json` with each provider.
 - `doctor` never prints a credential, an environment variable's value, or a secret id's resolved content.
 
 Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-7--credentials-reach-a-subprocess-by-file-never-by-argument-or-environment
@@ -299,7 +299,7 @@ Spec: _bmad-output/planning-artifacts/prds/prd-py-wordpress-backup-2026-09-12/pr
 - The accepted-and-explained test of E002-S01-005 fails until every flag here is bound and undeclared — it is this story's completion check, with scope from the parser.
 - `tests/unit/cli/test_root_preflight.py`: platform first; passphrase requirements appended only in passphrase mode; `real_adapters` and `dry_run_adapters` bind the same `RootPreflight`; E002-S02-007's `test_preflight_order.py` passes with it bound.
 - `tests/unit/cli/test_doctor.py`: exit `OK`/`NOT_READY` from `ready`; JSON when not a TTY; the JSON parses and every `Diagnosis` field is present (fields from `dataclasses.fields`).
-- E002-S02-004's `test_credential_sources_built_once.py` still passes: the delegation lives only in `cli/credentials.py`.
+- E002-S01-006's `test_credential_sources_built_once.py` still passes: the delegation lives only in `cli/credentials.py`.
 
 Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#consistency-conventions
 
