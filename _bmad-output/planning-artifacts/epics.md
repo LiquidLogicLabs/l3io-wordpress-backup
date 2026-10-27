@@ -155,6 +155,10 @@ and the relocation logic, and calls the writer.
 `cli/restore.py` and its one dispatch arm in `cli/__init__.py` are Epic 3's (2026-10-27): the
 restore composition root calls Epic 3's `core/restore` and executor, so owning it in Epic 2
 would make Epic 2 depend on Epic 3. Every other module under `cli/` stays Epic 2's.
+Epic 7 plugs relocation into Epic 3's restore through **seams Epic 3 provides** (2026-10-27):
+a `relocation` field on `RestoreRequest`, a `SEARCH_REPLACE` phase slot in the runner, the
+staging hook for the target database, and passthrough of the `--new-*` flags in
+`cli/restore.py`. Epic 7 fills those seams from its own modules and never edits Epic 3's.
 
 **Why this shape, and what it costs.** The organising constraint is not story
 independence — it is *which files two agents would edit at once*. Under the previous

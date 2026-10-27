@@ -428,3 +428,20 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   `../l3io-age-passphrase` and reports 22 findings there (21 in-repo, plus its distribution
   name not being `l3io-wordpress-<area>`). Backup, config and database pass. Whether the
   binder is held to the family CI standard is Shawn's call.
+
+## Update — 2026-10-27 (later): elaboration complete; round-2 decisions
+
+- [done] All 28 stories elaborated (E005 `e8de439`, E006 `8c6eb9c`, E007 `990bc8c`);
+  `check-pointers --all`: 0 pre-provenance. Restore CLI is E003-S01-006 (`701280d`).
+- [done] **Decisions, Shawn 2026-10-27:**
+  1. AD-17 amended again: all four `DB_*` keys move into `LOAD_DUMP`'s final cutover step
+     (relocation would otherwise leave a half-switched site on a kill before the cutover).
+  2. Epic 7 plugs into restore through seams Epic 3 provides (`RestoreRequest.relocation`,
+     a `SEARCH_REPLACE` slot, staging hook, `--new-*` passthrough); recorded in `epics.md`.
+  3. Pin WP-CLI in CI.
+  4. F1 + F2 for `scripts/check-cicd-alignment.py` (config/database proposal): four new
+     checks (floating-tag order, publish shape, ruff rule set, act-matrix rule) and scope =
+     repos shipping `src/l3io/wp/<area>`, skipped repos printed with the reason. Backup
+     brought into line in the same change.
+- [todo] Second Epic 2/Epic 3 gap pass for the round-2 OPEN items, then `/l3io-plan reorg`
+  (sprint move), steps 04–06, and the E002 gate re-run with both reviewers.
