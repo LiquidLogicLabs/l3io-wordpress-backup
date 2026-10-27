@@ -89,7 +89,8 @@ Accepted by Shawn, 2026-10-27, superseding the passphrase bullet above where the
 - **`l3io-wordpress-database` now streams `passphrase=`** (commit `47384ba`, untagged,
   pushed to its `main`; 0.2.0 not cut). Two backends, chosen by
   `L3IO_AGE_PASSPHRASE_BACKEND=auto|binder|cli` (database ADR-0003, amended 2026-10-26):
-  - **binder** (preferred): `l3io-age-passphrase` v0.1.0, a new family package — a PyO3
+  - **binder** (preferred): `l3io-age-passphrase` v0.1.0, a family-owned binder (owned by
+    `l3io-wordpress-database`; not an `l3io.wp` package and not held to its CI template) — a PyO3
     binding over the Rust `age` crate's own streaming passphrase encryptor. It wraps the
     maintained implementation; it is not a hand-rolled construction. GitHub Release wheels
     only, not on PyPI.
