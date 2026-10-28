@@ -83,7 +83,8 @@ never imports `platformdirs`. AD-18.1 is amended to say so.
   even when nothing was changed. That is the safe direction (NFR-1); the operator resolves
   it with `--resolve-interrupted-run`.
 - Follow-ups: spine AD-18.1 amended; E002-S02-012 adds `resolve` and its no-op twin;
-  E003-S02-003 drops "the snapshot's directory"; E003-S02-005 states the predicate and the
+  E003-S02-003 drops "the snapshot's directory"; E003-S01-001 states the predicate (moved
+  there 2026-10-28 so sprint 01 stands alone) and E003-S02-005 the
   layout; E003-S02-006 builds the header, moves resolution after the bind, and lists the
   new order.
 - **Revisit when:** journals must be shared between hosts (a remote lock backend). The

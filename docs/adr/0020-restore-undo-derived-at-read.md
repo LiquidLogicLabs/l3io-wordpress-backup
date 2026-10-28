@@ -67,7 +67,11 @@ the refusal at every kill point, but never the undo text.
 - Positive: one signature, one owner (E003-S02-005 states the table; other stories cite it).
 - Negative / trade-off accepted: the executor must journal every named step, and a new step
   that changes the undo needs a new name and a new arm. The harness derives its kill points
-  from a recorded run, so an unjournaled step shows up as a wrong undo at some *k*.
+  from a recorded run, and signals after every config write and database command as well as
+  every journal write, so *k* also falls between an effect and its journal entry. Every
+  effect whose interruption changes the undo is therefore preceded by an intent step
+  (`"cutover_started:<KEY>"`, `"loser_drop_started"`; amended 2026-10-28 after the gate
+  re-check found a cutover write could land before its entry).
 - Follow-ups: E002-S02-012 changes `JournalEntry` and `phase_started`, and adds
   `phase_undo` to `JournalHeader`; E003-S02-005 states the undo table and extends the
   harness; E003-S01-001 cites the signature.
