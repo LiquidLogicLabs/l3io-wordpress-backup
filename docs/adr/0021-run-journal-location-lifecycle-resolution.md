@@ -52,8 +52,8 @@ never imports `platformdirs`. AD-18.1 is amended to say so.
   journal.
 - `finish_run()` is called **only** on success, or on an orderly failure as decided by one
   pure predicate, `core/restore.py::is_orderly_failure(entries) -> bool`. It returns true
-  only when no `CLEAN`, `EXTRACT` or `REWRITE_CONFIG` phase started, no cutover step
-  completed, and the failure is either a failed post-load check whose staging drop
+  only when no `CLEAN`, `EXTRACT` or `REWRITE_CONFIG` phase started, no cutover key landed (no
+  `"cutover:<KEY>"` step; a `"cutover_started:<KEY>"` intent alone does not count), and the failure is either a failed post-load check whose staging drop
   succeeded, or a cutover read-back failure with the original config intact. The entries
   show which by the named steps of ADR-0020 (`"check_failed"` or
   `"cutover_readback_failed"`, with `"staging_dropped"`).

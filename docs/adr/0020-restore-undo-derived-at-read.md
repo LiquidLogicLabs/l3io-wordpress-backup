@@ -41,18 +41,26 @@ the refusal at every kill point, but never the undo text.
   entry inside that phase, or `None`. `IncompleteRunError.undo` comes from it and from
   nowhere else. This is the signature E003-S01-001 and E003-S02-005 both cite.
 - The steps inside `LOAD_DUMP` that change what undo means are journaled as
-  `step_completed(LOAD_DUMP, <named step>)`: each cutover key write as
-  `"cutover:<KEY>"`, and the removal of the database that lost the cutover as
-  `"loser_dropped"`. Error-path steps the orderly-failure rule needs (ADR-0021) are named
+  `step_completed(LOAD_DUMP, <named step>)`, each effect bracketed by an intent step
+  written **before** it and a completion step written after it: each cutover key write as
+  `"cutover_started:<KEY>"` then `"cutover:<KEY>"`, and the removal of the database that
+  lost the cutover as `"loser_drop_started"` then `"loser_dropped"`. The `EXTRACT` config
+  lay-down is bracketed the same way, `"config_started"` then `"config"`. Error-path steps the orderly-failure rule needs (ADR-0021) are named
   the same way: `"check_failed"`, `"cutover_readback_failed"`, `"staging_dropped"`. The
   config steps of `REWRITE_CONFIG` under `--overwrite-wp-config` are named by ADR-0023.
   The step names are constants in `core/restore.py`.
 - With these, `undo_for` tells a pre-cutover kill from a post-cutover one. Before the first
-  `"cutover:*"` step, the undo names the staging database to drop. After it, the undo
-  **never** names the now-live database as something to drop: a partial cutover names the
-  written and pending keys and `--resolve-interrupted-run`; a completed cutover says the
-  site runs on `header.load_database` and names the previous database as retained (or, after
-  `"loser_dropped"`, as dropped).
+  `"cutover_started:*"` step, the undo names the staging database to drop. From it on, the
+  undo **never** names the load database as something to drop — with one exception, which
+  proves no key landed: `"cutover_readback_failed"` (the first key's write failed and the
+  original config is intact), after which the staging database is again the one to drop.
+  Otherwise a cutover in flight names the key that may have landed and
+  `--resolve-interrupted-run`; a partial cutover names the written and pending keys; a
+  completed cutover says the site runs on `header.load_database` and names the previous
+  database as retained, as possibly part-dropped after `"loser_drop_started"`, or as
+  dropped after `"loser_dropped"`.
+  *(Amended 2026-10-28 after the gate's second re-check: the intent steps were added to the
+  stories in `7b78347` but this section still stated the pre-fix rule.)*
 - Text that only Epic 7 knows (`REWRITE_CONFIG` and `SEARCH_REPLACE` under relocation) is
   copied into the `JournalHeader` at plan time (`phase_undo`, from `RestoreRelocation.undo`),
   so `undo_for` needs no `relocation` argument when a later Run reads the journal.
@@ -67,11 +75,15 @@ the refusal at every kill point, but never the undo text.
 - Positive: one signature, one owner (E003-S02-005 states the table; other stories cite it).
 - Negative / trade-off accepted: the executor must journal every named step, and a new step
   that changes the undo needs a new name and a new arm. The harness derives its kill points
-  from a recorded run, and signals after every config write and database command as well as
+  from recorded runs, and signals after every file, config and database command as well as
   every journal write, so *k* also falls between an effect and its journal entry. Every
-  effect whose interruption changes the undo is therefore preceded by an intent step
-  (`"cutover_started:<KEY>"`, `"loser_drop_started"`; amended 2026-10-28 after the gate
-  re-check found a cutover write could land before its entry).
+  effect whose interruption changes the undo is preceded by an intent step
+  (`"config_started"`, `"cutover_started:<KEY>"`, `"loser_drop_started"`), and the harness
+  wraps every port that performs one (`SiteFilesCommand`, `ConfigCommand`, the restore
+  database command). The recording runs cover an `all-clean` restore, one with a database
+  relocation, and one into a target with no `wp-config.php`, so each intent step is in
+  scope. *(Amended 2026-10-28 after the gate re-checks found a cutover write could land
+  before its entry, and that the lay-down window was outside the harness's scope.)*
 - Follow-ups: E002-S02-012 changes `JournalEntry` and `phase_started`, and adds
   `phase_undo` to `JournalHeader`; E003-S02-005 states the undo table and extends the
   harness; E003-S01-001 cites the signature.

@@ -137,3 +137,30 @@ with a flag to overwrite it; AG-2 skip-and-warn (recorded above).
     (S02-003), `DatabaseRestoreReport` (S02-004).
 
 **Verdict after one resolution pass: BLOCKED** — 2 blocking findings unresolved.
+
+## Second resolution pass — 2026-10-28 (Shawn approved)
+
+- **`7b78347`:** AG-1 — intent steps (`"cutover_started:<KEY>"`, `"loser_drop_started"`)
+  before each effect, with their own undo rows; the kill harness also signals after every
+  effect, so it kills between an effect and its journal entry. AG-3 — E003-S01-001 declares
+  every pure type and function it uses; `LOAD_DUMP` is an injected `load_database` slot
+  (E003-S02-005's `load_staged`, bound by E003-S02-006; faked in sprint 01).
+- **Re-check 2:** `recheck2-bmad-agent-architect-2026-10-28.md` — AG-1, AG-3, AG-17
+  **resolved**, no cycles (its own DFS over all 32 nodes), 3 new MINOR.
+  `recheck2-l3io-arch-review-2026-10-28.md` — AG-1, AG-3 **resolved**; **1 new MAJOR**:
+  ADR-0020's Decision section still stated the pre-fix rule.
+- **Fixed, and confirmed (`## Re-check 3` in the same file):** ADR-0020's Decision restated
+  with intent and completion steps and the one exception (`"cutover_readback_failed"`,
+  which proves no key landed); ADR-0021's predicate says "no cutover key landed";
+  E003-S02-005's rule no longer contradicts its own table; the `EXTRACT` lay-down gained the
+  intent step `"config_started"` and an undo row, and the harness wraps `SiteFilesCommand`.
+  Re-check 3: **MAJOR resolved, 0 blocking, 2 new MINOR** — both fixed here: a recording
+  run into a target with no `wp-config.php` (the scope assertion now requires a
+  `"config_started"` ordinal), and ADR-0020/0023 text slips.
+- **MINORs filed:** BL-E003-027 (`restored` derivation order), -028 (`RestorePorts` has no
+  declared module/fields; `Path` vs `PurePosixPath`), -029 (snapshot-location test relies on
+  sprint 02's default path).
+
+**Final verdict: PASSED** — 0 blocking findings after two resolution passes (the second
+approved by Shawn, 2026-10-28). Open MINORs for Epic 3: BL-E003-004, -005, -007 (AC-block
+residue), -009 … -015, -018, -019, -021 … -029.

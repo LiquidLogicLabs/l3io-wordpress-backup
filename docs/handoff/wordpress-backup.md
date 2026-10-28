@@ -572,3 +572,33 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   step commented out) each produce their own finding; baseline 0. Non-vacuity of the audit:
   a planted `urllib3==1.26.4` reports 22 vulnerabilities, exit 1. All three repos: 0 findings.
 - Not pushed. Local `main` is ahead of `origin/main`; pushing is Shawn's call.
+
+## Update — 2026-10-28 (later): Epic 3 arch gate PASSED
+
+Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md`.
+
+- [done] Gate run: `l3io-arch-review` first, which escalated to `bmad-agent-architect`.
+  Merged result: 3 BLOCKER, 14 MAJOR (`d8b3b81`).
+- [done] **Shawn's decisions (2026-10-28):**
+  - Symlinks that are absolute or point outside the Site Root are unsupported; a restore
+    skips them with a WARNING and does not fail (ADR-0017 amendment, `b9275e0`).
+  - The Run Journal always lives in the per-Site state directory (AD-18.1 wording amended).
+  - `RunJournalCommand.resolve` gets a no-op twin (an E002-S02-012 change).
+  - The reorg: E003-S01-006 → **E003-S02-006**, last in sprint 02 (`ce17afc`).
+  - The target's `wp-config.php` is kept unless `--overwrite-wp-config` is given. The
+    overwrite applies the target's `DB_*` values in memory (`WpConfigString`) before the
+    atomic replace, so no file ever holds the source's database values.
+  - A second resolution pass was approved.
+- [done] ADR-0020 (undo text derived when the journal is read; intent steps), ADR-0021
+  (journal location, lifecycle, resolution), ADR-0022 (plan from a probe; the executor runs
+  every phase; Dry Run checks take effect results), ADR-0023 (the `wp-config.php` policy).
+  Commits `27ef179`, `24b31a1`, `7b78347` and the closing commit.
+- [done] Sprint 01 (E003-S01-001, -002) needs no sprint-02 code. `LOAD_DUMP` is an injected
+  `load_database` slot.
+- **Trap:** `pm-status verify` passes over dependency cycles. The reorg created two, and
+  only `pm-status dump-plan | plan-graph.py analyze` caught them (3 cycle blockers before
+  the fix, 0 after). Run that after any edge change.
+- **Trap:** a blanket `sed` over state YAML also rewrote `previous_keys`. Fixed by hand.
+- Open for later epics: 21 E003 MINORs remain in `state/issues.yaml`. BL-E003-025 and -028
+  (`RestorePorts` has no declared home) are prerequisites for E003-S02-005's `load_staged`.
+- Not pushed. Next: the Epic 4 and Epic 5 gates, which share Epic 3's plan phase.

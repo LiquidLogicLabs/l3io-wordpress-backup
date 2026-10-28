@@ -75,7 +75,7 @@ also replaces salts and paths.
 5. WARNING `wp_config_overwritten`: salts, paths and other constants now come from the
    Archive.
 6. `undo_for` (ADR-0020) derives "copy `<saved>` back to `<config path>`" from the
-   `"config_*"` steps.
+   `"config_saved"` and `"config_replaced"` steps (`REWRITE_CONFIG`).
 
 The two file effects (steps 1 and 4) are `ConfigCommand` methods (E002-S02-012),
 implemented in `adapters/config_writer.py` (E002-S02-009) with no-op twins, so a Dry Run

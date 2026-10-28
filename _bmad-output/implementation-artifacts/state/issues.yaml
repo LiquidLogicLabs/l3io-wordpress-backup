@@ -1,6 +1,6 @@
 next:
   '002': 24
-  '003': 27
+  '003': 30
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -282,16 +282,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-020
-  epic: '003'
-  sprint: ''
-  title: "E003-S02-005: the old database's grant revoke and drop are unjournaled before \"loser_dropped\", so a kill there gives undo text saying it is \"retained\" when it may be gone — add a \"loser_drop_started\" step"
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
 - key: BL-E003-021
   epic: '003'
   sprint: ''
@@ -352,3 +342,33 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-027
+  epic: '003'
+  sprint: ''
+  title: E003-S02-005 load_staged returns DatabaseRestoreReport, but the rule computing restored is E003-S02-004's, which now runs after S02-005 — move the derivation into S02-005 or declare it pure in E003-S01-001
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
+- key: BL-E003-028
+  epic: '003'
+  sprint: ''
+  title: RestorePorts is now a cross-sprint contract (load_staged takes it) with no declared module or fields; cutover_credentials has no owner; Path is passed where PurePosixPath is typed (mypy --strict rejects) — E003-S01-001 L106
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
+- key: BL-E003-029
+  epic: '003'
+  sprint: ''
+  title: E003-S01-001 test_snapshot_location's "per-user default accepted" case relies on the default path sprint 02 (E003-S02-003/006) defines — give the test its own path
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md

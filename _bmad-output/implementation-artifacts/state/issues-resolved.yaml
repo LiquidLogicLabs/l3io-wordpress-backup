@@ -133,3 +133,17 @@ resolved:
   resolved_at: '2026-10-28T18:03:08Z'
   ref: 27ef179
   note: E003 gate resolution pass, stories edited in place
+- key: BL-E003-020
+  epic: '003'
+  sprint: ''
+  title: "E003-S02-005: the old database's grant revoke and drop are unjournaled before \"loser_dropped\", so a kill there gives undo text saying it is \"retained\" when it may be gone — add a \"loser_drop_started\" step"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-10-28T20:54:14Z'
+  ref: 7b78347
+  note: loser_drop_started intent step and undo row

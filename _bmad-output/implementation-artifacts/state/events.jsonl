@@ -157,3 +157,11 @@
 {"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-024", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:36Z"}
 {"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-025", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:36Z"}
 {"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-026", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:36Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-020", "ref": "7b78347", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T20:54:14Z"}
+{"agent": "l3io-arch-review", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T20:54:14Z"}
+{"agent": "bmad-agent-architect", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T20:54:14Z"}
+{"agent": "l3io-arch-review", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T20:58:37Z"}
+{"agent": "bmad-agent-architect", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T20:58:38Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-027", "session": null, "severity": "Low", "ts": "2026-10-28T20:59:42Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-028", "session": null, "severity": "Low", "ts": "2026-10-28T20:59:42Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-029", "session": null, "severity": "Low", "ts": "2026-10-28T20:59:42Z"}
