@@ -1,5 +1,6 @@
 next:
   '002': 24
+  '003': 20
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -161,3 +162,193 @@ backlog:
   severity: Low
   status: backlog
   description: New MINOR from the 2026-10-27 gate re-check (bmad-agent-architect); see epic-002/arch/recheck-bmad-agent-architect-2026-10-27.md.
+- key: BL-E003-001
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-001/E003-S02-005: undo_for signature differs (phase, header, relocation) vs (phase, header) — state once in S02-005; folds into AG-1'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-002
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-006/E003-S02-003: unencrypted-snapshot warning has two event names (safety_snapshot_unencrypted vs safety_snapshot_not_encrypted) — pick one'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-003
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-006 L133: stale 'binding-order OPEN' and extract_archive text contradicts L67's probe.read_member"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-004
+  epic: '003'
+  sprint: ''
+  title: "epics.md Epic List: add adapters/restore_runner.py and E003-S01-006's edit of cli/parser.py::NOT_YET_IMPLEMENTED to Epic 3's ownership notes"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-005
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-002 L236: site_root_empty is not testable as written — state that is_empty means no directory entries, or name the excluded entry and its port argument'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-006
+  epic: '003'
+  sprint: ''
+  title: "E003-S02-005 L196: kill harness runs through Epic 6's library entry point, which lands later — drive drive_restore directly"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-007
+  epic: '003'
+  sprint: ''
+  title: "Naming residue: E003-S01-006 AC L26 and epics.md 3.6 cite E002-S01-005's table; E003-S02-004 L68 calls RestoreOutcome story 3.1's (it is E003-S01-006's)"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-008
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-006 L87: says RootPreflight ('P3') adds the passphrase backend, against L70's decided extra_tools route"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-009
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-006 L67: v0 Archive config read uses a second read instead of ADR-0016's stored digest — record as accepted residual in ADR-0016"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-010
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-002: NonEmptyTargetError.part should be parts: tuple[...] (L234 vs L251, L266)'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-011
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-002 L231 and E003-S02-003 L54: 'story 3.1's OPEN on cli/restore.py' is resolved by E003-S01-006"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-012
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-001 L113: a Dry Run refusal cannot print a plan never built — state what is printed'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-013
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-001 L130: restore_mode_resolved's raw CLI flags never reach drive_restore — emit in run_restore or carry in RestoreRequest"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-014
+  epic: '003'
+  sprint: ''
+  title: 'E002-S02-012 JournalHeader: live_database_before/load_database required but files-only modes load nothing — say what they hold'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-015
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-001 L59: note that AD-18.3 supersedes FR-6's 'drops database first'"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-016
+  epic: '003'
+  sprint: ''
+  title: SnapshotResult's module is unstated — place in core/restore.py or domain/ so core/ can import it
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-017
+  epic: '003'
+  sprint: ''
+  title: 'E003-S02-003 L59: platformdirs default computed in core/ — root computes and passes it as requested'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-018
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-006 L61/L86: a joined Run with relocation has no obligation to carry search_replace / relocated source — refuse or state the outer root's obligation"
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-019
+  epic: '003'
+  sprint: ''
+  title: 'Docs: no flow diagram for drive_restore + executor; spine restore sequence diagram still shows the cutover in REWRITE_CONFIG (flag to spine owner)'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
