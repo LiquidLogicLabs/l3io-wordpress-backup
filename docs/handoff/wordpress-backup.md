@@ -524,3 +524,14 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   `UsageError` to S01-005 (now S01-001) and `LoadFailedError` to "P1"; some v0.1.0 citations
   outside the rewritten text; E003-S01-001's `RestoreOutcome` beside its `ExecutionReport`
   correction; E003-S02-003 vs E003-S02-005 on the journal location (the existing OPEN).
+- [done] **Epics 4 and 6 adopted the E002 gate changes** (2026-10-27), in place, six stories;
+  record appended to `gate-reconciliation-2026-10-27.md`. E004-S01-003's "refused until
+  database 0.2.0" passphrase path is gone (v0.2.0 is pinned); cipher and exclusion are
+  per-call; `api/` takes a `CredentialSpec`.
+- [blocked] **Five OPENs from that pass**, for Shawn: E004-S01-001 `exclusion=None` meaning
+  (library includes caches/logs, CLI excludes them by default); E004-S01-001 nobody reports
+  the active exclusion set in a Dry Run; E006-S01-001 the API can no longer back up from a
+  caller-built `SiteDescriptor`; E006-S01-001 `resolve_passphrase` needs the Run's secret
+  registry before the Run exists (CLI and E003 too); E006-S01-004 `Tracer.run_span` carries
+  no secret registry or the attributes AD-24 names. Plus three cross-story conflicts in
+  E008-S01-001 / E002-S02-011 / E004-S01-003 (listed in the record).
