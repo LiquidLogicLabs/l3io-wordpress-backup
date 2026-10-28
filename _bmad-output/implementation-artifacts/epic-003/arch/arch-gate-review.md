@@ -83,9 +83,32 @@ shows the cutover in `REWRITE_CONFIG` (flag to the spine's owner).
 - **AG-8 crosses into Epic 2:** a `RunJournalCommand.resolve` with a no-op twin changes
   E002-S02-012, a gated (PASSED) but unbuilt story.
 
-## Resolution
+## Resolution — 2026-10-28
 
-MINORs filed as BL-E003-001…019 in `state/issues.yaml`.
+Shawn's decisions: AG-11 option A (journal always in the per-Site state directory); AG-8's
+Epic 2 port change accepted; AG-3 reorg approved; AG-16 keep the target's `wp-config.php`,
+with a flag to overwrite it; AG-2 skip-and-warn (recorded above).
 
-Not started. Step-04 §6 prescribes one ADR per blocking finding (17), reserved in one
-`adr-reserve` batch, then a re-check of only what changed. Route is Shawn's.
+- **Reorg (`ce17afc`):** E003-S01-006 → **E003-S02-006**, last in sprint 02; it now depends
+  on every other E003 story; E003-S02-004 → E003-S02-005 (AG-17).
+- **ADRs:** 0020 undo derived at read time (AG-1); 0021 journal location, lifecycle and
+  resolution (AG-11, AG-7, AG-8; amends AD-18.1's wording); 0022 restore planned from a
+  probe, executor runs every phase, Dry Run checks take effect results (AG-4, AG-5); 0023
+  target `wp-config.php` kept unless `--overwrite-wp-config` (AG-16; departs from FR-6).
+- **ADR-0023's Concern, resolved here:** the first draft let the Archive's `DB_*` values
+  sit on disk between `REWRITE_CONFIG` and the cutover in `all`/`all-clean`. The target's
+  `DB_*` values are now applied in memory (`l3io.wp.config.WpConfigString.set`, public in
+  v0.1.1) before the atomic replace, so no file ever carries the source's values and no
+  `DB_*` key is written before the load.
+- **Story edits, in place:** E003 all six; E002-S01-001 (`BackupError.snapshot_path`,
+  AG-15), E002-S01-004 and E002-S02-007 (`performed` results, AG-5), E002-S02-009,
+  E002-S02-011 (`ConfigPolicy`, the flag), E002-S02-012 (`resolve` and its no-op, journal
+  steps, `replace_file(keep=...)`); cross-epic step citations re-sequenced in E005-S01-002,
+  E006-S01-001, E007-S01-002, E007-S01-004. Spine AD-18.1 note; PRD FR-6 backlink.
+- **Checks:** every edited story keeps its frontmatter and original AC block, and every
+  dimension still ends with `Spec:` lines; `check-pointers --all` and `check-links` OK.
+- **MINORs closed:** BL-E003-001, -002, -003, -006, -008, -016, -017. BL-E003-007 is part
+  fixed: the remaining citations are in AC blocks, which are not edited. BL-E003-010 stays
+  open.
+- **Next:** each reviewer re-checks only its own blocking findings against the changed
+  sections (step-04 §6).

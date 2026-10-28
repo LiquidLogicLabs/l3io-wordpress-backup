@@ -181,6 +181,8 @@ An operator can declare a Restore Mode, and the declared mode governs the entire
 - Mode names round-trip: every accepted CLI value maps to exactly one API enum member and back, asserted mechanically against the table rather than a hand-kept list. (Today `--mode db` upper-cases to `DB` and never matches `DATABASE` — arch review M-1.)
 - A test exists per row asserting both what that mode does and what it does not touch.
 
+*(Amended by [ADR-0023](../../../../docs/adr/0023-target-wp-config-kept-unless-overwrite.md), 2026-10-28: a modes-with-files restore keeps the target's existing `wp-config.php` and says so; `--overwrite-wp-config` replaces it, with the `DB_*` keys set back to the target's.)*
+
 #### FR-7: Refuse destructive restore over a non-empty target
 
 A restore that would overwrite or delete existing content refuses to proceed unless the operator has explicitly authorized that specific destruction. Realizes UJ-2.

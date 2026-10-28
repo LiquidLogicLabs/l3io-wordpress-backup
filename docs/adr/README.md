@@ -27,6 +27,10 @@ which carries the invariants (`AD-n`). An ADR here records a *mechanism*; an `AD
 | [0017](0017-manifest-v1-member-index.md) | The v1 Manifest member index, and `SUPPORTED_FORMAT_VERSIONS` tested against the fixtures | **Accepted** | AD-6, AD-11, AD-23 |
 | [0018](0018-redaction-at-the-boundary.md) | Redaction is applied where text leaves the program, not inside domain errors | **Accepted** | AD-1, AD-7, AD-14 |
 | [0019](0019-backup-dry-run-scope.md) | What a backup Dry Run executes | **Accepted** | AD-4 |
+| [0020](0020-restore-undo-derived-at-read.md) | Restore undo text is derived when the journal is read | **Accepted** | AD-18 |
+| [0021](0021-run-journal-location-lifecycle-resolution.md) | Run Journal location (per-Site state directory), lifecycle and resolution | **Accepted** | AD-18 |
+| [0022](0022-restore-planned-from-probe-executor-runs-every-phase.md) | A restore is planned from a probe; the executor runs every phase, in a Dry Run too | **Accepted** | AD-4, AD-13, AD-17 |
+| [0023](0023-target-wp-config-kept-unless-overwrite.md) | The target's `wp-config.php` is kept unless `--overwrite-wp-config` | **Accepted** | AD-18, AD-22 |
 
 The spine carries 30 invariants (AD-1..AD-30). AD-16..AD-21 came from the reviewer gate: Run Context, phase ordering, recoverability, Site Lock, atomic publication, streaming. AD-22..AD-24 came from the rewrite mandate: the CLI as a frozen contract, archive-format detection with permanent v0 reads, and API-only tracing. AD-25..AD-27 close the flag-to-mode map, the passphrase chain, and the PEP 420 namespace discipline. AD-28 and AD-29 came from the database work (GRANT escaping, administrator-answered existence); AD-30 records the git tag as the only version.
 
