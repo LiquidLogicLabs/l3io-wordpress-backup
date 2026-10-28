@@ -1,6 +1,7 @@
 next:
   '002': 24
   '003': 30
+  '004': 25
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -372,3 +373,243 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
+- key: BL-E004-001
+  epic: '004'
+  sprint: ''
+  title: epics.md Epic 4 header (L513) claims the v0 classifier in domain/archive_format; the Epic List note gives it to Epic 2 alone — fix the header
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-002
+  epic: '004'
+  sprint: ''
+  title: PRD FR-4 consequence 2 records algorithm/KDF/salt in the Manifest; ADR-0014 overrules it — add the amendment backlink under FR-4
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-003
+  epic: '004'
+  sprint: ''
+  title: "E004-S01-003 L88/L171: \"every non-link member encrypted: true\" contradicts ADR-0017's dir entries (encrypted: false) — say every payload file member"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-004
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 committed-key guard (L147, L179) is worded inconsistently about tests/fixtures/ and has scope gaps — derive its scope, state the exemption once
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-005
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-002 L58: ownership of tests/contracts/test_supported_formats.py is left conditional — decide it'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-006
+  epic: '004'
+  sprint: ''
+  title: 'Shared build files in phase 2: E004 and E005 both edit pyproject.toml, uv.lock and ci.yml — record the shared edits and an order'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-007
+  epic: '004'
+  sprint: ''
+  title: E005-S01-002 L139/L141 still describe the superseded route (roots/RootPreflight append passphrase_backend_requirements) — now cipher.required_tools() via extra_tools
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-008
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 L30 and epics.md story 4.3 AC keep the v0.1.0 / passphrase-refused text beside the L32 note
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-009
+  epic: '004'
+  sprint: ''
+  title: VerifyRequest.cipher and --identity-file on verify have no defined effect; verification is keyless — remove or define
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-010
+  epic: '004'
+  sprint: ''
+  title: encryption_configured is "per Run" but build_member_cipher runs before open_run, so the record has no run_id — move the emission
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-011
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-003: nobody is stated to call AgeMemberCipher.check() — have build_member_cipher call it before returning'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-012
+  epic: '004'
+  sprint: ''
+  title: 'plan-2026-10-27-v2 phase 3: E006/E007 dependencies omit E004 although E006-S01-001 calls build_member_cipher'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-013
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-002 test_no_v0_writer: literal grep also hits comments/docstrings and misses prefix stripping not using the domain constants'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-014
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 released fixture (L55) needs network, MySQL and mysqldump for a 0.2.21 run — mark it the human-in-the-loop step explicitly
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-015
+  epic: '004'
+  sprint: ''
+  title: E004-S01-001 resolved "Formerly OPEN" blocks (L67, L69) keep false text beside the decision
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-016
+  epic: '004'
+  sprint: ''
+  title: "E004-S01-001 ExclusionSource(StrEnum) vs E002-S01-001's Literal source and ExclusionPolicy.source: str — one type under mypy --strict"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-017
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 §Non-goals L46 cites Epic 3 stories by old numbers — use E003-S01-001, E003-S02-003, E003-S02-006
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-018
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-001 L107/L119 bans a hand-listed set of pathspec I/O helpers — invert to an allow-list (rule 4: derive scope)'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-019
+  epic: '004'
+  sprint: ''
+  title: E004-S01-001 two typing gaps (see reviewer file)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-020
+  epic: '004'
+  sprint: ''
+  title: E004-S01-001 L87 says a Manifest over the cap fails before publishing; no E002 writer enforces a write-side cap
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-021
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 L106 byte-identical .tar.gz across CI Pythons/OSes depends on the zlib build — compare decompressed members instead
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-022
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 v0 fixtures lack a hard-link member and a FIFO, which the legacy writer emits
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-023
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 L107(b) calls write_archive with a scope it does not take — drive TarArchiveWriter.write per BackupScope
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-024
+  epic: '004'
+  sprint: ''
+  title: FR-26 dependency inventory gaps and fixture layout details (see reviewer file)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
