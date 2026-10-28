@@ -146,3 +146,14 @@
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-008", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:07Z"}
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-016", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:08Z"}
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-017", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:08Z"}
+{"agent": "l3io-arch-review", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:14Z"}
+{"agent": "bmad-agent-architect", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:14Z"}
+{"agent": "l3io-arch-review", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:09:24Z"}
+{"agent": "bmad-agent-architect", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:09:24Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-020", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:34Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-021", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:34Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-022", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:35Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-023", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:35Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-024", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:36Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-025", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:36Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-026", "session": null, "severity": "Low", "ts": "2026-10-28T18:10:36Z"}

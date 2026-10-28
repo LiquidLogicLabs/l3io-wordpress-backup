@@ -112,3 +112,28 @@ with a flag to overwrite it; AG-2 skip-and-warn (recorded above).
   open.
 - **Next:** each reviewer re-checks only its own blocking findings against the changed
   sections (step-04 §6).
+
+## Re-check — 2026-10-28
+
+- `recheck-l3io-arch-review-2026-10-28.md`: **11/12 resolved**; AG-6 partly (the
+  `snapshot_location` `config_dir` input had no caller); 5 new MINOR.
+- `recheck-bmad-agent-architect-2026-10-28.md`: **11/14 resolved**; AG-1, AG-3, AG-17
+  partly; **1 new MAJOR** — two dependency cycles in sprint 02's state graph, made by the
+  reorg (S02-004's old S01-006 edge was renamed instead of removed, and S02-005 -> S02-004
+  was kept beside the new S02-004 -> S02-005). `pm-status verify` passes over a cycle;
+  `plan-graph analyze` reports it (3 cycle blockers before the fix, 0 after).
+- **Fixed after the re-check:** AG-6 (`build_restore_plan` takes `config_dir` and is the one
+  caller of `snapshot_location`); AG-17 and the cycles (both edges removed in state; the
+  same edges reversed in `dependency-extraction.yaml`, whose evidence paths now name
+  sprint 02); MINORs: the no-op `ExtractResult` gains `skipped_links=()`, and
+  `is_orderly_failure` evaluates the executor's own in-memory entries, so a Dry Run is
+  judged like a real Run. Remaining new MINORs filed as BL-E003-020…026.
+- **Still blocking (one resolution pass done, §6):**
+  - **AG-1 residual, MAJOR:** each cutover key is journaled only after its write lands, so a
+    kill between a `DB_NAME` write and its journal entry reports "drop staging database" for
+    what is now the live database; the kill harness never kills inside a write.
+  - **AG-3 residual, MAJOR:** E003-S01-001 still needs sprint-02 code — `is_orderly_failure`
+    (S02-005), the `LOAD_DUMP` arm (S02-005's staging), `SnapshotResult`/`snapshot_scope`
+    (S02-003), `DatabaseRestoreReport` (S02-004).
+
+**Verdict after one resolution pass: BLOCKED** — 2 blocking findings unresolved.

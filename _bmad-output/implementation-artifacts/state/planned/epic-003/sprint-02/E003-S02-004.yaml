@@ -4,7 +4,7 @@ sprint: 'S02'
 title: Report honestly what the database restore did
 classification: standard
 status: backlog
-updated_at: '2026-10-28T17:41:18Z'
+updated_at: '2026-10-28T18:09:32Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -33,7 +33,6 @@ depends_on:
 - 'E002-S02-007'
 - 'E002-S02-009'
 - 'E003-S01-001'
-- E003-S02-006
 - 'E002-S01-010'
 - 'E002-S02-011'
 - 'E002-S02-012'

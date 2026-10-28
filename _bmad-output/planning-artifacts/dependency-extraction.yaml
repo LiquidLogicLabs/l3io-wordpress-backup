@@ -1,4 +1,6 @@
 # generated 2026-10-27 by dependency extraction for /l3io-plan step 05
+# edited 2026-10-28: E003-S01-006 re-keyed E003-S02-006 and moved last in sprint 02 (E003 gate AG-3);
+# its four inbound E003 edges and S02-005 -> S02-004 reversed to match the state graph (AG-17)
 edges:
   - from: E002-S01-002
     to: E002-S01-001
@@ -93,9 +95,9 @@ edges:
   - from: E003-S01-002
     to: E003-S01-001
     evidence: "epic-003/sprint-01/stories/E003-S01-002.md:55 — ode, overrides: OverrideSet, target: TargetState) -> None`, called by `build_restore_plan` (story 3.1) before any phase is planned; `mode` has no default (AD-"
-  - from: E003-S01-002
-    to: E003-S02-006
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
+  - from: E003-S02-006
+    to: E003-S01-002
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
   - from: E003-S01-002
     to: E002-S01-005
     evidence: "epic-003/sprint-01/stories/E003-S01-002.md:58 — exit codes.** `NonEmptyTargetError` is a `RefusedError`, so E002-S01-005's `cli/exit.py::exit_code_for` maps it to `ExitCode.REFUSED` with no new arm — E002-S"
@@ -110,37 +112,37 @@ edges:
     evidence: "epic-003/sprint-01/stories/E003-S01-002.md:95 — :port/name` only — never a username or password; covered by E002-S01-006's `credential_sentinel` applied to the refusal path."
   - from: E003-S02-006
     to: E003-S01-001
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:15 — alls Epic 3's `core/restore` and `adapters/restore_runner`. Depends on E003-S01-001 and on Epic 2's E002-S01-001, E002-S01-003, E002-S01-006 through E002-S02-"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:15 — alls Epic 3's `core/restore` and `adapters/restore_runner`. Depends on E003-S01-001 and on Epic 2's E002-S01-001, E002-S01-003, E002-S01-006 through E002-S02-"
   - from: E003-S02-006
     to: E002-S01-001
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:59 — g(site_root, <config member extracted into the workspace>)` (E002-S01-001). Neither present → `InvalidSiteDescriptorError`. A files-only v0 Archive with a Mod"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:59 — g(site_root, <config member extracted into the workspace>)` (E002-S01-001). Neither present → `InvalidSiteDescriptorError`. A files-only v0 Archive with a Mod"
   - from: E003-S02-006
     to: E002-S01-003
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:58 — 4. `VERIFY`: E002-S01-003's `verify_archive`; failure → `VerificationFailedError`; the `ArchiveView` is kept for planning."
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:58 — 4. `VERIFY`: E002-S01-003's `verify_archive`; failure → `VerificationFailedError`; the `ArchiveView` is kept for planning."
   - from: E003-S02-006
     to: E002-S01-004
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:61 — _snapshot, journal)` (Epic 3), where `take_snapshot(scope)` calls E002-S01-004's `backup(site, scope, file:<snapshot path>, ctx=ctx, cipher=request.cipher, ex"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:61 — _snapshot, journal)` (Epic 3), where `take_snapshot(scope)` calls E002-S01-004's `backup(site, scope, file:<snapshot path>, ctx=ctx, cipher=request.cipher, ex"
   - from: E003-S02-006
     to: E002-S01-005
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:26 — **Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S01-005's table and passed explicitly to every phase"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:26 — **Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S01-005's table and passed explicitly to every phase"
   - from: E003-S02-006
     to: E002-S01-006
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:53 — sword`; cipher configuration from the encryption flags plus E002-S01-006's `resolve_passphrase`; then calls **`drive_restore(request: RestoreRequest, *, ctx:"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:53 — sword`; cipher configuration from the encryption flags plus E002-S01-006's `resolve_passphrase`; then calls **`drive_restore(request: RestoreRequest, *, ctx:"
   - from: E003-S02-006
     to: E002-S02-007
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:79 — re_wordpress_source=ext.wordpress_source(), tracer=tracer)` (E002-S02-007; `dry_run_adapters` likewise); step 3's requirement list is Epic 3's own plus `ext.r"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:79 — re_wordpress_source=ext.wordpress_source(), tracer=tracer)` (E002-S02-007; `dry_run_adapters` likewise); step 3's requirement list is Epic 3's own plus `ext.r"
   - from: E003-S02-006
     to: E002-S02-008
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:55 — pters(...) | dry_run_adapters(...), site_root=canonical)` — the Site Lock is acquired here (E002-S02-008); log `restore_mode_resolved` with `restore_mode`, `o"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:55 — pters(...) | dry_run_adapters(...), site_root=canonical)` — the Site Lock is acquired here (E002-S02-008); log `restore_mode_resolved` with `restore_mode`, `o"
   - from: E003-S02-006
     to: E002-S02-009
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:15 — on E003-S01-001 and on Epic 2's E002-S01-001, E002-S01-003, E002-S01-006 through E002-S02-009. Until it lands, `wpbackup2 restore` stays accepted-and-explaine"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:15 — on E003-S01-001 and on Epic 2's E002-S01-001, E002-S01-003, E002-S01-006 through E002-S02-009. Until it lands, `wpbackup2 restore` stays accepted-and-explaine"
   - from: E003-S02-003
     to: E003-S01-001
     evidence: "epic-003/sprint-02/stories/E003-S02-003.md:54 — estore.py`), which builds the `take_snapshot` callable that story 3.1's executor runs for the `SNAPSHOT` phase. Conventions as recorded in story 3.1."
-  - from: E003-S02-003
-    to: E003-S02-006
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
+  - from: E003-S02-006
+    to: E003-S02-003
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
   - from: E003-S02-003
     to: E002-S01-004
     evidence: "epic-003/sprint-02/stories/E003-S02-003.md:56 — AG-11).** `take_snapshot` calls E002's backup entry point, the one E002-S01-004's joining test calls, passing the restore's `RunContext`. That entry point go"
@@ -162,9 +164,9 @@ edges:
   - from: E003-S02-004
     to: E003-S01-001
     evidence: "epic-003/sprint-02/stories/E003-S02-004.md:68 — eport cannot say `restored` for a load that did not happen. `RestoreOutcome` (story 3.1) carries `database: DatabaseRestoreReport | None`. This field is `None"
-  - from: E003-S02-004
-    to: E003-S02-006
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
+  - from: E003-S02-006
+    to: E003-S02-004
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:15 — ccepted-and-explained (exit `USAGE`, E002-S01-005), and the end-to-end criteria of E003-S01-002 through E003-S02-005 run through it.)*"
   - from: E003-S02-004
     to: E002-S02-007
     evidence: "epic-003/sprint-02/stories/E003-S02-004.md:77 — *(Resolved 2026-10-27, per elaboration-gap-map.md round 1 — **E002-S02-007** (Protocols, `DatabaseTargetState`, `EnsureOutcome`, `NoopDatabase`) + **E002-S02-"
@@ -189,11 +191,11 @@ edges:
   - from: E003-S02-005
     to: E003-S01-001
     evidence: "epic-003/sprint-02/stories/E003-S02-005.md:73 — requires).** After the post-load check passes, the keys of E003-S01-001's `CUTOVER_KEYS` (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, in that order) whos"
-  - from: E003-S02-005
-    to: E003-S02-006
+  - from: E003-S02-006
+    to: E003-S02-005
     evidence: "epic-003/sprint-02/stories/E003-S02-005.md:117 — 02-S01-005 registers `--resolve-interrupted-run RUN_ID` and E003-S02-006 step 2 performs the resolution.)* The acknowledgement's CLI surface is `--resolve-int"
-  - from: E003-S02-005
-    to: E003-S02-004
+  - from: E003-S02-004
+    to: E003-S02-005
     evidence: "epic-003/sprint-02/stories/E003-S02-005.md:70 — tabase(Connection(host, staging, port), admin, wordpress)` (story 3.4's wrapper over `ensure`). This creates the staging database, and the WordPress user and"
   - from: E003-S02-005
     to: E002-S02-009
@@ -446,11 +448,11 @@ uncertain:
     reason: "S01-002 guard consumes the administrator-read DatabaseTargetState that S02-004 supplies (E003-S02-004.md:48 says so), but the type is E002-S02-007 and the survey adapter E002-S02-009. If real: sprint-1 story depends on a sprint-2 story."
   - from: E003-S02-006
     to: E003-S02-005
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:56 — 2. `RunJournalQuery.incomplete(site_root)` (E003-S02-005): a record → `IncompleteRunError` unless `resolve_run_id` equals its `run_id`, in which case the jo"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:56 — 2. `RunJournalQuery.incomplete(site_root)` (E003-S02-005): a record → `IncompleteRunError` unless `resolve_run_id` equals its `run_id`, in which case the jo"
     reason: "Restore root step 2 calls S02-005 journal query; but S02-005 end-to-end criteria run through S01-006 (kept S02-005->S01-006). Cycle if both."
   - from: E003-S02-006
     to: E003-S02-004
-    evidence: "epic-003/sprint-01/stories/E003-S02-006.md:73 — _encrypted: bool`, `database: DatabaseRestoreReport | None` (FR-9, E003-S02-004), `search_replace: SearchReplaceReport | None` (E007-S01-003), `resolved_run_i"
+    evidence: "epic-003/sprint-02/stories/E003-S02-006.md:73 — _encrypted: bool`, `database: DatabaseRestoreReport | None` (FR-9, E003-S02-004), `search_replace: SearchReplaceReport | None` (E007-S01-003), `resolved_run_i"
     reason: "RestoreOutcome carries S02-004 DatabaseRestoreReport; field type, likely coordination; S02-004 e2e runs through S01-006."
   - from: E003-S02-004
     to: E003-S02-005

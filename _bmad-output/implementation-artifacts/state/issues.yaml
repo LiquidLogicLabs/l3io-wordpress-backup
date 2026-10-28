@@ -1,6 +1,6 @@
 next:
   '002': 24
-  '003': 20
+  '003': 27
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -282,3 +282,73 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+- key: BL-E003-020
+  epic: '003'
+  sprint: ''
+  title: "E003-S02-005: the old database's grant revoke and drop are unjournaled before \"loser_dropped\", so a kill there gives undo text saying it is \"retained\" when it may be gone — add a \"loser_drop_started\" step"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-021
+  epic: '003'
+  sprint: ''
+  title: "E003: no restore-level test for skipped symlinks (exit OK, WARNING lines, Safety Snapshot round trip), and nothing proves the Dry Run's link_target predicate agrees with the data_filter skip"
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-022
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-001/E003-S02-006: no integration case for a target whose wp-config.php is one level up (PARENT), the AG-10 fix'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-023
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-001 L62: two executor sentences sit under the RestoreInputs bullet — move them to the executor bullet'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-024
+  epic: '003'
+  sprint: ''
+  title: 'E002-S01-003: says a hard link is refused "in any position", but the decision is taken from data_filter, which allows in-root hard links — state which is meant'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-025
+  epic: '003'
+  sprint: ''
+  title: "E003: RestorePorts' fields are not stated in one place, and no named carrier brings the Run's MemberCipher (Dump decryption) or SecretRegistry to the executor"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+- key: BL-E003-026
+  epic: '003'
+  sprint: ''
+  title: "E003: estimates not redone after the reorg and scope growth — sprint-01 rollup still holds S01-006's hours; E003-S01-001 still standard/7.5 h"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md

@@ -4,7 +4,7 @@ sprint: 'S02'
 title: Survive being killed mid-restore
 classification: complex
 status: backlog
-updated_at: '2026-10-28T17:41:16Z'
+updated_at: '2026-10-28T18:09:32Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
@@ -32,6 +32,5 @@ depends_on:
 - 'E002-S02-007'
 - 'E002-S02-009'
 - 'E003-S01-001'
-- 'E003-S02-004'
 - 'E002-S02-011'
 - 'E002-S02-012'
