@@ -535,3 +535,17 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   registry before the Run exists (CLI and E003 too); E006-S01-004 `Tracer.run_span` carries
   no secret registry or the attributes AD-24 names. Plus three cross-story conflicts in
   E008-S01-001 / E002-S02-011 / E004-S01-003 (listed in the record).
+- [done] **Five decisions + three conflict fixes applied** (Shawn, 2026-10-27; 12 stories,
+  record in `gate-reconciliation-2026-10-27.md` "Decisions of 2026-10-27 applied"): library
+  exclusion default = the CLI's (`default_exclusion_policy()`, include-everything explicit);
+  the Dry Run plan lists active exclusion patterns; no caller-built `SiteDescriptor` on the
+  API; the root creates the `SecretRegistry` before the Run; `Tracer` carries the registry and
+  AD-24's attributes. Cipher factory named `adapters/crypto.build_member_cipher` (E004-S01-003).
+- [done] **Corrected 2026-10-28:** the agent had the API pass the host's `sys.argv` as
+  `command_args`, which would export a host program's own secrets into spans. The API passes
+  `None`; no v1 root records `process.command_args`; the redaction test asserts its absence.
+  Shawn may overrule.
+- [blocked] **OPEN (E008-S01-001):** with the cipher per call, `RootPreflight` cannot learn the
+  Run is in passphrase mode — either the plan's `required_tools` carries the passphrase-backend
+  requirement, or `real_adapters` takes a passphrase-mode flag. Real Runs are still protected
+  (`AgeMemberCipher.check()` refuses first); only the preflight/`doctor` report is affected.
