@@ -514,12 +514,13 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
 - [done] **Epic 3 adopted the E002 gate's 8 contract changes** (2026-10-27), in place, across
   all six E003 stories; record appended to `gate-reconciliation-2026-10-27.md`. Plan snapshot
   v2 written (`493c1f9`).
-- [blocked] **OPEN (E003-S01-006): binding order when the restore target has no
-  `wp-config.php`.** ADR-0016 binds adapters after the `wp-config.php` read; PREFLIGHT needs
+- [done] **Decided (Shawn, 2026-10-27): option A — read, do not extract** (ADR-0016 amendment;
+  `ArchiveProbe.read_member` added to E002-S01-003; E003-S01-006 updated). Was OPEN: binding order when the restore target has no
+  `wp-config.php`. ADR-0016 binds adapters after the `wp-config.php` read; PREFLIGHT needs
   them before VERIFY (AD-17); but with no target config the descriptor comes from the
   Archive's config member, extractable only after VERIFY. Until decided, that case refuses
   with `InvalidSiteDescriptorError` and changes nothing.
-- [todo] E003 leftovers noted by the adoption pass (not edited): E003-S02-004 cites
+- [done] E003 leftovers fixed (2026-10-27), except the journal location, which stays for Epic 3's gate: E003-S02-004 cites
   `UsageError` to S01-005 (now S01-001) and `LoadFailedError` to "P1"; some v0.1.0 citations
   outside the rewritten text; E003-S01-001's `RestoreOutcome` beside its `ExecutionReport`
   correction; E003-S02-003 vs E003-S02-005 on the journal location (the existing OPEN).

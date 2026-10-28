@@ -106,3 +106,22 @@ is **defined once, in sprint 1, by E002-S01-004** (`ports/adapter_set.py`), hold
 that exist in sprint 1. Later E002 stories (E002-S02-007, E002-S02-008, E002-S02-012) **add
 fields** to that same class for the ports they introduce; none defines a second container.
 Epic 2 owns the module throughout. This supersedes "owned by E002-S02-007" above.
+
+## Amendment — 2026-10-27: a restore target with no `wp-config.php` (Shawn)
+
+When the restore target has no `wp-config.php`, the Site Descriptor and WordPress source come
+from the Archive's `config` member, which ordinarily is extracted only after `VERIFY`, while
+`PREFLIGHT` (before `VERIFY`, AD-17) needs the bound adapters. Decided: **read, do not
+extract.** The composition root reads the `config` member's bytes through
+`ArchiveProbe.read_member` (read-only, bounded, nothing written to the Site), digests them,
+writes them to a `0600` file in the Run workspace, builds the descriptor from that file, binds
+the adapters once, and runs `PREFLIGHT` and then `VERIFY` in AD-17's order. `VERIFY` must find
+the member's stored digest equal to the digest of the bytes that were used; any difference —
+including the Archive changing between the two reads — aborts the Run before any destructive
+phase.
+
+Rejected: running `VERIFY` before `PREFLIGHT` (amends AD-17 for every restore, and finds a
+missing tool only after a long verification); refusing such targets (breaks FR-29 and E003's
+criterion). Accepted cost: unverified bytes are used to *plan* before `VERIFY` confirms them.
+Nothing destructive runs before `VERIFY` (Safety Snapshot and `CLEAN` follow it), so a tampered
+config member can only produce an abort.
