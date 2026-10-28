@@ -549,3 +549,9 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   Run is in passphrase mode — either the plan's `required_tools` carries the passphrase-backend
   requirement, or `real_adapters` takes a passphrase-mode flag. Real Runs are still protected
   (`AgeMemberCipher.check()` refuses first); only the preflight/`doctor` report is affected.
+- [done] **Decided (Shawn, 2026-10-28): the plan's `required_tools` carries the passphrase
+  backend.** `AgeMemberCipher.required_tools()` (E004-S01-003) → roots pass
+  `extra_tools=cipher.required_tools()` in `BackupRequest`/`RestoreRequest` (E002-S02-007,
+  E003-S01-006) → the plan builders append it (E002-S02-007, E003-S01-001) → `RootPreflight`
+  checks only the plan (E008-S01-001). Its OPEN is resolved. The only OPEN left in any story is
+  the Run Journal location under `--snapshot-dir` (E003-S02-005), for Epic 3's gate.
