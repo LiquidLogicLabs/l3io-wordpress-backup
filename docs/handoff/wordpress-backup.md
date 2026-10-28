@@ -555,3 +555,20 @@ Session: `wordpress-backup hardening: doctor + handoff reconcile` (`cmvgs1vhh0gy
   E003-S01-006) → the plan builders append it (E002-S02-007, E003-S01-001) → `RootPreflight`
   checks only the plan (E008-S01-001). Its OPEN is resolved. The only OPEN left in any story is
   the Run Journal location under `--snapshot-dir` (E003-S02-005), for Epic 3's gate.
+
+## Update — 2026-10-28: the lock is audited
+
+- [done] `278b773` — `uv audit` over `uv.lock` found **GHSA-xcq7-p3pf-p88h** and
+  **GHSA-xmj3-9gf7-h52w**; fixed by upgrading opentelemetry (api/sdk 1.45.1, exporters and
+  semantic-conventions 0.66b1) and setuptools 84.2.1. Still no grpcio or umbrella exporter
+  (AD-24). Audit clean, 44 packages.
+- [done] `5ce3e4f` — `.github/workflows/security-audit.yml`, ported from config: `uv audit
+  --locked` on push to main, pull_request, weekly schedule, workflow_dispatch. `make audit`
+  runs it locally (network; deliberately not in `make ci`). Four act dry-run legs, one per
+  trigger; `make ci-dryrun` 13 legs ok; `make ci` exit 0; pytest 60 passed, 2 skipped.
+- [done] `scripts/check-cicd-alignment.py` `check_security_audit` requires that workflow,
+  all four triggers and a non-comment `uv audit ... --locked` step, in every in-scope
+  repo. Plants on a config clone (workflow deleted, schedule dropped, pull_request dropped,
+  step commented out) each produce their own finding; baseline 0. Non-vacuity of the audit:
+  a planted `urllib3==1.26.4` reports 22 vulnerabilities, exit 1. All three repos: 0 findings.
+- Not pushed. Local `main` is ahead of `origin/main`; pushing is Shawn's call.
