@@ -162,36 +162,6 @@ backlog:
   severity: Low
   status: backlog
   description: New MINOR from the 2026-10-27 gate re-check (bmad-agent-architect); see epic-002/arch/recheck-bmad-agent-architect-2026-10-27.md.
-- key: BL-E003-001
-  epic: '003'
-  sprint: ''
-  title: 'E003-S01-001/E003-S02-005: undo_for signature differs (phase, header, relocation) vs (phase, header) — state once in S02-005; folds into AG-1'
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-002
-  epic: '003'
-  sprint: ''
-  title: 'E003-S02-006/E003-S02-003: unencrypted-snapshot warning has two event names (safety_snapshot_unencrypted vs safety_snapshot_not_encrypted) — pick one'
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-003
-  epic: '003'
-  sprint: ''
-  title: "E003-S02-006 L133: stale 'binding-order OPEN' and extract_archive text contradicts L67's probe.read_member"
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
 - key: BL-E003-004
   epic: '003'
   sprint: ''
@@ -212,16 +182,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-006
-  epic: '003'
-  sprint: ''
-  title: "E003-S02-005 L196: kill harness runs through Epic 6's library entry point, which lands later — drive drive_restore directly"
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
 - key: BL-E003-007
   epic: '003'
   sprint: ''
@@ -229,16 +189,6 @@ backlog:
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-008
-  epic: '003'
-  sprint: ''
-  title: "E003-S02-006 L87: says RootPreflight ('P3') adds the passphrase backend, against L70's decided extra_tools route"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
@@ -309,26 +259,6 @@ backlog:
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-016
-  epic: '003'
-  sprint: ''
-  title: SnapshotResult's module is unstated — place in core/restore.py or domain/ so core/ can import it
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-017
-  epic: '003'
-  sprint: ''
-  title: 'E003-S02-003 L59: platformdirs default computed in core/ — root computes and passes it as requested'
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)

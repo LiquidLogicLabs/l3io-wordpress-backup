@@ -139,3 +139,10 @@
 {"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-017", "session": null, "severity": "Low", "ts": "2026-10-28T16:57:00Z"}
 {"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-018", "session": null, "severity": "Low", "ts": "2026-10-28T16:57:01Z"}
 {"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-019", "session": null, "severity": "Low", "ts": "2026-10-28T16:57:01Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-001", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:05Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-002", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:06Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-003", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:06Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-006", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:07Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-008", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:07Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-016", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:08Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-017", "ref": "27ef179", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-28T18:03:08Z"}
