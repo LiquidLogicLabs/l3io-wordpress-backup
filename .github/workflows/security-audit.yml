@@ -1,0 +1,51 @@
+# l3io-wordpress-backup dependency audit (FR-45, the family's shape: ported from
+# l3io-wordpress-config, itself from l3io-wordpress-database cc107fb).
+#
+# Scans uv.lock against the OSV advisory database with `uv audit`. Native to the
+# uv already pinned by `required-version`, so no extra tool or export step, and
+# it reads the lock directly rather than a re-resolution of it.
+#
+# WHAT IT AUDITS: every package in uv.lock -- runtime dependencies, every extra
+# (database, otel) and the dev group, which is the CI toolchain. uv audits all of
+# them by default; nothing here narrows it. Verified 2026-10-28 against a planted
+# dev-only `urllib3==1.26.4` (it exits 1), and on adoption it found two real
+# advisories in this lock -- opentelemetry-api 1.44.0 (GHSA-xcq7-p3pf-p88h, a
+# runtime dependency) and setuptools 84.0.0 (GHSA-xmj3-9gf7-h52w) -- fixed by
+# upgrading them in the same change.
+#
+# `uv audit` is a preview feature in uv 0.11.6. `--preview-features audit` opts
+# in explicitly; the uv version is pinned, so its behaviour cannot shift under
+# this workflow without a deliberate bump of `required-version`.
+#
+# A separate workflow, not a ci.yml job, because advisories appear without any
+# commit: the weekly schedule is the point, and re-running the full engine
+# matrix on a timer to get it would be waste.
+
+name: Security audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: uv audit
+    runs-on: ubuntu-latest
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-audit
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }  # hatch-vcs needs tags; shallow yields 0.1.devN
+      - uses: astral-sh/setup-uv@v10.1.0  # no floating v10 ref exists; see ci.yml
+        with:
+          version: "0.11.6"
+          enable-cache: ${{ !vars.LOCAL_ACT }}
+      - name: audit the lock
+        run: uv audit --locked --preview-features audit

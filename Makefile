@@ -16,6 +16,7 @@
 #   make types        mypy --strict
 #   make test         pytest against a local MySQL (needs one running)
 #   make contracts    the architecture gates (AD-1, AD-4, AD-5, AD-25)
+#   make audit        uv audit over uv.lock (network; not part of ci)
 #   make ci           replay the whole CI pipeline locally via act
 #   make ci-job JOB=  replay one job, e.g. make ci-job JOB=contracts
 #   make ci-dryrun    parse and plan the workflow without running it
@@ -45,7 +46,7 @@ ACT_PLACEHOLDER_SECRETS := PYPI_CUSTOM_USERNAME PYPI_CUSTOM_PASSWORD PYPI_TOKEN 
 
 ACT := $(INFISICAL_RUN) act
 
-.PHONY: help act-init infisical-init secrets-check lint format types test contracts verify-wheel ci ci-job ci-dryrun ci-list build clean
+.PHONY: help act-init infisical-init secrets-check lint format types test contracts audit verify-wheel ci ci-job ci-dryrun ci-list build clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -78,6 +79,9 @@ format: ## Apply ruff formatting
 
 types: ## mypy --strict
 	uv run mypy --strict src
+
+audit: ## Scan uv.lock for known vulnerabilities (needs network; not part of ci)
+	uv audit --locked --preview-features audit
 
 contracts: ## Architecture contract gates (AD-1, AD-4, AD-5, AD-25)
 	uv run lint-imports
@@ -114,13 +118,13 @@ ci-job: act-init secrets-check ## Replay one job: make ci-job JOB=contracts
 	@test -n "$(JOB)" || { echo "usage: make ci-job JOB=<job-id>"; exit 2; }
 	$(ACT) push -j $(JOB)
 
-ci-dryrun: ## Replay every publish/release leg as a dry run (no tags, no publishes)
-	@# Nine legs, declared in .github/act-dryrun-legs.json. The table is DATA so
+ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
+	@# The legs are declared in .github/act-dryrun-legs.json. The table is DATA so
 	@# tests/contracts/test_act_dryrun_legs.py can assert it is complete against the
 	@# workflows' own triggers and choice options -- a leg list inside this recipe
 	@# plus a test naming the expected legs would drift silently.
 	@#
-	@# WHY NINE AND NOT ONE. An act dry run resolves every `uses:` ref against the
+	@# WHY ONE PER EVENT AND NOT ONE PER FILE. An act dry run resolves every `uses:` ref against the
 	@# remote, so it catches an action version that does not exist -- but it only
 	@# reaches the jobs the EVENT reaches, and a skipped job never has its refs
 	@# resolved. Measured here with a nonexistent ref planted in publish.yml's

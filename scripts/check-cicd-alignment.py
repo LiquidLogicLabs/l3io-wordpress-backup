@@ -748,6 +748,52 @@ def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
                 )
 
 
+def check_security_audit(repo: pathlib.Path, R: Reporter) -> None:
+    """security-audit.yml audits the lock on push, PR, a weekly schedule and by hand.
+
+    Advisories arrive without a commit, so the schedule is the point: database's
+    weekly run caught GHSA-xcq7-p3pf-p88h on 2026-10-26 with nothing pushed. The
+    step is checked as well as the triggers -- a workflow with every trigger and
+    no `uv audit --locked` would pass a triggers-only check while auditing nothing.
+    Aligned across the family 2026-10-28 (config 1e9a9d0, database d0d0cb9).
+    """
+    p = repo / ".github" / "workflows" / "security-audit.yml"
+    if not p.is_file():
+        R(
+            "audit",
+            "no .github/workflows/security-audit.yml -- the lock is never audited",
+        )
+        return
+    try:
+        doc = load(p)
+    except yaml.YAMLError as e:
+        R("audit", f"security-audit.yml is not valid YAML: {str(e).splitlines()[0]}")
+        return
+    on = triggers(doc)
+    push = on.get("push") or {}
+    if "main" not in ((push.get("branches") or []) if isinstance(push, dict) else []):
+        R("audit", "security-audit.yml does not run on push to main")
+    if "pull_request" not in on:
+        R("audit", "security-audit.yml does not run on pull_request")
+    if not any(str(c.get("cron", "")).strip() for c in (on.get("schedule") or [])):
+        R(
+            "audit",
+            "security-audit.yml has no schedule -- an advisory published after "
+            "the last commit is never seen",
+        )
+    if "workflow_dispatch" not in on:
+        R("audit", "security-audit.yml has no workflow_dispatch")
+    runs = "\n".join(
+        line
+        for job in (doc.get("jobs") or {}).values()
+        for st in job.get("steps") or []
+        for line in str(st.get("run", "")).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    if not re.search(r"\buv\s+audit\b[^\n]*--locked", runs):
+        R("audit", "security-audit.yml runs no `uv audit --locked` step")
+
+
 def in_scope(repo: pathlib.Path) -> str | None:
     """None when `repo` is a family package; otherwise why it is skipped.
 
@@ -846,6 +892,7 @@ def main() -> int:
         is_ns = (repo / "src" / "l3io").is_dir()
         check_namespace(ci_blob, pub_blob, is_ns, R)
         check_ruff(repo, R)
+        check_security_audit(repo, R)
         for path, check in (
             (ci_p, check_act_matrix),
             (pub_p, check_publish_shape),

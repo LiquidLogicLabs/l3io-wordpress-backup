@@ -13,6 +13,10 @@
     { "workflow": "publish.yml", "event": "release",            "payload": ".github/act-events/release-published.json" },
     { "workflow": "publish.yml", "event": "workflow_dispatch", "inputs": { "target": "testpypi" } },
     { "workflow": "publish.yml", "event": "workflow_dispatch", "inputs": { "target": "pypi" } },
-    { "workflow": "publish.yml", "event": "workflow_dispatch", "inputs": { "target": "mirror" } }
+    { "workflow": "publish.yml", "event": "workflow_dispatch", "inputs": { "target": "mirror" } },
+    { "workflow": "security-audit.yml", "event": "push" },
+    { "workflow": "security-audit.yml", "event": "pull_request" },
+    { "workflow": "security-audit.yml", "event": "schedule" },
+    { "workflow": "security-audit.yml", "event": "workflow_dispatch" }
   ]
 }
