@@ -4,7 +4,7 @@ sprint: 'S02'
 title: Take a safety snapshot before destroying anything
 classification: complex
 status: backlog
-updated_at: '2026-10-27T22:15:31Z'
+updated_at: '2026-10-28T17:41:16Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
@@ -32,6 +32,5 @@ depends_on:
 - 'E002-S01-006'
 - 'E002-S02-008'
 - 'E003-S01-001'
-- 'E003-S01-006'
 - 'E002-S01-010'
 - 'E002-S02-011'

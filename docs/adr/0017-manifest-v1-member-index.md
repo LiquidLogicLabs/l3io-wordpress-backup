@@ -185,7 +185,7 @@ Decided by Shawn, 2026-10-28, from the E003 arch gate (finding AG-2).
   `LinkOutsideDestinationError`, the filter returns `None` (`tarfile`'s documented skip),
   records the link in `ExtractResult.skipped_links`, logs `symlink_skipped`, and extraction
   continues. The restore exits `OK`, and prints one WARNING line per skipped link
-  (E003-S01-001, E003-S01-006).
+  (E003-S01-001, E003-S02-006).
 - **Every other filter refusal still aborts**: unsafe member names, members outside the
   destination, hard links anywhere, special files. Containment stays `tarfile`'s; the only
   decision added is which of its exceptions, on which member type, becomes a skip.

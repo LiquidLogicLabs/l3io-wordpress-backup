@@ -1,4 +1,4 @@
-next: 20
+next: 24
 reserved:
 - number: 14
   slug: age-encryption-via-database
@@ -24,3 +24,19 @@ reserved:
   slug: backup-dry-run-scope
   epic: E002
   reserved_at: '2026-10-27T21:43:43Z'
+- number: 20
+  slug: arch-gate
+  epic: E003
+  reserved_at: '2026-10-28T17:41:38Z'
+- number: 21
+  slug: arch-gate
+  epic: E003
+  reserved_at: '2026-10-28T17:41:38Z'
+- number: 22
+  slug: arch-gate
+  epic: E003
+  reserved_at: '2026-10-28T17:41:38Z'
+- number: 23
+  slug: arch-gate
+  epic: E003
+  reserved_at: '2026-10-28T17:41:38Z'

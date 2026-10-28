@@ -175,7 +175,7 @@ backlog:
 - key: BL-E003-002
   epic: '003'
   sprint: ''
-  title: 'E003-S01-006/E003-S02-003: unencrypted-snapshot warning has two event names (safety_snapshot_unencrypted vs safety_snapshot_not_encrypted) — pick one'
+  title: 'E003-S02-006/E003-S02-003: unencrypted-snapshot warning has two event names (safety_snapshot_unencrypted vs safety_snapshot_not_encrypted) — pick one'
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
@@ -185,7 +185,7 @@ backlog:
 - key: BL-E003-003
   epic: '003'
   sprint: ''
-  title: "E003-S01-006 L133: stale 'binding-order OPEN' and extract_archive text contradicts L67's probe.read_member"
+  title: "E003-S02-006 L133: stale 'binding-order OPEN' and extract_archive text contradicts L67's probe.read_member"
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
@@ -195,7 +195,7 @@ backlog:
 - key: BL-E003-004
   epic: '003'
   sprint: ''
-  title: "epics.md Epic List: add adapters/restore_runner.py and E003-S01-006's edit of cli/parser.py::NOT_YET_IMPLEMENTED to Epic 3's ownership notes"
+  title: "epics.md Epic List: add adapters/restore_runner.py and E003-S02-006's edit of cli/parser.py::NOT_YET_IMPLEMENTED to Epic 3's ownership notes"
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
@@ -225,7 +225,7 @@ backlog:
 - key: BL-E003-007
   epic: '003'
   sprint: ''
-  title: "Naming residue: E003-S01-006 AC L26 and epics.md 3.6 cite E002-S01-005's table; E003-S02-004 L68 calls RestoreOutcome story 3.1's (it is E003-S01-006's)"
+  title: "Naming residue: E003-S02-006 AC L26 and epics.md 3.6 cite E002-S01-005's table; E003-S02-004 L68 calls RestoreOutcome story 3.1's (it is E003-S02-006's)"
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
@@ -235,7 +235,7 @@ backlog:
 - key: BL-E003-008
   epic: '003'
   sprint: ''
-  title: "E003-S01-006 L87: says RootPreflight ('P3') adds the passphrase backend, against L70's decided extra_tools route"
+  title: "E003-S02-006 L87: says RootPreflight ('P3') adds the passphrase backend, against L70's decided extra_tools route"
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
@@ -245,7 +245,7 @@ backlog:
 - key: BL-E003-009
   epic: '003'
   sprint: ''
-  title: "E003-S01-006 L67: v0 Archive config read uses a second read instead of ADR-0016's stored digest — record as accepted residual in ADR-0016"
+  title: "E003-S02-006 L67: v0 Archive config read uses a second read instead of ADR-0016's stored digest — record as accepted residual in ADR-0016"
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
@@ -265,7 +265,7 @@ backlog:
 - key: BL-E003-011
   epic: '003'
   sprint: ''
-  title: "E003-S01-002 L231 and E003-S02-003 L54: 'story 3.1's OPEN on cli/restore.py' is resolved by E003-S01-006"
+  title: "E003-S01-002 L231 and E003-S02-003 L54: 'story 3.1's OPEN on cli/restore.py' is resolved by E003-S02-006"
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
@@ -335,7 +335,7 @@ backlog:
 - key: BL-E003-018
   epic: '003'
   sprint: ''
-  title: "E003-S01-006 L61/L86: a joined Run with relocation has no obligation to carry search_replace / relocated source — refuse or state the outer root's obligation"
+  title: "E003-S02-006 L61/L86: a joined Run with relocation has no obligation to carry search_replace / relocated source — refuse or state the outer root's obligation"
   source: arch-gate (l3io-arch-review)
   source_phase: arch-gate
   source_ref: l3io-arch-review

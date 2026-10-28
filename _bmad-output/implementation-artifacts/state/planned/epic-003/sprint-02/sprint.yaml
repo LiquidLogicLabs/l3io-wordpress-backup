@@ -28,3 +28,4 @@ estimate:
   cost_high: 4.52
   model: claude-opus-5
   confidence: medium
+next: 7
