@@ -172,3 +172,28 @@ restore stops at extraction. The Manifest records enough to support either remed
 refusing such Archives at backup time, or a restore-side filter that wraps `data_filter`
 and skips and reports those links rather than aborting. Choosing between them is
 restore's (Epic 3) and AD-11's, and is not made here.
+
+## Amendment — 2026-10-28: the Concern is resolved — skip and warn
+
+Decided by Shawn, 2026-10-28, from the E003 arch gate (finding AG-2).
+
+- **Symlinks whose target is absolute or outside the Site Root are not supported for
+  restore**, and the documentation says so. Backup still records them with the WARNING
+  above; the format is unchanged.
+- **A restore does not fail on them.** `extract_archive` (E002-S01-003) wraps
+  `tarfile.data_filter`. When a symlink member makes it raise `AbsoluteLinkError` or
+  `LinkOutsideDestinationError`, the filter returns `None` (`tarfile`'s documented skip),
+  records the link in `ExtractResult.skipped_links`, logs `symlink_skipped`, and extraction
+  continues. The restore exits `OK`, and prints one WARNING line per skipped link
+  (E003-S01-001, E003-S01-006).
+- **Every other filter refusal still aborts**: unsafe member names, members outside the
+  destination, hard links anywhere, special files. Containment stays `tarfile`'s; the only
+  decision added is which of its exceptions, on which member type, becomes a skip.
+- An absolute link that points *inside* the Site Root is skipped as well. Rewriting it to
+  a relative link would be a new transformation of operator data, and was not chosen.
+- A Dry Run names the links it would skip from `ViewMember.link_target`, which
+  E002-S01-003 adds to the view. For a v0 Archive, which has no Manifest, it says they are
+  reported at extraction.
+- Since the restore no longer aborts mid-EXTRACT, the `*-clean` failure mode and the
+  unrestorable Safety Snapshot that the gate described do not occur. The site comes back
+  without those links, and the operator is told which ones.

@@ -76,6 +76,10 @@ shows the cutover in `REWRITE_CONFIG` (flag to the spine's owner).
   the links through E002's one extraction function; (3) refuse at backup time — Epic 2/4's
   module, insufficient alone because existing Archives remain; (4, architect) refuse by
   default with an explicit opt-in to skip. Any choice must run before SNAPSHOT.
+  **Decided (Shawn, 2026-10-28): documented as unsupported, skipped with a WARNING, the
+  restore does not fail** — option (2). ADR-0017 amendment; E002-S01-003 (`extract_archive`,
+  `ExtractResult.skipped_links`, `ViewMember.link_target`), E003-S01-001, E003-S01-006 patched.
+  AG-2 awaits the re-check.
 - **AG-8 crosses into Epic 2:** a `RunJournalCommand.resolve` with a no-op twin changes
   E002-S02-012, a gated (PASSED) but unbuilt story.
 
