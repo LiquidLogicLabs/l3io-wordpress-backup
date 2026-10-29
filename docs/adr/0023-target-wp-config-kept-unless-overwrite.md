@@ -65,7 +65,9 @@ also replaces salts and paths.
    the write, and never journaled.
 4. `ConfigCommand.replace_file(config_file, source, keep=<those four values>)` applies `keep`
    to the Archive's config text **in memory**, with `l3io-wordpress-config`'s public
-   `WpConfigString.set`, then writes a temp file in the target config's directory, fsyncs
+   `WpConfigString.set` (v0.1.2 or later: earlier versions raise on CRLF content), reading
+   and writing with `newline=""` so the file's line endings are kept, then writes a temp
+   file in the target config's directory, fsyncs
    it and `os.replace`s it onto the located path. The target file's mode and owner are
    kept, and the write refuses rather than change the owner, as `l3io-wordpress-config`
    does. Journaled as step `"config_replaced"`. The file that lands carries the target's
