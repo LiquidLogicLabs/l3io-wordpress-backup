@@ -613,4 +613,5 @@ Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md
     uv 0.11.6. FR-25 requires every runtime dependency to resolve from its declared index.
   - **This repo will then:** add a CI install check for the `[database]` extra (built
     wheel plus the index), and point its dev lock at the index.
-  - **Not sent yet:** no database session was live on 2026-10-30. Send it when one is.
+  - **Sent 2026-10-30** to "wordpress-database - agent 1" (Cursor, Happier session
+    `cmv567lc34jehtf013cb1ckqh`; not visible to `ListAgents`). Awaiting a reply.
