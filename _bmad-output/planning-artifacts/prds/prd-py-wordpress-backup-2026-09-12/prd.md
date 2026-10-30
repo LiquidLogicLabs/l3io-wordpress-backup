@@ -136,7 +136,7 @@ An operator can produce an encrypted Archive using a supplied passphrase or key,
 
 **Consequences (testable):**
 - With encryption requested, the resulting Archive yields no plaintext database content or file content to an inspector without the key.
-- Encryption parameters sufficient to decrypt (algorithm, KDF parameters, salt — never the key) are recorded in the Manifest.
+- The Manifest records that the Archive is encrypted, and never the key. It records no algorithm, KDF parameter or salt: the encrypted payload is a standard `age` file that carries its own header. *(Amended 2026-10-29 — [ADR-0014](../../../../docs/adr/0014-age-encryption-via-database.md), [ADR-0024](../../../../docs/adr/0024-one-encrypted-payload-passphrase-only.md))*
 - Restoring an encrypted Archive without a key fails with a distinct, named error, not a generic corruption error.
 - An operator can encrypt without the passphrase appearing in process arguments.
 

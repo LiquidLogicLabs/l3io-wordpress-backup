@@ -100,12 +100,36 @@ Accepted by Shawn, 2026-10-27, superseding the passphrase bullet above where the
 - **This package pinned database by rev to `47384ba`** (2026-10-27), then to the
   **v0.2.0** release (`48a7da9`, same day; the `database` extra is `>=0.2.0,<0.3`). It
   imports `encrypt`, `decrypt` and `check_passphrase` from the package root.
-- **The `encryption` extra is not taken yet.** It pulls the binder, and uv ignores a
-  dependency's own `[tool.uv.sources]`, so it would build the Rust binder from source.
-  Story E004-S01-003 adds it together with a source for the binder's release wheels.
+- **The `encryption` extra is not taken yet.** It pulls the binder, and uv **follows** a
+  git dependency's own `[tool.uv.sources]`, so through the git-pinned database it
+  resolves the binder from database's git source and builds the Rust binder from source.
+  A root `[tool.uv.sources]` entry alone is ignored for a transitive package. Story
+  E004-S01-003 adds the extra and takes the binder's wheels from the family index with
+  `[[tool.uv.index]]` (`explicit = true`), `[tool.uv] override-dependencies` and a root
+  source naming that index. *(Gate E004 AG-3, 2026-10-30: corrected; verified with uv
+  0.11.6. The earlier text said uv ignores a dependency's own sources.)*
 - **For the CLI fallback, AD-7's invariant extends to the passphrase:** it never appears
   in an argument vector, environment or log. That is database's mechanism to assert, as
   for credentials (ADR-0015); this package asserts only what it emits.
 - The consequence "passphrase archives cannot ship before database 0.2.0, and that needs a
   pyrage release" no longer holds: they need database 0.2.0 (or this rev) and either the
   binder wheel or `age` ≥ 1.3 present.
+
+## Amendment — 2026-10-29: one encrypted payload, passphrase only (ADR-0024)
+
+Accepted by Shawn, 2026-10-29. [ADR-0024](0024-one-encrypted-payload-passphrase-only.md)
+supersedes these parts of this ADR:
+
+- **Per-member encryption.** An Archive is encrypted as one `age` payload
+  (`payload.tar.gz.age`), not member by member. "Any archive member decrypts with
+  `age -d`" now reads: the payload decrypts with `age -d`, and the result is a plain
+  gzip tar.
+- **Dump encryption through `dump(passphrase=)`.** The Dump is written plain into the
+  Run's owner-only workspace and travels inside the payload, so `dump` and `load` take
+  no `passphrase=`, `recipients=` or `identities=`.
+- **Recipients and identities for v1.** The passphrase, resolved by AD-26's chain, is the
+  only v1 key. Recipient and identity encryption are deferred to a later additive ADR.
+
+Unchanged: `age` reached only through `l3io-wordpress-database`'s `encrypt`/`decrypt`, no
+`pyrage` or `cryptography` import in this package, no key material in the Manifest, and
+the binder and CLI passphrase backends with the amendment above.

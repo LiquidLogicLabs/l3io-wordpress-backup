@@ -127,7 +127,7 @@ _Not applicable — this product has no graphical surface. It ships a CLI and an
 |---|---|---|---|---|
 | 2 | **Walking skeleton — take a backup and prove it** | Epic 1 | `domain/*` (including `domain/archive_format` and its v0 classifier), `ports/*`, `core/backup`, `cli/*`, `adapters/{tar,database,store,lock,config_writer}` | 9 |
 | 3 | **Restore without destroying it** | Epic 2 | `core/restore`, `adapters/{journal,staging}`, `cli/restore.py` | 6 |
-| 4 | **Archive lifecycle** | Epic 2 | `adapters/crypto`, `core/exclusions`, the v0 fixture Archives and their tests | 3 |
+| 4 | **Archive lifecycle** | Epic 2 | `adapters/crypto`, `core/exclusions`, `adapters/exclusions`, the v0 fixture Archives and their tests | 3 |
 | 5 | **Credential providers and readiness** | Epic 2 | `adapters/{credential_providers,preflight}` | 2 |
 | 6 | **Embed in Python automation** | Epic 2 | `api/*`, `adapters/tracing` | 4 |
 | 7 | **Move a site to a new URL** | Epic 3 | `adapters/wpcli`, the relocation logic in `core/`, one static import line in `cli/restore.py` | 4 |
@@ -171,6 +171,12 @@ and the `doctor` subcommand, the `Preflight` binding) once those epics exist. It
 as an Epic 2 sprint S03, which would have made Epic 2 depend on Epics 4 and 5; as a final
 epic the graph stays acyclic and no closed epic is reopened. Epic 3's `cli/restore.py` and
 Epic 6's `api/` reach every binding through those functions and need no edit.
+`passphrase_backend_requirements` moved from Epic 5's `adapters/preflight` to Epic 4's
+`adapters/crypto` (E004-S01-003), so Epic 4 no longer imports from Epic 5 in the same phase;
+Epic 5's preflight checks the requirements it is handed *(Gate E004 AG-8, 2026-10-30)*.
+Epic 4 also owns `adapters/exclusions` (Gate E004 AG-12, 2026-10-30): its `LoggedExclusionPolicy`
+wraps `core/exclusions`' pure decision and emits the exclusion log events, so `core/` stays
+effect-free (AD-1).
 
 **Why this shape, and what it costs.** The organising constraint is not story
 independence — it is *which files two agents would edit at once*. Under the previous
@@ -510,7 +516,7 @@ So that the mode I typed is the mode performed and every safety step runs in ord
 
 Fills three seams the skeleton left open, each behind a port it does not share.
 
-**Owns exclusively:** `adapters/crypto`, `domain/archive_format` (v0 classifier only), `core/exclusions`
+**Owns exclusively:** `adapters/crypto`, `domain/archive_format` (v0 classifier only), `core/exclusions`, `adapters/exclusions`
 
 ### Story 4.1: Exclude paths that should not be in a backup
 

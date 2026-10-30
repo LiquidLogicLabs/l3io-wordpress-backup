@@ -51,9 +51,12 @@ order:
 
 1. `manifest.json`: first and never encrypted, as AD-6 requires.
 2. The payload: `payload.tar.gz` when not encrypted, `payload.tar.gz.age` when encrypted.
-   It is a gzip-compressed inner tar holding `database.sql` first (when the scope includes
-   the database), then `wp-root/…`. Putting the Dump first lets a database-only restore
-   stop reading early.
+   It is a gzip-compressed inner tar whose members keep AD-6's role-prefixed v1 names
+   (`dump/…`, `config/…`, `site-root/…`; E002-S01-001 owns them), the Dump first (when the
+   scope includes the database), then the config, then the site root. Putting the Dump
+   first lets a database-only restore stop reading early. *(Corrected 2026-10-30: the
+   accepted text named the inner members `database.sql` and `wp-root/…`, which is v0's
+   layout; this ADR never meant to change AD-6's role prefixes.)*
 
 **Writing.** The inner tar is gzip-compressed and then encrypted as **one stream** by
 `l3io-wordpress-database`'s `encrypt(reader, writer, passphrase=)` (v0.2.0, push-style:
@@ -110,7 +113,7 @@ member for a plain one. No threads and no pipes are needed.
 
 The existing filter wrapper still applies: the skip for unsupported symlinks
 (ADR-0017 amendment) and the `wp-config.php` exclusion (ADR-0023). Reading a single inner
-member streams to it, for example the config (≤ 1 MiB) or `database.sql` into the
+member streams to it, for example the config (≤ 1 MiB) or the Dump into the
 workspace. This package adds no decryption or file-writing code.
 
 **v0.** Unchanged. It is read-only, with no Manifest and one-way detection (AD-23).
@@ -146,7 +149,7 @@ workspace. This package adds no decryption or file-writing code.
   - Amend ADR-0014 and ADR-0017 to point here.
   - Re-scope E002-S01-001 (writer), E002-S01-003 (verify, extract, `read_member`),
     E004-S01-003 (passphrase-only encryption) and the E003 stories that read members or
-    decrypt the Dump (E003-S02-005's load reads the extracted plain `database.sql`).
+    decrypt the Dump (E003-S02-005's load reads the extracted plain Dump).
 - **Revisit when:** a single-file restore or keyless per-file integrity becomes a product
   requirement, or key-based encryption is scheduled. Keys need only a new ADR; neither of
   the other two is possible within this layout.

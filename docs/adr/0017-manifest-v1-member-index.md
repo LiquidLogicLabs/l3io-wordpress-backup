@@ -197,3 +197,23 @@ Decided by Shawn, 2026-10-28, from the E003 arch gate (finding AG-2).
 - Since the restore no longer aborts mid-EXTRACT, the `*-clean` failure mode and the
   unrestorable Safety Snapshot that the gate described do not occur. The site comes back
   without those links, and the operator is told which ones.
+
+## Amendment — 2026-10-29: one payload, no per-member checksums (ADR-0024)
+
+Accepted by Shawn, 2026-10-29. [ADR-0024](0024-one-encrypted-payload-passphrase-only.md)
+supersedes these parts of this ADR:
+
+- **The tar layout.** The outer tar holds exactly two members: `manifest.json`, then the
+  payload (`payload.tar.gz`, or `payload.tar.gz.age` when encrypted). The member index
+  describes the members of the payload's inner tar, not of the outer tar.
+- **`sha256` and `encrypted` per member are withdrawn.** `ManifestMember` is
+  `(path, role, kind, size, link_target)`. The Manifest instead carries `encrypted: bool`
+  and the payload's `name`, `size` and `sha256` over the bytes as stored.
+- **Verification without a key** checks the Manifest, the version, the payload's
+  presence, size and checksum, and that the member index is well formed. It no longer
+  compares each file member's checksum.
+
+Unchanged: the member kinds, the hard-link and special-file rules, the symlink rules and
+the 2026-10-28 amendment (skip and warn), `manifest.json` first and never encrypted, and
+`SUPPORTED_FORMAT_VERSIONS` with its fixture test. `format_version` stays 1, because v1 is
+not yet released.

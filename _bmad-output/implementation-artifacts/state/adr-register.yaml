@@ -1,4 +1,4 @@
-next: 24
+next: 25
 reserved:
 - number: 14
   slug: age-encryption-via-database
@@ -40,3 +40,7 @@ reserved:
   slug: arch-gate
   epic: E003
   reserved_at: '2026-10-28T17:41:38Z'
+- number: 24
+  slug: arch-gate
+  epic: E004
+  reserved_at: '2026-10-29T21:57:28Z'
