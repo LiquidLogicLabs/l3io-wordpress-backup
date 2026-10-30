@@ -242,3 +242,38 @@ def test_wp_cli_is_pinned_and_checksummed() -> None:
             f"{where}: WP_CLI_SHA512 is not a hardcoded sha512"
         )
         assert "sha512sum -c" in run, f"{where}: the download is never verified"
+
+
+def _extras_installs() -> list[tuple[str, str]]:
+    """Every non-comment ``run:`` that installs the built wheel with extras."""
+    found = []
+    for wf in WORKFLOWS:
+        for job_id, job in _jobs(wf).items():
+            for step in job.get("steps") or []:
+                run = step.get("run") or ""
+                lines = run.splitlines()
+                code = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
+                if "${wheel}[" in code:
+                    found.append((f"{wf.name}:{job_id}", code))
+    return found
+
+
+def test_every_extra_is_install_checked_from_the_family_index() -> None:
+    """FR-25: every runtime dependency resolves from its declared index.
+
+    The base-wheel checks cannot see a broken extra. E004 gate AG-3 (2026-10-28)
+    found the age passphrase binder resolvable only from a git source, so an
+    operator's ``[database]`` install would have built Rust from source. One step
+    must install the wheel with every extra, from the family index, with
+    ``--no-build``, and must derive the extras from pyproject.toml rather than
+    list them.
+    """
+    installs = _extras_installs()
+    assert installs, "no workflow step installs the built wheel with its extras"
+    for where, code in installs:
+        assert "--no-build" in code, f"{where}: a source build would pass this check"
+        assert "--index family=" in code, f"{where}: not resolved from the family index"
+        assert "optional-dependencies" in code, (
+            f"{where}: the extras are not derived from pyproject.toml, so a new extra "
+            f"would go unchecked"
+        )

@@ -613,5 +613,18 @@ Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md
     uv 0.11.6. FR-25 requires every runtime dependency to resolve from its declared index.
   - **This repo will then:** add a CI install check for the `[database]` extra (built
     wheel plus the index), and point its dev lock at the index.
-  - **Sent 2026-10-30** to "wordpress-database - agent 1" (Cursor, Happier session
-    `cmv567lc34jehtf013cb1ckqh`; not visible to `ListAgents`). Awaiting a reply.
+  - **Done 2026-10-30.** Sent to "wordpress-database - agent 1" (a Cursor session under
+    Happier, `cmv567lc34jehtf013cb1ckqh`, which `ListAgents` does not show; reach it with
+    Happier's `session.message.send`).
+    - It published `l3io-age-passphrase` 0.1.0 to
+      `https://git.ravenwolf.org/api/packages/liquidlogiclabs/pypi` (abi3 cp311+:
+      manylinux/musllinux x86_64 and aarch64, macOS x86_64 and arm64, win_amd64, sdist).
+    - The index needs auth: `GITEA_TOKEN` from Infisical `/ci/act/l3io-wordpress-backup`.
+    - Verified here: the built wheel with `[database]` plus `l3io-wordpress-database[encryption]`
+      installs from the index alone with `--no-build`, and a passphrase round trip through
+      database's `encrypt`/`decrypt` succeeds.
+    - CI's `verify-install` now installs every extra (derived from pyproject.toml) from the
+      index with `--no-build`. `test_every_extra_is_install_checked_from_the_family_index`
+      guards it, proven by three plants. `make ci` passes.
+    - Still to do in E004-S01-003: when it adds the `encryption` extra, the dev lock takes
+      the binder from this index, not database's git source.

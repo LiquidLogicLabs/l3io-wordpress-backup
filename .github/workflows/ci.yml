@@ -335,3 +335,26 @@ jobs:
           wheel=$(ls "$DIST_DIR"/*.whl)
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$wheel" wpbackup2 --version
+      - name: every optional extra installs from the family index, wheels only
+        # FR-25: "every runtime dependency resolves from its declared index at
+        # release time". The steps above install the BASE wheel only, so a broken
+        # extra would pass them. This one installs the built wheel with EVERY extra
+        # in pyproject.toml (derived, not listed, so an extra added later -- E004's
+        # `encryption` -- is covered with no edit here) from the family index alone,
+        # with --no-build, so a dependency that only has an sdist or a git source
+        # fails here rather than at an operator's install. That is the failure
+        # E004 gate AG-3 found for the age passphrase binder (2026-10-28); its
+        # wheels were published to this index on 2026-10-30.
+        env:
+          UV_INDEX_FAMILY_USERNAME: ${{ vars.GITEA_USERNAME || github.actor }}
+          UV_INDEX_FAMILY_PASSWORD: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          set -euo pipefail
+          wheel=$(ls "$DIST_DIR"/*.whl)
+          extras=$(python3 -c 'import tomllib; print(",".join(tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]))')
+          test -n "$extras" || { echo "::error::no optional extras found in pyproject.toml"; exit 1; }
+          echo "extras under test: $extras"
+          uv run --isolated --no-project --no-build --python "${{ matrix.python }}" \
+                 --index family=https://git.ravenwolf.org/api/packages/liquidlogiclabs/pypi/simple \
+                 --with "${wheel}[${extras}]" \
+                 python -c "from l3io.wp import backup, database, config; print('extras install ok')"
