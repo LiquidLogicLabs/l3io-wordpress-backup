@@ -602,3 +602,15 @@ Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md
 - Open for later epics: 21 E003 MINORs remain in `state/issues.yaml`. BL-E003-025 and -028
   (`RestorePorts` has no declared home) are prerequisites for E003-S02-005's `load_staged`.
 - Not pushed. Next: the Epic 4 and Epic 5 gates, which share Epic 3's plan phase.
+
+## Requests to wordpress-database (open, 2026-10-30)
+
+- **Publish `l3io-age-passphrase` wheels to the family index** (Shawn's decision on E004
+  gate AG-3, 2026-10-30).
+  - **Why:** an install of `l3io-wordpress-backup[database]` from the index cannot resolve
+    the binder today. A git-pinned lock follows database's own source for it (tag
+    `v0.1.0`), which builds the Rust binder from source; reproduced 2026-10-28 with
+    uv 0.11.6. FR-25 requires every runtime dependency to resolve from its declared index.
+  - **This repo will then:** add a CI install check for the `[database]` extra (built
+    wheel plus the index), and point its dev lock at the index.
+  - **Not sent yet:** no database session was live on 2026-10-30. Send it when one is.
