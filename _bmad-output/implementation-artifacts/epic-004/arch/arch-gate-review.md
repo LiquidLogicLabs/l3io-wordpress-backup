@@ -43,6 +43,33 @@ MINORs (32 raw, deduplicated to 24) are filed in `state/issues.yaml` (§5).
   CI coverage is dropped.
 - **AG-8:** order E005 before E004, or move the passphrase-backend function.
 
-## Resolution
+## Resolution — 2026-10-29/30
 
-Not started.
+Shawn's decisions:
+- **ADR-0024** (accepted 2026-10-29): one encrypted payload, passphrase only for v1. This
+  dissolves AG-1, AG-5 and AG-6, and AG-7 moves into VERIFY.
+- **AG-3 (a):** the binder's wheels are on the family index (database, 2026-10-30); CI
+  installs every extra from that index with `--no-build` (`f17170c`).
+- **AG-4 (a):** a pinned `age` v1.3.2 download in CI.
+- **AG-8 (a):** `passphrase_backend_requirements` moves to `adapters/crypto`.
+
+Applied in `e44ac5b`, with in-place edits to 21 stories.
+
+## Re-check — 2026-10-30
+
+- `recheck-bmad-agent-architect-2026-10-30.md`: **9/9 resolved**; 1 new MAJOR, 9 MINOR.
+- `recheck-l3io-arch-review-2026-10-30.md`: **9/10 resolved**; AG-3 is partly resolved
+  (no fallback stated for a platform without a wheel); 1 new MAJOR, 11 MINOR.
+- **New MAJOR (architect): E005 → E004 is unrecorded.** E005-S01-002's tool-docs check
+  fails once `adapters/crypto` exists without its enumeration. E004 and E005 run in
+  parallel, so whichever lands second breaks CI, and no story owns the fix.
+- **New MAJOR (l3io-arch-review): the family index needs credentials.**
+  - Confirmed 2026-10-30: anonymous `/simple/` returns 401, the repository is public, and
+    `pyproject.toml` already keeps database off that index for this reason.
+  - AG-3's dev-lock mechanism would make every `uv sync --locked` (ci.yml L60, L87, L228)
+    need credentials.
+  - The `f17170c` step is red on a pull request from a fork, where `secrets.GITEA_TOKEN`
+    is empty.
+  - **Needs Shawn's decision.**
+
+**Verdict after one resolution pass: BLOCKED** — 2 blocking findings.

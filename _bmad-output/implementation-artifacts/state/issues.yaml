@@ -1,7 +1,7 @@
 next:
   '002': 24
   '003': 30
-  '004': 25
+  '004': 42
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -613,3 +613,173 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+- key: BL-E004-025
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 L185 says "database.sql intact" (v0's name) — v1 uses the dump-role member; also EncryptedMemberCorruptError/member/member_decryption_failed keep per-member names
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-026
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 L60 cites extract_archive without payload=
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-027
+  epic: '004'
+  sprint: ''
+  title: Restore resolves the passphrase on every run, so every interactive restore prompts (plain and v0 Archives too) — state it as intended or skip for unencrypted Archives
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-028
+  epic: '004'
+  sprint: ''
+  title: AC blocks and epics.md stories 4.3/3.3 keep per-member/recipient text without a dated ADR-0024 note (E004-S01-003 L22)
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-029
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 L187 says decrypt failures are tested "through the drivers", but no driver reaches a decrypt in E004's loop
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-030
+  epic: '004'
+  sprint: ''
+  title: ADR-0024 Consequences says "AG-7 reduces to one header check"; its Decision decrypts the whole payload
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-031
+  epic: '004'
+  sprint: ''
+  title: E004-S01-001/-003 story depends_on omit E002-S01-004 (covered by the epic edge)
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-032
+  epic: '004'
+  sprint: ''
+  title: AGE_SHA256 not written into E004-S01-003 (architect computed cbe240…ac10 from GitHub; cross-check at implementation)
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-033
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 estimate dates from 2026-10-27 though largely rewritten — re-estimate
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-034
+  epic: '004'
+  sprint: ''
+  title: PRD FR-3 (L128, glossary L83) still requires per-member and Dump checksums; nothing compares the inner tar with the Manifest index on read
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-035
+  epic: '004'
+  sprint: ''
+  title: Spine AD-6 L101/L104 still say the Manifest records which members are encrypted and their checksums
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-036
+  epic: '004'
+  sprint: ''
+  title: ArchiveView.config_path means a member path for v0 and a location for v1; E007-S01-002 AC L27 reconciled only by a note
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-037
+  epic: '004'
+  sprint: ''
+  title: 'E003-S02-006 L68: no-config path decrypts the payload twice to the same path; decrypt_payload does not say overwrite or refuse'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-038
+  epic: '004'
+  sprint: ''
+  title: LoggedExclusionPolicy called frozen but holds a once-flag; direct library callers get no exclusion events; E006-S01-001 L132 names the old default
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-039
+  epic: '004'
+  sprint: ''
+  title: The f17170c CI step comment says "from the family index alone" but --index adds it ahead of PyPI
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-040
+  epic: '004'
+  sprint: ''
+  title: E002-S02-009 L97 still says "against the pinned v0.1.1" after the v0.1.2 bump
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E004-041
+  epic: '004'
+  sprint: ''
+  title: 'AG-3 residue: no stated behaviour on a platform with no published binder wheel'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md

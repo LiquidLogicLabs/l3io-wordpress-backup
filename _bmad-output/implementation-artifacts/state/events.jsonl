@@ -193,3 +193,24 @@
 {"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-022", "session": null, "severity": "Low", "ts": "2026-10-28T21:33:45Z"}
 {"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-023", "session": null, "severity": "Low", "ts": "2026-10-28T21:33:46Z"}
 {"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-024", "session": null, "severity": "Low", "ts": "2026-10-28T21:33:46Z"}
+{"agent": "l3io-arch-review", "epic": "E004", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-30T15:46:30Z"}
+{"agent": "bmad-agent-architect", "epic": "E004", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-30T15:46:30Z"}
+{"agent": "l3io-arch-review", "epic": "E004", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-30T15:52:39Z"}
+{"agent": "bmad-agent-architect", "epic": "E004", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-10-30T15:52:39Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-025", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:54Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-026", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:54Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-027", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:55Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-028", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:55Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-029", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:56Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-030", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:56Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-031", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:57Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-032", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:57Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-033", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:58Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-034", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:58Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-035", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:59Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-036", "session": null, "severity": "Low", "ts": "2026-10-30T15:52:59Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-037", "session": null, "severity": "Low", "ts": "2026-10-30T15:53:00Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-038", "session": null, "severity": "Low", "ts": "2026-10-30T15:53:01Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-039", "session": null, "severity": "Low", "ts": "2026-10-30T15:53:01Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-040", "session": null, "severity": "Low", "ts": "2026-10-30T15:53:02Z"}
+{"cause": "cli", "epic": "004", "event": "issue_opened", "key": "BL-E004-041", "session": null, "severity": "Low", "ts": "2026-10-30T15:53:02Z"}
