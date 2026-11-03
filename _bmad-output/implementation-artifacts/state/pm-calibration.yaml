@@ -1,0 +1,48 @@
+version: 2
+granularity: story
+scope:
+  simple: {}
+  standard:
+    elapsed_hours:
+      samples:
+      - 0.144
+      models_seen:
+      - claude-opus-5
+    man_hours:
+      samples:
+      - 1.6
+      models_seen:
+      - claude-opus-5
+    hitl_hours:
+      samples:
+      - 0.0
+      models_seen:
+      - claude-opus-5
+    tokens_k:
+      samples:
+      - 7.5504
+      models_seen:
+      - claude-opus-5
+  complex: {}
+closure:
+  sprint: {}
+  epic: {}
+fix:
+  simple: {}
+  standard:
+    reworked:
+      mean_man_hours: 12.0
+      samples: 1
+  complex: {}
+orchestration:
+  sprint: {}
+  epic: {}
+metrics_migrated_at: '2026-11-03T02:42:08Z'
+token_basis_migrated_at: '2026-11-03T02:42:08Z'
+token_mix:
+  samples:
+  - input: 0.0
+    output: 0.0113
+    cache_write: 0.0432
+    cache_read: 0.9455
+    model: claude-opus-5

@@ -1,7 +1,7 @@
 _lock:
   session_id: b74a242a-6a71-45d8-8ece-7b06b152e53c
-  claimed_at: '2026-11-03T02:17:45Z'
-  ttl_minutes: 30
+  claimed_at: '2026-11-03T02:19:18Z'
+  ttl_minutes: 240
 key: 'E002'
 title: 'Walking skeleton — take a backup and prove it'
 goal: 'One operator-visible capability (`backup` and `verify` both working end to end) that necessarily lands every shared contract: the Site Descriptor, the archive format, the `ports/` Protocols, the Run Context, the CLI parser, and the no-op command adapters that make Dry Run structural. **Sequential — it blocks everything else, and that is its job.**'

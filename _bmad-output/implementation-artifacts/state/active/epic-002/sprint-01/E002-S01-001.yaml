@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S01'
 title: Produce an archive of a site's files and database
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-03T02:18:42Z'
+status: done
+updated_at: '2026-11-03T02:42:09Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -24,3 +24,31 @@ estimate:
     output: 9
     cache_write: 53
     cache_read: 88
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 23
+actual:
+  elapsed_hours: 0.36
+  man_hours: 12
+  hitl_hours: 0
+  tokens_k:
+    total: 12187.01
+    input: 0.23
+    output: 137.413
+    cache_write: 526.789
+    cache_read: 11522.573
+  cost: 12.49
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-03T02:42:08Z'

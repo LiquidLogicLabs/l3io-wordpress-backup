@@ -1,5 +1,5 @@
 next:
-  '002': 34
+  '002': 40
   '003': 30
   '004': 42
 backlog:
@@ -883,3 +883,63 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md Re-check
+- key: BL-E002-034
+  epic: '002'
+  sprint: '01'
+  title: manifest_from_json on_unknown hook defaults to None, so an unknown origin.kind can be dropped without the required WARNING
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-06)
+- key: BL-E002-035
+  epic: '002'
+  sprint: '01'
+  title: dump_to maps database AccessDeniedError (privilege missing mid-session) to CredentialsError instead of DatabaseRefusedError(missing_privilege)
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-07)
+- key: BL-E002-036
+  epic: '002'
+  sprint: '01'
+  title: Manifest reader accepts member paths not role-prefixed or escaping (../), unlike member_path
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-08)
+- key: BL-E002-037
+  epic: '002'
+  sprint: '01'
+  title: AD-6 owner grep matches role prefixes only at string start; f-string or ./dump/ re-spellings pass
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-09)
+- key: BL-E002-038
+  epic: '002'
+  sprint: '01'
+  title: Planted-password Manifest test does not assert the fixture contains the planted password
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-10)
+- key: BL-E002-039
+  epic: '002'
+  sprint: '01'
+  title: WpDatabase/IncludeEverything port conformance is claimed in docstrings but not type-checked
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-11)
