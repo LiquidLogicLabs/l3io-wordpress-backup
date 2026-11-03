@@ -1,7 +1,9 @@
 """FR-3 — ``wpbackup2 verify --archive <target>``: check an Archive, touch no Site.
 
-Binds the real :func:`~l3io.wp.backup.adapters.tar.verify_archive` and opens no
-workspace: verification reads the Archive and writes nothing. ``0`` on a pass,
+:func:`drive_verify` opens or joins a Run (AD-16), binds nothing, and calls
+:func:`~l3io.wp.backup.adapters.tar.verify_archive`: verification reads the
+Archive and writes nothing, and is keyless (ADR-0024), so
+:class:`VerifyRequest` carries no cipher. ``0`` on a pass,
 ``1`` on a fail or an error (E002-S01-005 maps the fail to
 ``VERIFICATION_FAILED``). The output names ``integrity``; a v0 pass says that
 integrity was not checked, because a v0 Archive carries no checksums.
@@ -10,24 +12,32 @@ integrity was not checked, because a v0 Archive carries no checksums.
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path, PurePosixPath
-
-import structlog
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.tar import verify_archive
 from l3io.wp.backup.cli.backup import storage_target_from_cli
+from l3io.wp.backup.cli.context import RunContext, join_or_open
+from l3io.wp.backup.cli.output import emit_failure, emit_result
 from l3io.wp.backup.domain.archive_format import (
     Integrity,
     VerificationResult,
     format_label,
 )
-from l3io.wp.backup.domain.errors import BackupError
+from l3io.wp.backup.domain.errors import BackupError, VerificationFailedError
+from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.ports.tracing import Tracer
 
-__all__ = ["run_verify", "verify_from_args"]
+__all__ = ["VerifyRequest", "drive_verify", "run_verify"]
 
-_log = structlog.get_logger(__name__)
+
+@dataclass(frozen=True, slots=True)
+class VerifyRequest:
+    """The Archive to check. No cipher: verification is keyless (ADR-0024)."""
+
+    archive: StorageTarget
 
 
 def _describe(result: VerificationResult) -> str:
@@ -41,12 +51,32 @@ def _describe(result: VerificationResult) -> str:
     return f"integrity {result.integrity.value} (format {label})"
 
 
-def verify_from_args(
-    args: argparse.Namespace,
-) -> tuple[PurePosixPath, VerificationResult]:
-    """The verify driver: raises ``BackupError``; :func:`run_verify` renders it."""
-    target = storage_target_from_cli(args.archive)
-    return target.path, verify_archive(Path(target.path))
+def drive_verify(
+    request: VerifyRequest,
+    *,
+    ctx: RunContext | None,
+    tracer: Tracer | None = None,
+    secrets: SecretRegistry | None = None,
+    command_args: Sequence[str] | None = None,
+) -> VerificationResult:
+    """The verify driver: returns or raises ``BackupError``; never prints.
+
+    A failed verification is returned, not raised; a Run opened here still
+    finishes with a non-zero ``exit_code`` (``report_failure``).
+    """
+    with join_or_open(
+        ctx,
+        operation="verify",
+        tracer=tracer,
+        secrets=secrets,
+        command_args=command_args,
+    ) as handle:
+        result = verify_archive(Path(request.archive.path))
+        if handle.opened and not result.passed:
+            handle.ctx.report_failure(
+                exit_code=1, error_type=VerificationFailedError.__name__
+            )
+        return result
 
 
 def run_verify(args: argparse.Namespace) -> int:
@@ -58,20 +88,26 @@ def run_verify(args: argparse.Namespace) -> int:
     """
     secrets = SecretRegistry()
     try:
-        path, result = verify_from_args(args)
+        target = storage_target_from_cli(args.archive)
+        result = drive_verify(VerifyRequest(archive=target), ctx=None, secrets=secrets)
     except BackupError as exc:
-        _log.error("verify_failed", error=type(exc).__name__)
-        print(secrets.redact(f"wpbackup2: error: {exc}"), file=sys.stderr)
+        emit_failure(
+            "command_failed",
+            f"wpbackup2: error: {exc}",
+            error=type(exc).__name__,
+            secrets=secrets,
+        )
         return 1
-    finally:
-        secrets.log_registered()
+    path = target.path
     if result.passed:
-        print(f"{path}: OK, {_describe(result)}")
+        emit_result(f"{path}: OK, {_describe(result)}")
         return 0
     first = result.failures[0]
     member = "" if first.member is None else f" ({first.member!r})"
-    print(
+    emit_failure(
+        "verify_failed",
         f"wpbackup2: verify failed: {path}: {first.reason.value}{member}",
-        file=sys.stderr,
+        error=VerificationFailedError.__name__,
+        secrets=secrets,
     )
     return 1

@@ -16,6 +16,8 @@ from typing import Any
 import pytest
 from structlog.testing import capture_logs
 
+from tests.conftest import pipeline_events
+
 pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.database import (
@@ -28,8 +30,8 @@ from l3io.wp.backup.adapters.tar import (
     verify_or_raise,
 )
 from l3io.wp.backup.adapters.workspace import WORKSPACE_PREFIX
+from l3io.wp.backup.cli import adapter_sets, main
 from l3io.wp.backup.cli import backup as backup_cli
-from l3io.wp.backup.cli import main
 from l3io.wp.backup.core.backup import BackupStep, build_backup_plan
 from l3io.wp.backup.domain.archive_format import (
     MANIFEST_MEMBER,
@@ -265,7 +267,7 @@ def cli_site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Any
     (root / "index.php").write_text("<?php\n")
     database = FakeDatabase()
     monkeypatch.setattr(
-        backup_cli, "WpDatabase", lambda credentials, *, secrets: database
+        adapter_sets, "WpDatabase", lambda credentials, *, secrets: database
     )
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
@@ -429,13 +431,29 @@ def _roles(inner: list[tarfile.TarInfo]) -> set[str]:
     return {info.name.split("/")[0] for info in inner}
 
 
+class RefusingDatabase:
+    """Bound into a files Run's adapter set; any use of it fails the test."""
+
+    def check_dump(self, location: object) -> object:
+        msg = "a files backup used the database adapter"
+        raise AssertionError(msg)
+
+    def dump_to(self, location: object, destination: Path) -> object:
+        msg = "a files backup used the database adapter"
+        raise AssertionError(msg)
+
+
 def test_a_files_backup_resolves_no_credential_and_binds_no_database(
     tmp_path: Path,
     cli_site: tuple[Path, Any],
     monkeypatch: pytest.MonkeyPatch,
     archive_reader: Callable[..., Any],
     capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """The set is bound once per Run (ADR-0016), so the database adapter is
+    constructed; it is never handed to the executor, never resolves and never
+    connects (FR-2)."""
     root, _ = cli_site
     real = backup_cli.site_descriptor_from_wp_config
 
@@ -443,16 +461,14 @@ def test_a_files_backup_resolves_no_credential_and_binds_no_database(
         site, _ = real(site_root, config_file=config_file)
         return site, RefusingCredentials()
 
-    def no_database(credentials: object) -> object:
-        msg = "a files backup constructed a database adapter"
-        raise AssertionError(msg)
-
     monkeypatch.setattr(backup_cli, "site_descriptor_from_wp_config", descriptor)
-    monkeypatch.setattr(backup_cli, "WpDatabase", no_database)
+    monkeypatch.setattr(
+        adapter_sets, "WpDatabase", lambda credentials, *, secrets: RefusingDatabase()
+    )
     final = tmp_path / "files.tar.gz"
-    with capture_logs() as logs:
-        argv = ["backup", "--wp-dir", str(root), "--archive", str(final)]
-        code = main([*argv, "--mode", "files"])
+    argv = ["backup", "--wp-dir", str(root), "--archive", str(final)]
+    code = main([*argv, "--mode", "files"])
+    logs = pipeline_events(caplog)
     assert code == 0, capsys.readouterr().err
     read = archive_reader(final)
     assert read.manifest.backup_scope == "files"
@@ -468,15 +484,16 @@ def test_a_db_backup_is_a_full_archive_with_no_site_root(
     cli_site: tuple[Path, Any],
     archive_reader: Callable[..., Any],
     capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     root, database = cli_site
     out = tmp_path / "out"
     out.mkdir()
     final = out / "db.tar.gz"
-    with capture_logs() as logs:
-        code = main(
-            ["backup", "--wp-dir", str(root), "--archive", str(final), "--mode", "db"]
-        )
+    code = main(
+        ["backup", "--wp-dir", str(root), "--archive", str(final), "--mode", "db"]
+    )
+    logs = pipeline_events(caplog)
     assert code == 0, capsys.readouterr().err
     assert list(out.iterdir()) == [final]
     assert list((tmp_path / "tmp").iterdir()) == []

@@ -41,4 +41,6 @@ def run_workspace(parent: Path | None) -> Iterator[Path]:
     finally:
         shutil.rmtree(created, ignore_errors=True)
         if created.exists():
-            _log.warning("workspace_not_removed", path=str(created))
+            # The path only at DEBUG (AD-12); the warning names no path.
+            _log.warning("workspace_not_removed")
+            _log.debug("workspace_not_removed_path", path=str(created))

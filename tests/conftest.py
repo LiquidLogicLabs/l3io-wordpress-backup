@@ -3,9 +3,17 @@
 ``credential_sentinel`` is AD-7 items 1-4 as a reusable fixture (ADR-0018).
 It plants a unique sentinel password in a temporary ``wp-config.php`` and
 captures every surface a credential could leak through; a test drives a Run
-and calls :meth:`CredentialSentinel.assert_clean`. Epic 3 story 3.1 applies it
-to a full restore; Epic 4 (E004-S01-003) applies its ``passphrase`` parameter
-to an encrypted Run.
+and calls :meth:`CredentialSentinel.assert_clean`. Its events are both the raw
+ones (``capture_logs``, before any configuration) and those the configured
+pipeline (``cli/logging.py``) handed to the stdlib root logger, already
+redacted — so once ``main`` has configured logging, what is checked is what
+the program actually emits.
+
+``_reset_logging`` (autouse) undoes ``configure_logging`` after every test,
+so one test's root handler never writes to another's closed stream.
+
+Epic 3 story 3.1 applies the sentinel to a full restore; Epic 4
+(E004-S01-003) applies its ``passphrase`` parameter to an encrypted Run.
 """
 
 from __future__ import annotations
@@ -46,7 +54,7 @@ class CredentialSentinel:
     workdir: Path
     environ_before: dict[str, str]
     caplog: pytest.LogCaptureFixture
-    logs: list[dict[str, Any]]
+    raw: list[dict[str, Any]]
     monkeypatch: pytest.MonkeyPatch = field(repr=False)
     popen: list[tuple[object, object]] = field(default_factory=list)
     texts: list[tuple[str, str]] = field(default_factory=list)
@@ -54,6 +62,11 @@ class CredentialSentinel:
     def __repr__(self) -> str:
         # pytest prints a failing frame's arguments: never the sentinels.
         return f"CredentialSentinel(<{len(self.texts)} captured texts>)"
+
+    @property
+    def logs(self) -> list[dict[str, Any]]:
+        """Raw captured events, then every event the configured pipeline emitted."""
+        return [*self.raw, *pipeline_events(self.caplog)]
 
     @property
     def secrets(self) -> tuple[str, ...]:
@@ -133,6 +146,22 @@ class CredentialSentinel:
         ), "MYSQL_PWD was put in a child's environment"
 
 
+def pipeline_events(caplog: pytest.LogCaptureFixture) -> list[dict[str, Any]]:
+    """The event dicts ``cli/logging.py``'s pipeline handed to stdlib logging."""
+    return [dict(r.msg) for r in caplog.records if isinstance(r.msg, dict)]
+
+
+@pytest.fixture(autouse=True)
+def _reset_logging() -> Iterator[None]:
+    root = logging.getLogger()
+    level = root.level
+    yield
+    from l3io.wp.backup.cli.logging import reset_logging
+
+    reset_logging()
+    root.setLevel(level)
+
+
 def _environ() -> dict[str, str]:
     """``os.environ`` without the variable pytest itself rewrites per phase."""
     return {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}
@@ -192,7 +221,7 @@ def credential_sentinel(
             workdir=workdir,
             environ_before=_environ(),
             caplog=caplog,
-            logs=logs,
+            raw=logs,
             monkeypatch=monkeypatch,
         )
         real_popen = subprocess.Popen

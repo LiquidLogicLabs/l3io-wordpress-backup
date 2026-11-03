@@ -14,15 +14,36 @@ hand-kept list, so a flag added here without an entry in
 from __future__ import annotations
 
 import argparse
+import logging
 
 from l3io.wp.backup import __version__
 
-__all__ = ["BACKUP_COMMAND", "RESTORE_COMMAND", "VERIFY_COMMAND", "build_parser"]
+__all__ = [
+    "BACKUP_COMMAND",
+    "DEFAULT_LOG_LEVEL",
+    "LOG_FORMATS",
+    "RESTORE_COMMAND",
+    "VERIFY_COMMAND",
+    "build_parser",
+]
 
 BACKUP_COMMAND = "backup"
 RESTORE_COMMAND = "restore"
 #: An addition AD-22 permits (FR-3): check an Archive without touching a Site.
 VERIFY_COMMAND = "verify"
+#: Triage E-14: ``INFO``, not v0.2.21's ``CRITICAL`` (a behaviour fix AD-22 permits).
+DEFAULT_LOG_LEVEL = "INFO"
+#: ``--log-format`` choices, as ``l3io-wp-database`` v0.2.0 spells them.
+LOG_FORMATS = ("console", "json")
+
+
+def _log_level(text: str) -> str:
+    """A stdlib level name, case-insensitive; anything else is a usage error."""
+    name = text.upper()
+    if name == "NOTSET" or name not in logging.getLevelNamesMapping():
+        msg = f"invalid level {text!r} (choose DEBUG, INFO, WARNING, ERROR or CRITICAL)"
+        raise argparse.ArgumentTypeError(msg)
+    return name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--log-level",
+        type=_log_level,
+        default=DEFAULT_LOG_LEVEL,
+        help=f"Logging level (stdlib level names; default {DEFAULT_LOG_LEVEL})",
+    )
+    parser.add_argument(
+        "--log-format",
+        choices=LOG_FORMATS,
+        default=None,
+        help="Log format on stderr (default: console on a terminal, else json)",
     )
 
     subparsers = parser.add_subparsers(dest="action", help="Action being requested")

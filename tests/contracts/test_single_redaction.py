@@ -8,6 +8,11 @@ tracing adapter calling the registry rather than writing its own.
 Scope: every ``*.py`` under the package, walked rather than listed. The marker
 check sees string constants (f-string parts included); it cannot see a marker
 assembled at runtime, which review covers.
+
+A **declaration** is not an implementation: a function whose body is only
+``...`` (after an optional docstring) — ``ports/tracing.Redactor``'s Protocol
+methods (E002-S01-004), which the registry satisfies structurally — is not an
+offence. Any other statement in the body makes it one.
 """
 
 from __future__ import annotations
@@ -19,6 +24,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
 OWNER = PACKAGE / "adapters" / "redaction.py"
 MARKER = "***"
+
+
+def _is_declaration(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    body = node.body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    return (
+        len(body) == 1
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and body[0].value.value is Ellipsis
+    )
 
 
 def _offences(path: Path) -> list[str]:
@@ -34,6 +56,7 @@ def _offences(path: Path) -> list[str]:
         if (
             isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
             and "redact" in node.name.lower()
+            and not _is_declaration(node)
         ):
             found.append(f"line {node.lineno}: defines {node.name}()")
     return found
@@ -83,3 +106,32 @@ def test_the_guard_fires_in_a_nested_layer(tmp_path: Path) -> None:
     found = _violations(root, owner)
     assert len(found) == 2, found
     assert any("deep" in f for f in found)
+
+
+def test_a_declaration_is_exempt_and_an_implementation_beside_it_is_not(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "pkg"
+    (root / "ports").mkdir(parents=True)
+    owner = root / "adapters" / "redaction.py"
+    (root / "ports" / "p.py").write_text(
+        "class Redactor(Protocol):\n"
+        '    def redact(self, text):\n        """Doc."""\n        ...\n'
+        "    def redact_argv(self, argv):\n        ...\n"
+        '    def redact_more(self, text):\n        """Doc."""\n'
+        "        return text\n",
+        encoding="utf-8",
+    )
+    assert _violations(root, owner) == ["ports/p.py line 7: defines redact_more()"]
+
+
+def test_the_ports_declarations_are_really_there() -> None:
+    """The exemption is exercised by the real tree, not only a planted one."""
+    tracing = PACKAGE / "ports" / "tracing.py"
+    tree = ast.parse(tracing.read_text(encoding="utf-8"))
+    declared = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and _is_declaration(node)
+    }
+    assert {"redact", "redact_argv"} <= declared

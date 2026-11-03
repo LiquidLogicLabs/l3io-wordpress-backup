@@ -8,6 +8,12 @@ control), the ``repr`` of what the composition root builds, every
 ``subprocess.Popen`` argv and ``env``, ``os.environ`` and the Archive's
 Manifest bytes are searched for it.
 
+The CLI cases run ``main`` at ``--log-level DEBUG``, so the events searched are
+those ``cli/logging.py``'s configured pipeline emitted — redaction installed
+through the Run Context — and the rendered stderr it wrote (FR-20: raising
+verbosity never introduces a credential). ``_backup`` asserts the pipeline was
+live, so the check cannot pass over an empty stream.
+
 The unit tier runs over a database double that records what it was handed and
 resolves the credentials as database's ``dump`` does; the ``integration`` tier
 runs against the CI database.
@@ -39,12 +45,12 @@ if TYPE_CHECKING:
 wpdb = pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.redaction import REDACTED  # noqa: E402
+from l3io.wp.backup.cli import adapter_sets, main  # noqa: E402
 from l3io.wp.backup.cli import backup as backup_cli  # noqa: E402
-from l3io.wp.backup.cli import main  # noqa: E402
 from l3io.wp.backup.cli import verify as verify_cli  # noqa: E402
-from l3io.wp.backup.cli.parser import build_parser  # noqa: E402
 from l3io.wp.backup.cli.passphrase import resolve_passphrase  # noqa: E402
 from l3io.wp.backup.domain.archive_format import MANIFEST_MEMBER  # noqa: E402
+from l3io.wp.backup.domain.backup_scope import BackupScope  # noqa: E402
 from l3io.wp.backup.domain.errors import (  # noqa: E402
     BackupError,
     CredentialsError,
@@ -110,10 +116,28 @@ def watched_names(module: object, *drivers: str) -> set[str]:
     }
 
 
+BACKUP_DRIVERS = ("run_backup", "drive_backup", "backup")
+
+
 def _watch_root(sentinel: CredentialSentinel) -> None:
-    names = watched_names(backup_cli, "run_backup", "backup_from_args")
-    for name in names:
+    for name in watched_names(backup_cli, *BACKUP_DRIVERS):
         sentinel.watch(backup_cli, name)
+    for name in watched_names(adapter_sets, "real_adapters"):
+        sentinel.watch(adapter_sets, name)
+
+
+def _drive(sentinel: CredentialSentinel, scope: BackupScope = BackupScope.ALL) -> None:
+    """The library path: the driver, given a request rather than flags."""
+    target = str(sentinel.workdir / f"driven-{scope.value}.tar.gz")
+    request = backup_cli.BackupRequest(
+        site_root=sentinel.site,
+        scope=scope,
+        target=backup_cli.storage_target_from_cli(target),
+        wp_config=None,
+        credentials=None,
+        cipher=None,
+    )
+    backup_cli.drive_backup(request, ctx=None, secrets=backup_cli.SecretRegistry())
 
 
 def _manifest(archive: Path) -> bytes:
@@ -131,10 +155,12 @@ def _backup(
 ) -> tuple[int, Path]:
     archive = sentinel.workdir / f"backup-{mode}.tar.gz"
     argv = ["backup", "--wp-dir", str(sentinel.site), "--archive", str(archive)]
-    code = main([*argv, "--mode", mode])
+    code = main(["--log-level", "DEBUG", "--log-format", "json", *argv, "--mode", mode])
     out = capsys.readouterr()
     sentinel.add("stdout", out.out)
     sentinel.add("stderr", out.err)
+    assert '"event": "run_started"' in out.err, "the configured pipeline wrote nothing"
+    assert any(e["event"] == "run_finished" for e in sentinel.logs)
     return code, archive
 
 
@@ -200,11 +226,8 @@ def test_a_backup_failing_at_authentication_emits_no_credential(
     code, archive = _backup(credential_sentinel, capsys, mode="all")
     assert code != 0
     assert not archive.exists()
-    args = build_parser().parse_args(
-        ["backup", "--wp-dir", str(credential_sentinel.site), "--archive", str(archive)]
-    )
     with pytest.raises(CredentialsError) as caught:
-        backup_cli.backup_from_args(args, secrets=backup_cli.SecretRegistry())
+        _drive(credential_sentinel)
     credential_sentinel.add_exception("backup driver", caught.value)
     credential_sentinel.assert_clean()
 
@@ -223,14 +246,12 @@ def test_a_source_failing_with_the_secret_in_its_text_is_not_chained(
         raise ValueError(msg)
 
     monkeypatch.setattr(wpdb.WpConfigFile, "resolve", leaky)
-    args = build_parser().parse_args(
-        ["backup", "--wp-dir", str(credential_sentinel.site), "--mode", "db"]
-    )
     with pytest.raises(CredentialsError) as caught:
-        backup_cli.backup_from_args(args, secrets=backup_cli.SecretRegistry())
+        _drive(credential_sentinel, BackupScope.DATABASE)
     assert caught.value.reason == "ValueError"
     credential_sentinel.add_exception("backup driver", caught.value)
-    assert main(["backup", "--wp-dir", str(credential_sentinel.site)]) != 0
+    argv = ["--log-level", "DEBUG", "backup", "--wp-dir", str(credential_sentinel.site)]
+    assert main(argv) != 0
     out = capsys.readouterr()
     credential_sentinel.add("stderr", out.err)
     credential_sentinel.assert_clean()
@@ -243,33 +264,37 @@ def test_verify_emits_no_credential(
 ) -> None:
     code, archive = _backup(credential_sentinel, capsys, mode="all")
     assert code == 0
-    names = watched_names(verify_cli, "run_verify", "verify_from_args")
+    names = watched_names(verify_cli, "run_verify", "drive_verify")
     assert {"SecretRegistry", "storage_target_from_cli", "verify_archive"} <= names
     for name in names:
         credential_sentinel.watch(verify_cli, name)
-    assert main(["verify", "--archive", str(archive)]) == 0
+    debug = ["--log-level", "DEBUG", "verify", "--archive"]
+    assert main([*debug, str(archive)]) == 0
     missing = credential_sentinel.workdir / "absent.tar.gz"
-    assert main(["verify", "--archive", str(missing)]) != 0
+    assert main([*debug, str(missing)]) != 0
     out = capsys.readouterr()
     credential_sentinel.add("verify stdout", out.out)
     credential_sentinel.add("verify stderr", out.err)
-    args = build_parser().parse_args(["verify", "--archive", str(missing)])
+    request = verify_cli.VerifyRequest(
+        archive=backup_cli.storage_target_from_cli(str(missing))
+    )
     with pytest.raises(BackupError) as caught:
-        verify_cli.verify_from_args(args)
+        verify_cli.drive_verify(request, ctx=None)
     credential_sentinel.add_exception("verify driver", caught.value)
     credential_sentinel.assert_clean()
 
 
 def test_the_watched_set_is_derived_and_covers_the_credential_path() -> None:
-    names = watched_names(backup_cli, "run_backup", "backup_from_args")
+    names = watched_names(backup_cli, *BACKUP_DRIVERS)
     assert {
         "SecretRegistry",
         "site_descriptor_from_wp_config",
         "wordpress_source",
-        "WpDatabase",
+        "real_adapters",
         "execute_backup_plan",
     } <= names
     assert "Path" not in names  # not a package callable
+    assert "WpDatabase" in watched_names(adapter_sets, "real_adapters")
 
 
 def test_a_failed_transfer_emits_no_credential(
@@ -281,11 +306,8 @@ def test_a_failed_transfer_emits_no_credential(
     monkeypatch.setattr(wpdb, "dump", DatabaseDouble(transfer=stderr))
     code, _ = _backup(credential_sentinel, capsys, mode="db")
     assert code != 0
-    args = build_parser().parse_args(
-        ["backup", "--wp-dir", str(credential_sentinel.site), "--mode", "db"]
-    )
     with pytest.raises(DumpFailedError) as caught:
-        backup_cli.backup_from_args(args, secrets=backup_cli.SecretRegistry())
+        _drive(credential_sentinel, BackupScope.DATABASE)
     credential_sentinel.add_exception("backup driver", caught.value)
     credential_sentinel.assert_clean()
 
@@ -455,10 +477,7 @@ def test_a_live_backup_failing_at_authentication_emits_no_credential(
     code, archive = _backup(credential_sentinel, capsys, mode="db")
     assert code != 0
     assert not archive.exists()
-    args = build_parser().parse_args(
-        ["backup", "--wp-dir", str(credential_sentinel.site), "--mode", "db"]
-    )
     with pytest.raises(CredentialsError) as caught:
-        backup_cli.backup_from_args(args, secrets=backup_cli.SecretRegistry())
+        _drive(credential_sentinel, BackupScope.DATABASE)
     credential_sentinel.add_exception("backup driver", caught.value)
     credential_sentinel.assert_clean()

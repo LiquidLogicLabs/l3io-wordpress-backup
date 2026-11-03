@@ -314,3 +314,12 @@
 {"epic": "E002", "event": "actual", "from": null, "key": "E002-S01-006", "node": "story", "session": null, "sprint": "S01", "to": null, "ts": "2026-11-03T04:53:50Z"}
 {"epic": "E002", "event": "status", "from": "in-progress", "key": "E002-S01-006", "node": "story", "session": null, "sprint": "S01", "to": "done", "ts": "2026-11-03T04:53:50Z"}
 {"agent": "l3io-pm-story", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-006", "ts": "2026-11-03T04:54:24Z"}
+{"agent": "l3io-pm-story", "epic": "E002", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-004", "ts": "2026-11-03T04:57:38Z"}
+{"epic": "E002", "event": "status", "from": "ready-for-dev", "key": "E002-S01-004", "node": "story", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "to": "in-progress", "ts": "2026-11-03T04:58:37Z"}
+{"agent": "l3io-dev-implement", "epic": "E002", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-004", "ts": "2026-11-03T04:58:38Z"}
+{"agent": "l3io-dev-implement", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-004", "ts": "2026-11-03T05:21:16Z"}
+{"agent": "bmad-code-review", "epic": "E002", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-004", "ts": "2026-11-03T05:21:16Z"}
+{"agent": "bmad-code-review", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-004", "ts": "2026-11-03T05:27:22Z"}
+{"epic": "E002", "event": "actual", "from": null, "key": "E002-S01-004", "node": "story", "session": null, "sprint": "S01", "to": null, "ts": "2026-11-03T05:34:17Z"}
+{"epic": "E002", "event": "status", "from": "in-progress", "key": "E002-S01-004", "node": "story", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "to": "done", "ts": "2026-11-03T05:34:17Z"}
+{"agent": "l3io-pm-story", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E002-S01-004", "ts": "2026-11-03T05:34:48Z"}

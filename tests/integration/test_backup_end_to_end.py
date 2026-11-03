@@ -23,8 +23,7 @@ pymysql = pytest.importorskip("pymysql")
 from pymysql.connections import Connection  # noqa: E402
 
 from l3io.wp.backup.adapters import store as store_module  # noqa: E402
-from l3io.wp.backup.cli import backup as backup_cli  # noqa: E402
-from l3io.wp.backup.cli import main  # noqa: E402
+from l3io.wp.backup.cli import adapter_sets, main  # noqa: E402
 from l3io.wp.backup.domain.archive_format import (  # noqa: E402
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
@@ -157,8 +156,9 @@ def test_a_failing_verifier_leaves_no_final_name(
         raise ForcedFailure(msg)
 
     real_store = store_module.LocalArchiveStore
+    # real_adapters builds the store; patch it where it is looked up.
     monkeypatch.setattr(
-        backup_cli, "LocalArchiveStore", lambda *, verify: real_store(verify=refuse)
+        adapter_sets, "LocalArchiveStore", lambda *, verify: real_store(verify=refuse)
     )
     assert main(["backup", "--wp-dir", str(site), "--archive", str(final)]) != 0
     assert list(out.iterdir()) == []

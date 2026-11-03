@@ -10,8 +10,14 @@ its own phase (verification, inside the store's ``VERIFY``) annotate that
 record rather than emit a second one.
 
 Until E002-S01-005 maps errors to exit codes, ``exit_code`` is ``0`` on success
-and ``1`` on failure. E002-S01-004 adds the tracing hook and binds the Run ID.
-Nothing here configures logging.
+and ``1`` on failure. Nothing here configures logging; the Run ID reaches the
+record through ``structlog.contextvars`` (AD-10).
+
+**Tracing hook (AD-24).** :data:`ACTIVE_TRACER` holds the open Run's tracer and
+registry, set and reset by ``cli.context.open_run``; ``None`` means
+``NoopTracer()``. :func:`phase` enters ``tracer.phase_span(name, secrets=...)``
+around the block and calls its ``set_outcome`` with the ``exit_code`` and
+``bytes`` it logs, so ``phase()`` needs no Run Context.
 """
 
 from __future__ import annotations
@@ -25,7 +31,11 @@ from typing import Final
 
 import structlog
 
-__all__ = ["PhaseRecord", "join_phase", "phase"]
+from l3io.wp.backup.adapters.noop import NoopTracer
+from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.ports.tracing import Redactor, Tracer
+
+__all__ = ["ACTIVE_TRACER", "PhaseRecord", "join_phase", "phase"]
 
 _log = structlog.get_logger(__name__)
 
@@ -35,6 +45,17 @@ _FIXED_KEYS: Final = frozenset(
 )
 
 _current: ContextVar[PhaseRecord | None] = ContextVar("phase", default=None)
+
+#: The open Run's tracer and registry; ``None`` means ``NoopTracer()``.
+ACTIVE_TRACER: ContextVar[tuple[Tracer, Redactor] | None] = ContextVar(
+    "active_tracer", default=None
+)
+
+
+def _tracer() -> tuple[Tracer, Redactor]:
+    active = ACTIVE_TRACER.get()
+    # Outside a Run nothing is registered: an empty registry redacts nothing.
+    return active if active is not None else (NoopTracer(), SecretRegistry())
 
 
 @dataclass(slots=True)
@@ -49,26 +70,33 @@ class PhaseRecord:
 @contextmanager
 def phase(name: str) -> Iterator[PhaseRecord]:
     """Run the body as phase ``name`` and emit its ``phase_completed`` record."""
-    record = PhaseRecord(name=name)
-    token = _current.set(record)
-    started = time.monotonic_ns()
-    outcome, exit_code = "failed", 1
-    try:
-        yield record
-        outcome, exit_code = "ok", 0
-    finally:
-        _current.reset(token)
-        emit = _log.info if outcome == "ok" else _log.error
-        extra = {k: v for k, v in record.fields.items() if k not in _FIXED_KEYS}
-        emit(
-            "phase_completed",
-            phase=name,
-            duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
-            bytes=record.bytes,
-            outcome=outcome,
-            exit_code=exit_code,
-            **extra,
-        )
+    tracer, secrets = _tracer()
+    with tracer.phase_span(name, secrets=secrets) as span:
+        record = PhaseRecord(name=name)
+        token = _current.set(record)
+        started = time.monotonic_ns()
+        outcome, exit_code = "failed", 1
+        try:
+            yield record
+            outcome, exit_code = "ok", 0
+        finally:
+            _current.reset(token)
+            _emit(record, started, outcome, exit_code)
+            span.set_outcome(exit_code=exit_code, archive_bytes=record.bytes)
+
+
+def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: int) -> None:
+    emit = _log.info if outcome == "ok" else _log.error
+    extra = {k: v for k, v in record.fields.items() if k not in _FIXED_KEYS}
+    emit(
+        "phase_completed",
+        phase=record.name,
+        duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
+        bytes=record.bytes,
+        outcome=outcome,
+        exit_code=exit_code,
+        **extra,
+    )
 
 
 @contextmanager

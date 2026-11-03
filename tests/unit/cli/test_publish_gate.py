@@ -11,8 +11,7 @@ pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters import store as store_module
 from l3io.wp.backup.adapters import tar as tar_module
-from l3io.wp.backup.cli import backup as backup_cli
-from l3io.wp.backup.cli import main
+from l3io.wp.backup.cli import adapter_sets, main
 
 WP_CONFIG = Path(__file__).resolve().parents[2] / "data" / "wp-config.php"
 
@@ -27,7 +26,7 @@ def test_the_backup_root_binds_verify_or_raise(
             bound.append(verify)
             super().__init__(verify=verify)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(backup_cli, "LocalArchiveStore", Recording)
+    monkeypatch.setattr(adapter_sets, "LocalArchiveStore", Recording)
     site = tmp_path / "site"
     site.mkdir()
     shutil.copyfile(WP_CONFIG, site / "wp-config.php")

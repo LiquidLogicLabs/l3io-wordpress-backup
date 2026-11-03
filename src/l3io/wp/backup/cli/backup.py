@@ -1,20 +1,31 @@
-"""AD-1/AD-20 — the backup composition root and the plan executor.
+"""AD-1/AD-16/AD-20 — the backup composition root, its driver and the plan executor.
 
-:func:`run_backup` translates the parsed arguments, binds the adapters and
-runs :func:`execute_backup_plan`, which performs each step of a
+Three layers, each calling only the next:
+
+- :func:`run_backup` (the CLI root) creates the Run's ``SecretRegistry``,
+  translates the flags into a :class:`BackupRequest` (the passphrase and
+  cipher resolved into that registry first), makes **one** call to
+  :func:`drive_backup`, renders what it returns on stdout and its error,
+  redacted, on stderr (ADR-0018), and returns the exit code.
+- :func:`drive_backup` (the argument-free driver the CLI and Epic 6's ``api/``
+  share) canonicalises the Site Root, opens or joins the Run
+  (``cli.context.join_or_open``), reads the Site Descriptor, builds the
+  WordPress credential source through ``cli/credentials.py``, binds
+  ``real_adapters`` only when it opened the Run, and calls :func:`backup`.
+  It never prints.
+- :func:`backup` (the Run-Context-accepting entry point the Safety Snapshot
+  calls, E003-S02-003) runs :func:`execute_backup_plan` inside ``ctx`` with its
+  workspace, adapters and clock, and never opens a Run.
+
+:func:`execute_backup_plan` performs each step of a
 :class:`~l3io.wp.backup.core.backup.BackupPlan` in order, each inside
 ``phase(step)``. The Archive is written into a staged file beside its final
 name and becomes visible only through the store's ``publish()``, after the
-verifier passes (AD-20); any failure before that discards the staged file, and
-the workspace is removed on every exit (AD-12).
+verifier passes (AD-20); any failure before that discards the staged file.
 
-:func:`run_backup` creates the Run's ``SecretRegistry`` first, before anything
-resolves a credential, and redacts the error it renders to stderr (ADR-0018).
-Credentials reach the database only through ``cli/credentials.py``. The Run
-Context and the Run ID are E002-S01-004; exit-code numbers are E002-S01-005.
-Until then ``run_backup`` returns ``0`` on success and ``1`` on every
-failure. Encryption binds ``None`` until E008-S01-001 binds Epic 4's cipher;
-exclusions bind ``INCLUDE_EVERYTHING`` until E002-S01-004 binds the default policy.
+Exit-code numbers are E002-S01-005: until then ``run_backup`` returns ``0`` on
+success and ``1`` on every failure. Encryption binds ``None`` until
+E008-S01-001 binds Epic 4's cipher.
 """
 
 from __future__ import annotations
@@ -22,9 +33,9 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import os
-import sys
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal, cast
@@ -34,24 +45,23 @@ import structlog
 
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
-    WpDatabase,
     locate_wp_config,
     require_wp_config_credentials,
     site_descriptor_from_wp_config,
 )
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.store import LocalArchiveStore
 from l3io.wp.backup.adapters.tar import (
     ArchiveMemberSource,
     SiteRootCollection,
     collect_site_root,
     file_member,
-    verify_or_raise,
     write_archive,
 )
-from l3io.wp.backup.adapters.workspace import run_workspace
+from l3io.wp.backup.cli.adapter_sets import real_adapters
+from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import wordpress_source, wordpress_spec
+from l3io.wp.backup.cli.output import emit_failure, emit_result
 from l3io.wp.backup.cli.passphrase import note_unused_passphrase
 from l3io.wp.backup.cli.scope import backup_scope_from_cli
 from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
@@ -60,6 +70,7 @@ from l3io.wp.backup.domain.archive_format import (
     DUMP_RELATIVE,
     FORMAT_VERSION,
     PAYLOAD_MEMBER,
+    Integrity,
     Manifest,
     ManifestExclusions,
     ManifestMember,
@@ -69,6 +80,7 @@ from l3io.wp.backup.domain.archive_format import (
     source_from_descriptor,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.errors import (
     ArchiveExistsError,
     BackupError,
@@ -86,10 +98,14 @@ from l3io.wp.backup.ports.archive import ArchiveStoreCommand, StagedArchive
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.database import DatabaseCommand
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
+from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
+    "BackupRequest",
     "BackupResult",
-    "backup_from_args",
+    "backup",
+    "default_exclusion_policy",
+    "drive_backup",
     "execute_backup_plan",
     "run_backup",
     "storage_target_from_cli",
@@ -105,12 +121,47 @@ _PENDING_PAYLOAD: Final = ManifestPayload(name=PAYLOAD_MEMBER, size=0, sha256="0
 
 @dataclass(frozen=True, slots=True)
 class BackupResult:
-    """What a completed backup published."""
+    """What a completed backup published.
+
+    ``integrity`` is what the publish gate's verification proved;
+    ``performed`` is the value ``StagedArchive.publish()`` returned — ``False``
+    only from the no-op store, so a caller knows a Dry Run wrote nothing.
+    """
 
     path: PurePosixPath
     scope: BackupScope
     bytes: int
     encrypted: bool
+    integrity: Integrity
+    performed: bool
+
+
+def default_exclusion_policy() -> ExclusionPolicy:
+    """The one place the default exclusion set is resolved (AD-26 reasoning).
+
+    The CLI with no exclusion flag and a library :class:`BackupRequest` built
+    without ``exclusion`` both land here. ``INCLUDE_EVERYTHING`` until
+    E008-S01-001 binds Epic 4's ``ExclusionSet.default()``.
+    """
+    return INCLUDE_EVERYTHING
+
+
+@dataclass(frozen=True, slots=True)
+class BackupRequest:
+    """Everything a backup needs from its caller; :func:`drive_backup` does the rest.
+
+    ``scope`` has no default (AD-5). ``credentials`` is the backup-owned spec,
+    never a database type (ADR-0015); ``None`` means ``wp-config.php``.
+    ``target=None`` means the default Archive name in the current directory.
+    """
+
+    site_root: Path
+    scope: BackupScope
+    target: StorageTarget | None
+    wp_config: Path | None
+    credentials: CredentialSpec | None
+    cipher: PayloadCipher | None
+    exclusion: ExclusionPolicy = field(default_factory=default_exclusion_policy)
 
 
 def _exclusions(
@@ -126,12 +177,12 @@ def _exclusions(
     )
 
 
-def _publish(staged: StagedArchive | None) -> None:
+def _publish(staged: StagedArchive | None) -> bool:
     """``VERIFY`` and ``PUBLISH``, both emitted from inside ``publish()``."""
     if staged is None:
         msg = "VERIFY before WRITE_ARCHIVE"
         raise UsageError(msg)
-    staged.publish()
+    return staged.publish()
 
 
 def execute_backup_plan(
@@ -170,6 +221,7 @@ def execute_backup_plan(
     collection: SiteRootCollection | None = None
     staged: StagedArchive | None = None
     manifest: Manifest | None = None
+    performed = False
 
     def build_manifest(index: tuple[ManifestMember, ...]) -> Manifest:
         return Manifest(
@@ -216,7 +268,7 @@ def execute_backup_plan(
                     )
                     record.bytes = manifest.payload.size
             elif step is BackupStep.VERIFY:
-                _publish(staged)
+                performed = _publish(staged)
             # ENCRYPT runs inside write_archive and PUBLISH inside publish().
     except BaseException:
         if staged is not None:
@@ -226,7 +278,7 @@ def execute_backup_plan(
         msg = "the plan wrote no Archive"
         raise UsageError(msg)
     final = Path(plan.target.path)
-    size = final.stat().st_size
+    size = final.stat().st_size if performed else manifest.payload.size
     kinds = Counter(member.kind.value for member in manifest.members)
     _log.info(
         "backup_completed",
@@ -236,7 +288,14 @@ def execute_backup_plan(
         bytes=size,
     )
     return BackupResult(
-        path=plan.target.path, scope=plan.scope, bytes=size, encrypted=encrypted
+        path=plan.target.path,
+        scope=plan.scope,
+        bytes=size,
+        encrypted=encrypted,
+        # The publish gate raises unless verification passed, and the writer
+        # only writes v1, whose checksums it checked.
+        integrity=Integrity.VERIFIED,
+        performed=performed,
     )
 
 
@@ -262,68 +321,139 @@ def storage_target_from_cli(text: str) -> StorageTarget:
     return dataclasses.replace(target, path=PurePosixPath(Path(target.path).absolute()))
 
 
-def backup_from_args(
-    args: argparse.Namespace, *, secrets: SecretRegistry
+def backup(
+    site: SiteDescriptor,
+    scope: BackupScope,
+    target: StorageTarget,
+    *,
+    ctx: RunContext,
+    config: LocatedConfig,
+    cipher: PayloadCipher | None,
+    exclusion: ExclusionPolicy,
+    origin: ManifestOrigin | None,
 ) -> BackupResult:
-    """The backup driver: raises ``BackupError``; :func:`run_backup` renders it."""
-    now = datetime.now(UTC)
+    """Back ``site`` up to ``target`` inside ``ctx``; never opens a Run.
+
+    Every keyword is required: a Safety Snapshot states its encryption,
+    exclusion and origin, never inherits them by omission.
+    """
+    plan = build_backup_plan(site, scope, target, encrypted=cipher is not None)
+    adapters = ctx.adapters
+    if adapters.archive_store_query.exists(target):
+        raise ArchiveExistsError(target.path)
+    dumps = BackupStep.DUMP in plan.steps
+    return execute_backup_plan(
+        plan,
+        site=site,
+        config=config,
+        workspace=ctx.workspace,
+        database=adapters.database_command if dumps else None,
+        store=adapters.archive_store_command,
+        cipher=cipher,
+        exclusion=exclusion,
+        origin=origin,
+        now=ctx.clock.now(),
+    )
+
+
+def drive_backup(
+    request: BackupRequest,
+    *,
+    ctx: RunContext | None,
+    tracer: Tracer | None = None,
+    secrets: SecretRegistry | None = None,
+    command_args: Sequence[str] | None = None,
+) -> BackupResult:
+    """The backup driver: returns or raises ``BackupError``; never prints."""
     try:
-        site_root = Path(args.wp_dir).resolve(strict=True)
+        site_root = Path(request.site_root).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         msg = "site root does not exist"
-        raise InvalidSiteDescriptorError(msg, paths=(args.wp_dir,)) from exc
-    stated = None if args.wp_config is None else Path(args.wp_config)
-    config = locate_wp_config(site_root, stated=stated)
-    site, wp_config = site_descriptor_from_wp_config(site_root, config_file=config.path)
-    target = storage_target_from_cli(
-        args.archive or default_archive_name(site.db_name, now)
-    )
-    plan = build_backup_plan(
-        site, backup_scope_from_cli(args.mode), target, encrypted=False
-    )
-    # No flag requests passphrase encryption yet (E002-S02-011), so the AD-26
-    # chain is not consulted and nothing is prompted.
-    note_unused_passphrase(os.environ)
-    # Only a plan that dumps touches the credentials (FR-2, AD-9): a
-    # `files` backup neither resolves them nor connects.
-    database: DatabaseCommand | None = None
-    if BackupStep.DUMP in plan.steps:
+        raise InvalidSiteDescriptorError(msg, paths=(str(request.site_root),)) from exc
+    with join_or_open(
+        ctx,
+        operation="backup",
+        tracer=tracer,
+        secrets=secrets,
+        command_args=command_args,
+    ) as handle:
+        run = handle.ctx
+        config = locate_wp_config(site_root, stated=request.wp_config)
+        site, wp_config = site_descriptor_from_wp_config(
+            site_root, config_file=config.path
+        )
+        run.run_span.set_attributes(db_name=site.db_name)
+        target = request.target or storage_target_from_cli(
+            default_archive_name(site.db_name, run.clock.now())
+        )
         credentials = wordpress_source(
-            wordpress_spec(aws_secret_id=None, aws_region=None),
+            request.credentials,
             wp_config=wp_config,
             environ=os.environ,
-            secrets=secrets,
+            secrets=run.secrets,
         )
-        require_wp_config_credentials(credentials)
-        database = WpDatabase(credentials, secrets=secrets)
-    store = LocalArchiveStore(verify=verify_or_raise)
-    with run_workspace(None) as workspace:
-        if store.exists(target):
-            raise ArchiveExistsError(target.path)
-        return execute_backup_plan(
-            plan,
-            site=site,
+        plan = build_backup_plan(
+            site, request.scope, target, encrypted=request.cipher is not None
+        )
+        # Only a plan that dumps touches the credentials (FR-2, AD-9), and
+        # only wp-config.php is checked up front (FR-1).
+        if BackupStep.DUMP in plan.steps and request.credentials is None:
+            require_wp_config_credentials(credentials)
+        if handle.opened:
+            run.bind_adapters(
+                real_adapters(
+                    wordpress_source=credentials,
+                    secrets=run.secrets,
+                    tracer=run.tracer,
+                )
+            )
+        result = backup(
+            site,
+            request.scope,
+            target,
+            ctx=run,
             config=config,
-            workspace=workspace,
-            database=database,
-            store=store,
-            cipher=None,
-            exclusion=INCLUDE_EVERYTHING,
+            cipher=request.cipher,
+            exclusion=request.exclusion,
             origin=None,
-            now=now,
         )
+        run.run_span.set_attributes(archive_bytes=result.bytes)
+        return result
+
+
+def _cipher(
+    *, environ: Mapping[str, str], secrets: SecretRegistry
+) -> PayloadCipher | None:
+    """The cipher the flags ask for, its passphrase resolved into ``secrets``.
+
+    No flag requests passphrase encryption yet (E002-S02-011), so the AD-26
+    chain is not consulted and nothing is prompted: a set variable is noted.
+    """
+    del secrets
+    note_unused_passphrase(environ)
+    return None
 
 
 def run_backup(args: argparse.Namespace) -> int:
     """``wpbackup2 backup``: ``0`` on success, non-zero on every failure."""
     secrets = SecretRegistry()
     try:
-        result = backup_from_args(args, secrets=secrets)
+        request = BackupRequest(
+            site_root=Path(args.wp_dir),
+            scope=backup_scope_from_cli(args.mode),
+            target=None if not args.archive else storage_target_from_cli(args.archive),
+            wp_config=None if args.wp_config is None else Path(args.wp_config),
+            credentials=wordpress_spec(aws_secret_id=None, aws_region=None),
+            cipher=_cipher(environ=os.environ, secrets=secrets),
+        )
+        result = drive_backup(request, ctx=None, secrets=secrets)
     except BackupError as exc:
-        _log.error("backup_failed", error=type(exc).__name__)
-        print(secrets.redact(f"wpbackup2: error: {exc}"), file=sys.stderr)
+        emit_failure(
+            "command_failed",
+            f"wpbackup2: error: {exc}",
+            error=type(exc).__name__,
+            secrets=secrets,
+        )
         return 1
-    finally:
-        secrets.log_registered()
-    print(result.path)
+    emit_result(str(result.path))
     return 0

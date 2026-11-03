@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from l3io.wp.backup.domain.archive_format import VerificationResult
 
 __all__ = [
+    "AdaptersAlreadyBoundError",
+    "AdaptersNotBoundError",
     "AdminCredentialsRequiredError",
     "ArchiveExistsError",
     "ArchiveHasNoDumpError",
@@ -47,6 +49,7 @@ __all__ = [
     "PreflightFailedError",
     "ProvisioningFailedError",
     "RefusedError",
+    "RunContextActiveError",
     "SiteLockedError",
     "UnrecognisedArchiveError",
     "UnsafeMemberPathError",
@@ -357,3 +360,30 @@ class MemberReadRefusedError(RefusedError):
         self.path = path
         self.reason = reason
         super().__init__(f"refused to read archive member {path!r}: {reason}")
+
+
+class RunContextActiveError(RefusedError):
+    """AD-16 — a Run was opened while another is active in this context."""
+
+    def __init__(self, active_run_id: str) -> None:
+        self.active_run_id = active_run_id
+        super().__init__(
+            f"a Run is already active (run_id {active_run_id}): join it, "
+            "do not open a second"
+        )
+
+
+class AdaptersNotBoundError(BackupError):
+    """ADR-0016 — a Run's adapters were read before they were bound. A defect."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        super().__init__(f"the adapters of Run {run_id} were read before bind_adapters")
+
+
+class AdaptersAlreadyBoundError(BackupError):
+    """ADR-0016 — a Run's adapters were bound a second time. A defect."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        super().__init__(f"the adapters of Run {run_id} are already bound")

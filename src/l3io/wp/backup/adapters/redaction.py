@@ -21,8 +21,15 @@ Limits, stated because string matching cannot see past them:
   its source label only;
 - ``str(exc)`` or ``repr(exc)`` called directly by a library caller passes
   through nothing here (ADR-0018 "What this does not cover");
-- a host that configures logging itself has no :meth:`SecretRegistry.redact_event`
-  in its chain.
+- a host that configures logging itself has no :func:`redact_open_runs` in its
+  chain.
+
+**In the configured pipeline** (``cli/logging.py``, E002-S01-004) the processor
+is :func:`redact_open_runs`: it applies :meth:`SecretRegistry.redact_event` of
+every registry :func:`open_registry` has made live — ``cli.context.open_run``
+does so for the Run's registry for exactly the Run's lifetime. Every open
+registry, not only the current context's, so a record from a thread that did
+not inherit the Run's context is redacted all the same.
 
 No maintained library redacts *known runtime values* across structlog event
 dicts; pattern scrubbers cannot, because a secret's shape is unknown.
@@ -32,14 +39,21 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from typing import Final, NoReturn
 
 import structlog
 from structlog.processors import format_exc_info
 from structlog.typing import EventDict, WrappedLogger
 
-__all__ = ["MIN_SECRET_LENGTH", "REDACTED", "SecretRegistry"]
+__all__ = [
+    "MIN_SECRET_LENGTH",
+    "REDACTED",
+    "SecretRegistry",
+    "open_registry",
+    "redact_open_runs",
+]
 
 #: The marker database's ``ResolvedCredentials.__repr__`` uses.
 REDACTED: Final = "***"
@@ -155,3 +169,33 @@ class SecretRegistry:
     def log_registered(self) -> None:
         """The one ``secrets_registered`` DEBUG record a Run emits: a count."""
         _log.debug("secrets_registered", count=len(self))
+
+
+_OPEN: list[SecretRegistry] = []
+_OPEN_LOCK = threading.Lock()
+
+
+@contextmanager
+def open_registry(registry: SecretRegistry) -> Iterator[SecretRegistry]:
+    """Make ``registry`` live for :func:`redact_open_runs` while the block runs."""
+    with _OPEN_LOCK:
+        _OPEN.append(registry)
+    try:
+        yield registry
+    finally:
+        with _OPEN_LOCK:
+            for i, live in enumerate(_OPEN):
+                if live is registry:
+                    del _OPEN[i]
+                    break
+
+
+def redact_open_runs(
+    logger: WrappedLogger, method_name: str, event_dict: EventDict
+) -> EventDict:
+    """A structlog processor: each live registry's ``redact_event``, in turn."""
+    with _OPEN_LOCK:
+        live = tuple(_OPEN)
+    for registry in live:
+        event_dict = registry.redact_event(logger, method_name, event_dict)
+    return event_dict
