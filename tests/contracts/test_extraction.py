@@ -1,70 +1,625 @@
 """AD-11 — an Archive is untrusted input.
 
 The rule: one extraction function in ``adapters/``, used by every restore
-path, passing ``filter='data'`` explicitly wherever the interpreter supports
-it and refusing outright where it does not. Containment is re-checked after
+path, filtering every member through ``tarfile.data_filter`` and refusing
+outright where the interpreter has none. Containment is re-checked after
 member-path rewriting.
 
-That adapter does not exist yet, so this file cannot test it. What it can and
-does test today is the **mechanism AD-11 mandates**, on every Python in the CI
-matrix: that ``filter='data'`` actually refuses a traversing member here, and
-that the refusal is not an artefact of the fixture being harmless — the same
-archive is shown to escape without the filter.
+**One extraction function.** :func:`_extractors` walks every module under
+``adapters/`` (recursively, whatever its name) and fails on any call to an
+``.extract`` or ``.extractall`` attribute outside :data:`EXTRACTOR` —
+``extract_archive`` in ``adapters/tar.py``, asserted to exist. Reading a tar
+as a stream (the probe, ``read_member``, ``decrypt_payload``) writes no member
+to the filesystem and is not extraction. Not covered: an extraction reached
+through ``importlib``/``__import__`` or ``getattr``.
 
-``test_the_real_containment_test_is_still_owed`` fails the moment any module
-under ``adapters/`` (walked recursively, whatever its name) gains the
-*capability* to extract an Archive, so this placeholder cannot outlive the
-thing it is standing in for. The capability is detected from the AST, keyed on
-what the code does rather than what it is called:
-
-- a call to a ``.extract``, ``.extractall`` or ``.extractfile`` attribute; or
-- a tar opened for reading: in a module that imports ``tarfile`` (any import
-  spelling, aliases followed), a call to ``tarfile.open``, ``TarFile(...)``,
-  ``TarFile.open`` or ``open`` imported from ``tarfile``, whose mode is not a
-  literal write mode (``w``/``x``/``a``). An absent mode is ``"r"``; a
-  non-literal mode counts as reading.
-
-**One stated exemption.** :data:`STREAM_READERS` names the functions allowed
-to *read* a tar as a stream without extracting it: E002-S01-010's publish-gate
-``structural_check`` in ``adapters/tar.py`` (and its helper ``_check``), which
-reads the staged Archive's two members through ``extractfile`` and writes
-nothing to the filesystem, so containment does not arise. The exemption covers
-read-mode opens and ``extractfile`` only — ``extract``/``extractall`` inside an
-exempted function still fire — and it is keyed by module *and* function, so the
-same code anywhere else fires. Every exempted name must still exist: when
-E002-S01-003 deletes ``structural_check``, the stale entry fails CI and this
-file is due its real containment test.
-
-Not covered: a tar reached through ``importlib``/``__import__`` or a re-export
-from another module. (It used to fire on the first adapter module;
-E002-S01-001's ``adapters/database.py`` extracts nothing. E002-S01-003 replaces
-it with the real containment test.)
+**The containment tests** drive the real ``extract_archive``, on every Python
+in the CI matrix: a traversing member refused; a symlink with an absolute or
+escaping target skipped and reported (ADR-0017 amendment); a hard link
+refused wherever it points, including at an in-destination file that
+``data_filter`` alone allows (2026-11-03 amendment); containment re-checked
+after the role prefix is stripped; the refusal path when ``data_filter`` is
+absent; and ``exclude``. The stdlib mechanism tests below them keep proving
+that ``filter='data'`` itself refuses, and that the fixture really escapes
+without it.
 """
 
 from __future__ import annotations
 
 import ast
+import dataclasses
+import hashlib
 import io
+import os
 import tarfile
-from pathlib import Path
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 import pytest
+import structlog
+
+from l3io.wp.backup.adapters.tar import extract_archive
+from l3io.wp.backup.domain.archive_format import (
+    MANIFEST_MEMBER,
+    PAYLOAD_MEMBER,
+    ArchiveView,
+    Integrity,
+    ManifestPayload,
+    MemberKind,
+    MemberRole,
+    ViewMember,
+)
+from l3io.wp.backup.domain.errors import ExtractionRefusedError
+from l3io.wp.backup.domain.storage_target import StorageTarget
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "adapters"
 
-EXTRACT_CALLS = frozenset({"extract", "extractall", "extractfile"})
-#: Calls no exemption covers: these write members to the filesystem.
+#: Calls that write members to the filesystem.
 FILESYSTEM_EXTRACT_CALLS = frozenset({"extract", "extractall"})
-#: Functions, by module path under ``adapters/``, that may read a tar as a
-#: stream (see the module docstring). Asserted to exist.
-STREAM_READERS: dict[str, frozenset[str]] = {
-    "tar.py": frozenset({"structural_check", "_check"}),
-}
-WRITE_MODES = ("w", "x", "a")
+#: The one function allowed to make them: module path under ``adapters/``,
+#: function name. Asserted to exist.
+EXTRACTOR = ("tar.py", "extract_archive")
 
 ESCAPING_MEMBER = "../escape.txt"
 PAYLOAD = b"this must never be written outside the destination\n"
+CONFIG = b"<?php // the kept config\n"
+SITE = MemberRole.SITE_ROOT
+
+
+# --------------------------------------------------------------------------
+# One extraction function
+# --------------------------------------------------------------------------
+
+
+def _function_lines(tree: ast.Module, name: str) -> set[int]:
+    return {
+        line
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+        for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)
+    }
+
+
+def _extracts(module: Path, allowed: str | None) -> list[str]:
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+    allowed_lines = set() if allowed is None else _function_lines(tree, allowed)
+    return [
+        f"{module}:{node.lineno}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in FILESYSTEM_EXTRACT_CALLS
+        and node.lineno not in allowed_lines
+    ]
+
+
+def _extractors(adapters: Path) -> list[str]:
+    module, function = EXTRACTOR
+    return [
+        hit
+        for path in sorted(adapters.rglob("*.py"))
+        for hit in _extracts(
+            path, function if path.relative_to(adapters).as_posix() == module else None
+        )
+    ]
+
+
+def test_the_extractor_exists() -> None:
+    module, function = EXTRACTOR
+    tree = ast.parse((ADAPTERS / module).read_text(encoding="utf-8"))
+    assert _function_lines(tree, function), f"stale: {module}::{function}"
+    assert _extracts(ADAPTERS / module, None), f"{function} extracts nothing"
+
+
+def test_only_the_extractor_extracts() -> None:
+    assert ADAPTERS.is_dir(), f"AD-11 scope missing: {ADAPTERS}"
+    assert list(ADAPTERS.rglob("*.py")), f"AD-11 scope empty: {ADAPTERS}"
+    hits = _extractors(ADAPTERS)
+    assert not hits, f"AD-11 — extraction outside {EXTRACTOR}: {hits}"
+
+
+@pytest.mark.parametrize(
+    ("relative", "body"),
+    [
+        ("nested/archive.py", "def f(a):\n    a.extractall('d', filter='data')\n"),
+        ("other.py", "async def f(a):\n    await a.extract('m')\n"),
+        ("nested/tar.py", "def extract_archive(a):\n    a.extractall('d')\n"),
+        ("tar.py", "def other(a):\n    a.extract('m')\n"),
+        ("tar.py", "class R:\n    def f(self, a):\n        a.extractall('d')\n"),
+    ],
+)
+def test_the_guard_sees_extraction_anywhere_else(
+    tmp_path: Path, relative: str, body: str
+) -> None:
+    """Scope attack: nested, no ``__init__``, the sanctioned name elsewhere."""
+    adapters = tmp_path / "adapters"
+    (adapters / relative).parent.mkdir(parents=True, exist_ok=True)
+    (adapters / "tar.py").write_text(
+        "def extract_archive(t):\n    t.extractall('d')\n", encoding="utf-8"
+    )
+    if relative == "tar.py":
+        with (adapters / relative).open("a", encoding="utf-8") as handle:
+            handle.write(body)
+    else:
+        (adapters / relative).write_text(body, encoding="utf-8")
+    hits = _extractors(adapters)
+    assert hits, body
+    assert all(f"{relative}:" in hit for hit in hits), hits
+
+
+def test_the_guard_ignores_stream_reads(tmp_path: Path) -> None:
+    (tmp_path / "probe.py").write_text(
+        "import tarfile\n"
+        "def f(p):\n    with tarfile.open(p, 'r|') as t:\n"
+        "        t.extractfile(t.next())\n",
+        encoding="utf-8",
+    )
+    assert _extractors(tmp_path) == []
+
+
+# --------------------------------------------------------------------------
+# extract_archive
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class Entry:
+    """One inner member: its header and, for a file, its bytes."""
+
+    info: tarfile.TarInfo
+    data: bytes = b""
+
+
+def _file(name: str, data: bytes) -> Entry:
+    info = tarfile.TarInfo(name)
+    info.size = len(data)
+    info.mode = 0o644
+    return Entry(info, data)
+
+
+def _link(name: str, target: str, kind: bytes) -> Entry:
+    info = tarfile.TarInfo(name)
+    info.type = kind
+    info.linkname = target
+    return Entry(info)
+
+
+def _special(name: str, kind: bytes) -> Entry:
+    info = tarfile.TarInfo(name)
+    info.type = kind
+    return Entry(info)
+
+
+def _view_kind(info: tarfile.TarInfo) -> MemberKind:
+    if info.issym():
+        return MemberKind.SYMLINK
+    if info.isdir():
+        return MemberKind.DIR
+    return MemberKind.FILE
+
+
+def _role(name: str) -> MemberRole:
+    return next(r for r in MemberRole if name.split("/", 1)[0] == r.value)
+
+
+def _v1(tmp_path: Path, entries: list[Entry]) -> tuple[StorageTarget, ArchiveView]:
+    """A v1 Archive holding ``entries``, and the view its index would give."""
+    plain = io.BytesIO()
+    with tarfile.open(fileobj=plain, mode="w:gz") as inner:
+        for entry in entries:
+            inner.addfile(entry.info, io.BytesIO(entry.data) if entry.data else None)
+    payload = plain.getvalue()
+    path = tmp_path / "archive.tar.gz"
+    with tarfile.open(path, mode="w") as outer:
+        for name, data in ((MANIFEST_MEMBER, b"{}"), (PAYLOAD_MEMBER, payload)):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            outer.addfile(info, io.BytesIO(data))
+    view = ArchiveView(
+        format_version=1,
+        members=tuple(
+            ViewMember(
+                path=e.info.name,
+                role=_role(e.info.name),
+                kind=_view_kind(e.info),
+                link_target=e.info.linkname if e.info.issym() else None,
+            )
+            for e in entries
+        ),
+        dump_present=False,
+        config_path=None,
+        integrity=Integrity.VERIFIED,
+        encrypted=False,
+        payload=ManifestPayload(
+            name=PAYLOAD_MEMBER,
+            size=len(payload),
+            sha256=hashlib.sha256(payload).hexdigest(),
+        ),
+    )
+    return StorageTarget(scheme="file", path=PurePosixPath(path)), view
+
+
+@pytest.fixture
+def destination(tmp_path: Path) -> Path:
+    path = tmp_path / "out" / "destination"
+    path.mkdir(parents=True)
+    return path
+
+
+def _tree(root: Path) -> dict[str, bytes | str | None]:
+    found: dict[str, bytes | str | None] = {}
+    for path in sorted(root.rglob("*")):
+        key = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            found[key] = f"-> {path.readlink()}"
+        elif path.is_file():
+            found[key] = path.read_bytes()
+        else:
+            found[key] = None
+    return found
+
+
+def test_a_good_archive_extracts_below_its_role_prefix(
+    tmp_path: Path, destination: Path
+) -> None:
+    source, view = _v1(
+        tmp_path,
+        [
+            _file("dump/database.sql", b"SQL"),
+            _special("site-root", tarfile.DIRTYPE),
+            _file("site-root/index.php", b"<?php"),
+            _link("site-root/link", "index.php", tarfile.SYMTYPE),
+        ],
+    )
+    result = extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {"index.php": b"<?php", "link": "-> index.php"}
+    assert (result.members, result.bytes, result.skipped_links) == (2, 5, ())
+
+
+def _directory_fixup_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``extractall`` re-apply the filter to each directory afterwards.
+
+    Patched interpreters (3.11.13+, 3.12.11+, 3.13.4+) do this themselves, with
+    the same unfiltered ``TarInfo``; this simulates it on any interpreter, so
+    the filter is proven idempotent for it everywhere.
+    """
+    original = tarfile.TarFile.extractall
+
+    def extractall(
+        self: tarfile.TarFile,
+        path: str | os.PathLike[str] = ".",
+        members: object = None,
+        *,
+        numeric_owner: bool = False,
+        filter: Callable[[tarfile.TarInfo, str], tarfile.TarInfo | None],  # noqa: A002
+    ) -> None:
+        accepted: list[tarfile.TarInfo] = []
+
+        def recording(member: tarfile.TarInfo, dest: str) -> tarfile.TarInfo | None:
+            result = filter(member, dest)
+            if result is not None and result.isdir():
+                accepted.append(member)
+            return result
+
+        original(self, path, numeric_owner=numeric_owner, filter=recording)
+        for member in accepted:
+            filter(member, str(path))
+
+    monkeypatch.setattr(tarfile.TarFile, "extractall", extractall)
+
+
+def test_the_stdlib_directory_fixup_pass_is_not_a_duplicate(
+    tmp_path: Path, destination: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _directory_fixup_pass(monkeypatch)
+    source, view = _v1(
+        tmp_path,
+        [
+            _special("site-root", tarfile.DIRTYPE),
+            _special("site-root/wp-content", tarfile.DIRTYPE),
+            _special("site-root/wp-content/uploads", tarfile.DIRTYPE),
+            _file("site-root/wp-content/uploads/a.bin", b"a"),
+        ],
+    )
+    result = extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {
+        "wp-content": None,
+        "wp-content/uploads": None,
+        "wp-content/uploads/a.bin": b"a",
+    }
+    assert result.members == 3
+
+
+def test_a_directory_named_twice_is_still_refused(
+    tmp_path: Path, destination: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second ``TarInfo`` of the same name is a duplicate, fix-up pass or not."""
+    _directory_fixup_pass(monkeypatch)
+    source, view = _v1(
+        tmp_path,
+        [
+            _special("site-root/d", tarfile.DIRTYPE),
+            _special("site-root/d", tarfile.DIRTYPE),
+        ],
+    )
+    view = dataclasses.replace(view, members=view.members[:1])
+    with pytest.raises(ExtractionRefusedError, match="twice"):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+
+
+def test_a_traversing_member_is_refused(tmp_path: Path, destination: Path) -> None:
+    source, view = _v1(tmp_path, [_file(f"site-root/{ESCAPING_MEMBER}", PAYLOAD)])
+    with pytest.raises(ExtractionRefusedError):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert not list((tmp_path / "out").rglob("escape.txt"))
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_a_member_outside_the_index_is_refused(
+    tmp_path: Path, destination: Path
+) -> None:
+    source, view = _v1(
+        tmp_path, [_file("site-root/a", b"a"), _file("site-root/b", b"b")]
+    )
+    view = dataclasses.replace(view, members=view.members[:1])
+    with pytest.raises(ExtractionRefusedError, match="member index"):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+
+
+@pytest.mark.parametrize(
+    ("target", "reason"),
+    [("/etc/passwd", "absolute"), ("../../outside", "outside_destination")],
+)
+def test_an_unsupported_symlink_is_skipped_and_reported(
+    tmp_path: Path, destination: Path, target: str, reason: str
+) -> None:
+    source, view = _v1(
+        tmp_path,
+        [
+            _file("site-root/before.php", b"1"),
+            _link("site-root/evil", target, tarfile.SYMTYPE),
+            _file("site-root/after.php", b"2"),
+        ],
+    )
+    with structlog.testing.capture_logs() as logs:
+        result = extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {"after.php": b"2", "before.php": b"1"}
+    assert [(s.path, s.link_target, s.reason) for s in result.skipped_links] == [
+        ("evil", target, reason)
+    ]
+    warnings = [e for e in logs if e["event"] == "symlink_skipped"]
+    assert warnings == [
+        {
+            "event": "symlink_skipped",
+            "log_level": "warning",
+            "path": repr("evil"),
+            "link_target": repr(target),
+            "reason": reason,
+        }
+    ]
+    assert result.members == 2
+
+
+@pytest.mark.parametrize(
+    "target", ["/etc/passwd", "../../outside", "site-root/wp-config.php"]
+)
+def test_a_hard_link_is_refused_wherever_it_points(
+    tmp_path: Path, destination: Path, target: str
+) -> None:
+    source, view = _v1(
+        tmp_path,
+        [
+            _link("site-root/x", target, tarfile.LNKTYPE),
+            _file("site-root/x", b"overwritten through the link"),
+        ],
+    )
+    with pytest.raises(ExtractionRefusedError, match="hard link"):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {}
+
+
+def test_a_hard_link_to_the_kept_config_leaves_it_byte_identical(
+    tmp_path: Path, destination: Path
+) -> None:
+    """``x -> wp-config.php``: ``data_filter`` alone allows this one."""
+    kept = destination / "wp-config.php"
+    kept.write_bytes(CONFIG)
+    link = _link("site-root/x", "wp-config.php", tarfile.LNKTYPE)
+    assert (
+        tarfile.data_filter(link.info.replace(name="x"), str(destination)) is not None
+    )
+    source, view = _v1(tmp_path, [link, _file("site-root/x", b"<?php evil();")])
+    with pytest.raises(ExtractionRefusedError):
+        extract_archive(
+            source,
+            destination,
+            view,
+            roles=frozenset({SITE}),
+            exclude=frozenset({PurePosixPath("wp-config.php")}),
+        )
+    assert kept.read_bytes() == CONFIG
+    assert not (destination / "x").exists()
+
+
+def test_containment_is_rechecked_after_the_prefix_is_stripped(
+    tmp_path: Path, destination: Path
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (destination / "uploads").symlink_to(outside)
+    source, view = _v1(tmp_path, [_file("site-root/uploads/x.php", PAYLOAD)])
+    with pytest.raises(ExtractionRefusedError):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert list(outside.iterdir()) == []
+
+
+def test_a_role_not_asked_for_is_not_written(tmp_path: Path, destination: Path) -> None:
+    source, view = _v1(
+        tmp_path,
+        [_file("dump/database.sql", b"SQL"), _file("config/wp-config.php", CONFIG)],
+    )
+    result = extract_archive(
+        source, destination, view, roles=frozenset({MemberRole.CONFIG})
+    )
+    assert _tree(destination) == {"wp-config.php": CONFIG}
+    assert result.members == 1
+
+
+def test_no_data_filter_takes_the_refusal_path(
+    tmp_path: Path, destination: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, view = _v1(tmp_path, [_file("site-root/index.php", b"<?php")])
+    monkeypatch.delattr(tarfile, "data_filter")
+    with pytest.raises(ExtractionRefusedError, match="data filter"):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {}
+
+
+def test_an_excluded_member_is_never_written(tmp_path: Path, destination: Path) -> None:
+    kept = destination / "wp-config.php"
+    kept.write_bytes(CONFIG)
+    kept.chmod(0o640)
+    os.utime(kept, (1_000_000_000, 1_000_000_000))
+    before = kept.stat()
+    source, view = _v1(
+        tmp_path,
+        [
+            _file("site-root/wp-config.php", b"<?php // from the archive"),
+            _file("site-root/index.php", b"<?php"),
+        ],
+    )
+    result = extract_archive(
+        source,
+        destination,
+        view,
+        roles=frozenset({SITE}),
+        exclude=frozenset({PurePosixPath("wp-config.php")}),
+    )
+    after = kept.stat()
+    assert kept.read_bytes() == CONFIG
+    assert (after.st_mode, after.st_mtime_ns, after.st_ino) == (
+        before.st_mode,
+        before.st_mtime_ns,
+        before.st_ino,
+    )
+    assert (destination / "index.php").read_bytes() == b"<?php"
+    assert result.members == 1
+
+
+def _kept_config(destination: Path) -> Path:
+    kept = destination / "wp-config.php"
+    kept.write_bytes(CONFIG)
+    return kept
+
+
+def _extract_excluding_config(
+    source: StorageTarget, destination: Path, view: ArchiveView
+) -> None:
+    extract_archive(
+        source,
+        destination,
+        view,
+        roles=frozenset({SITE}),
+        exclude=frozenset({PurePosixPath("wp-config.php")}),
+    )
+
+
+def test_a_file_below_an_archive_symlink_cannot_reach_the_kept_config(
+    tmp_path: Path, destination: Path
+) -> None:
+    """``l -> .`` (inside, so ``data_filter`` allows it), then ``l/wp-config.php``."""
+    kept = _kept_config(destination)
+    source, view = _v1(
+        tmp_path,
+        [
+            _link("site-root/l", ".", tarfile.SYMTYPE),
+            _file("site-root/l/wp-config.php", b"<?php evil();"),
+        ],
+    )
+    with pytest.raises(ExtractionRefusedError, match="below a symlink"):
+        _extract_excluding_config(source, destination, view)
+    assert kept.read_bytes() == CONFIG
+
+
+def test_a_name_twice_cannot_write_through_its_own_symlink(
+    tmp_path: Path, destination: Path
+) -> None:
+    """``foo -> wp-config.php``, then a regular file ``foo``; indexed once."""
+    kept = _kept_config(destination)
+    source, view = _v1(
+        tmp_path,
+        [
+            _link("site-root/foo", "wp-config.php", tarfile.SYMTYPE),
+            _file("site-root/foo", b"<?php evil();"),
+        ],
+    )
+    view = dataclasses.replace(view, members=view.members[:1])
+    with pytest.raises(ExtractionRefusedError, match="twice"):
+        _extract_excluding_config(source, destination, view)
+    assert kept.read_bytes() == CONFIG
+
+
+def test_a_member_resolving_onto_an_excluded_path_is_refused(
+    tmp_path: Path, destination: Path
+) -> None:
+    """A link already in the destination leads a member onto the kept config."""
+    kept = _kept_config(destination)
+    (destination / "alias.php").symlink_to("wp-config.php")
+    source, view = _v1(tmp_path, [_file("site-root/alias.php", b"<?php evil();")])
+    with pytest.raises(ExtractionRefusedError, match="excluded"):
+        _extract_excluding_config(source, destination, view)
+    assert kept.read_bytes() == CONFIG
+
+
+def test_a_header_kind_other_than_the_index_is_refused(
+    tmp_path: Path, destination: Path
+) -> None:
+    source, view = _v1(tmp_path, [_link("site-root/x", "y", tarfile.SYMTYPE)])
+    as_file = dataclasses.replace(
+        view.members[0], kind=MemberKind.FILE, link_target=None
+    )
+    view = dataclasses.replace(view, members=(as_file,))
+    with pytest.raises(ExtractionRefusedError, match="indexed file"):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {}
+
+
+@pytest.mark.parametrize("entry", ["../wp-config.php", "/wp-config.php", "."])
+def test_an_unsafe_exclude_entry_is_a_programming_error(
+    tmp_path: Path, destination: Path, entry: str
+) -> None:
+    source, view = _v1(tmp_path, [_file("site-root/index.php", b"<?php")])
+    with pytest.raises(ValueError, match="exclude"):
+        extract_archive(
+            source,
+            destination,
+            view,
+            roles=frozenset({SITE}),
+            exclude=frozenset({PurePosixPath(entry)}),
+        )
+
+
+def test_an_excluded_member_that_is_unsafe_still_refuses(
+    tmp_path: Path, destination: Path
+) -> None:
+    source, view = _v1(
+        tmp_path, [_special("site-root/wp-config.php", tarfile.FIFOTYPE)]
+    )
+    with pytest.raises(ExtractionRefusedError, match="SpecialFileError"):
+        extract_archive(
+            source,
+            destination,
+            view,
+            roles=frozenset({SITE}),
+            exclude=frozenset({PurePosixPath("wp-config.php")}),
+        )
+
+
+# --------------------------------------------------------------------------
+# The stdlib mechanism AD-11 relies on
+# --------------------------------------------------------------------------
 
 
 def _archive_with_a_traversing_member(path: Path) -> Path:
@@ -113,195 +668,3 @@ def test_the_fixture_really_does_escape_without_the_filter(tmp_path: Path) -> No
         "the fixture did not traverse, so the refusal above proved nothing"
     )
     assert escaped.read_bytes() == PAYLOAD
-
-
-def _tarfile_names(tree: ast.Module) -> tuple[set[str], set[str]]:
-    """Local names bound to the ``tarfile`` module, and to its openers."""
-    modules: set[str] = set()
-    openers: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            modules.update(
-                alias.asname or alias.name
-                for alias in node.names
-                if alias.name == "tarfile"
-            )
-        elif isinstance(node, ast.ImportFrom) and node.module == "tarfile":
-            openers.update(
-                alias.asname or alias.name
-                for alias in node.names
-                if alias.name in {"open", "TarFile"}
-            )
-    return modules, openers
-
-
-def _reads_a_tar(call: ast.Call, modules: set[str], openers: set[str]) -> bool:
-    func = call.func
-    if isinstance(func, ast.Name):
-        opens = func.id in openers
-    elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-        receiver = func.value.id
-        opens = (receiver in modules and func.attr in {"open", "TarFile"}) or (
-            receiver in openers and func.attr == "open"
-        )
-    else:
-        opens = False
-    if not opens:
-        return False
-    mode = next((k.value for k in call.keywords if k.arg == "mode"), None)
-    if mode is None and len(call.args) > 1:
-        mode = call.args[1]
-    if mode is None:
-        return True  # tarfile's default mode is "r"
-    return not (
-        isinstance(mode, ast.Constant)
-        and isinstance(mode.value, str)
-        and mode.value.startswith(WRITE_MODES)
-    )
-
-
-def _exempt_lines(tree: ast.Module, names: frozenset[str]) -> set[int]:
-    """The lines of the module-level functions named in ``names``."""
-    return {
-        line
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name in names
-        for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)
-    }
-
-
-def _extracts(module: Path, exempt: frozenset[str] = frozenset()) -> list[str]:
-    """Where ``module`` can extract an Archive, as ``path:line`` strings."""
-    tree = ast.parse(module.read_text(encoding="utf-8"))
-    modules, openers = _tarfile_names(tree)
-    exempt_lines = _exempt_lines(tree, exempt)
-    hits = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        attr = node.func.attr if isinstance(node.func, ast.Attribute) else None
-        if attr in FILESYSTEM_EXTRACT_CALLS or (
-            (attr in EXTRACT_CALLS or _reads_a_tar(node, modules, openers))
-            and node.lineno not in exempt_lines
-        ):
-            hits.append(f"{module}:{node.lineno}")
-    return hits
-
-
-def _extractors(
-    adapters: Path, readers: dict[str, frozenset[str]] | None = None
-) -> list[str]:
-    readers = STREAM_READERS if readers is None else readers
-    return [
-        hit
-        for path in sorted(adapters.rglob("*.py"))
-        for hit in _extracts(
-            path, readers.get(path.relative_to(adapters).as_posix(), frozenset())
-        )
-    ]
-
-
-def test_every_stream_reader_exemption_names_a_function_that_exists() -> None:
-    """A stale exemption fails, so it cannot outlive what it exempts."""
-    for relative, names in STREAM_READERS.items():
-        module = ADAPTERS / relative
-        assert module.is_file(), f"exempted module {module} does not exist"
-        tree = ast.parse(module.read_text(encoding="utf-8"))
-        defined = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
-        assert names <= defined, f"stale exemption: {sorted(names - defined)}"
-
-
-@pytest.mark.parametrize(
-    ("relative", "body"),
-    [
-        # The exempted name, in a module the exemption does not name.
-        ("nested/tar.py", "def structural_check(a):\n    a.extractfile('m')\n"),
-        ("other.py", "import tarfile\ndef _check():\n    tarfile.open('x')\n"),
-        # Filesystem extraction inside an exempted function.
-        ("tar.py", "def structural_check(a):\n    a.extractall('d')\n"),
-        ("tar.py", "def _check(a):\n    a.extract('m')\n"),
-        # A reader in the exempted module, outside the exempted functions.
-        ("tar.py", "import tarfile\ndef other():\n    tarfile.open('x')\n"),
-    ],
-)
-def test_the_exemption_does_not_reach_beyond_its_functions(
-    tmp_path: Path, relative: str, body: str
-) -> None:
-    """Scope attack on the exemption itself."""
-    adapters = tmp_path / "adapters"
-    (adapters / relative).parent.mkdir(parents=True, exist_ok=True)
-    (adapters / relative).write_text(body, encoding="utf-8")
-    assert _extractors(adapters), body
-
-
-def test_the_exemption_covers_a_stream_reader(tmp_path: Path) -> None:
-    adapters = tmp_path / "adapters"
-    adapters.mkdir()
-    (adapters / "tar.py").write_text(
-        "import tarfile\n"
-        "def structural_check(p):\n    tarfile.open(p, mode='r|')\n"
-        "def _check(o):\n    o.extractfile(o.next())\n",
-        encoding="utf-8",
-    )
-    assert _extractors(adapters) == []
-    assert _extractors(adapters, readers={}) != []
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        "def f(a):\n    a.extractall('d', filter='data')\n",
-        "async def f(a):\n    await a.extract('m')\n",
-        "class R:\n    def f(self, a):\n        return a.extractfile('m')\n",
-        "import tarfile\ntarfile.open('x.tar')\n",
-        "import tarfile as t\nt.open('x.tar', 'r:gz')\n",
-        "from tarfile import open as topen\ntopen(name='x', mode='r|*')\n",
-        "from tarfile import TarFile\nTarFile('x.tar')\n",
-        "from tarfile import TarFile as T\nT.open(fileobj=f, mode=m)\n",
-    ],
-)
-def test_the_tripwire_sees_extraction_in_any_adapter_module(
-    tmp_path: Path, body: str
-) -> None:
-    """Scope attack: a module not named ``tar.py``, nested with no ``__init__``."""
-    adapters = tmp_path / "adapters"
-    (adapters / "nested").mkdir(parents=True)
-    (adapters / "database.py").write_text("import json\n", encoding="utf-8")
-    (adapters / "nested" / "archive.py").write_text(body, encoding="utf-8")
-    hits = _extractors(adapters)
-    assert hits, body
-    assert all("nested/archive.py:" in hit for hit in hits)
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        "import tarfile\ntarfile.open('x.tar', 'w:gz')\n",
-        "import tarfile\ntarfile.open(name='x', mode='x')\n",
-        "from tarfile import TarFile\nTarFile('x.tar', mode='a')\n",
-        "from pathlib import Path\nPath('x').open('rb')\n",
-        "def extract_archives(): ...\n",
-    ],
-)
-def test_the_tripwire_ignores_a_writer_and_unrelated_opens(
-    tmp_path: Path, body: str
-) -> None:
-    (tmp_path / "archive.py").write_text(body, encoding="utf-8")
-    assert _extractors(tmp_path) == []
-
-
-def test_the_real_containment_test_is_still_owed() -> None:
-    """Tripwire. AD-11 binds the adapter, not the stdlib.
-
-    Delete this test when an adapter can extract an Archive (E002-S01-003),
-    and replace this file with one that drives that adapter: containment
-    re-checked after member-path rewriting, against the enumerated member roles
-    of AD-6.
-    """
-    assert ADAPTERS.is_dir(), f"AD-11 scope missing: {ADAPTERS}"
-    assert list(ADAPTERS.rglob("*.py")), f"AD-11 scope empty: {ADAPTERS}"
-    hits = _extractors(ADAPTERS)
-    assert not hits, (
-        f"AD-11 — an adapter can now extract an Archive ({hits}) but this file "
-        "still only tests the stdlib. Write the containment test against it."
-    )

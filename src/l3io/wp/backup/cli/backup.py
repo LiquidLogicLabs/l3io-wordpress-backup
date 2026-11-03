@@ -43,7 +43,7 @@ from l3io.wp.backup.adapters.tar import (
     SiteRootCollection,
     collect_site_root,
     file_member,
-    structural_check,
+    verify_or_raise,
     write_archive,
 )
 from l3io.wp.backup.adapters.workspace import run_workspace
@@ -81,7 +81,12 @@ from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.database import DatabaseCommand
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
-__all__ = ["BackupResult", "execute_backup_plan", "run_backup"]
+__all__ = [
+    "BackupResult",
+    "execute_backup_plan",
+    "run_backup",
+    "storage_target_from_cli",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -228,7 +233,7 @@ def execute_backup_plan(
     )
 
 
-def _target(text: str) -> StorageTarget:
+def storage_target_from_cli(text: str) -> StorageTarget:
     """The Storage Target ``--archive`` names, never silently rewritten.
 
     A bare path is taken as given — ``#`` and ``?`` are file-name characters
@@ -264,7 +269,9 @@ def run_backup(args: argparse.Namespace) -> int:
         site, credentials = site_descriptor_from_wp_config(
             site_root, config_file=config.path
         )
-        target = _target(args.archive or default_archive_name(site.db_name, now))
+        target = storage_target_from_cli(
+            args.archive or default_archive_name(site.db_name, now)
+        )
         plan = build_backup_plan(
             site, backup_scope_from_cli(args.mode), target, encrypted=False
         )
@@ -274,7 +281,7 @@ def run_backup(args: argparse.Namespace) -> int:
         if BackupStep.DUMP in plan.steps:
             require_wp_config_credentials(credentials)
             database = WpDatabase(credentials)
-        store = LocalArchiveStore(verify=structural_check)
+        store = LocalArchiveStore(verify=verify_or_raise)
         with run_workspace(None) as workspace:
             if store.exists(target):
                 raise ArchiveExistsError(target.path)

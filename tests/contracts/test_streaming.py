@@ -4,14 +4,18 @@ The rule: every port that moves Archive bytes exposes a file-object interface,
 never ``bytes`` (asserted by ``test_port_types.py``), and peak RSS is bounded
 by a constant independent of Archive size. This file asserts the second half
 against the **real backup path** — ``execute_backup_plan`` with the real
-traversal, writer, store and structural check, and a database double that
-copies a Dump file in chunks — over a site whose Site Root and Dump total at
+traversal, writer, store and verifier (``verify_or_raise``), and a database
+double that copies a Dump file in chunks — over a site whose Site Root and Dump total at
 least ten times :data:`RSS_BOUND_BYTES`. The fixture is incompressible, so the
 payload, the Archive copy and the verifier's read each move at least ten times
 the bound too; both the indexed input and the published Archive are asserted
 to, so a shrunken fixture cannot pass by moving little. A planted regression —
 ``tarfile``'s copy replaced by a whole-buffer read inside the real path — is
 asserted to breach the bound, so the test can see the path it claims to cover.
+The published Archive is then read back along the **real restore path** in a
+second child: the probe, ``decrypt_payload`` (through a chunked pass-through
+cipher), ``extract_archive`` from the decrypted payload, and ``read_member``
+reaching the last member through the outer tar's payload.
 
 **Reach.** The RSS test covers the byte movers in :data:`RSS_COVERED` (the
 traversal and writer, and the local store). A tripwire walks every module under
@@ -47,6 +51,7 @@ import ast
 import inspect
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -77,15 +82,34 @@ RSS_COVERED: dict[str, frozenset[str]] = {
     "tar.py": frozenset(
         {
             "ArchiveMemberSource",
+            "TarArchiveProbe",
+            "_Counter",
+            "_ExtractFilter",
+            "_Scan",
+            "_archive_path",
+            "_began_as_a_tar",
+            "_check_exclude",
+            "_clean_trailer",
+            "_digest",
+            "_inner",
+            "_open",
+            "_payload_body",
+            "_reason",
+            "_stream_outer",
+            "_tar_type",
+            "_walk",
+            "decrypt_payload",
+            "extract_archive",
+            "verify_archive",
+            "verify_or_raise",
             "SiteRootCollection",
             "_HashingWriter",
-            "_StructuralError",
             "_add",
             "_add_file",
-            "_check",
             "_decide",
             "_encrypt",
             "_header",
+            "_header_kind",
             "_identity",
             "_is_outward",
             "_member_changed",
@@ -95,7 +119,6 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_write_payload",
             "collect_site_root",
             "file_member",
-            "structural_check",
             "write_archive",
         }
     ),
@@ -159,7 +182,7 @@ if mode in ("backup", "backup-buffered"):
     from pathlib import PurePosixPath
     from l3io.wp.backup.adapters.database import locate_wp_config
     from l3io.wp.backup.adapters.store import LocalArchiveStore
-    from l3io.wp.backup.adapters.tar import structural_check
+    from l3io.wp.backup.adapters.tar import verify_or_raise
     from l3io.wp.backup.adapters.workspace import run_workspace
     from l3io.wp.backup.cli.backup import execute_backup_plan
     from l3io.wp.backup.core.backup import build_backup_plan
@@ -200,7 +223,7 @@ if mode in ("backup", "backup-buffered"):
         result = execute_backup_plan(
             plan, site=site, config=config, workspace=workspace,
             database=CopyingDatabase(),
-            store=LocalArchiveStore(verify=structural_check),
+            store=LocalArchiveStore(verify=verify_or_raise),
             cipher=None, exclusion=INCLUDE_EVERYTHING, origin=None,
             now=datetime.now(UTC),
         )
@@ -215,6 +238,48 @@ if mode in ("backup", "backup-buffered"):
         "indexed_bytes": sum(m.size for m in manifest.members),
         "payload_bytes": manifest.payload.size,
         "archive_bytes": final.stat().st_size,
+    }
+elif mode == "restore":
+    import dataclasses
+    from pathlib import PurePosixPath
+    from l3io.wp.backup.adapters.tar import (
+        TarArchiveProbe, decrypt_payload, extract_archive,
+    )
+    from l3io.wp.backup.domain.archive_format import MemberRole, classify
+    from l3io.wp.backup.domain.storage_target import StorageTarget
+
+    archive, run, destination = paths
+
+    class PassThrough:
+        def check(self):
+            pass
+
+        def encrypt(self, reader, writer):
+            shutil.copyfileobj(reader, writer, 256 * 1024)
+
+        decrypt = encrypt
+
+    probe = TarArchiveProbe()
+    target = StorageTarget(scheme="file", path=PurePosixPath(archive))
+    before = baseline()
+    view = classify(probe.member_index(target))
+    sealed = dataclasses.replace(view, encrypted=True)
+    plain = decrypt_payload(
+        target, sealed, cipher=PassThrough(), destination=run / "plain.tar.gz"
+    )
+    result = extract_archive(
+        target, destination, view, roles=frozenset({MemberRole.SITE_ROOT}),
+        payload=plain,
+    )
+    config = probe.read_member(
+        target, view, view.members[-1].path, max_bytes=1 << 20
+    )
+    growth = peak() - before
+    extra = {
+        "plain_bytes": plain.stat().st_size,
+        "extracted_bytes": result.bytes,
+        "read_bytes": len(config),
+        "last_member": view.members[-1].path.endswith("wp-config.php"),
     }
 elif mode == "copy":
     source, copy = paths
@@ -309,8 +374,11 @@ def _site(tmp_path: Path, site_bytes: int, dump_bytes: int) -> tuple[Path, ...]:
 
 
 @linux_proc
-def test_the_real_backup_path_stays_under_the_bound(tmp_path: Path) -> None:
-    measured = _measure("backup", *_site(tmp_path, SITE_FILE_BYTES, DUMP_BYTES))
+def test_the_real_backup_and_restore_paths_stay_under_the_bound(
+    tmp_path: Path,
+) -> None:
+    site_root, dump, final = _site(tmp_path, SITE_FILE_BYTES, DUMP_BYTES)
+    measured = _measure("backup", site_root, dump, final)
 
     # Scope: the whole fixture went in, and an Archive as large came out, so
     # the payload write, the Archive copy and the verifier each moved it.
@@ -321,6 +389,23 @@ def test_the_real_backup_path_stays_under_the_bound(tmp_path: Path) -> None:
     assert measured["growth"] < RSS_BOUND_BYTES, (
         f"AD-21 — backing up {measured['indexed_bytes'] // MIB} MiB grew peak RSS "
         f"by {measured['growth'] // MIB} MiB, over the "
+        f"{RSS_BOUND_BYTES // MIB} MiB bound."
+    )
+
+    # Read it back; the inputs go first so the disk holds one copy fewer.
+    shutil.rmtree(site_root)
+    dump.unlink()
+    run, destination = tmp_path / "run", tmp_path / "restored"
+    run.mkdir()
+    destination.mkdir()
+    restored = _measure("restore", final, run, destination)
+    assert restored["plain_bytes"] >= floor
+    assert restored["extracted_bytes"] >= SITE_FILE_BYTES
+    assert restored["last_member"]
+    assert restored["read_bytes"] > 0
+    assert restored["growth"] < RSS_BOUND_BYTES, (
+        f"AD-21 — reading back {restored['plain_bytes'] // MIB} MiB grew peak RSS "
+        f"by {restored['growth'] // MIB} MiB, over the "
         f"{RSS_BOUND_BYTES // MIB} MiB bound."
     )
 
@@ -399,9 +484,9 @@ def test_covered_modules_hold_only_what_the_rss_test_drives() -> None:
 def test_a_new_function_in_a_covered_module_is_seen(tmp_path: Path) -> None:
     module = tmp_path / "tar.py"
     module.write_text(
-        "def write_archive(): ...\ndef verify_archive(): ...\n", encoding="utf-8"
+        "def write_archive(): ...\ndef restore_archive(): ...\n", encoding="utf-8"
     )
-    assert _top_level_names(module) - RSS_COVERED["tar.py"] == {"verify_archive"}
+    assert _top_level_names(module) - RSS_COVERED["tar.py"] == {"restore_archive"}
 
 
 def test_every_covered_module_exists_and_moves_bytes() -> None:

@@ -19,11 +19,17 @@ the restore driver sets it with the real path.
 from __future__ import annotations
 
 from pathlib import PurePath
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from l3io.wp.backup.domain.archive_format import VerificationResult
 
 __all__ = [
     "AdminCredentialsRequiredError",
     "ArchiveExistsError",
+    "ArchiveHasNoDumpError",
+    "ArchiveNotFoundError",
+    "ArchiveReadError",
     "ArchiveWriteError",
     "BackupError",
     "ConfigWriteFailedError",
@@ -31,17 +37,22 @@ __all__ = [
     "DatabaseRefusedError",
     "DatabaseUnreachableError",
     "DumpFailedError",
+    "ExtractionRefusedError",
     "InvalidSiteDescriptorError",
     "MalformedManifestError",
+    "MemberReadRefusedError",
     "MissingExtraError",
     "PassphraseRequiredError",
     "PreflightFailedError",
     "ProvisioningFailedError",
     "RefusedError",
     "SiteLockedError",
+    "UnrecognisedArchiveError",
     "UnsafeMemberPathError",
+    "UnsupportedFormatVersionError",
     "UnsupportedStorageSchemeError",
     "UsageError",
+    "VerificationFailedError",
 ]
 
 
@@ -251,3 +262,82 @@ class MalformedManifestError(BackupError):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(f"malformed manifest: {reason}")
+
+
+class VerificationFailedError(BackupError):
+    """An Archive failed verification; ``result`` says why."""
+
+    def __init__(self, result: VerificationResult) -> None:
+        self.result = result
+        first = result.failures[0] if result.failures else None
+        detail = (
+            "no reason recorded"
+            if first is None
+            else first.reason.value
+            if first.member is None
+            else f"{first.reason.value} ({first.member!r})"
+        )
+        super().__init__(f"archive verification failed: {detail}")
+
+
+class UnrecognisedArchiveError(BackupError):
+    """The Archive is none of the shapes this build reads (AD-23)."""
+
+    def __init__(self, found: tuple[str, ...]) -> None:
+        self.found = found
+        names = ", ".join(repr(name) for name in found) or "no members"
+        super().__init__(f"unrecognised archive format; found {names}")
+
+
+class UnsupportedFormatVersionError(BackupError):
+    """The Manifest's ``format_version`` is not one this build reads."""
+
+    def __init__(self, found: int) -> None:
+        self.found = found
+        super().__init__(f"unsupported archive format_version {found}")
+
+
+class ArchiveNotFoundError(BackupError):
+    """The Archive does not exist or cannot be opened."""
+
+    def __init__(self, path: PurePath) -> None:
+        self.path = path
+        super().__init__(f"archive {str(path)!r} does not exist or is unreadable")
+
+
+class ArchiveReadError(BackupError):
+    """An Archive could not be read to the member asked for (I/O or tar error)."""
+
+    def __init__(self, path: PurePath, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"could not read archive {str(path)!r}: {reason}")
+
+
+class ArchiveHasNoDumpError(RefusedError):
+    """A Restore Mode names the database and the Archive holds no Dump."""
+
+    def __init__(self, archive: str, backup_scope: str | None) -> None:
+        self.archive = archive
+        self.backup_scope = backup_scope
+        scope = "a v0 archive" if backup_scope is None else f"scope {backup_scope!r}"
+        super().__init__(f"archive {archive!r} holds no database dump ({scope})")
+
+
+class ExtractionRefusedError(RefusedError):
+    """Extraction refused the Archive: an unsafe member, or no ``data`` filter."""
+
+    def __init__(self, member: str | None, reason: str) -> None:
+        self.member = member
+        self.reason = reason
+        where = "" if member is None else f" at member {member!r}"
+        super().__init__(f"extraction refused{where}: {reason}")
+
+
+class MemberReadRefusedError(RefusedError):
+    """A single-member read was refused: not a regular file, not indexed, too big."""
+
+    def __init__(self, path: str, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"refused to read archive member {path!r}: {reason}")

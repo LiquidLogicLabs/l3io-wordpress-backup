@@ -2,7 +2,8 @@
 
 Binds adapters, creates the Run Context (AD-16), configures ``structlog``
 (AD-10) and translates errors to the exit-code table (FR-21). ``backup``
-dispatches to :func:`l3io.wp.backup.cli.backup.run_backup`; the Run Context,
+dispatches to :func:`l3io.wp.backup.cli.backup.run_backup` and ``verify`` to
+:func:`l3io.wp.backup.cli.verify.run_verify`; the Run Context,
 logging configuration and exit-code table are later stories, and anything
 else is refused rather than pretending to act.
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
-from l3io.wp.backup.cli.parser import BACKUP_COMMAND, build_parser
+from l3io.wp.backup.cli.parser import BACKUP_COMMAND, VERIFY_COMMAND, build_parser
 
 __all__ = ["main", "run_from_cli"]
 
@@ -28,6 +29,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from l3io.wp.backup.cli.backup import run_backup
 
         return run_backup(args)
+    if args.action == VERIFY_COMMAND:
+        from l3io.wp.backup.cli.verify import run_verify
+
+        return run_verify(args)
     parser.error(f"{args.action!r} is not implemented in this build")
 
 

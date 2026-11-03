@@ -1,5 +1,5 @@
 next:
-  '002': 48
+  '002': 52
   '003': 30
   '004': 42
 backlog:
@@ -1023,3 +1023,43 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-002.md
+- key: BL-E002-048
+  epic: '002'
+  sprint: '01'
+  title: 'F-05: publish gate accepts a v0-shaped STRUCTURAL_ONLY archive; require Integrity.VERIFIED for the backup publish gate'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+- key: BL-E002-049
+  epic: '002'
+  sprint: '01'
+  title: 'F-06: extract_archive/decrypt_payload map some read/write OSErrors to the wrong file or let a raw OSError escape (AD-14)'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+- key: BL-E002-050
+  epic: '002'
+  sprint: '01'
+  title: 'F-07: read_member returns the first duplicate inner member while extraction would see the last; refuse a repeated name in read_member'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+- key: BL-E002-051
+  epic: '002'
+  sprint: '01'
+  title: 'F-08: one-extractor guard in test_extraction.py does not detect shutil.unpack_archive'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md

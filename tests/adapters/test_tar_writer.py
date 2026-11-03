@@ -1,4 +1,4 @@
-"""ADR-0024/ADR-0017 — the Archive writer and the structural check."""
+"""ADR-0024/ADR-0017 — the Archive writer and the publish gate."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from l3io.wp.backup.adapters.tar import (
     ArchiveMemberSource,
     collect_site_root,
     file_member,
-    structural_check,
+    verify_or_raise,
     write_archive,
 )
 from l3io.wp.backup.domain.archive_format import (
@@ -32,9 +32,10 @@ from l3io.wp.backup.domain.archive_format import (
     ManifestMember,
     MemberKind,
     MemberRole,
+    VerificationReason,
     member_path,
 )
-from l3io.wp.backup.domain.errors import ArchiveWriteError
+from l3io.wp.backup.domain.errors import ArchiveWriteError, VerificationFailedError
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 
 Builder = Callable[..., Manifest]
@@ -311,7 +312,7 @@ def test_the_encrypted_payload_reverses_to_the_plain_members(
     assert read.contents == plain.contents
     assert cipher.encrypt_calls == 1
     assert list(workspace.iterdir()) == []
-    structural_check(path)
+    verify_or_raise(path)
 
 
 def test_the_encrypted_manifest_is_plaintext_and_free_of_key_material(
@@ -368,14 +369,14 @@ def test_a_cipher_failing_mid_payload_leaves_the_workspace_empty(
 
 
 # --------------------------------------------------------------------------
-# The structural check
+# The publish gate (verify_or_raise)
 # --------------------------------------------------------------------------
 
 
-def test_the_structural_check_passes_a_written_archive(
+def test_the_verify_or_raise_passes_a_written_archive(
     written: tuple[Path, Manifest],
 ) -> None:
-    structural_check(written[0])
+    verify_or_raise(written[0])
 
 
 def _tar(path: Path, members: list[tuple[str, bytes]]) -> Path:
@@ -396,16 +397,18 @@ def _manifest_bytes(written: tuple[Path, Manifest]) -> tuple[bytes, bytes]:
         return manifest.read(), payload.read()
 
 
-def test_the_structural_check_refuses_a_payload_first(
+def test_the_verify_or_raise_refuses_a_payload_first(
     tmp_path: Path, written: tuple[Path, Manifest]
 ) -> None:
     manifest, payload = _manifest_bytes(written)
     bad = _tar(
         tmp_path / "bad.tar", [(PAYLOAD_MEMBER, payload), (MANIFEST_MEMBER, manifest)]
     )
-    with pytest.raises(ArchiveWriteError) as caught:
-        structural_check(bad)
-    assert caught.value.reason == "structural check failed"
+    with pytest.raises(VerificationFailedError) as caught:
+        verify_or_raise(bad)
+    assert caught.value.result.failures[0].reason is (
+        VerificationReason.UNRECOGNISED_FORMAT
+    )
 
 
 @pytest.mark.parametrize(
@@ -431,22 +434,22 @@ def test_the_structural_check_refuses_a_payload_first(
         ),
     ],
 )
-def test_the_structural_check_refuses_a_malformed_archive(
+def test_the_verify_or_raise_refuses_a_malformed_archive(
     tmp_path: Path,
     written: tuple[Path, Manifest],
     mutate: Callable[[bytes, bytes], list[tuple[str, bytes]]],
 ) -> None:
     manifest, payload = _manifest_bytes(written)
     bad = _tar(tmp_path / "bad.tar", mutate(manifest, payload))
-    with pytest.raises(ArchiveWriteError):
-        structural_check(bad)
+    with pytest.raises(VerificationFailedError):
+        verify_or_raise(bad)
 
 
-def test_the_structural_check_refuses_a_non_tar(tmp_path: Path) -> None:
+def test_the_verify_or_raise_refuses_a_non_tar(tmp_path: Path) -> None:
     junk = tmp_path / "junk"
     junk.write_bytes(b"\x00" * 10 + b"not a tar at all")
-    with pytest.raises(ArchiveWriteError):
-        structural_check(junk)
+    with pytest.raises(VerificationFailedError):
+        verify_or_raise(junk)
 
 
 def test_a_directory_swapped_for_a_symlink_after_collection_fails(

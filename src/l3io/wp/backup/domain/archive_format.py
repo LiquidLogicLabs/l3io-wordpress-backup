@@ -23,6 +23,17 @@ The Manifest carries **no key material, no KDF parameters and no salt**
 without any credential. JSON is stdlib :mod:`json`; reads ignore unknown keys,
 and optional keys are written only when set, so a Manifest without them is
 byte-identical to one written before they existed.
+
+**Reading an Archive (AD-23).** :func:`classify` turns the raw facts an
+``ArchiveProbe`` reports (:class:`MemberIndex`) into an :class:`ArchiveView`.
+It recognises exactly three shapes — v1 (the Manifest first), v0 with a Dump
+and v0 files-only — and this is the only module that branches on
+``format_version`` (``tests/contracts/test_version_branching.py``). A v0
+Archive is detected by its member names, never by a file name or extension,
+and its roles are synthesized: ``database.sql`` is the ``dump``, ``wp-root/…``
+the ``site-root``. v0 member *kinds* are synthesized too (``wp-root`` itself a
+``dir``, every other member a ``file``), since a v0 Archive has no index; the
+tar header stays authoritative at extraction.
 """
 
 from __future__ import annotations
@@ -34,7 +45,12 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Literal, TypeVar, cast
 
-from l3io.wp.backup.domain.errors import MalformedManifestError, UnsafeMemberPathError
+from l3io.wp.backup.domain.errors import (
+    MalformedManifestError,
+    UnrecognisedArchiveError,
+    UnsafeMemberPathError,
+    UnsupportedFormatVersionError,
+)
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
 from l3io.wp.backup.domain.site import SiteDescriptor
 
@@ -43,26 +59,51 @@ __all__ = [
     "DUMP_RELATIVE",
     "ENCRYPTED_PAYLOAD_MEMBER",
     "FORMAT_VERSION",
+    "MANIFEST_MAX_BYTES",
     "MANIFEST_MEMBER",
     "PAYLOAD_MEMBER",
     "RESERVED_SOURCE_KEYS",
+    "SUPPORTED_FORMAT_VERSIONS",
+    "V0_DUMP_MEMBER",
+    "V0_SITE_ROOT",
+    "ArchiveView",
     "ConfigLocation",
+    "ExtractResult",
+    "Integrity",
     "Manifest",
     "ManifestExclusions",
     "ManifestMember",
     "ManifestOrigin",
     "ManifestPayload",
+    "MemberDigest",
+    "MemberIndex",
     "MemberKind",
     "MemberRole",
     "OriginKind",
+    "SkippedLink",
     "SourceValue",
+    "TarMemberType",
+    "VerificationFailure",
+    "VerificationReason",
+    "VerificationResult",
+    "ViewMember",
+    "classify",
+    "format_label",
+    "is_safe_member_path",
     "manifest_from_json",
     "manifest_to_json",
     "member_path",
+    "member_relative",
     "source_from_descriptor",
 ]
 
 FORMAT_VERSION: Final = 1
+#: Every ``format_version`` this build reads (ADR-0017). The committed fixture
+#: Archives are the evidence it is right (``test_supported_formats.py``).
+#: v0 has no ``format_version`` and is detected by shape, not through this.
+SUPPORTED_FORMAT_VERSIONS: Final[frozenset[int]] = frozenset({1})
+#: The one member read whole; anything larger is ``UNREADABLE`` (AD-11).
+MANIFEST_MAX_BYTES: Final = 16 * 1024 * 1024
 MANIFEST_MEMBER: Final = "manifest.json"
 PAYLOAD_MEMBER: Final = "payload.tar.gz"
 ENCRYPTED_PAYLOAD_MEMBER: Final = "payload.tar.gz.age"
@@ -76,6 +117,13 @@ CONFIG_RELATIVE: Final = "wp-config.php"
 #: only when ``l3io-wordpress-database`` exposes a read of them as the
 #: WordPress account; at v0.2.x it does not, so they are absent.
 RESERVED_SOURCE_KEYS: Final = ("stored_siteurl", "stored_home")
+
+#: The two member names a v0 (0.2.21) Archive is recognised by.
+V0_DUMP_MEMBER: Final = "database.sql"
+V0_SITE_ROOT: Final = "wp-root"
+_V0_CONFIG: Final = f"{V0_SITE_ROOT}/{CONFIG_RELATIVE}"
+#: How many member names an ``UnrecognisedArchiveError`` quotes.
+_FOUND_SHOWN: Final = 5
 
 SourceValue = str | int | None
 
@@ -287,12 +335,7 @@ def manifest_from_json(
     reported through ``on_unknown("origin.kind", value)`` (forward
     compatibility). An unknown member ``kind`` is malformed.
     """
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
-        msg = f"not JSON: {exc.msg} at line {exc.lineno}"
-        raise MalformedManifestError(msg) from exc
-    doc = _object(raw, "manifest")
+    doc = _object(_loads(text), "manifest")
     source = _object(doc.get("source"), "source")
     return Manifest(
         format_version=_int(doc, "format_version"),
@@ -310,6 +353,22 @@ def manifest_from_json(
         exclusions=_exclusions(doc.get("exclusions")),
         config_path=_optional_str(doc, "config_path"),
     )
+
+
+def _loads(text: str) -> object:
+    """``json.loads``, every way untrusted text can make it fail made malformed.
+
+    Beyond ``JSONDecodeError``: an integer past Python's digit limit raises
+    ``ValueError`` and deeply nested arrays ``RecursionError``.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        msg = f"not JSON: {exc.msg} at line {exc.lineno}"
+        raise MalformedManifestError(msg) from exc
+    except (ValueError, RecursionError) as exc:
+        msg = f"not readable JSON: {type(exc).__name__}"
+        raise MalformedManifestError(msg) from exc
 
 
 def _object(value: object, where: str) -> dict[str, object]:
@@ -460,3 +519,274 @@ def _exclusions(value: object) -> ManifestExclusions | None:
         patterns=tuple(cast("list[str]", patterns)),
         excluded=tuple(excluded),
     )
+
+
+# --------------------------------------------------------------------------
+# Reading an Archive: probe facts, the classifier and the verification result
+# --------------------------------------------------------------------------
+
+
+class TarMemberType(StrEnum):
+    """What a tar header says a member is."""
+
+    FILE = "file"
+    DIR = "dir"
+    SYMLINK = "symlink"
+    HARDLINK = "hardlink"
+    OTHER = "other"
+
+
+@dataclass(frozen=True, slots=True)
+class MemberIndex:
+    """The raw facts a probe read from an Archive's outermost tar.
+
+    ``names`` keeps duplicates in tar order. ``manifest_text`` is the first
+    member's text when it is a regular ``manifest.json`` no larger than
+    :data:`MANIFEST_MAX_BYTES` that decodes as UTF-8, else ``None``.
+    ``readable_to_end`` is ``False`` when a stream that began as a tar (or as
+    gzip) ended early or broke; a stream that is not a tar from its first
+    header has no names and is readable to its end. ``gzip`` says the stream
+    was gzip-compressed, detected from its first bytes.
+    """
+
+    names: tuple[str, ...]
+    first_member: str | None
+    manifest_text: str | None
+    readable_to_end: bool
+    gzip: bool
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "names", tuple(self.names))
+
+
+@dataclass(frozen=True, slots=True)
+class MemberDigest:
+    """One outer member as streamed: type, size and, for a file, its SHA-256."""
+
+    tar_type: TarMemberType
+    size: int
+    sha256: str | None
+    link_name: str | None
+
+
+class Integrity(StrEnum):
+    """What a passing verification proved."""
+
+    VERIFIED = "VERIFIED"
+    STRUCTURAL_ONLY = "STRUCTURAL_ONLY"
+
+
+@dataclass(frozen=True, slots=True)
+class ViewMember:
+    """One member as a consumer sees it. No checksum, no ``encrypted`` flag."""
+
+    path: str
+    role: MemberRole
+    kind: MemberKind
+    link_target: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveView:
+    """An Archive classified: its format, members and what verification can prove.
+
+    ``config_path`` is the v1 Manifest's value copied as found (Epic 7 converts
+    it with ``ConfigLocation`` and refuses anything else, AD-11), or for v0
+    ``"wp-root/wp-config.php"`` when that member is present.
+    """
+
+    format_version: int | None
+    members: tuple[ViewMember, ...]
+    dump_present: bool
+    config_path: str | None
+    integrity: Integrity
+    encrypted: bool
+    payload: ManifestPayload | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "members", tuple(self.members))
+
+
+class VerificationReason(StrEnum):
+    """Why a verification failed."""
+
+    CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"
+    SIZE_MISMATCH = "SIZE_MISMATCH"
+    MEMBER_MISSING = "MEMBER_MISSING"
+    UNDECLARED_MEMBER = "UNDECLARED_MEMBER"
+    KIND_MISMATCH = "KIND_MISMATCH"
+    UNSUPPORTED_MEMBER_TYPE = "UNSUPPORTED_MEMBER_TYPE"
+    DUMP_DECLARED_ABSENT = "DUMP_DECLARED_ABSENT"
+    TRUNCATED = "TRUNCATED"
+    UNREADABLE = "UNREADABLE"
+    UNRECOGNISED_FORMAT = "UNRECOGNISED_FORMAT"
+    UNSUPPORTED_VERSION = "UNSUPPORTED_VERSION"
+    UNSAFE_MEMBER_PATH = "UNSAFE_MEMBER_PATH"
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationFailure:
+    """One reason, and the member it concerns when there is one."""
+
+    member: str | None
+    reason: VerificationReason
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationResult:
+    """Pass or fail, and what a pass proved. ``failures`` is empty on a pass."""
+
+    passed: bool
+    integrity: Integrity
+    format_version: int | None
+    failures: tuple[VerificationFailure, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "failures", tuple(self.failures))
+
+
+@dataclass(frozen=True, slots=True)
+class SkippedLink:
+    """A symlink extraction skipped (ADR-0017 amendment). Target verbatim."""
+
+    path: str
+    link_target: str
+    reason: Literal["absolute", "outside_destination"]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractResult:
+    """What an extraction wrote: member and byte counts, and the links skipped."""
+
+    members: int
+    bytes: int
+    skipped_links: tuple[SkippedLink, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "skipped_links", tuple(self.skipped_links))
+
+
+def format_label(format_version: int | None) -> int | str:
+    """``format_version`` for a log record or display: the number, or ``"v0"``."""
+    return "v0" if format_version is None else format_version
+
+
+def is_safe_member_path(path: str, role: MemberRole) -> bool:
+    """Whether a v1 member ``path`` is :func:`member_path`'s name under ``role``."""
+    prefix = role.value
+    if path == prefix:
+        return True
+    if not path.startswith(f"{prefix}/"):
+        return False
+    try:
+        member_path(role, path[len(prefix) + 1 :])
+    except UnsafeMemberPathError:
+        return False
+    return True
+
+
+def _v0_role(name: str) -> MemberRole | None:
+    if name == V0_DUMP_MEMBER:
+        return MemberRole.DUMP
+    if name == V0_SITE_ROOT or name.startswith(f"{V0_SITE_ROOT}/"):
+        return MemberRole.SITE_ROOT
+    return None
+
+
+def member_relative(view: ArchiveView, path: str) -> tuple[MemberRole, str] | None:
+    """``path``'s role and its name below the role prefix, or ``None``.
+
+    ``None`` when ``path`` names no role or escapes its prefix. The role root
+    itself (``site-root``, v0 ``wp-root``) is relative ``""``; the v0 Dump is
+    relative ``database.sql``, as the v1 Dump is.
+    """
+    if view.payload is None:
+        role = _v0_role(path)
+        if role is MemberRole.DUMP:
+            return role, DUMP_RELATIVE
+        prefix = V0_SITE_ROOT
+    else:
+        role = next((r for r in MemberRole if path.split("/", 1)[0] == r.value), None)
+        prefix = role.value if role is not None else ""
+    if role is None:
+        return None
+    if path == prefix:
+        return role, ""
+    relative = path[len(prefix) + 1 :]
+    try:
+        member_path(role, relative)
+    except UnsafeMemberPathError:
+        return None
+    return role, relative
+
+
+def _found(names: tuple[str, ...]) -> tuple[str, ...]:
+    return names[:_FOUND_SHOWN]
+
+
+def _classify_v1(text: str | None) -> ArchiveView:
+    if text is None:
+        msg = "the Manifest is unreadable, not UTF-8 or larger than the cap"
+        raise MalformedManifestError(msg)
+    version = _int(_object(_loads(text), "manifest"), "format_version")
+    if version not in SUPPORTED_FORMAT_VERSIONS:
+        raise UnsupportedFormatVersionError(found=version)
+    manifest = manifest_from_json(text)
+    return ArchiveView(
+        format_version=manifest.format_version,
+        members=tuple(
+            ViewMember(m.path, m.role, m.kind, m.link_target) for m in manifest.members
+        ),
+        dump_present=manifest.dump_present,
+        config_path=manifest.config_path,
+        integrity=Integrity.VERIFIED,
+        encrypted=manifest.encrypted,
+        payload=manifest.payload,
+    )
+
+
+def _classify_v0(names: tuple[str, ...]) -> ArchiveView:
+    roles = [(name, _v0_role(name)) for name in names]
+    has_dump = any(role is MemberRole.DUMP for _, role in roles)
+    has_root = any(role is MemberRole.SITE_ROOT for _, role in roles)
+    if not has_root or any(role is None for _, role in roles):
+        raise UnrecognisedArchiveError(found=_found(names))
+    members = tuple(
+        ViewMember(
+            path=name,
+            role=cast("MemberRole", role),
+            kind=MemberKind.DIR if name == V0_SITE_ROOT else MemberKind.FILE,
+            link_target=None,
+        )
+        for name, role in roles
+    )
+    return ArchiveView(
+        format_version=None,
+        members=members,
+        dump_present=has_dump,
+        config_path=_V0_CONFIG if _V0_CONFIG in names else None,
+        integrity=Integrity.STRUCTURAL_ONLY,
+        encrypted=False,
+        payload=None,
+    )
+
+
+def classify(index: MemberIndex) -> ArchiveView:
+    """Recognise one of the three Archive shapes, or raise (AD-23).
+
+    1. First member ``manifest.json`` → v1; its ``format_version`` must be in
+       :data:`SUPPORTED_FORMAT_VERSIONS` (else
+       :class:`UnsupportedFormatVersionError`); an unparseable Manifest raises
+       :class:`MalformedManifestError`.
+    2. No Manifest, ``database.sql`` and ``wp-root/…`` → v0 with a Dump.
+    3. No Manifest, ``wp-root/…`` and no ``database.sql`` → v0 files-only.
+
+    Anything else — a ``manifest.json`` that is not first, ``database.sql``
+    without ``wp-root/``, a member outside both, no members at all — raises
+    :class:`UnrecognisedArchiveError` naming the first few members found.
+    """
+    if index.first_member == MANIFEST_MEMBER:
+        return _classify_v1(index.manifest_text)
+    if MANIFEST_MEMBER in index.names:
+        raise UnrecognisedArchiveError(found=_found(index.names))
+    return _classify_v0(index.names)

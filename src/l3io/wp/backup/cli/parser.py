@@ -17,10 +17,12 @@ import argparse
 
 from l3io.wp.backup import __version__
 
-__all__ = ["BACKUP_COMMAND", "RESTORE_COMMAND", "build_parser"]
+__all__ = ["BACKUP_COMMAND", "RESTORE_COMMAND", "VERIFY_COMMAND", "build_parser"]
 
 BACKUP_COMMAND = "backup"
 RESTORE_COMMAND = "restore"
+#: An addition AD-22 permits (FR-3): check an Archive without touching a Site.
+VERIFY_COMMAND = "verify"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,4 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Indicate what to be Backup/Restore",
     )
     subparsers.add_parser(RESTORE_COMMAND, help="Perform a WordPress restore")
+    verify = subparsers.add_parser(
+        VERIFY_COMMAND, help="Check an archive without touching a site"
+    )
+    verify.add_argument(
+        "--archive", help="Path or file: URL of the archive to check.", required=True
+    )
     return parser

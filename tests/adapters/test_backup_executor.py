@@ -25,7 +25,7 @@ from l3io.wp.backup.adapters.database import (
 from l3io.wp.backup.adapters.store import LocalArchiveStore
 from l3io.wp.backup.adapters.tar import (
     SiteRootCollection,
-    structural_check,
+    verify_or_raise,
 )
 from l3io.wp.backup.adapters.workspace import WORKSPACE_PREFIX
 from l3io.wp.backup.cli import backup as backup_cli
@@ -89,7 +89,7 @@ def _run(
     workspace: Path,
     *,
     database: FakeDatabase | None = None,
-    verify: Callable[[Path], None] = structural_check,
+    verify: Callable[[Path], None] = verify_or_raise,
     cipher: object = None,
 ) -> backup_cli.BackupResult:
     site = _site(site_root)
@@ -183,7 +183,7 @@ def test_a_cipher_without_an_encrypt_step_is_refused(
             config=LocatedConfig(path=site_root / "wp-config.php", location=None),
             workspace=workspace,
             database=FakeDatabase(),
-            store=LocalArchiveStore(verify=structural_check),
+            store=LocalArchiveStore(verify=verify_or_raise),
             cipher=cipher,
             exclusion=INCLUDE_EVERYTHING,
             origin=None,
@@ -296,7 +296,7 @@ def test_the_backup_command_publishes_and_leaves_the_site_unchanged(
     assert len(database.calls) == 1
     assert database.calls[0][1].parent.name.startswith(WORKSPACE_PREFIX)
     assert list((tmp_path / "tmp").iterdir()) == []  # the workspace is gone
-    structural_check(final)
+    verify_or_raise(final)
 
 
 def test_an_existing_archive_is_refused_before_any_dump(
@@ -355,7 +355,7 @@ def test_a_stated_wp_config_is_used(tmp_path: Path, cli_site: tuple[Path, Any]) 
         ]
     )
     assert code == 0
-    structural_check(final)
+    verify_or_raise(final)
 
 
 def test_a_missing_site_root_returns_non_zero(tmp_path: Path) -> None:
@@ -520,7 +520,7 @@ def test_the_database_binding_must_match_the_plans_dump_step(
             config=locate_wp_config(site_root, stated=None),
             workspace=workspace,
             database=wrong,
-            store=LocalArchiveStore(verify=structural_check),
+            store=LocalArchiveStore(verify=verify_or_raise),
             cipher=None,
             exclusion=INCLUDE_EVERYTHING,
             origin=None,

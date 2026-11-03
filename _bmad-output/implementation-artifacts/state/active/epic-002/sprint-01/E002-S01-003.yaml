@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S01'
 title: Verify an archive without touching a site
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-03T02:18:43Z'
+status: done
+updated_at: '2026-11-03T04:09:29Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -27,3 +27,47 @@ estimate:
 depends_on:
 - 'E002-S01-001'
 - 'E002-S01-010'
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 1
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 2
+  files_changed: 24
+actual:
+  elapsed_hours: 0.71
+  man_hours: 17
+  hitl_hours: 0
+  tokens_k:
+    total: 19202.21
+    input: 0.206
+    output: 187.461
+    cache_write: 700.918
+    cache_read: 18313.626
+  cost: 18.23
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-03T04:09:29Z'

@@ -26,13 +26,32 @@ directory included — is written. Workspace disk use peaks at the encryption st
 the Dump, the plain payload and the encrypted payload — the Dump plus about two
 compressed payloads. Each payload file is deleted once copied.
 
-**The publish gate.** :func:`structural_check` is the verifier the store runs
-before publishing, until E002-S01-003 replaces it with ``verify_archive``.
+**Reading (AD-11, AD-23, ADR-0024).** An Archive is untrusted input.
+:class:`TarArchiveProbe` streams the outermost tar once (``r|``; gzip, detected
+from the first bytes, through :class:`gzip.GzipFile`, whose CRC and length
+check is what makes a cut gzip stream visible), hashing each file member in
+fixed-size chunks; it never writes a member, follows a link or extracts.
+:func:`verify_archive` composes it with ``domain.archive_format.classify`` and
+``core.verify``; :func:`verify_or_raise` is the publish gate every backup root
+binds into ``LocalArchiveStore``. A plain tar counts as read to its end only
+when the end-of-archive marker (two zero blocks) is present, nothing but zeros
+follows, and the stream is a whole number of tar records; a stream shorter
+than one header is truncated when its bytes could begin a header (a printable
+name), else unrecognised.
+
+:func:`extract_archive` is the one extraction function (AD-11). Its filter
+callable refuses any hard link, then strips the role prefix, then calls
+:func:`tarfile.data_filter` — a symlink it refuses for an absolute or escaping
+target is skipped and reported, every other refusal refuses the Archive — and
+re-checks containment. :func:`decrypt_payload` is the one place a payload is
+decrypted; :meth:`TarArchiveProbe.read_member` the one single-member read.
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import gzip
 import hashlib
 import io
 import os
@@ -40,45 +59,65 @@ import posixpath
 import stat
 import tarfile
 import time
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+import zlib
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import IO, Final, cast
+from types import MappingProxyType
+from typing import IO, BinaryIO, Final, Literal, cast
 
 import structlog
 
-from l3io.wp.backup.adapters.phase import phase
+from l3io.wp.backup.adapters.phase import join_phase, phase
 from l3io.wp.backup.core.backup import BackupStep
+from l3io.wp.backup.core.verify import verify_probe
 from l3io.wp.backup.domain.archive_format import (
     ENCRYPTED_PAYLOAD_MEMBER,
-    FORMAT_VERSION,
+    MANIFEST_MAX_BYTES,
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
+    ArchiveView,
     ConfigLocation,
+    ExtractResult,
     Manifest,
     ManifestMember,
     ManifestPayload,
+    MemberDigest,
+    MemberIndex,
     MemberKind,
     MemberRole,
-    manifest_from_json,
+    SkippedLink,
+    TarMemberType,
+    VerificationResult,
+    format_label,
     manifest_to_json,
     member_path,
+    member_relative,
 )
 from l3io.wp.backup.domain.errors import (
+    ArchiveNotFoundError,
+    ArchiveReadError,
     ArchiveWriteError,
     BackupError,
-    MalformedManifestError,
+    ExtractionRefusedError,
+    MemberReadRefusedError,
+    VerificationFailedError,
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
+from l3io.wp.backup.domain.storage_target import StorageTarget, parse_storage_target
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
 __all__ = [
     "ArchiveMemberSource",
     "SiteRootCollection",
+    "TarArchiveProbe",
     "collect_site_root",
+    "decrypt_payload",
+    "extract_archive",
     "file_member",
-    "structural_check",
+    "verify_archive",
+    "verify_or_raise",
     "write_archive",
 ]
 
@@ -90,7 +129,14 @@ _DIR_FLAGS: Final = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 _STAGED_MODE: Final = 0o600
 #: Inner members are written role by role, the Dump first (ADR-0024).
 _ROLE_ORDER: Final = {MemberRole.DUMP: 0, MemberRole.CONFIG: 1, MemberRole.SITE_ROOT: 2}
-_STRUCTURAL_FAILURE: Final = "structural check failed"
+_CHUNK: Final = 1024 * 1024
+_GZIP_MAGIC: Final = b"\x1f\x8b"
+_END_OF_ARCHIVE: Final = 2 * tarfile.BLOCKSIZE
+#: The longest end-of-archive run a tar writer pads to: the marker plus a record.
+_MAX_TRAILER: Final = tarfile.RECORDSIZE + _END_OF_ARCHIVE
+_ASCII_PRINTABLE: Final = range(0x20, 0x7F)
+#: Errors meaning the stream itself broke: tar framing, gzip, zlib, I/O.
+_STREAM_ERRORS: Final = (tarfile.TarError, EOFError, zlib.error, OSError)
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,69 +516,544 @@ def write_archive(
 
 
 # --------------------------------------------------------------------------
-# The publish gate
+# Reading: opening an Archive
 # --------------------------------------------------------------------------
 
 
-class _StructuralError(BackupError):
-    """Internal: why the structural check failed. Never leaves this module."""
+def _archive_path(source: StorageTarget) -> Path:
+    """The local path of ``source``; a non-``file:`` scheme is refused."""
+    return Path(parse_storage_target(source.scheme, str(source.path)).path)
 
 
-def _check(outer: tarfile.TarFile) -> None:
-    first = outer.next()
-    if first is None or first.name != MANIFEST_MEMBER or not first.isfile():
-        msg = "the first member is not the Manifest"
-        raise _StructuralError(msg)
-    handle = outer.extractfile(first)
-    if handle is None:  # pragma: no cover - isfile() guarantees a handle
-        msg = "the Manifest has no content"
-        raise _StructuralError(msg)
-    manifest = manifest_from_json(handle.read().decode("utf-8"))
-    if manifest.format_version != FORMAT_VERSION:
-        msg = f"format_version {manifest.format_version} is not {FORMAT_VERSION}"
-        raise _StructuralError(msg)
-    expected = ENCRYPTED_PAYLOAD_MEMBER if manifest.encrypted else PAYLOAD_MEMBER
-    second = outer.next()
-    if (
-        second is None
-        or not second.isfile()
-        or second.name != manifest.payload.name
-        or second.name != expected
-        or second.size != manifest.payload.size
-    ):
-        msg = "the second member is not the payload the Manifest names"
-        raise _StructuralError(msg)
-    body = outer.extractfile(second)
-    if body is None:  # pragma: no cover - isfile() guarantees a handle
-        msg = "the payload has no content"
-        raise _StructuralError(msg)
-    if (
-        hashlib.file_digest(cast("io.BufferedReader", body), "sha256").hexdigest()
-        != manifest.payload.sha256
-    ):
-        msg = "the payload's SHA-256 does not match the Manifest"
-        raise _StructuralError(msg)
-    if outer.next() is not None:
-        msg = "a member follows the payload"
-        raise _StructuralError(msg)
-
-
-def structural_check(path: Path) -> None:
-    """Raise unless ``path`` is structurally a v1 Archive (ADR-0024).
-
-    Reads the file in stream mode: the Manifest must be the first member and
-    parse, and the only other member must be the payload it names, of the size
-    and SHA-256 it records. E002-S01-003 replaces this with ``verify_archive``.
-    """
+def _open(path: Path) -> BinaryIO:
     try:
-        with tarfile.open(path, mode="r|") as outer:
-            _check(outer)
-    except (
-        _StructuralError,
-        MalformedManifestError,
-        OSError,
-        UnicodeDecodeError,
-        tarfile.TarError,
-    ) as exc:
-        _log.warning("structural_check_failed", path=str(path), detail=str(exc))
-        raise ArchiveWriteError(path, _STRUCTURAL_FAILURE) from exc
+        return cast("BinaryIO", path.open("rb"))
+    except OSError as exc:
+        raise ArchiveNotFoundError(path) from exc
+
+
+def _reason(exc: BaseException) -> str:
+    return getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
+
+
+class _Counter(io.RawIOBase):
+    """Counts the bytes read through it and keeps the first tar block of them."""
+
+    def __init__(self, source: IO[bytes]) -> None:
+        super().__init__()
+        self._source = source
+        self.count = 0
+        self.head = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: bytearray | memoryview, /) -> int:  # type: ignore[override]
+        view = memoryview(buffer).cast("B")
+        data = self._source.read(len(view))
+        size = len(data)
+        view[:size] = data
+        if len(self.head) < tarfile.BLOCKSIZE:
+            self.head = (self.head + data)[: tarfile.BLOCKSIZE]
+        self.count += size
+        return size
+
+
+# --------------------------------------------------------------------------
+# Reading: the probe
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class _Scan:
+    """One streamed pass over the outermost tar."""
+
+    names: list[str] = field(default_factory=list)
+    digests: dict[str, MemberDigest] = field(default_factory=dict)
+    manifest_text: str | None = None
+    complete: bool = False
+    gzip: bool = False
+    bytes_read: int = 0
+    end: int = 0
+
+    def index(self) -> MemberIndex:
+        return MemberIndex(
+            names=tuple(self.names),
+            first_member=self.names[0] if self.names else None,
+            manifest_text=self.manifest_text,
+            readable_to_end=self.complete,
+            gzip=self.gzip,
+        )
+
+
+def _tar_type(info: tarfile.TarInfo) -> TarMemberType:
+    if info.islnk():
+        return TarMemberType.HARDLINK
+    if info.isfile():
+        return TarMemberType.FILE
+    if info.isdir():
+        return TarMemberType.DIR
+    if info.issym():
+        return TarMemberType.SYMLINK
+    return TarMemberType.OTHER
+
+
+def _digest(
+    tar: tarfile.TarFile, info: tarfile.TarInfo, *, keep: bool
+) -> tuple[MemberDigest, bytes | None]:
+    """Stream one member into SHA-256; with ``keep``, its bytes too."""
+    kind = _tar_type(info)
+    link = (
+        info.linkname
+        if kind in {TarMemberType.SYMLINK, TarMemberType.HARDLINK}
+        else None
+    )
+    if kind is not TarMemberType.FILE:
+        return MemberDigest(
+            tar_type=kind, size=info.size, sha256=None, link_name=link
+        ), None
+    handle = tar.extractfile(info)
+    if handle is None:  # pragma: no cover - isfile() guarantees a handle
+        msg = "a regular member has no content"
+        raise tarfile.ReadError(msg)
+    digest = hashlib.sha256()
+    kept = bytearray() if keep else None
+    while chunk := handle.read(_CHUNK):
+        digest.update(chunk)
+        if kept is not None:
+            kept += chunk
+    return (
+        MemberDigest(
+            tar_type=kind, size=info.size, sha256=digest.hexdigest(), link_name=None
+        ),
+        None if kept is None else bytes(kept),
+    )
+
+
+def _began_as_a_tar(head: bytes) -> bool:
+    """Whether a stream that failed at its first header had begun as a tar.
+
+    A whole first block must parse as a tar header (``TarInfo.frombuf``, its
+    checksum included); a shorter stream counts when it is a prefix of the
+    gzip magic or its bytes up to the first NUL are a printable name, the way
+    every tar header begins.
+    """
+    if len(head) >= tarfile.BLOCKSIZE:
+        try:
+            tarfile.TarInfo.frombuf(head, "utf-8", "surrogateescape")
+        except tarfile.HeaderError:
+            return False
+        return True
+    if head and _GZIP_MAGIC.startswith(head):
+        return True
+    name = head.split(b"\x00", 1)[0]
+    return bool(name) and all(b in _ASCII_PRINTABLE or b >= 0x80 for b in name)
+
+
+def _walk(tar: tarfile.TarFile, scan: _Scan) -> None:
+    for info in tar:
+        first = not scan.names
+        scan.names.append(info.name)
+        keep = (
+            first
+            and info.name == MANIFEST_MEMBER
+            and info.isfile()
+            and info.size <= MANIFEST_MAX_BYTES
+        )
+        digest, kept = _digest(tar, info, keep=keep)
+        scan.digests.setdefault(info.name, digest)
+        if kept is not None:
+            with contextlib.suppress(UnicodeDecodeError):
+                scan.manifest_text = kept.decode("utf-8")
+    scan.end = tar.offset
+    stream = cast("IO[bytes]", tar.fileobj)
+    zeros = True
+    while chunk := stream.read(_CHUNK):  # to the end: GzipFile checks its CRC here
+        zeros = zeros and chunk.count(0) == len(chunk)
+    scan.complete = zeros and stream.tell() - tar.offset >= _END_OF_ARCHIVE
+
+
+def _clean_trailer(handle: BinaryIO, end: int) -> bool:
+    """Whether a plain tar's bytes from ``end`` are its end-of-archive marker.
+
+    tarfile stops silently at an invalid header after the first, having
+    consumed it, so the bytes are re-read from the file: at least two zero
+    blocks, nothing but zeros, at most :data:`_MAX_TRAILER` of them, and the
+    stream a whole number of tar records.
+    """
+    handle.seek(end)
+    trailer = handle.read(_MAX_TRAILER + 1)
+    return (
+        _END_OF_ARCHIVE <= len(trailer) <= _MAX_TRAILER
+        and trailer.count(0) == len(trailer)
+        and (end + len(trailer)) % tarfile.RECORDSIZE == 0
+    )
+
+
+def _stream_outer(path: Path) -> _Scan:
+    """Stream the outermost tar of ``path`` once. Raises only for a missing file."""
+    scan = _Scan()
+    with _open(path) as handle:
+        raw = _Counter(handle)
+        scan.gzip = cast("io.BufferedReader", handle).peek(2)[:2] == _GZIP_MAGIC
+        logical = (
+            _Counter(cast("IO[bytes]", gzip.GzipFile(fileobj=raw, mode="rb")))
+            if scan.gzip
+            else raw
+        )
+        try:
+            with tarfile.open(fileobj=cast("IO[bytes]", logical), mode="r|") as tar:
+                _walk(tar, scan)
+            if scan.complete and not scan.gzip:
+                scan.complete = _clean_trailer(handle, scan.end)
+        except _STREAM_ERRORS as exc:
+            _log.debug("archive_read_stopped", error=type(exc).__name__)
+            # A stream that is not a tar from its first header has no names
+            # and nothing more to read: the classifier calls it unrecognised.
+            at_first_header = not scan.names and isinstance(exc, tarfile.ReadError)
+            scan.complete = at_first_header and not _began_as_a_tar(logical.head)
+        scan.bytes_read = raw.count
+    return scan
+
+
+class TarArchiveProbe:
+    """``ArchiveProbe`` over local Archives with stdlib ``tarfile`` streams."""
+
+    __slots__ = ()
+
+    def member_index(self, source: StorageTarget) -> MemberIndex:
+        """The outer tar's member names and Manifest text, streamed once."""
+        return _stream_outer(_archive_path(source)).index()
+
+    def member_digests(self, source: StorageTarget) -> Mapping[str, MemberDigest]:
+        """Every outer member's type, size and SHA-256 (first occurrence)."""
+        return MappingProxyType(_stream_outer(_archive_path(source)).digests)
+
+    def read_member(
+        self,
+        source: StorageTarget,
+        view: ArchiveView,
+        path: str,
+        *,
+        max_bytes: int,
+        payload: Path | None = None,
+    ) -> bytes:
+        """One regular-file member's bytes, refusing anything but a small file.
+
+        Reads through the plain payload as :func:`extract_archive` does. Refuses
+        (:class:`MemberReadRefusedError`) a path not in the member index, one
+        that is not a regular file and one larger than ``max_bytes``. Writes
+        nothing.
+        """
+        member = next((m for m in view.members if m.path == path), None)
+        if member is None:
+            raise MemberReadRefusedError(path, "not in the member index")
+        if member.kind is not MemberKind.FILE:
+            raise MemberReadRefusedError(path, "not a regular file")
+        archive = _archive_path(source)
+        try:
+            with _inner(archive, view, payload) as tar:
+                for info in tar:
+                    if info.name != path:
+                        continue
+                    if not info.isfile():
+                        raise MemberReadRefusedError(path, "not a regular file")
+                    if info.size > max_bytes:
+                        reason = f"{info.size} bytes is over the {max_bytes}-byte cap"
+                        raise MemberReadRefusedError(path, reason)
+                    handle = tar.extractfile(info)
+                    if handle is None:  # pragma: no cover - isfile() guarantees one
+                        raise MemberReadRefusedError(path, "not a regular file")
+                    return handle.read(info.size)
+        except _STREAM_ERRORS as exc:
+            raise ArchiveReadError(archive, _reason(exc)) from exc
+        raise ArchiveReadError(archive, f"member {path!r} is not in the archive")
+
+
+# --------------------------------------------------------------------------
+# Reading: verification, the publish gate
+# --------------------------------------------------------------------------
+
+
+def verify_archive(path: Path) -> VerificationResult:
+    """Verify the Archive at ``path`` (AD-23, ADR-0024). Writes nothing.
+
+    Annotates the enclosing ``VERIFY`` phase when there is one (the store's
+    publish), else emits its own: ``bytes`` read, ``format_version`` (or
+    ``"v0"``), ``integrity``, ``dump_present``, ``passed`` and, on failure,
+    the first ``reason`` and ``member``; the format fields are ``None`` when
+    the Archive could not be classified. A missing or unreadable file raises
+    :class:`ArchiveNotFoundError`.
+    """
+    with join_phase(BackupStep.VERIFY.value) as record:
+        scan = _stream_outer(path)
+        view, result = verify_probe(scan.index(), scan.digests)
+        record.bytes = scan.bytes_read
+        # An Archive that was never classified was read as no format at all.
+        record.fields.update(
+            format_version=None if view is None else format_label(view.format_version),
+            integrity=None if view is None else result.integrity.value,
+            dump_present=None if view is None else view.dump_present,
+            passed=result.passed,
+        )
+        if result.failures:
+            first = result.failures[0]
+            record.fields.update(
+                reason=first.reason.value,
+                member=None if first.member is None else repr(first.member),
+            )
+    return result
+
+
+def verify_or_raise(path: Path) -> None:
+    """The publish gate: raise :class:`VerificationFailedError` unless it passes."""
+    result = verify_archive(path)
+    if not result.passed:
+        raise VerificationFailedError(result)
+
+
+# --------------------------------------------------------------------------
+# Reading: the plain payload, extraction and decryption
+# --------------------------------------------------------------------------
+
+
+def _payload_body(outer: tarfile.TarFile, name: str, archive: Path) -> IO[bytes]:
+    for info in outer:
+        if info.name == name and info.isfile():
+            body = outer.extractfile(info)
+            if body is not None:
+                return body
+    raise ArchiveReadError(archive, f"the payload {name!r} is not in the archive")
+
+
+@contextlib.contextmanager
+def _inner(
+    archive: Path, view: ArchiveView, payload: Path | None
+) -> Iterator[tarfile.TarFile]:
+    """The tar holding ``view``'s members: v0's Archive, else the plain payload."""
+    if view.payload is None:
+        with _open(archive) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
+            yield tar
+    elif payload is not None:
+        with tarfile.open(payload, mode="r:gz") as tar:
+            yield tar
+    elif view.encrypted:
+        msg = "an encrypted archive needs payload= (the file decrypt_payload wrote)"
+        raise ValueError(msg)
+    else:
+        with _open(archive) as handle, tarfile.open(fileobj=handle, mode="r|") as outer:
+            body = _payload_body(outer, view.payload.name, archive)
+            with tarfile.open(fileobj=body, mode="r|gz") as tar:
+                yield tar
+
+
+_SkipReason = Literal["absolute", "outside_destination"]
+
+
+def _header_kind(member: tarfile.TarInfo) -> MemberKind | None:
+    if member.isfile():
+        return MemberKind.FILE
+    if member.isdir():
+        return MemberKind.DIR
+    return MemberKind.SYMLINK if member.issym() else None
+
+
+@dataclass(slots=True)
+class _ExtractFilter:
+    """The ``filter=`` callable: hard links refused, then ``data_filter``.
+
+    Beyond the hard-link refusal and the symlink skip it holds the inner tar to
+    the member index the Archive was verified against (verification never opens
+    the payload, ADR-0024): a name twice, a member below a symlink this Archive
+    wrote, a v1 member whose header kind is not its indexed kind, and a member
+    that resolves onto an excluded path are each refused, so nothing reaches an
+    excluded file under another name.
+    """
+
+    view: ArchiveView
+    roles: frozenset[MemberRole]
+    exclude: frozenset[PurePosixPath]
+    destination: Path
+    kinds: Mapping[str, MemberKind]
+    check_kinds: bool
+    members: int = 0
+    bytes: int = 0
+    skipped: list[SkippedLink] = field(default_factory=list)
+    seen: set[str] = field(default_factory=set)
+    links: set[PurePosixPath] = field(default_factory=set)
+    #: Directories accepted, by name: the very ``TarInfo`` passed, and its
+    #: role-relative name. Patched interpreters (3.11.13+, 3.12.11+) call the
+    #: filter a second time with that same object to fix directory attributes.
+    directories: dict[str, tuple[tarfile.TarInfo, str]] = field(default_factory=dict)
+
+    def _skip_link(self, relative: str, target: str, reason: _SkipReason) -> None:
+        self.skipped.append(
+            SkippedLink(path=relative, link_target=target, reason=reason)
+        )
+        _log.warning(
+            "symlink_skipped",
+            path=repr(relative),
+            link_target=repr(target),
+            reason=reason,
+        )
+
+    def __call__(self, member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
+        name = member.name
+        if member.islnk():
+            # data_filter allows a hard link that stays inside the destination;
+            # ADR-0017 never writes one, so it is only ever crafted.
+            raise ExtractionRefusedError(name, "a hard link")
+        fixup = self.directories.get(name)
+        if fixup is not None and fixup[0] is member:
+            # The stdlib's directory fix-up pass, not a second member: re-filter
+            # against the filesystem as it is now and count nothing. Its own
+            # FilterError handling skips the fix-up if this refuses.
+            return tarfile.data_filter(member.replace(name=fixup[1], deep=False), path)
+        if name in self.seen:
+            raise ExtractionRefusedError(name, "occurs twice in the payload")
+        self.seen.add(name)
+        indexed = self.kinds.get(name)
+        if indexed is None:
+            raise ExtractionRefusedError(name, "not in the member index")
+        located = member_relative(self.view, name)
+        if located is None:
+            raise ExtractionRefusedError(name, "escapes its role prefix")
+        role, relative = located
+        if role not in self.roles or not relative:
+            return None
+        if any(parent in self.links for parent in PurePosixPath(relative).parents):
+            raise ExtractionRefusedError(name, "below a symlink in this archive")
+        renamed = member.replace(name=relative, deep=False)
+        try:
+            filtered = tarfile.data_filter(renamed, path)
+        except tarfile.AbsoluteLinkError as exc:
+            if not member.issym():  # pragma: no cover - hard links refused above
+                raise ExtractionRefusedError(name, type(exc).__name__) from exc
+            self._skip_link(relative, member.linkname, "absolute")
+            return None
+        except tarfile.LinkOutsideDestinationError as exc:
+            if not member.issym():  # pragma: no cover - hard links refused above
+                raise ExtractionRefusedError(name, type(exc).__name__) from exc
+            self._skip_link(relative, member.linkname, "outside_destination")
+            return None
+        except tarfile.FilterError as exc:
+            raise ExtractionRefusedError(name, type(exc).__name__) from exc
+        if self.check_kinds and _header_kind(member) is not indexed:
+            reason = f"its header is not the indexed {indexed.value}"
+            raise ExtractionRefusedError(name, reason)
+        if PurePosixPath(relative) in self.exclude:
+            return None
+        root = self.destination.resolve()
+        target = (root / filtered.name).resolve()
+        if not target.is_relative_to(root):
+            raise ExtractionRefusedError(name, "outside the destination")
+        if member.isdir():
+            self.directories[name] = (member, relative)
+        if member.issym():
+            self.links.add(PurePosixPath(relative))
+        elif target in {(root / entry).resolve() for entry in self.exclude}:
+            raise ExtractionRefusedError(name, "resolves onto an excluded path")
+        self.members += 1
+        self.bytes += filtered.size if filtered.isfile() else 0
+        return filtered
+
+
+def _check_exclude(exclude: frozenset[PurePosixPath]) -> None:
+    for entry in exclude:
+        if entry.is_absolute() or ".." in entry.parts or not entry.parts:
+            msg = f"exclude entry {str(entry)!r} must be relative, with no '..'"
+            raise ValueError(msg)
+
+
+def extract_archive(
+    source: StorageTarget,
+    destination: Path,
+    view: ArchiveView,
+    *,
+    roles: frozenset[MemberRole],
+    exclude: frozenset[PurePosixPath] = frozenset(),
+    payload: Path | None = None,
+) -> ExtractResult:
+    """Extract ``roles``' members of ``view`` into ``destination`` (AD-11).
+
+    The members are read from the plain payload — ``payload`` when given (the
+    file :func:`decrypt_payload` wrote), else the outer tar's payload member,
+    ``ValueError`` for an encrypted view without one — or, for v0, from the
+    Archive itself. Each member is renamed below its role prefix and passed to
+    ``tarfile.data_filter``; a symlink it refuses for its target is skipped and
+    reported in ``skipped_links``, any other refusal, a hard link anywhere and
+    a member outside the index raise :class:`ExtractionRefusedError`. ``exclude``
+    holds role-relative paths whose bytes are never written. An interpreter
+    without ``tarfile.data_filter`` is refused before anything is read.
+    Members written before a refusal stay written.
+    """
+    _check_exclude(exclude)
+    if not hasattr(tarfile, "data_filter"):
+        raise ExtractionRefusedError(None, "this Python's tarfile has no data filter")
+    archive = _archive_path(source)
+    extract = _ExtractFilter(
+        view=view,
+        roles=roles,
+        exclude=exclude,
+        destination=destination,
+        kinds={m.path: m.kind for m in view.members},
+        # v0 kinds are synthesized from names (no index), so only v1's are held.
+        check_kinds=view.payload is not None,
+    )
+    try:
+        with _inner(archive, view, payload) as tar:
+            # The one extraction (AD-11): filtered by the data_filter wrapper.
+            tar.extractall(destination, filter=extract)  # noqa: S202
+    except tarfile.FilterError as exc:  # pragma: no cover - the callable converts
+        raise ExtractionRefusedError(None, type(exc).__name__) from exc
+    except (tarfile.TarError, EOFError, zlib.error, gzip.BadGzipFile) as exc:
+        raise ArchiveReadError(payload or archive, _reason(exc)) from exc
+    except OSError as exc:
+        raise ArchiveWriteError(destination, _reason(exc)) from exc
+    return ExtractResult(
+        members=extract.members,
+        bytes=extract.bytes,
+        skipped_links=tuple(extract.skipped),
+    )
+
+
+def decrypt_payload(
+    source: StorageTarget,
+    view: ArchiveView,
+    *,
+    cipher: PayloadCipher,
+    destination: Path,
+) -> Path:
+    """Decrypt the payload into ``destination``, a new ``0600`` file (ADR-0024).
+
+    Streams the outer tar's payload member through ``cipher.decrypt``. Any
+    failure — the cipher's own errors propagate unchanged — removes
+    ``destination``. A view that is not encrypted raises ``ValueError``.
+    """
+    if not view.encrypted or view.payload is None:
+        msg = "decrypt_payload needs an encrypted v1 view"
+        raise ValueError(msg)
+    archive = _archive_path(source)
+    try:
+        fd = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            _STAGED_MODE,
+        )
+    except OSError as exc:
+        raise ArchiveWriteError(destination, _reason(exc)) from exc
+    try:
+        with (
+            os.fdopen(fd, "wb") as writer,
+            _open(archive) as handle,
+            tarfile.open(fileobj=handle, mode="r|") as outer,
+        ):
+            os.fchmod(writer.fileno(), _STAGED_MODE)
+            cipher.decrypt(_payload_body(outer, view.payload.name, archive), writer)
+    except (tarfile.TarError, EOFError, zlib.error) as exc:
+        destination.unlink(missing_ok=True)
+        raise ArchiveReadError(archive, _reason(exc)) from exc
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return destination

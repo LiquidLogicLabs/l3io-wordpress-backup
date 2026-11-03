@@ -13,6 +13,13 @@ streaming interface AD-21 names. Chunked iteration (``Iterator[bytes]``) is
 **not** allowed: no port needs it, and a port that wants it must widen
 ``STREAMING_ORIGINS`` here, visibly, in review.
 
+**One stated exemption.** :data:`BOUNDED_BYTE_RETURNS` names the return of
+``ArchiveProbe.read_member`` (ADR-0016 amendment): it reads one config-sized
+member, capped by its required ``max_bytes`` argument, and never an Archive. It
+is keyed by Protocol *and* method *and* the return only, asserted to still
+exist with its ``max_bytes`` parameter, and a parameter of that method, or the
+same method name on another Protocol, still fails.
+
 Scope is the ``ports/`` directory walked for ``*.py`` files, asserted
 non-empty, and the walker is run over a planted tree that hides violations in
 a nested directory with no ``__init__.py``, behind a property, in a class-level
@@ -36,6 +43,9 @@ PORTS = SRC / "l3io" / "wp" / "backup" / "ports"
 BYTE_TYPES = (bytes, bytearray, memoryview)
 #: Generic origins whose ``bytes`` argument is a stream, not a buffer.
 STREAMING_ORIGINS = (typing.IO,)
+#: ``(Protocol, method)`` whose *return* may be ``bytes``, bounded by the
+#: method's ``max_bytes`` parameter (see the module docstring).
+BOUNDED_BYTE_RETURNS = frozenset({("ArchiveProbe", "read_member")})
 
 
 def _module_names(root: Path, package_dir: Path) -> list[str]:
@@ -81,12 +91,53 @@ def _violations(protocol: type) -> list[str]:
         if not inspect.isfunction(function):
             continue
         hints = typing.get_type_hints(function)
+        bounded = (protocol.__name__, attr) in BOUNDED_BYTE_RETURNS
         found.extend(
             f"{protocol.__name__}.{attr}: {param}"
             for param, hint in hints.items()
-            if _is_bytes(hint)
+            if _is_bytes(hint) and not (bounded and param == "return")
         )
     return found
+
+
+def test_every_bounded_byte_return_exists_and_is_capped() -> None:
+    """A stale exemption fails, and so does one whose cap was removed."""
+    protocols = {p.__name__: p for p in _protocols(_module_names(SRC, PORTS))}
+    for protocol_name, method in BOUNDED_BYTE_RETURNS:
+        assert protocol_name in protocols, f"stale exemption: {protocol_name}"
+        function = vars(protocols[protocol_name]).get(method)
+        assert inspect.isfunction(function), f"stale: {protocol_name}.{method}"
+        parameter = inspect.signature(function).parameters.get("max_bytes")
+        assert parameter is not None, f"{protocol_name}.{method} lost max_bytes"
+        assert parameter.default is inspect.Parameter.empty
+
+
+def test_the_exemption_reaches_only_its_return(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scope attack: the exempted name elsewhere, and a bytes parameter on it."""
+    package = tmp_path / "boundedports"
+    package.mkdir()
+    (package / "probe.py").write_text(
+        "from __future__ import annotations\n"
+        "from typing import Protocol\n"
+        "class ArchiveProbe(Protocol):\n"
+        "    def read_member(self, data: bytes, *, max_bytes: int) -> bytes: ...\n"
+        "class OtherProbe(Protocol):\n"
+        "    def read_member(self, *, max_bytes: int) -> bytes: ...\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        protocols = _protocols(_module_names(tmp_path, package))
+        violations = sorted(v for p in protocols for v in _violations(p))
+    finally:
+        for name in [m for m in sys.modules if m.startswith("boundedports")]:
+            del sys.modules[name]
+    assert violations == [
+        "ArchiveProbe.read_member: data",
+        "OtherProbe.read_member: return",
+    ]
 
 
 def test_the_ports_scope_is_not_empty() -> None:
