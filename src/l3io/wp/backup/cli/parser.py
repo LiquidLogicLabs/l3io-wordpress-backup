@@ -34,6 +34,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="action", help="Action being requested")
-    subparsers.add_parser(BACKUP_COMMAND, help="Perform a WordPress backup")
+    backup = subparsers.add_parser(BACKUP_COMMAND, help="Perform a WordPress backup")
+    backup.add_argument(
+        "--wp-dir", help="Path to the root of the WordPress directory", required=True
+    )
+    backup.add_argument(
+        "--archive",
+        help="Path and filename of the archive (.tar.gz) to backup to/restore from.",
+        default=None,
+        required=False,
+    )
+    backup.add_argument(
+        "--wp-config",
+        metavar="PATH",
+        help="use this wp-config.php instead of searching for it",
+        default=None,
+    )
     subparsers.add_parser(RESTORE_COMMAND, help="Perform a WordPress restore")
     return parser

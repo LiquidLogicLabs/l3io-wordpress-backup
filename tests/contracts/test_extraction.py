@@ -24,6 +24,17 @@ what the code does rather than what it is called:
   literal write mode (``w``/``x``/``a``). An absent mode is ``"r"``; a
   non-literal mode counts as reading.
 
+**One stated exemption.** :data:`STREAM_READERS` names the functions allowed
+to *read* a tar as a stream without extracting it: E002-S01-010's publish-gate
+``structural_check`` in ``adapters/tar.py`` (and its helper ``_check``), which
+reads the staged Archive's two members through ``extractfile`` and writes
+nothing to the filesystem, so containment does not arise. The exemption covers
+read-mode opens and ``extractfile`` only — ``extract``/``extractall`` inside an
+exempted function still fire — and it is keyed by module *and* function, so the
+same code anywhere else fires. Every exempted name must still exist: when
+E002-S01-003 deletes ``structural_check``, the stale entry fails CI and this
+file is due its real containment test.
+
 Not covered: a tar reached through ``importlib``/``__import__`` or a re-export
 from another module. (It used to fire on the first adapter module;
 E002-S01-001's ``adapters/database.py`` extracts nothing. E002-S01-003 replaces
@@ -43,6 +54,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "adapters"
 
 EXTRACT_CALLS = frozenset({"extract", "extractall", "extractfile"})
+#: Calls no exemption covers: these write members to the filesystem.
+FILESYSTEM_EXTRACT_CALLS = frozenset({"extract", "extractall"})
+#: Functions, by module path under ``adapters/``, that may read a tar as a
+#: stream (see the module docstring). Asserted to exist.
+STREAM_READERS: dict[str, frozenset[str]] = {
+    "tar.py": frozenset({"structural_check", "_check"}),
+}
 WRITE_MODES = ("w", "x", "a")
 
 ESCAPING_MEMBER = "../escape.txt"
@@ -142,23 +160,91 @@ def _reads_a_tar(call: ast.Call, modules: set[str], openers: set[str]) -> bool:
     )
 
 
-def _extracts(module: Path) -> list[str]:
+def _exempt_lines(tree: ast.Module, names: frozenset[str]) -> set[int]:
+    """The lines of the module-level functions named in ``names``."""
+    return {
+        line
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in names
+        for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)
+    }
+
+
+def _extracts(module: Path, exempt: frozenset[str] = frozenset()) -> list[str]:
     """Where ``module`` can extract an Archive, as ``path:line`` strings."""
     tree = ast.parse(module.read_text(encoding="utf-8"))
     modules, openers = _tarfile_names(tree)
+    exempt_lines = _exempt_lines(tree, exempt)
+    hits = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        attr = node.func.attr if isinstance(node.func, ast.Attribute) else None
+        if attr in FILESYSTEM_EXTRACT_CALLS or (
+            (attr in EXTRACT_CALLS or _reads_a_tar(node, modules, openers))
+            and node.lineno not in exempt_lines
+        ):
+            hits.append(f"{module}:{node.lineno}")
+    return hits
+
+
+def _extractors(
+    adapters: Path, readers: dict[str, frozenset[str]] | None = None
+) -> list[str]:
+    readers = STREAM_READERS if readers is None else readers
     return [
-        f"{module}:{node.lineno}"
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and (
-            (isinstance(node.func, ast.Attribute) and node.func.attr in EXTRACT_CALLS)
-            or _reads_a_tar(node, modules, openers)
+        hit
+        for path in sorted(adapters.rglob("*.py"))
+        for hit in _extracts(
+            path, readers.get(path.relative_to(adapters).as_posix(), frozenset())
         )
     ]
 
 
-def _extractors(adapters: Path) -> list[str]:
-    return [hit for path in sorted(adapters.rglob("*.py")) for hit in _extracts(path)]
+def test_every_stream_reader_exemption_names_a_function_that_exists() -> None:
+    """A stale exemption fails, so it cannot outlive what it exempts."""
+    for relative, names in STREAM_READERS.items():
+        module = ADAPTERS / relative
+        assert module.is_file(), f"exempted module {module} does not exist"
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        defined = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+        assert names <= defined, f"stale exemption: {sorted(names - defined)}"
+
+
+@pytest.mark.parametrize(
+    ("relative", "body"),
+    [
+        # The exempted name, in a module the exemption does not name.
+        ("nested/tar.py", "def structural_check(a):\n    a.extractfile('m')\n"),
+        ("other.py", "import tarfile\ndef _check():\n    tarfile.open('x')\n"),
+        # Filesystem extraction inside an exempted function.
+        ("tar.py", "def structural_check(a):\n    a.extractall('d')\n"),
+        ("tar.py", "def _check(a):\n    a.extract('m')\n"),
+        # A reader in the exempted module, outside the exempted functions.
+        ("tar.py", "import tarfile\ndef other():\n    tarfile.open('x')\n"),
+    ],
+)
+def test_the_exemption_does_not_reach_beyond_its_functions(
+    tmp_path: Path, relative: str, body: str
+) -> None:
+    """Scope attack on the exemption itself."""
+    adapters = tmp_path / "adapters"
+    (adapters / relative).parent.mkdir(parents=True, exist_ok=True)
+    (adapters / relative).write_text(body, encoding="utf-8")
+    assert _extractors(adapters), body
+
+
+def test_the_exemption_covers_a_stream_reader(tmp_path: Path) -> None:
+    adapters = tmp_path / "adapters"
+    adapters.mkdir()
+    (adapters / "tar.py").write_text(
+        "import tarfile\n"
+        "def structural_check(p):\n    tarfile.open(p, mode='r|')\n"
+        "def _check(o):\n    o.extractfile(o.next())\n",
+        encoding="utf-8",
+    )
+    assert _extractors(adapters) == []
+    assert _extractors(adapters, readers={}) != []
 
 
 @pytest.mark.parametrize(

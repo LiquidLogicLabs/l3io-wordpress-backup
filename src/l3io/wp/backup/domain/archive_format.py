@@ -39,6 +39,8 @@ from l3io.wp.backup.domain.exclusion import ExcludedEntry
 from l3io.wp.backup.domain.site import SiteDescriptor
 
 __all__ = [
+    "CONFIG_RELATIVE",
+    "DUMP_RELATIVE",
     "ENCRYPTED_PAYLOAD_MEMBER",
     "FORMAT_VERSION",
     "MANIFEST_MEMBER",
@@ -64,6 +66,11 @@ FORMAT_VERSION: Final = 1
 MANIFEST_MEMBER: Final = "manifest.json"
 PAYLOAD_MEMBER: Final = "payload.tar.gz"
 ENCRYPTED_PAYLOAD_MEMBER: Final = "payload.tar.gz.age"
+#: The Dump's name under the ``dump`` role, and the located config's under the
+#: ``config`` role: ``member_path(MemberRole.DUMP, DUMP_RELATIVE)`` and
+#: ``member_path(MemberRole.CONFIG, CONFIG_RELATIVE)``.
+DUMP_RELATIVE: Final = "database.sql"
+CONFIG_RELATIVE: Final = "wp-config.php"
 
 #: ``source`` keys reserved for the stored ``siteurl``/``home`` options. Written
 #: only when ``l3io-wordpress-database`` exposes a read of them as the

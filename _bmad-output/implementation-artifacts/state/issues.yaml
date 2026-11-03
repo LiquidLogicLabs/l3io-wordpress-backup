@@ -1,5 +1,5 @@
 next:
-  '002': 40
+  '002': 45
   '003': 30
   '004': 42
 backlog:
@@ -943,3 +943,53 @@ backlog:
   severity: Low
   status: backlog
   description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-11)
+- key: BL-E002-040
+  epic: '002'
+  sprint: '01'
+  title: F-07 LocalArchiveStore._rename check-then-os.replace race can clobber a final name created concurrently; consider os.link no-clobber or document
+  source: code-review (E002-S01-010)
+  source_phase: code-review
+  source_ref: E002-S01-010
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
+- key: BL-E002-041
+  epic: '002'
+  sprint: '01'
+  title: 'F-08 run_workspace ignores rmtree errors: an unremovable workspace (plaintext Dump) only logs a WARNING and the run still exits 0'
+  source: code-review (E002-S01-010)
+  source_phase: code-review
+  source_ref: E002-S01-010
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
+- key: BL-E002-042
+  epic: '002'
+  sprint: '01'
+  title: 'F-09 Missing tests: cipher failure leaves destination empty (executor level), empty (0-byte) Dump, Site Root with only wp-config.php end to end'
+  source: code-review (E002-S01-010)
+  source_phase: code-review
+  source_ref: E002-S01-010
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
+- key: BL-E002-043
+  epic: '002'
+  sprint: '01'
+  title: R-04 --archive relative bare path with a colon in its first segment (site-2026T10:00.tar.gz) is parsed as a URL scheme and refused
+  source: code-review (E002-S01-010)
+  source_phase: code-review
+  source_ref: E002-S01-010
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
+- key: BL-E002-044
+  epic: '002'
+  sprint: '01'
+  title: R-05 tests/unit/domain/test_archive_format.py golden test does not reference DUMP_RELATIVE/CONFIG_RELATIVE, so a rename changes the format unnoticed
+  source: code-review (E002-S01-010)
+  source_phase: code-review
+  source_ref: E002-S01-010
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md

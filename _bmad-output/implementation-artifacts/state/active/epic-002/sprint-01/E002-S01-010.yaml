@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S01'
 title: Write and publish an archive
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-03T02:18:45Z'
+status: done
+updated_at: '2026-11-03T03:18:43Z'
 depends_on:
 - 'E002-S01-001'
 estimate:
@@ -25,3 +25,51 @@ estimate:
     hitl_hours: 1.0
     elapsed_hours: 1.0
     tokens_k: 1.0
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 2
+  files_changed: 19
+actual:
+  elapsed_hours: 0.57
+  man_hours: 14
+  hitl_hours: 0
+  tokens_k:
+    total: 25070.7
+    input: 0.314
+    output: 193.647
+    cache_write: 753.353
+    cache_read: 24123.384
+  cost: 21.61
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-03T03:18:43Z'
