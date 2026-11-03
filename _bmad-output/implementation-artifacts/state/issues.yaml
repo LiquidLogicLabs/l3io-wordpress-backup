@@ -1,5 +1,5 @@
 next:
-  '002': 88
+  '002': 92
   '003': 30
   '004': 43
 backlog:
@@ -1399,3 +1399,43 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-012.md (F5)
+- key: BL-E002-088
+  epic: '002'
+  sprint: '02'
+  title: "F5: clean keeps a nested keep path's whole top-level ancestor (keep={wp-content/uploads} keeps old plugins/themes); refuse or honour nested keep in real adapter and no-op alike"
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+- key: BL-E002-089
+  epic: '002'
+  sprint: '02'
+  title: 'F6: test_no_sql_ddl misses bytes literals, DDL split across f-string parts, multi-line GRANT/REVOKE, SET PASSWORD / FLUSH PRIVILEGES / ROLE; widen or state limits in its docstring'
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+- key: BL-E002-090
+  epic: '002'
+  sprint: '02'
+  title: "F7: credential-source guard's l3io.wp.config WpConfigFile exemption is module-wide; a rebinding (WpConfigFile = wpdb.WpConfigFile) in the same module passes"
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+- key: BL-E002-091
+  epic: '002'
+  sprint: '02'
+  title: "F9: config_writer._write_over duplicates l3io-wordpress-config's private atomic write (ADR-0023 prescribes it); request a public whole-content replace upstream and correct the story's existing-library claim"
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md

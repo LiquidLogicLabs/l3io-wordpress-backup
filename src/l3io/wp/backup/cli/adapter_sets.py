@@ -10,10 +10,9 @@ and substitutes only the command halves with their no-ops from
 **Placeholders (E002-S02-012).** A port whose real implementation has not
 landed is bound to a placeholder below whose every method raises
 ``UnboundAdapterError`` naming the port and its supplier — never a silent
-no-op in a real Run: ``site_files_*`` and ``config_*`` until E002-S02-009,
-``search_replace`` until Epic 7 supplies one, the journal pair until Epic 3
-passes ``adapters/journal.py``'s. The restore-half database methods are
-``WpDatabase``'s own stubs until E002-S02-009.
+no-op in a real Run: ``search_replace`` until Epic 7 supplies one, the
+journal pair until Epic 3 passes ``adapters/journal.py``'s. ``site_files_*``
+are ``LocalSiteFiles`` and ``config_*`` ``WpConfigWriter`` (E002-S02-009).
 
 :func:`real_site_lock` binds the Site Lock (AD-19). It is Run machinery, not a
 field of the ``AdapterSet``: the Run Context acquires it before any set is
@@ -22,10 +21,10 @@ bound, and a Dry Run takes it for real, so there is no Dry Run variant.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final, NoReturn
 
+from l3io.wp.backup.adapters.config_writer import WpConfigWriter
 from l3io.wp.backup.adapters.database import WpDatabase
 from l3io.wp.backup.adapters.lock import FcntlSiteLock
 from l3io.wp.backup.adapters.noop import (
@@ -39,19 +38,17 @@ from l3io.wp.backup.adapters.noop import (
     NoopSiteFiles,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.store import LocalArchiveStore
 from l3io.wp.backup.adapters.tar import (
     TarArchiveProbe,
     TarArchiveWriter,
     verify_or_raise,
 )
-from l3io.wp.backup.domain.archive_format import ArchiveView, ExtractResult, MemberRole
-from l3io.wp.backup.domain.config import ConfigWriteResult, ConstantValue
 from l3io.wp.backup.domain.errors import UnboundAdapterError
 from l3io.wp.backup.domain.journal import JournalHeader, JournalRecord
 from l3io.wp.backup.domain.restore import RestorePhase
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport, UrlRelocation
-from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.database import DatabaseCommand
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
@@ -63,82 +60,20 @@ if TYPE_CHECKING:
     from l3io.wp.database import CredentialSource
 
 __all__ = [
-    "UnboundConfig",
     "UnboundRunJournal",
     "UnboundSearchReplace",
-    "UnboundSiteFiles",
     "dry_run_adapters",
     "real_adapters",
     "real_site_lock",
 ]
 
 #: Who supplies each placeholder-bound port's real implementation.
-SITE_FILES_SUPPLIER: Final = "E002-S02-009"
-CONFIG_SUPPLIER: Final = "E002-S02-009"
 SEARCH_REPLACE_SUPPLIER: Final = "Epic 7 (E007-S01-003)"
 JOURNAL_SUPPLIER: Final = "Epic 3 (E003-S02-005)"
 
 
 def _unbound(port: str, supplier: str) -> NoReturn:
     raise UnboundAdapterError(port, supplier=supplier)
-
-
-class UnboundSiteFiles:
-    """``SiteFilesQuery`` and ``SiteFilesCommand`` until E002-S02-009."""
-
-    __slots__ = ()
-
-    def is_empty(self, site_root: Path) -> bool:
-        _unbound("SiteFilesQuery.is_empty", SITE_FILES_SUPPLIER)
-
-    def entry_count(self, site_root: Path) -> int:
-        _unbound("SiteFilesQuery.entry_count", SITE_FILES_SUPPLIER)
-
-    def file_exists(self, path: Path) -> bool:
-        _unbound("SiteFilesQuery.file_exists", SITE_FILES_SUPPLIER)
-
-    def clean(self, site_root: Path, *, keep: frozenset[PurePosixPath]) -> int:
-        _unbound("SiteFilesCommand.clean", SITE_FILES_SUPPLIER)
-
-    def extract(
-        self,
-        source: StorageTarget,
-        destination: Path,
-        view: ArchiveView,
-        *,
-        roles: frozenset[MemberRole],
-        exclude: frozenset[PurePosixPath] = frozenset(),
-        payload: Path | None = None,
-    ) -> ExtractResult:
-        _unbound("SiteFilesCommand.extract", SITE_FILES_SUPPLIER)
-
-
-class UnboundConfig:
-    """``ConfigQuery`` and ``ConfigCommand`` until E002-S02-009."""
-
-    __slots__ = ()
-
-    def read_constants(
-        self, config_file: Path, keys: Sequence[str]
-    ) -> Mapping[str, ConstantValue]:
-        _unbound("ConfigQuery.read_constants", CONFIG_SUPPLIER)
-
-    def set_constants(
-        self, config_file: Path, values: Mapping[str, str | int | bool]
-    ) -> ConfigWriteResult:
-        _unbound("ConfigCommand.set_constants", CONFIG_SUPPLIER)
-
-    def save_copy(self, config_file: Path, destination: Path) -> ConfigWriteResult:
-        _unbound("ConfigCommand.save_copy", CONFIG_SUPPLIER)
-
-    def replace_file(
-        self,
-        config_file: Path,
-        source: Path,
-        *,
-        keep: Mapping[str, ConstantValue],
-    ) -> ConfigWriteResult:
-        _unbound("ConfigCommand.replace_file", CONFIG_SUPPLIER)
 
 
 class UnboundSearchReplace:
@@ -205,8 +140,8 @@ def real_adapters(
         if restore_wordpress_source is None
         else WpDatabase(restore_wordpress_source, secrets=secrets, admin=admin_source)
     )
-    site_files = UnboundSiteFiles()
-    config = UnboundConfig()
+    site_files = LocalSiteFiles()
+    config = WpConfigWriter(secrets)
     journal_query, journal_command = (
         (UnboundRunJournal(), UnboundRunJournal()) if journal is None else journal
     )

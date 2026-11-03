@@ -1,10 +1,15 @@
-"""ADR-0015 — the backup half of the one module that calls ``l3io-wp-database``.
+"""ADR-0015 — the one module that calls ``l3io-wp-database``, both halves.
 
 Locates ``wp-config.php``, builds the Site Descriptor from it (AD-3), resolves
 the WordPress credentials from it when no Credential Provider is given, checks
-dump readiness and produces the Dump through database's ``dump``. Nothing else
-in the package opens ``wp-config.php`` for reading (AD-3), and this package
-invokes no MySQL client tool and writes no option file.
+dump readiness and produces the Dump through database's ``dump``; on restore
+it surveys, ensures, loads into, revokes on and drops a database through
+database's functions of those names (E002-S02-009). This package issues no
+SQL and quotes no identifier: AD-28's grant escaping is database's. Nothing
+else in the package builds a Site Descriptor from ``wp-config.php`` (AD-3);
+``WP_SITEURL``/``WP_HOME`` and a restore target's constants are read through
+``adapters/config_writer``. This package invokes no MySQL client tool and
+writes no option file.
 
 ``l3io.wp.database`` is the optional ``database`` extra, imported **inside the
 functions that use it**; its absence raises ``MissingExtraError`` at the first
@@ -23,13 +28,16 @@ registered when the source is built. Usernames are not secrets.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import time
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import IO, TYPE_CHECKING, Final, NoReturn
+from typing import IO, TYPE_CHECKING, Final
 
 import structlog
 
+from l3io.wp.backup.adapters.config_writer import read_defined
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.archive_format import ConfigLocation
 from l3io.wp.backup.domain.credentials import (
@@ -53,8 +61,9 @@ from l3io.wp.backup.domain.errors import (
     DatabaseUnreachableError,
     DumpFailedError,
     InvalidSiteDescriptorError,
+    LoadFailedError,
     MissingExtraError,
-    UnboundAdapterError,
+    ProvisioningFailedError,
     UsageError,
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -96,8 +105,9 @@ _MISSING_PRIVILEGE = "missing_privilege"
 ADMIN_FLAGS: Final = ("--admin-username", "--admin-password")
 #: The ``source`` label of that error: the half that was not given.
 ADMIN_SOURCE: Final = "administrator"
-#: The story that replaces the restore-half stubs with the real methods.
-_RESTORE_SUPPLIER = "E002-S02-009"
+#: Every restore operation names the WordPress account at any host.
+_ANY_HOST: Final = "%"
+_NS_PER_MS: Final = 1_000_000
 
 
 def _require_extra() -> None:
@@ -290,17 +300,13 @@ def _url_constants(config_file: Path, label: str) -> tuple[str | None, str | Non
     """``WP_SITEURL`` and ``WP_HOME``, or ``None`` where not defined.
 
     Database's ``WpConfigFile`` exposes neither, so they are read through
-    ``l3io-wordpress-config`` — the reader database itself delegates to.
+    ``adapters/config_writer.read_defined`` — the package's one importer of
+    ``l3io-wordpress-config``, the reader database itself delegates to.
     """
-    from l3io.wp.config import MISSING, WpConfigError
-    from l3io.wp.config import WpConfigFile as ConfigFile
-
-    try:
-        config = ConfigFile(filename=config_file)
-        values = (config.get("WP_SITEURL"), config.get("WP_HOME"))
-    except WpConfigError as exc:
-        raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
-    site_url, home_url = (None if v is MISSING else str(v) for v in values)
+    values = read_defined(config_file, ("WP_SITEURL", "WP_HOME"), label=label)
+    site_url, home_url = (
+        None if v is None else str(v) for v in (values["WP_SITEURL"], values["WP_HOME"])
+    )
     return site_url, home_url
 
 
@@ -439,6 +445,25 @@ def _codes(verdict: Verdict) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return blockers, warnings
 
 
+def _readiness(verdict: Verdict) -> Readiness:
+    blockers, warnings = _codes(verdict)
+    return Readiness(ready=verdict.ok, blockers=blockers, warnings=warnings)
+
+
+def _completed(
+    event: str, location: DatabaseLocation, started: int, **outcome: object
+) -> None:
+    """One ``phase_completed``-shaped record for a restore command (AD-10)."""
+    _log.info(
+        event,
+        db_host=location.host,
+        db_port=location.port,
+        db_name=location.name,
+        duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
+        **outcome,
+    )
+
+
 class WpDatabase:
     """``DatabaseQuery`` and ``DatabaseCommand``.
 
@@ -448,10 +473,10 @@ class WpDatabase:
     :func:`admin_source` is wrapped so that what database resolves from it is
     registered all the same.
 
-    The backup halves are implemented here. The restore halves are declared
-    (E002-S02-012) and raise ``UnboundAdapterError`` until E002-S02-009 lands
-    them — after the AD-29 administrator check, so a missing administrator is
-    refused first, before any connection, exactly as the real method will.
+    Every restore-half method but ``load_dump`` answers as the bound
+    administrator and raises ``AdminCredentialsRequiredError`` before any
+    connection when none is bound (AD-29). ``load_dump`` loads as the WordPress
+    account. Every real command result carries ``performed=True`` (ADR-0022).
     """
 
     __slots__ = ("_admin", "_credentials")
@@ -544,18 +569,14 @@ class WpDatabase:
         return DumpResult(bytes=result.bytes, duration_ms=result.duration_ms)
 
     # ----------------------------------------------------------------------
-    # Restore halves — declared here, implemented by E002-S02-009
+    # Restore halves (E002-S02-009)
     # ----------------------------------------------------------------------
 
-    def _require_admin(self) -> None:
+    def _require_admin(self) -> CredentialSource:
         """AD-29: ``AdminCredentialsRequiredError`` before any connection."""
         if self._admin is None:
             raise AdminCredentialsRequiredError(ADMIN_SOURCE, flags=ADMIN_FLAGS)
-
-    @staticmethod
-    def _unbound(method: str) -> NoReturn:
-        port = f"WpDatabase.{method}"
-        raise UnboundAdapterError(port, supplier=_RESTORE_SUPPLIER)
+        return self._admin
 
     def survey_target(
         self,
@@ -564,77 +585,270 @@ class WpDatabase:
         table_prefix: str,
         wordpress_user: str | None,
     ) -> DatabaseTargetState:
-        """Not yet implemented: E002-S02-009."""
-        del location, table_prefix, wordpress_user
-        self._require_admin()
-        self._unbound("survey_target")
+        """Database's ``survey`` as the administrator, copied field by field.
+
+        Existence is what the administrator observes, never inferred from the
+        WordPress account failing to log in (AD-29).
+        """
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        started = time.monotonic_ns()
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            survey = wpdb.survey(
+                connection,
+                admin,
+                wordpress_user=wordpress_user,
+                user_host=_ANY_HOST,
+                table_prefix=table_prefix,
+            )
+        version = survey.schema_version
+        state = DatabaseTargetState(
+            database_exists=survey.database_exists,
+            table_count=survey.table_count,
+            is_wordpress=survey.is_wordpress,
+            schema_version=None if version is None else str(version.db_version),
+            user_exists=survey.user_exists,
+        )
+        _completed(
+            "database_surveyed",
+            location,
+            started,
+            observed_by=ADMIN_SOURCE,
+            database_exists=state.database_exists,
+            table_count=state.table_count,
+            is_wordpress=state.is_wordpress,
+            user_exists=state.user_exists,
+        )
+        return state
 
     def check_ensure(self, location: DatabaseLocation) -> Readiness:
-        """Not yet implemented: E002-S02-009."""
-        del location
-        self._require_admin()
-        self._unbound("check_ensure")
+        """Database's ``check_ensure``, as finding codes."""
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            verdict = wpdb.check_ensure(
+                connection, admin, self._credentials, user_host=_ANY_HOST
+            )
+        return _readiness(verdict)
 
     def check_load(
         self, location: DatabaseLocation, *, source: Path | None
     ) -> Readiness:
-        """Not yet implemented: E002-S02-009."""
-        del location, source
+        """Database's ``check_load`` for the WordPress account; no ``replace``."""
         self._require_admin()
-        self._unbound("check_load")
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        with self._mapped(location, self._credentials.source, LoadFailedError):
+            verdict = wpdb.check_load(connection, self._credentials, source=source)
+        return _readiness(verdict)
 
     def check_revoke(
         self, location: DatabaseLocation, *, user: str, confirm: str
     ) -> Readiness:
-        """Not yet implemented: E002-S02-009."""
-        del location, user, confirm
-        self._require_admin()
-        self._unbound("check_revoke")
+        """Database's ``check_revoke``, as finding codes."""
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            verdict = wpdb.check_revoke(
+                connection, admin, user, user_host=_ANY_HOST, confirm=confirm
+            )
+        return _readiness(verdict)
 
     def check_drop_database(
         self, location: DatabaseLocation, *, confirm: str
     ) -> Readiness:
-        """Not yet implemented: E002-S02-009."""
-        del location, confirm
-        self._require_admin()
-        self._unbound("check_drop_database")
+        """Database's ``check_drop_database``, as finding codes."""
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            verdict = wpdb.check_drop_database(connection, admin, confirm=confirm)
+        return _readiness(verdict)
 
     def ensure_database(self, location: DatabaseLocation) -> EnsureOutcome:
-        """Not yet implemented: E002-S02-009."""
-        del location
-        self._require_admin()
-        self._unbound("ensure_database")
+        """Database's ``ensure``: the database, the account, its one grant.
+
+        The grant's database name is escaped by database (AD-28); this
+        package writes no ``GRANT`` and quotes no identifier.
+        """
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        started = time.monotonic_ns()
+        # Database folds an unobtainable WordPress credential into a refusal
+        # that names no source; resolving it first lets the error name the
+        # WordPress source, not the administrator's (review F1).
+        with self._mapped(location, self._credentials.source, ProvisioningFailedError):
+            self._credentials.resolve()
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            result = wpdb.ensure(
+                connection, admin, self._credentials, user_host=_ANY_HOST
+            )
+        _, warnings = _codes(result.verdict)
+        outcome = EnsureOutcome(
+            created_database=result.created_database,
+            created_user=result.created_user,
+            password_set=result.password_set,
+            granted=result.granted,
+            warnings=warnings,
+            performed=True,
+        )
+        _completed(
+            "database_ensured",
+            location,
+            started,
+            created_database=outcome.created_database,
+            created_user=outcome.created_user,
+            password_set=outcome.password_set,
+            granted=outcome.granted,
+            warnings=warnings,
+        )
+        return outcome
 
     def load_dump(
         self, location: DatabaseLocation, source: IO[bytes] | Path
     ) -> LoadResult:
-        """Not yet implemented: E002-S02-009. Loads as the WordPress account.
+        """Database's ``load`` as the WordPress account into the empty database.
 
-        When implemented, database's ``load`` is called with ``replace=None``
-        and no decryption argument (AD-18.3, ADR-0024).
+        ``replace`` is never passed and no decryption argument either: the
+        Dump is plain inside the payload (AD-18.3, ADR-0024). A non-empty
+        target is refused by database (``database_not_empty``) and raised as
+        ``DatabaseRefusedError``; nothing is loaded over it.
         """
-        del location, source
-        self._unbound("load_dump")
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        started = time.monotonic_ns()
+        with self._mapped(location, self._credentials.source, LoadFailedError):
+            result = wpdb.load(connection, self._credentials, source)
+        _completed("dump_loaded", location, started, bytes=result.bytes)
+        return LoadResult(
+            bytes=result.bytes, duration_ms=result.duration_ms, performed=True
+        )
 
     def revoke_grants(
         self, location: DatabaseLocation, *, user: str, confirm: str
     ) -> bool:
-        """Not yet implemented: E002-S02-009."""
-        del location, user, confirm
-        self._require_admin()
-        self._unbound("revoke_grants")
+        """Database's ``revoke`` on this database only; whether it changed anything."""
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        started = time.monotonic_ns()
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            result = wpdb.revoke(
+                connection, admin, user, user_host=_ANY_HOST, confirm=confirm
+            )
+        _completed("grants_revoked", location, started, changed=result.changed)
+        return result.changed
 
     def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
-        """Not yet implemented: E002-S02-009."""
-        del location, confirm
-        self._require_admin()
-        self._unbound("drop_database")
+        """Database's ``drop_database``; ``False`` for an absent database.
 
-    def _refusal(self, location: DatabaseLocation, verdict: Verdict) -> Exception:
-        blockers, _ = _codes(verdict)
-        error = blocked_dump_error(
-            location, blockers, credential_source=self._credentials.source
+        Database's warnings (``live_wordpress_site``) are logged, not dropped.
+        """
+        admin = self._require_admin()
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        started = time.monotonic_ns()
+        with self._mapped(location, admin.source, ProvisioningFailedError):
+            result = wpdb.drop_database(connection, admin, confirm=confirm)
+        _, warnings = _codes(result.verdict)
+        if warnings:
+            _log.warning(
+                "database_drop_warnings",
+                db_host=location.host,
+                db_port=location.port,
+                db_name=location.name,
+                warnings=warnings,
+            )
+        _completed(
+            "database_dropped",
+            location,
+            started,
+            changed=result.changed,
+            warnings=warnings,
         )
+        return result.changed
+
+    @contextmanager
+    def _mapped(
+        self,
+        location: DatabaseLocation,
+        credential_source: str,
+        failed: type[ProvisioningFailedError] | type[LoadFailedError],
+    ) -> Iterator[None]:
+        """Re-raise database's errors as the package's own (AD-14).
+
+        Structured fields only, never the dependency's text (AD-7):
+        ``completed`` steps, an exit code, or the failure class.
+        """
+        from l3io.wp import database as wpdb
+
+        try:
+            yield
+        except wpdb.RefusedError as exc:
+            raise self._refusal(
+                location, exc.verdict, credential_source=credential_source
+            ) from exc
+        except wpdb.ProvisioningError as exc:
+            raise ProvisioningFailedError(
+                type(exc).__name__, completed=exc.completed
+            ) from exc
+        except wpdb.TransferError as exc:
+            code = exc.exit_code
+            raise LoadFailedError(
+                "the load stopped" if code is None else f"the load exited {code}"
+            ) from exc
+        except (wpdb.CorruptDumpError, wpdb.DecryptionError) as exc:
+            raise LoadFailedError(type(exc).__name__) from exc
+        except wpdb.DatabaseUnreachableError as exc:
+            raise DatabaseUnreachableError(location.host, location.port) from exc
+        except (
+            wpdb.AuthenticationFailedError,
+            wpdb.AccessDeniedError,
+            wpdb.CredentialsUnobtainableError,
+            wpdb.CredentialsAbsentError,
+        ) as exc:
+            raise CredentialsError(credential_source) from exc
+        except wpdb.MissingDependencyError as exc:
+            raise MissingExtraError(extra=_EXTRA) from exc
+        except wpdb.InvalidIdentifierError as exc:
+            raise InvalidSiteDescriptorError(str(exc)) from exc
+        except wpdb.DatabaseError as exc:
+            raise failed(type(exc).__name__) from exc
+        except OSError as exc:
+            raise failed(exc.strerror or type(exc).__name__) from exc
+
+    def _refusal(
+        self,
+        location: DatabaseLocation,
+        verdict: Verdict,
+        *,
+        credential_source: str | None = None,
+    ) -> Exception:
+        blockers, _ = _codes(verdict)
+        label = credential_source or self._credentials.source
+        error = blocked_dump_error(location, blockers, credential_source=label)
         return DatabaseRefusedError(findings=blockers) if error is None else error
 
     @staticmethod

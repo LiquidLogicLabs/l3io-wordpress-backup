@@ -45,6 +45,7 @@ __all__ = [
     "ArchiveReadError",
     "ArchiveWriteError",
     "BackupError",
+    "CleanFailedError",
     "ConfigWriteFailedError",
     "CredentialsError",
     "DatabaseRefusedError",
@@ -53,6 +54,7 @@ __all__ = [
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
     "InvalidSiteDescriptorError",
+    "LoadFailedError",
     "MalformedManifestError",
     "MemberReadRefusedError",
     "MissingExtraError",
@@ -70,6 +72,7 @@ __all__ = [
     "SiteLockedError",
     "UnboundAdapterError",
     "UnrecognisedArchiveError",
+    "UnsafeCleanTargetError",
     "UnsafeMemberPathError",
     "UnsupportedFormatVersionError",
     "UnsupportedStorageSchemeError",
@@ -274,6 +277,44 @@ class ConfigWriteFailedError(BackupError):
         self.written = written
         done = f"; already written: {', '.join(written)}" if written else ""
         super().__init__(f"could not write {key} to {str(path)!r}: {reason}{done}")
+
+
+class LoadFailedError(BackupError):
+    """Loading a Dump started and failed, or the Dump was unreadable.
+
+    ``reason`` is structured (an exit code or a failure class), never the
+    dependency's text.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"database load failed: {reason}")
+
+
+class UnsafeCleanTargetError(RefusedError):
+    """A Site Root that ``clean`` refuses to empty (a mistyped ``--wp-dir``).
+
+    ``reason`` says which heuristic refused it: ``/``, the user's home, or a
+    directory with neither ``wp-config.php`` nor ``wp-includes/``.
+    """
+
+    def __init__(self, site_root: PurePath, reason: str) -> None:
+        self.site_root = site_root
+        self.reason = reason
+        super().__init__(f"refusing to clean {str(site_root)!r}: {reason}")
+
+
+class CleanFailedError(BackupError):
+    """``clean`` stopped at ``entry``; the entries after it were left in place."""
+
+    def __init__(self, entry: PurePath, reason: str, *, removed: int) -> None:
+        self.entry = entry
+        self.reason = reason
+        self.removed = removed
+        super().__init__(
+            f"could not remove {str(entry)!r}: {reason} "
+            f"({removed} entries removed before it; the rest were left)"
+        )
 
 
 class SiteLockedError(BackupError):

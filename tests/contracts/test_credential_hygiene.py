@@ -597,6 +597,109 @@ def test_a_restore_driver_has_a_hygiene_case() -> None:
 
 
 # --------------------------------------------------------------------------
+# The E002-S02-009 adapters: the config writer and the database's other half
+# --------------------------------------------------------------------------
+
+
+def test_the_config_writer_emits_no_credential(
+    credential_sentinel: CredentialSentinel,
+) -> None:
+    """Reads, rewrites and replaces ``wp-config.php`` holding the sentinel."""
+    from l3io.wp.backup.adapters.config_writer import WpConfigWriter
+    from l3io.wp.backup.adapters.redaction import SecretRegistry
+    from l3io.wp.backup.domain.errors import ConfigWriteFailedError
+
+    s = credential_sentinel
+    writer = WpConfigWriter(SecretRegistry())
+    s.add_repr("writer", writer)
+    read = writer.read_constants(s.config, ["DB_NAME", "DB_USER"])
+    s.add_repr("read_constants result", read)
+    relocated = f"{s.password}-relocated"
+    s.add_repr(
+        "set_constants result",
+        writer.set_constants(s.config, {"DB_PASSWORD": relocated, "DB_NAME": "moved"}),
+    )
+    replacement = s.workdir / "replacement-wp-config.php"
+    write_wp_config(replacement, password="replacement-password-0")
+    s.add_repr(
+        "replace_file result",
+        writer.replace_file(s.config, replacement, keep={"DB_PASSWORD": s.password}),
+    )
+    s.add_repr("save_copy result", writer.save_copy(s.config, s.workdir / "saved.php"))
+    with pytest.raises(ConfigWriteFailedError) as caught:
+        writer.set_constants(
+            s.config,
+            {"DB_PASSWORD": s.password, "DB_NAME": object()},  # type: ignore[dict-item]
+        )
+    s.add_exception("config writer", caught.value)
+    s.assert_clean()
+
+
+def test_the_database_admin_and_load_paths_emit_no_credential(
+    credential_sentinel: CredentialSentinel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survey, ensure, load and drop over doubles that resolve both sources.
+
+    The administrator's password is the sentinel; the WordPress account's
+    comes from the sentinel's ``wp-config.php``. The last call fails at
+    authentication, as database would.
+    """
+    from l3io.wp.backup.adapters.database import (
+        WpDatabase,
+        admin_source,
+        site_descriptor_from_wp_config,
+    )
+    from l3io.wp.backup.adapters.redaction import SecretRegistry
+    from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
+
+    s = credential_sentinel
+    secrets = SecretRegistry()
+    descriptor, wordpress = site_descriptor_from_wp_config(s.site, config_file=s.config)
+    admin = admin_source(
+        ExplicitCredentialSpec("root", s.password), environ={}, secrets=secrets
+    )
+    database = WpDatabase(wordpress, secrets=secrets, admin=admin)
+    location = descriptor.database_location()
+    verdict = wpdb.Verdict("x", ())
+
+    def resolving(result: object) -> object:
+        def double(connection: object, *sources: object, **_: object) -> object:
+            for source in sources:
+                if hasattr(source, "resolve"):
+                    source.resolve()
+            return result
+
+        return double
+
+    survey = wpdb.Survey(None, False, 0, 0, False, None, None, None)
+    monkeypatch.setattr(wpdb, "survey", resolving(survey))
+    ensure = wpdb.EnsureResult(True, True, True, True, verdict)
+    monkeypatch.setattr(wpdb, "ensure", resolving(ensure))
+    loaded = wpdb.TransferResult(3, 1.0, "mysql", None, verdict)
+    monkeypatch.setattr(wpdb, "load", resolving(loaded))
+    for name in ("survey", "ensure", "load"):
+        s.watch(wpdb, name)
+    s.add_repr("database", database)
+    s.add_repr(
+        "survey",
+        database.survey_target(location, table_prefix="wp_", wordpress_user="wp"),
+    )
+    s.add_repr("ensure", database.ensure_database(location))
+    s.add_repr("load", database.load_dump(location, s.workdir / "dump.sql"))
+
+    def refused(connection: object, admin: object, **_: object) -> object:
+        admin.resolve()  # type: ignore[attr-defined]
+        msg = "the account 'root' was rejected"
+        raise wpdb.AuthenticationFailedError(msg)
+
+    monkeypatch.setattr(wpdb, "drop_database", refused)
+    with pytest.raises(CredentialsError) as caught:
+        database.drop_database(location, confirm=location.name)
+    s.add_exception("drop_database", caught.value)
+    s.assert_clean()
+
+
+# --------------------------------------------------------------------------
 # Integration tier — against the CI database
 # --------------------------------------------------------------------------
 

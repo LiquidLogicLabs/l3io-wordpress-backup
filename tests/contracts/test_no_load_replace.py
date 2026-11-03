@@ -26,8 +26,6 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-import pytest
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
 PORTS = PACKAGE / "ports"
@@ -156,12 +154,8 @@ def test_no_database_load_call_passes_replace() -> None:
     assert bad == [], f"AD-18.3 — load(replace=...) at {bad}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="no database load call exists until E002-S02-009 implements load_dump; "
-    "when this XPASSes, drop the marker so the check above is never vacuous",
-)
 def test_the_walk_reaches_a_database_load_call() -> None:
+    """``load_dump`` calls database's ``load``, so the check above is not vacuous."""
     total, _ = load_calls(PACKAGE)
     assert total >= 1
 

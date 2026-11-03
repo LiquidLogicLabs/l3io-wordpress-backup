@@ -11,6 +11,12 @@ Scope: every module under ``src/l3io/wp/backup/``, walked. A call is matched
 by the called name, and an ``import ... as`` of a constructor from database is
 an offence by itself, so a static alias is seen. A name bound at runtime
 (``f = getattr(wpdb, "Explicit")``) is not; review covers that.
+
+**One exemption, by resolved origin (E002-S02-009).** ``l3io.wp.config``
+also has a ``WpConfigFile`` — the reader/writer, not a credential source.
+A call is exempt only when its name resolves, within the module, to
+``l3io.wp.config``: a bare name imported from it, or an attribute of a name
+bound to it. Every other spelling of ``WpConfigFile`` is still an offence.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ CONSTRUCTORS = frozenset(
 BUILDER = PACKAGE / "adapters" / "database.py"
 PROVIDERS = PACKAGE / "adapters" / "credential_providers.py"
 DATABASE_MODULE = "l3io.wp.database"
+CONFIG_MODULE = "l3io.wp.config"
 
 
 def _excluded() -> set[Path]:
@@ -52,8 +59,42 @@ def _called_name(call: ast.Call) -> str | None:
     return None
 
 
-def _offence(node: ast.AST) -> str | None:
+def _config_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """Names bound to ``l3io.wp.config`` itself, and to its ``WpConfigFile``."""
+    modules: set[str] = set()
+    classes: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(
+                alias.asname
+                for alias in node.names
+                if alias.name == CONFIG_MODULE and alias.asname
+            )
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                full = f"{node.module}.{alias.name}"
+                if full == CONFIG_MODULE:
+                    modules.add(alias.asname or alias.name)
+                elif node.module == CONFIG_MODULE and alias.name == "WpConfigFile":
+                    classes.add(alias.asname or alias.name)
+    return modules, classes
+
+
+def _is_config_class(call: ast.Call, modules: set[str], classes: set[str]) -> bool:
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id in classes
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return func.value.id in modules
+    return False
+
+
+def _offence(
+    node: ast.AST, config: tuple[set[str], set[str]] = (set(), set())
+) -> str | None:
     if isinstance(node, ast.Call) and _called_name(node) in CONSTRUCTORS:
+        if _is_config_class(node, *config):
+            return None
         return f"calls {_called_name(node)}"
     if (
         isinstance(node, ast.ImportFrom)
@@ -65,13 +106,18 @@ def _offence(node: ast.AST) -> str | None:
 
 
 def _offenders(root: Path, excluded: set[Path]) -> list[str]:
-    return sorted(
-        f"{path.relative_to(root)}:{node.lineno} {offence}"
-        for path in root.rglob("*.py")
-        if path not in excluded
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if (offence := _offence(node)) is not None
-    )
+    found = []
+    for path in root.rglob("*.py"):
+        if path in excluded:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        config = _config_bindings(tree)
+        found.extend(
+            f"{path.relative_to(root)}:{node.lineno} {offence}"
+            for node in ast.walk(tree)
+            if (offence := _offence(node, config)) is not None
+        )
+    return sorted(found)
 
 
 def test_the_scope_is_the_whole_package_and_the_builder_exists() -> None:
@@ -113,6 +159,33 @@ def test_the_guard_fires_on_a_planted_cli_module(tmp_path: Path) -> None:
         "cli/x.py:2 calls CredentialChain",
         "cli/x.py:2 calls Explicit",
         "cli/y.py:1 imports a credential constructor",
+    ]
+
+
+def test_config_wp_config_file_is_exempt_only_by_resolved_origin(
+    tmp_path: Path,
+) -> None:
+    """Scope attack: the exemption must not cover database's class by name."""
+    (tmp_path / "adapters").mkdir()
+    (tmp_path / "adapters" / "ok.py").write_text(
+        "from l3io.wp.config import WpConfigFile\n"
+        "from l3io.wp import config as cfg\n"
+        "WpConfigFile(p)\ncfg.WpConfigFile(p)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "adapters" / "bad.py").write_text(
+        "from l3io.wp.config import WpConfigFile\n"
+        "from l3io.wp import database as wpdb\n"
+        "wpdb.WpConfigFile(p)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "adapters" / "unbound.py").write_text(
+        "WpConfigFile(p)\n", encoding="utf-8"
+    )
+    found = _offenders(tmp_path, set())
+    assert found == [
+        "adapters/bad.py:3 calls WpConfigFile",
+        "adapters/unbound.py:1 calls WpConfigFile",
     ]
 
 

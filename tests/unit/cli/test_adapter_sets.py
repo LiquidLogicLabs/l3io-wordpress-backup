@@ -238,10 +238,6 @@ def test_a_relocated_account_binds_a_second_database_and_keeps_the_snapshot_one(
 #: The supplier each placeholder-bound field must name — the expected outcome,
 #: checked against the set the sweep below finds, not the scope itself.
 SUPPLIERS = {
-    "site_files_query": "E002-S02-009",
-    "site_files_command": "E002-S02-009",
-    "config_query": "E002-S02-009",
-    "config_command": "E002-S02-009",
     "search_replace": "Epic 7",
     "journal_query": "Epic 3",
     "journal_command": "Epic 3",
@@ -355,12 +351,43 @@ def test_supplied_search_replace_and_journal_are_bound_as_given(
     assert real.journal_command is journal_command
 
 
-def test_every_wp_database_restore_method_is_a_stub_behind_the_admin_check() -> None:
-    from l3io.wp.backup.adapters.database import WpDatabase
-    from l3io.wp.backup.adapters.redaction import SecretRegistry
-    from l3io.wp.backup.domain.errors import AdminCredentialsRequiredError
+def test_real_adapters_binds_the_site_files_and_config_adapters(workdir: Path) -> None:
+    from l3io.wp.backup.adapters.config_writer import WpConfigWriter
+    from l3io.wp.backup.adapters.site_files import LocalSiteFiles
+
+    with open_run(operation="restore") as ctx:
+        real = _real(ctx)
+    assert isinstance(real.site_files_query, LocalSiteFiles)
+    assert real.site_files_command is real.site_files_query
+    assert isinstance(real.config_query, WpConfigWriter)
+    assert real.config_command is real.config_query
+
+
+def _restore_members() -> list[str]:
+    """Every member of both database Protocols but the two backup methods."""
     from l3io.wp.backup.ports.database import DatabaseQuery
 
+    return sorted(
+        {*_members(DatabaseQuery), *_members(DatabaseCommand)}
+        - {"check_dump", "dump_to"}
+    )
+
+
+def test_no_wp_database_restore_method_is_unbound_and_each_checks_the_admin() -> None:
+    """Every restore-half method is real: none raises ``UnboundAdapterError``.
+
+    Scope, derived: the members of both Protocols, less the backup pair.
+    With an administrator bound, each call reaches database (whose
+    unresolvable double fails as a package error, never ``UnboundAdapterError``);
+    without one, each but ``load_dump`` refuses before any connection.
+    """
+    pytest.importorskip("l3io.wp.database")
+    from l3io.wp.backup.adapters.database import WpDatabase
+    from l3io.wp.backup.adapters.redaction import SecretRegistry
+    from l3io.wp.backup.domain.database import DatabaseLocation
+    from l3io.wp.backup.domain.errors import AdminCredentialsRequiredError, BackupError
+
+    where = DatabaseLocation("db.invalid", 3306, "wp")
     bare = WpDatabase(_Source(), secrets=SecretRegistry())  # type: ignore[arg-type]
     admin = WpDatabase(
         _Source(),  # type: ignore[arg-type]
@@ -369,24 +396,27 @@ def test_every_wp_database_restore_method_is_a_stub_behind_the_admin_check() -> 
     )
     assert not bare.administrator_bound
     assert admin.administrator_bound
-    # Every member of both Protocols but the two backup methods implemented.
-    restore = sorted(
-        {*_members(DatabaseQuery), *_members(DatabaseCommand)}
-        - {"check_dump", "dump_to"}
-    )
+    restore = _restore_members()
     assert len(restore) == 9
     for name in restore:
-        with pytest.raises(UnboundAdapterError) as caught:
-            _call_with_sentinels(getattr(admin, name))
-        assert caught.value.supplier == "E002-S02-009"
-        assert caught.value.port == f"WpDatabase.{name}"
-        if name == "load_dump":
-            # Loads as the WordPress account: no administrator check.
-            with pytest.raises(UnboundAdapterError):
-                _call_with_sentinels(bare.load_dump)
-        else:
+        method = getattr(admin, name)
+        keywords = {
+            p.name: "wp" if p.name in {"confirm", "user"} else None
+            for p in inspect.signature(method).parameters.values()
+            if p.kind is p.KEYWORD_ONLY
+        }
+        keywords = {
+            k: ("wp_" if k == "table_prefix" else v) for k, v in keywords.items()
+        }
+        positional = [where] + (
+            [Path("/nonexistent.sql")] if name == "load_dump" else []
+        )
+        with pytest.raises(BackupError) as caught:
+            method(*positional, **keywords)
+        assert not isinstance(caught.value, UnboundAdapterError), name
+        if name != "load_dump":
             with pytest.raises(AdminCredentialsRequiredError, match="--admin-username"):
-                _call_with_sentinels(getattr(bare, name))
+                getattr(bare, name)(*positional, **keywords)
 
 
 def test_dry_run_reads_the_admin_binding_wp_database_exposes(workdir: Path) -> None:
