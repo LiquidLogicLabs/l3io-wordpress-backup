@@ -50,3 +50,33 @@ Sections read:
 - Host check: downloaded and listed `age-v1.3.2-linux-amd64.tar.gz` from the official GitHub release (contents and SHA-256)
 
 DONE — resolved 9/9, new: MAJOR 1, MINOR 9
+
+## Re-check 2
+
+Date: 2026-11-02. Input: the uncommitted working-tree diff of E005-S01-002 and E008-S01-001. The state graph is unchanged.
+
+**Is the MAJOR resolved? Yes.**
+- E005-S01-002 no longer reads `adapters/crypto`:
+  - L122: the README table input is now "an extension point … which E008-S01-001 fills"; the text says this story does not import `adapters/crypto`.
+  - L209: the contract test collects only what has been registered.
+  - L212: the tripwire's trigger set drops `adapters/crypto`, with the reason stated.
+- E008-S01-001 L92 takes over all three obligations: it registers E004's requirements, regenerates the README table and extends the tripwire.
+- E008-S01-001 depends on both stories involved (`state/planned/epic-008/sprint-01/E008-S01-001.yaml`: E004-S01-003, E005-S01-002), and E008 is phase 4. So the second story to merge in phase 2 no longer turns CI red.
+
+**Does E004 or E005 still need the other in phase 2? No.**
+- E004 imports nothing from Epic 5 (AG-8, unchanged).
+- E005-S01-002 still mentions E004 at L64, L101, L111, L136, L158 and L201. Each is a citation of ownership or behaviour, not an import, a test input or a trigger:
+  - L111's `tools` arrive through the plan's `extra_tools`.
+  - L158 describes database's `MissingDependencyError` mapping. E005 does not assert it.
+- E005's `depends_on` (E002 only) is now accurate.
+
+**Anything new?**
+- MAJOR (pre-existing, same class, exposed by this check; not introduced by the edit): the tripwire still fails "once `core/restore` exists (Epic 3)" (E005-S01-002 L212). E003 runs in the same parallel phase as E005 (`plan-2026-10-27-v2.yaml` phase 2: E003, E004, E005). No E003 story mentions `test_tool_requirements_documented.py` or `gen_tool_docs.py` (repository grep: only E005, E008 and this file). The edit's own reason, "whichever landed second would turn the other's CI red with no owner", applies word for word to Epic 3. The same fix works: drop `core/restore` from E005's trigger set and give the `RestoreMode` enumeration to E008-S01-001, which depends on E003. This is outside E004's gate, so it belongs to whichever gate owns E005 or E003. It should be fixed before phase 2 starts.
+- MINOR: the extension point has no contract. E005-S01-002 L122 names "an extension point for further requirement sources" but gives no name, signature, location or registration mechanism. Is it a registry function, a module-level tuple or a `gen_tool_docs.py` argument, and who imports it? E008-S01-001 L92 registers "with E005-S01-002's requirement-source extension point". Every other cross-story seam in these stories has one stated signature. State one here, for example `tools/gen_tool_docs.py::requirement_sources: Sequence[Callable[[], Iterable[ToolRequirement]]]`, consumed by both the generator and the contract test.
+- MINOR: E008-S01-001 states its new work only under §Testability (L92). That work is: register the source, regenerate the README table, and edit E005's `tests/contracts/test_tool_requirements_documented.py`. Nothing under Interface contracts or the files list records it, and nothing records a grant to edit an Epic 5 file. The phases are sequential, so the edits cannot conflict. Still, list the files E008 changes and record the grant, as AG-8's resolution did in `epics.md` L173–175.
+- MINOR: the new annotations are dated "2026-11-03" (E005-S01-002 L122, L212; E008-S01-001 L92), a day after this re-check. Correct the date so the record's chronology holds.
+- Note (no severity): between E005 landing and E008 landing, the README tool table omits `age` ≥ 1.3 and `age-plugin-batchpass`. Preflight is unaffected, because the requirements still arrive through `cipher.required_tools()`. This is an accepted documentation gap for phases 2–3, not a defect.
+
+Sections read (re-check 2): `git diff` of E005-S01-002 and E008-S01-001 (working tree); E005-S01-002 grep for `E004|adapters/crypto|passphrase_backend|extension point|Epic 4`; `state/planned/epic-008/sprint-01/E008-S01-001.yaml` (`depends_on`); `planning-artifacts/plan-2026-10-27-v2.yaml` L25–46 (phase 2); repository grep for `test_tool_requirements_documented|gen_tool_docs`.
+
+DONE — MAJOR resolved: yes, new: MAJOR 1 (pre-existing, E003↔E005), MINOR 3

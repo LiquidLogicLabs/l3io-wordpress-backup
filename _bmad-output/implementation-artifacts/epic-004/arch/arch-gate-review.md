@@ -95,3 +95,25 @@ Applied in `e44ac5b`, with in-place edits to 21 stories.
   dependencies.
 - **Still open for E004:** the architect's MAJOR. E005-S01-002's tool-docs check fails
   once `adapters/crypto` exists, and nothing records the order.
+
+## Re-check 2 — 2026-11-03
+
+- **The E005 → E004 MAJOR is resolved** (architect, `recheck-bmad-agent-architect-2026-10-30.md`
+  `## Re-check 2`). E005-S01-002 no longer reads `adapters/crypto`. E008-S01-001 (phase 4,
+  which depends on both) registers E004's requirements and extends the tripwire.
+- **The credentials MAJOR is resolved** (2026-11-03, above).
+- **One pre-existing MAJOR outside this gate, fixed the same way, by Shawn's pattern of
+  2026-11-03:** E005's tripwire also fired on `core/restore` (Epic 3, which runs beside
+  E005).
+  - `core/restore` is dropped from the trigger set.
+  - The `RestoreMode` enumeration moves to E008-S01-001.
+  - The extension point is now stated as
+    `adapters/preflight.py::DOCUMENTED_REQUIREMENT_SOURCES`.
+  - E008-S01-001 gets its file list and the edit grant.
+  - A story edge E008-S01-001 → E003-S01-001 is added; the graph has 0 cycles.
+- **MINORs:** the extension point's contract and E008's file list are fixed here. The
+  annotation-date note is moot.
+
+**Final verdict: PASSED** — 0 blocking findings after two resolution passes (the second,
+with the ADR-0024 decision, approved by Shawn 2026-10-29 → 11-03). Open MINORs:
+BL-E004-*.
