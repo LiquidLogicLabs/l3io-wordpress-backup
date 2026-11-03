@@ -39,7 +39,7 @@ from l3io.wp.backup.adapters.noop import GuardedTracer, NoopTracer
 from l3io.wp.backup.adapters.phase import ACTIVE_TRACER
 from l3io.wp.backup.adapters.redaction import SecretRegistry, open_registry
 from l3io.wp.backup.adapters.workspace import run_workspace
-from l3io.wp.backup.cli.exit import exit_code_for
+from l3io.wp.backup.cli.exit import RUN_ID_ATTR, exit_code_for
 from l3io.wp.backup.domain.errors import (
     AdaptersAlreadyBoundError,
     AdaptersNotBoundError,
@@ -199,6 +199,7 @@ def open_run(
                     _ACTIVE.reset(ctx_token)
         except BaseException as exc:
             error = exc
+            _stamp_run_id(exc, run_id)
             raise
         finally:
             exit_code, error_type = (
@@ -217,6 +218,20 @@ def open_run(
                 error=error_type,
             )
             run_span.set_outcome(exit_code=int(exit_code), error_type=error_type)
+
+
+def _stamp_run_id(exc: BaseException, run_id: str) -> None:
+    """Leave the failed Run's id on ``exc`` so the entry point can log it.
+
+    ``command_failed`` is written after the Run closed and its ``run_id`` was
+    unbound; the id travels on the exception instead. An exception that cannot
+    take an attribute simply keeps the old behaviour (no ``run_id``).
+    """
+    try:
+        if not hasattr(exc, RUN_ID_ATTR):
+            setattr(exc, RUN_ID_ATTR, run_id)
+    except (AttributeError, TypeError):
+        pass
 
 
 @contextmanager

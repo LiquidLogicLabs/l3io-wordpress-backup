@@ -65,7 +65,16 @@ scope:
       models_seen:
       - claude-opus-5
 closure:
-  sprint: {}
+  sprint:
+    elapsed_hours:
+      samples:
+      - 0.0714
+    man_hours:
+      samples:
+      - 1.619
+    tokens_k:
+      samples:
+      - 60.0112
   epic: {}
 fix:
   simple: {}
@@ -78,7 +87,16 @@ fix:
       mean_man_hours: 18.0
       samples: 1
 orchestration:
-  sprint: {}
+  sprint:
+    elapsed_hours:
+      samples:
+      - 0.006
+    man_hours:
+      samples:
+      - 0.0
+    tokens_k:
+      samples:
+      - 0.0
   epic: {}
 metrics_migrated_at: '2026-11-03T02:42:08Z'
 token_basis_migrated_at: '2026-11-03T02:42:08Z'

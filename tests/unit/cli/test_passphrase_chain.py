@@ -128,7 +128,8 @@ def test_an_unrequested_passphrase_is_noted_by_name_only() -> None:
         {
             "event": "passphrase_ignored",
             "variable": PASSPHRASE_ENV,
-            "log_level": "debug",
+            "message": "encryption was not requested, so the Archive is unencrypted",
+            "log_level": "warning",
         }
     ]
 

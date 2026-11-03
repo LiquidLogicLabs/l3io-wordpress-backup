@@ -110,6 +110,10 @@ def render_failure(
     return redact(text)
 
 
+RUN_ID_ATTR = "_l3io_run_id"
+"""Attribute :func:`open_run` leaves on an escaping exception: the failed Run's id."""
+
+
 def report_failure(exc: Exception, *, secrets: SecretRegistry) -> ExitCode:
     """Log and print ``exc`` through ``secrets``; return its exit code.
 
@@ -117,6 +121,8 @@ def report_failure(exc: Exception, *, secrets: SecretRegistry) -> ExitCode:
     writing (a broken stderr) cannot change it.
     """
     code = exit_code_for(exc)
+    run_id = getattr(exc, RUN_ID_ATTR, None)
+    run_fields: dict[str, object] = {} if run_id is None else {"run_id": run_id}
     try:
         with open_registry(secrets):
             emit_failure(
@@ -128,6 +134,7 @@ def report_failure(exc: Exception, *, secrets: SecretRegistry) -> ExitCode:
                 exit_code=int(code),
                 exit_reason=code.name,
                 exc_info=None if isinstance(exc, BackupError) else exc,
+                **run_fields,
             )
     except Exception:  # noqa: S110 - reporting must not change the code
         pass

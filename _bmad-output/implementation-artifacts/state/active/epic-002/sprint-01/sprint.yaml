@@ -1,8 +1,8 @@
 key: 'S01'
 epic: 'E002'
 title: Sprint 01
-status: backlog
-updated_at: '2026-10-27T22:15:55Z'
+status: done
+updated_at: '2026-11-03T06:25:53Z'
 origin: inferred
 origin_note: derived from the story artifacts in this sprint directory
 estimate:
@@ -29,3 +29,35 @@ estimate:
   model: claude-opus-5
   confidence: medium
 next: 7
+actual:
+  elapsed_hours: 3.6
+  man_hours: 120
+  hitl_hours: 0
+  tokens_k:
+    total: 128915.49
+    input: 1.832
+    output: 1098.073
+    cache_write: 4294.132
+    cache_read: 123521.456
+  cost: 69.64
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-03T06:25:39Z'
+orchestration:
+  elapsed_hours: 0.02
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 0
+    input: 0
+    output: 0
+    cache_write: 0
+    cache_read: 0
+  cost: 0.0
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-03T06:25:39Z'
+closed:
+  date: '2026-11-03'
+retrospective:
+  summary: 7 stories done with 19k lines; closure review fixed run_id on command_failed and README drift; 17 items deferred, 2 High need owner ADR decisions (0009, 0024) before Epic 3.
+  velocity: '7'
+  carry_over: '17'

@@ -17,15 +17,10 @@ The restore process will:
 ## Credit
 Credit for the original version of this goes to [Cariad Eccleston](https://github.com/cariad/py-wordpress-database).  
 
-## TODO
-
- - Unit tests.
- - Handle `wp-config.php` being somewhere other than the default location.
-
 ## Installation
 
 ```shell
-pip install wpbackup2
+pip install l3io-wordpress-backup
 ```
 
 ## Usage
@@ -33,10 +28,18 @@ pip install wpbackup2
 To backup:
 
 ```
-python3 -m wpbackup2 backup --wp-dir /www/wordpress --archive ~/backup.tar.gz
+wpbackup2 backup --wp-dir /www/wordpress --archive ~/backup.tar.gz
 ```
 
-Note that the current release of `py-wordpress-backup` expected `wp-config.php` to exist within your WordPress directory, and will use it to read your database credentials to perform the backup. Keeping your `wp-config.php` file in this location *might* not be the best practice, and I'll likely handle this in a future update.
+To check an archive without touching a site:
+
+```
+wpbackup2 verify --archive ~/backup.tar.gz
+```
+
+`restore` is listed in `--help` but is not available in this build.
+
+`wp-config.php` is read for your database credentials. It is looked for in the WordPress directory, then its parent; pass `--wp-config PATH` to use another.
 
 ### Command-line reference
 
@@ -85,10 +88,11 @@ usage: wpbackup2 backup [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--wp-config PA
 options:
   -h, --help            show this help message and exit
   --wp-dir WP_DIR       Path to the root of the WordPress directory
-  --archive ARCHIVE     Path and filename of the archive (.tar.gz) to backup to/restore from.
+  --archive ARCHIVE     Archive path or file: URL (default: ./wpbackup2-<db>-<UTC
+                        timestamp>.tar.gz)
   --wp-config PATH      use this wp-config.php instead of searching for it
   --mode {files,db,all}
-                        Indicate what to be Backup/Restore
+                        What to back up: files, db, or all (default: all)
 ```
 
 ```text
@@ -134,19 +138,12 @@ Reserved for the `l3io-wp-*` family and never used: 6.
 
 ## Development
 
-```python
-import wpbackup2
-
-wp = WpBackup()
-wpbackup('path to wordpress', 'archive name')
-```
-
 ### Prerequisites
 
-py-wordpress-backup requires Python 3.6 or newer.
+Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/).
 
 ### Installing dependencies
 
 ```shell
-pip install -e .[dev]
+uv sync
 ```

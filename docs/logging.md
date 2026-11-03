@@ -66,7 +66,8 @@ the error class in `error`, the operator message in `message`, and the code in
 (`VerificationFailedError`, exit 8). An unexpected exception (a defect) also
 carries its traceback, redacted like every other field. This holds for a failure
 before any Run opened (a missing `--wp-dir`, a bad `--archive`), which has no
-`run_finished`. With `--log-format console` the plain `wpbackup2: ...` line is
+`run_finished` and no `run_id`. It does not hold for command-line usage errors
+(exit 2): argparse prints plain text before logging is configured. With `--log-format console` the plain `wpbackup2: ...` line is
 printed to stderr as well; with `--log-format json` it is not, so stderr stays
 one JSON object per line and `jq` over it never stops at a failed Run.
 
@@ -84,8 +85,8 @@ structlog.contextvars.bind_contextvars(correlation_id="job-1234")
 ## What is and is not covered
 
 - Records emitted before the Run opens (argument translation, the passphrase
-  note) and after it closes (`command_failed`) carry no
-  `run_id`. A Run opens after the Site Root is checked.
+  note) carry no `run_id`. A Run opens after the Site Root is checked.
+  `command_failed` carries the `run_id` of the Run that failed, when one was open.
 - A record from a thread started without `contextvars.copy_context().run`
   carries no `run_id` (contextvars do not cross a raw `threading.Thread`). It
   is still redacted: the redaction step applies every open Run's registry.

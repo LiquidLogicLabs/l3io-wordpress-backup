@@ -87,7 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backup.add_argument(
         "--archive",
-        help="Path and filename of the archive (.tar.gz) to backup to/restore from.",
+        help=(
+            "Archive path or file: URL "
+            "(default: ./wpbackup2-<db>-<UTC timestamp>.tar.gz)"
+        ),
         default=None,
         required=False,
     )
@@ -101,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=["files", "db", "all"],
         default="all",
-        help="Indicate what to be Backup/Restore",
+        help="What to back up: files, db, or all (default: all)",
     )
     subparsers.add_parser(RESTORE_COMMAND, help="Perform a WordPress restore")
     verify = subparsers.add_parser(

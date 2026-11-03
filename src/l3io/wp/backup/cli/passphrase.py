@@ -121,6 +121,10 @@ def require_passphrase(
 
 
 def note_unused_passphrase(environ: Mapping[str, str]) -> None:
-    """One DEBUG record when the variable is set but no encryption was requested."""
+    """One WARNING when the variable is set but no encryption was requested."""
     if environ.get(PASSPHRASE_ENV):
-        _log.debug("passphrase_ignored", variable=PASSPHRASE_ENV)
+        _log.warning(
+            "passphrase_ignored",
+            variable=PASSPHRASE_ENV,
+            message="encryption was not requested, so the Archive is unencrypted",
+        )

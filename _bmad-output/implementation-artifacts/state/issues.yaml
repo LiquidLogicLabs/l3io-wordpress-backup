@@ -1,5 +1,5 @@
 next:
-  '002': 59
+  '002': 76
   '003': 30
   '004': 42
 backlog:
@@ -1123,3 +1123,173 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+- key: BL-E002-059
+  epic: '002'
+  sprint: '01'
+  title: Extraction safe only on patched CPython (tar filter CVE-2025-4517 family); conflicts with ADR-0009 - owner decision needed before Epic 3 restore
+  source: redteam (H1)
+  source_phase: redteam
+  source_ref: H1
+  severity: High
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-060
+  epic: '002'
+  sprint: '01'
+  title: verify reports VERIFIED on a forged archive (checksum in unprotected manifest); conflicts with ADR-0024 wording - owner decision needed, wording to 'consistent'
+  source: redteam (H2)
+  source_phase: redteam
+  source_ref: H2
+  severity: High
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-061
+  epic: '002'
+  sprint: '01'
+  title: verify tar header memory bomb (389 KB archive -> 1.18 GB)
+  source: redteam (M1)
+  source_phase: redteam
+  source_ref: M1
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-062
+  epic: '002'
+  sprint: '01'
+  title: FIFO swapped in after walk hangs backup (tar.py open)
+  source: redteam (M2)
+  source_phase: redteam
+  source_ref: M2
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-063
+  epic: '002'
+  sprint: '01'
+  title: Stronger credentials sent to site-controlled DB_HOST
+  source: redteam (M3)
+  source_phase: redteam
+  source_ref: M3
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-064
+  epic: '002'
+  sprint: '01'
+  title: Archive target inside site root not refused
+  source: redteam (M4)
+  source_phase: redteam
+  source_ref: M4
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-065
+  epic: '002'
+  sprint: '01'
+  title: Interrupted run leaves plaintext dump/payload in temp and .partial files
+  source: redteam (M5)
+  source_phase: redteam
+  source_ref: M5
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-066
+  epic: '002'
+  sprint: '01'
+  title: Redteam lows L1-L5 (publish race, redaction of bytes/short secrets, Ctrl-C traceback, hardlinks, symlinked wp-config)
+  source: redteam (L1-L5)
+  source_phase: redteam
+  source_ref: L1-L5
+  severity: Low
+  status: backlog
+  description: See epic-002/sprint-01/closure/redteam-report.md
+- key: BL-E002-067
+  epic: '002'
+  sprint: '01'
+  title: wp-config.php exclusion on restore compares names case-sensitively (AR-01)
+  source: adversarial (AR-01)
+  source_phase: adversarial
+  source_ref: AR-01
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+- key: BL-E002-068
+  epic: '002'
+  sprint: '01'
+  title: Extraction does not bound member size; compressed bomb passes verify (AR-02)
+  source: adversarial (AR-02)
+  source_phase: adversarial
+  source_ref: AR-02
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+- key: BL-E002-069
+  epic: '002'
+  sprint: '01'
+  title: 'Exit code mapping: extraction refusal exit 3 after partial write; corrupt payload exit 1 vs 8; missing passphrase exit 2 vs 4 (AR-03..05)'
+  source: adversarial (AR-03-05)
+  source_phase: adversarial
+  source_ref: AR-03-05
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+- key: BL-E002-070
+  epic: '002'
+  sprint: '01'
+  title: Passphrase prompt has no confirmation or length check (AR-06); fix before E002-S02-011
+  source: adversarial (AR-06)
+  source_phase: adversarial
+  source_ref: AR-06
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+- key: BL-E002-071
+  epic: '002'
+  sprint: '01'
+  title: Adversarial/clean-release lows AR-07..AR-16 (speculative unused code, restore advertised, README drift check first-marker only, etc.)
+  source: adversarial (AR-07-16)
+  source_phase: adversarial
+  source_ref: AR-07-16
+  severity: Low
+  status: backlog
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+- key: BL-E002-072
+  epic: '002'
+  sprint: '01'
+  title: v0/v1 branching via payload-is-None outside domain/archive_format; widen test_version_branching guard (SD-01-2, spec-proposal)
+  source: arch-drift (SD-01-2)
+  source_phase: arch-drift
+  source_ref: SD-01-2
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/arch-drift-review.md
+- key: BL-E002-073
+  epic: '002'
+  sprint: '01'
+  title: Arch-drift minors SD-01-3, SD-01-5 (stale parser docstring, tar uses time.time not Run clock)
+  source: arch-drift (SD-01-3-5)
+  source_phase: arch-drift
+  source_ref: SD-01-3-5
+  severity: Low
+  status: backlog
+  description: See epic-002/sprint-01/closure/arch-drift-review.md
+- key: BL-E002-074
+  epic: '002'
+  sprint: '01'
+  title: 'UX: operator input mistakes exit 1 not 2 (UX-01-3); restore advertised in --help (UX-01-4)'
+  source: ux-review (UX-01-3-4)
+  source_phase: ux-review
+  source_ref: UX-01-3-4
+  severity: Medium
+  status: backlog
+  description: See epic-002/sprint-01/closure/ux-review.md
+- key: BL-E002-075
+  epic: '002'
+  sprint: '01'
+  title: UX lows UX-01-11..15,17 (help style, UNRECOGNISED_FORMAT, verify failure gloss, double print, exit suffix, passphrase= hint)
+  source: ux-review (UX-01-11-17)
+  source_phase: ux-review
+  source_ref: UX-01-11-17
+  severity: Low
+  status: backlog
+  description: See epic-002/sprint-01/closure/ux-review.md

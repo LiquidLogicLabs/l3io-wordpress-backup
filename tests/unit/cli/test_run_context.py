@@ -170,3 +170,20 @@ def test_the_repr_names_neither_registry_nor_workspace(workdir: Path) -> None:
     assert ctx.run_id in text
     assert str(ctx.workspace) not in text
     assert "SecretRegistry" not in text
+
+
+def test_command_failed_carries_the_failed_runs_id(workdir: Path) -> None:
+    from l3io.wp.backup.cli.exit import report_failure
+
+    secrets = SecretRegistry()
+    with capture_logs() as logs:
+        message = "nope"
+        with (
+            pytest.raises(Boom) as raised,
+            open_run(operation="backup", secrets=secrets),
+        ):
+            raise Boom(message)
+        report_failure(raised.value, secrets=secrets)
+    (finished,) = _events(logs, "run_finished")
+    (failed,) = _events(logs, "command_failed")
+    assert failed["run_id"] == finished["run_id"]
