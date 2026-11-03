@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S02'
 title: Register the restore vocabulary and flags
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-03T16:17:57Z'
+status: done
+updated_at: '2026-11-03T17:36:47Z'
 depends_on:
 - 'E002-S01-001'
 - 'E002-S01-002'
@@ -30,3 +30,33 @@ estimate:
     output: 134
     cache_write: 502
     cache_read: 14822
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 15
+actual:
+  elapsed_hours: 0.29
+  man_hours: 20
+  hitl_hours: 0
+  tokens_k:
+    total: 8701.71
+    input: 0.144
+    output: 88.759
+    cache_write: 277.686
+    cache_read: 8335.122
+  cost: 8.12
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-03T17:36:47Z'

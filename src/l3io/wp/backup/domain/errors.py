@@ -51,6 +51,7 @@ __all__ = [
     "DatabaseUnreachableError",
     "DumpFailedError",
     "ExtractionRefusedError",
+    "FlagCombinationRejectedError",
     "InvalidSiteDescriptorError",
     "MalformedManifestError",
     "MemberReadRefusedError",
@@ -98,6 +99,19 @@ class UsageError(BackupError):
     """The caller supplied an invalid combination of arguments."""
 
     exit_code: ClassVar[ExitCode] = ExitCode.USAGE
+
+
+class FlagCombinationRejectedError(UsageError):
+    """AD-25 — restore flags that express no Restore Mode.
+
+    The message is the flag table's own entry: why the combination was
+    rejected and the combination that would express a real Mode.
+    """
+
+    def __init__(self, *, reason: str, use_instead: str) -> None:
+        self.reason = reason
+        self.use_instead = use_instead
+        super().__init__(f"{reason}; {use_instead}")
 
 
 class PassphraseUnavailableError(UsageError):

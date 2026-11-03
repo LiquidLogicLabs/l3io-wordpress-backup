@@ -7,6 +7,12 @@ creates the Run's ``SecretRegistry``, then dispatches: ``backup`` to
 Context (AD-16) with that registry. Anything else is refused rather than
 pretending to act.
 
+**Before any Run opens** the arguments are checked: a restore flag
+combination that expresses no Restore Mode (AD-25), an incomplete credential
+flag pair, or a flag or subcommand still in
+:data:`~l3io.wp.backup.cli.parser.NOT_YET_IMPLEMENTED` exits ``USAGE`` through
+argparse with the table's or the entry's message, so it carries no ``run_id``.
+
 **Exit codes (FR-21).** :func:`main` returns ``int(ExitCode.X)`` on every
 path. A ``run_*`` returns ``ExitCode.OK`` or raises; the root maps what it
 raised with :func:`~l3io.wp.backup.cli.exit.exit_code_for` and reports it
@@ -36,8 +42,14 @@ from types import FrameType
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.exit import report_failure
 from l3io.wp.backup.cli.logging import configure_logging
-from l3io.wp.backup.cli.parser import BACKUP_COMMAND, VERIFY_COMMAND, build_parser
-from l3io.wp.backup.domain.errors import RunTerminated
+from l3io.wp.backup.cli.parser import (
+    BACKUP_COMMAND,
+    RESTORE_COMMAND,
+    VERIFY_COMMAND,
+    build_parser,
+    not_yet_implemented,
+)
+from l3io.wp.backup.domain.errors import RunTerminated, UsageError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 
 __all__ = ["main", "run_from_cli"]
@@ -68,6 +80,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.action is None:
         parser.print_help(sys.stderr)
         return int(ExitCode.USAGE)
+    try:
+        if args.action == RESTORE_COMMAND:
+            from l3io.wp.backup.cli.restore import check_restore_arguments
+
+            check_restore_arguments(
+                mode=args.mode,
+                cleanfirst=args.cleanfirst,
+                drop_database=args.drop_database,
+                force=args.force,
+                admin_username=args.admin_username,
+                admin_password=args.admin_password,
+                admin_aws_secret_id=args.admin_credentials_aws_secret_id,
+                admin_aws_region=args.admin_credentials_aws_region,
+                db_aws_secret_id=args.db_credentials_aws_secret_id,
+                db_aws_region=args.db_credentials_aws_region,
+            )
+        elif args.action == BACKUP_COMMAND:
+            from l3io.wp.backup.cli.credentials import wordpress_spec
+
+            wordpress_spec(
+                aws_secret_id=args.db_credentials_aws_secret_id,
+                aws_region=args.db_credentials_aws_region,
+            )
+    except UsageError as exc:
+        parser.error(str(exc))
+    unavailable = not_yet_implemented(args.action, vars(args))
+    if unavailable is not None:
+        parser.error(unavailable)
     if args.action not in (BACKUP_COMMAND, VERIFY_COMMAND):
         parser.error(f"{args.action!r} is not implemented in this build")
     configure_logging(args.log_level, args.log_format)

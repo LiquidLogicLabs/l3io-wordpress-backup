@@ -1,5 +1,5 @@
 next:
-  '002': 84
+  '002': 87
   '003': 30
   '004': 43
 backlog:
@@ -1361,3 +1361,31 @@ backlog:
   severity: Low
   status: backlog
   description: F4 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
+- key: BL-E002-084
+  epic: '002'
+  sprint: '02'
+  title: cli/parser.py keeps its own copy of the L3IO_WP_BACKUP_ADMIN_PASSWORD name; E005-S01-001 owns the constant
+  source: code-review (E002-S02-011)
+  source_phase: code-review
+  source_ref: E002-S02-011
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
+- key: BL-E002-085
+  epic: '002'
+  sprint: '02'
+  title: test_no_restore_option_is_silently_accepted passes on any usage error, not specifically the NOT_YET_IMPLEMENTED refusal
+  source: code-review (E002-S02-011)
+  source_phase: code-review
+  source_ref: E002-S02-011
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
+- key: BL-E002-086
+  epic: '002'
+  sprint: ''
+  title: 'AD-22: python -m wpbackup2 does not reach the new parser — the legacy wpbackup2/ tree occupies the module name on disk and is excluded from the wheel; needs a shim module (wpbackup2/__main__.py -> l3io.wp.backup.cli) and a decision on removing the legacy tree; tests/contracts/test_cli_surface.py holds a strict xfail'
+  source: story-dev
+  severity: Medium
+  status: backlog
+  description: Found by E002-S02-011; no story owns it yet.

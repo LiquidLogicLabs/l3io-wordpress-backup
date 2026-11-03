@@ -53,16 +53,17 @@ Generated from the parser by `tools/gen_cli_docs.py`; CI fails if it drifts.
 ```text
 $ wpbackup2 --help
 usage: wpbackup2 [-h] [--version] [--log-level LOG_LEVEL] [--log-format {console,json}] [--whatIf]
-                 {backup,restore,verify} ...
+                 {backup,restore,verify,doctor} ...
 
 Backup/restore your WordPress content and database.
 
 positional arguments:
-  {backup,restore,verify}
+  {backup,restore,verify,doctor}
                         Action being requested
     backup              Perform a WordPress backup
     restore             Perform a WordPress restore
     verify              Check an archive without touching a site
+    doctor              Report whether this host is ready to back up and restore
 
 options:
   -h, --help            show this help message and exit
@@ -89,7 +90,9 @@ exit codes:
 ```text
 $ wpbackup2 backup --help
 usage: wpbackup2 backup [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--wp-config PATH]
-                        [--mode {files,db,all}]
+                        [--mode {files,db,all}] [--encrypt-with-passphrase] [--exclude PATTERN]
+                        [--no-default-excludes] [--list-default-excludes]
+                        [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
 
 options:
   -h, --help            show this help message and exit
@@ -99,14 +102,92 @@ options:
   --wp-config PATH      use this wp-config.php instead of searching for it
   --mode {files,db,all}
                         What to back up: files, db, or all (default: all)
+  --encrypt-with-passphrase
+                        Encrypt the archive with a passphrase. The passphrase comes from
+                        L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line
+  --exclude PATTERN     Leave matching paths out of the archive (repeatable)
+  --no-default-excludes
+                        Do not apply the default exclusion set
+  --list-default-excludes
+                        Print the default exclusion set and exit without backing up
+
+database credentials:
+  --db-credentials-aws-secret-id ID
+                        Read the WordPress database account from this AWS Secrets Manager secret
+  --db-credentials-aws-region REGION
+                        AWS region of --db-credentials-aws-secret-id (needs the secret id)
 ```
 
 ```text
 $ wpbackup2 restore --help
-usage: wpbackup2 restore [-h]
+usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files,db,all}]
+                         [--cleanfirst] [--drop-database] [--force] [--wp-config PATH]
+                         [--overwrite-wp-config] [--no-safety-snapshot] [--snapshot-dir PATH]
+                         [--resolve-interrupted-run RUN_ID] [--admin-username ADMIN_USERNAME]
+                         [--admin-password ADMIN_PASSWORD]
+                         [--admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID]
+                         [--admin-credentials-aws-region ADMIN_CREDENTIALS_AWS_REGION]
+                         [--only-appointed-in-asg] [--new-site-url NEW_SITE_URL]
+                         [--new-site-home-url NEW_SITE_HOME_URL] [--new-db-host NEW_DB_HOST]
+                         [--new-db-name NEW_DB_NAME] [--new-db-user NEW_DB_USER]
+                         [--new-db-password NEW_DB_PASSWORD] [--db-credentials-aws-secret-id ID]
+                         [--db-credentials-aws-region REGION]
 
 options:
-  -h, --help  show this help message and exit
+  -h, --help            show this help message and exit
+  --wp-dir WP_DIR       Path to the root of the WordPress directory
+  --archive ARCHIVE     Path or file: URL of the archive to restore from
+
+restore mode:
+  Together these select one Restore Mode; any other combination is refused.
+
+  --mode {files,db,all}
+                        What to restore: files, db, or all (default: all)
+  --cleanfirst          Clear the Site Root before restoring the files. It does not remove the
+                        database: that is --drop-database
+  --drop-database       Remove the previous database once the restored one has taken over. --mode
+                        all needs --cleanfirst with it
+  --force               Restore into a non-empty target for the parts the mode restores. It
+                        selects no mode and removes nothing
+
+restore options:
+  --wp-config PATH      use this wp-config.php instead of searching for it
+  --overwrite-wp-config
+                        Replace the target's existing wp-config.php with the archive's (only with
+                        a mode that restores files)
+  --no-safety-snapshot  Do not take the Safety Snapshot before changing anything
+  --snapshot-dir PATH   Directory to write the Safety Snapshot to
+  --resolve-interrupted-run RUN_ID
+                        Resolve the journal left by the interrupted Run with this ID
+  --admin-username ADMIN_USERNAME
+                        Database administrator username (give --admin-password with it)
+  --admin-password ADMIN_PASSWORD
+                        Database administrator password. The value is visible in the process list;
+                        prefer L3IO_WP_BACKUP_ADMIN_PASSWORD
+  --admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID
+                        Read the database administrator from this AWS Secrets Manager secret
+  --admin-credentials-aws-region ADMIN_CREDENTIALS_AWS_REGION
+                        AWS region of --admin-credentials-aws-secret-id (needs the secret id)
+  --only-appointed-in-asg
+                        Removed with chesney; accepted only to explain that
+  --new-site-url NEW_SITE_URL
+                        Relocate the Site to this URL
+  --new-site-home-url NEW_SITE_HOME_URL
+                        Relocate the Site's home URL
+  --new-db-host NEW_DB_HOST
+                        Relocate to this database host
+  --new-db-name NEW_DB_NAME
+                        Relocate to this database name
+  --new-db-user NEW_DB_USER
+                        Relocate to this database user
+  --new-db-password NEW_DB_PASSWORD
+                        Password of --new-db-user. The value is visible in the process list
+
+database credentials:
+  --db-credentials-aws-secret-id ID
+                        Read the WordPress database account from this AWS Secrets Manager secret
+  --db-credentials-aws-region REGION
+                        AWS region of --db-credentials-aws-secret-id (needs the secret id)
 ```
 
 ```text
@@ -119,6 +200,17 @@ options:
   --authenticate     Decrypt the encrypted payload to prove the archive authentic; without it,
                      verify proves only that its checksums are consistent. The passphrase comes
                      from L3IO_WP_BACKUP_PASSPHRASE or a prompt.
+```
+
+```text
+$ wpbackup2 doctor --help
+usage: wpbackup2 doctor [-h] [--wp-dir DIR] [--archive TARGET] [--json]
+
+options:
+  -h, --help        show this help message and exit
+  --wp-dir DIR      Also check this Site Root
+  --archive TARGET  Also check this archive target
+  --json            Print the diagnosis as JSON
 ```
 <!-- END GENERATED: cli-usage -->
 

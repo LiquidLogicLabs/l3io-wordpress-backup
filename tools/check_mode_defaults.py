@@ -47,8 +47,12 @@ from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "src" / "l3io" / "wp" / "backup"
 
-#: AD-5's own text: "any parameter annotated RestoreMode (or BackupScope)".
-GUARDED_TYPES = frozenset({"RestoreMode", "BackupScope"})
+#: AD-5's own text: "any parameter annotated RestoreMode (or BackupScope)",
+#: widened by E002-S02-011 to the restore vocabulary's other closed choices,
+#: each of which is as destructive when silently defaulted.
+GUARDED_TYPES = frozenset(
+    {"RestoreMode", "BackupScope", "SnapshotPolicy", "ConfigPolicy", "OverrideSet"}
+)
 
 
 def _mentions_guarded_type(annotation: ast.expr | None) -> str | None:
