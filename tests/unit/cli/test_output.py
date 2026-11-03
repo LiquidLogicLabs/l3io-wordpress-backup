@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 
 from l3io.wp.backup.cli import main, run_from_cli
+from l3io.wp.backup.domain import errors as error_classes
+from l3io.wp.backup.domain.exit_codes import ExitCode
 
 pytestmark = pytest.mark.usefixtures("fake_database")
 
@@ -40,7 +42,9 @@ def test_a_failure_is_one_json_error_record(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     filled = [a.format(missing=tmp_path / "missing", site=site) for a in argv]
-    assert main(["--log-format", "json", *filled]) == 1
+    code = getattr(error_classes, error).exit_code
+    assert code is not ExitCode.OK
+    assert main(["--log-format", "json", *filled]) == code
     lines = _json_lines(capsys.readouterr().err)
     # A Run's own failure records (phase_completed, run_finished) aside.
     own = {"run_finished", "phase_completed"}
@@ -54,19 +58,26 @@ def test_a_failed_verify_is_json_too(
 ) -> None:
     corrupt = tmp_path / "corrupt.tar.gz"
     corrupt.write_bytes(b"x" * 2048)
-    assert main(["--log-format", "json", "verify", "--archive", str(corrupt)]) == 1
+    code = ExitCode.VERIFICATION_FAILED
+    assert main(["--log-format", "json", "verify", "--archive", str(corrupt)]) == code
     lines = _json_lines(capsys.readouterr().err)
-    (failed,) = [e for e in lines if e["event"] == "verify_failed"]
+    (failed,) = [e for e in lines if e["event"] == "command_failed"]
     assert failed["level"] == "error"
+    assert failed["error"] == "VerificationFailedError"
+    assert (failed["exit_code"], failed["exit_reason"]) == (int(code), code.name)
     finished = next(e for e in lines if e["event"] == "run_finished")
-    assert finished["exit_code"] == 1
+    assert (finished["exit_code"], finished["exit_reason"]) == (int(code), code.name)
+    (verified,) = [e for e in lines if e["event"] == "phase_completed"]
+    assert verified["phase"] == "VERIFY"
+    assert (verified["outcome"], verified["exit_code"]) == ("failed", int(code))
 
 
 def test_the_console_format_also_prints_the_plain_line(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     missing = tmp_path / "missing"
-    assert main(["--log-format", "console", "backup", "--wp-dir", str(missing)]) == 1
+    code = main(["--log-format", "console", "backup", "--wp-dir", str(missing)])
+    assert code == ExitCode.FAILED
     err = capsys.readouterr().err
     assert any(line.startswith("wpbackup2: error: ") for line in err.splitlines())
     assert "command_failed" in err

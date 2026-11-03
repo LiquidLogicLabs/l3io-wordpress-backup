@@ -2,11 +2,12 @@
 
 Three layers, each calling only the next:
 
-- :func:`run_backup` (the CLI root) creates the Run's ``SecretRegistry``,
-  translates the flags into a :class:`BackupRequest` (the passphrase and
-  cipher resolved into that registry first), makes **one** call to
-  :func:`drive_backup`, renders what it returns on stdout and its error,
-  redacted, on stderr (ADR-0018), and returns the exit code.
+- :func:`run_backup` (the CLI root) takes the Run's ``SecretRegistry`` from
+  ``cli.main``, translates the flags into a :class:`BackupRequest` (the
+  passphrase and cipher resolved into that registry first), makes **one**
+  call to :func:`drive_backup`, renders what it returns on stdout and returns
+  ``ExitCode.OK``; a failure is raised for the root to map and report,
+  redacted, on stderr (FR-21, ADR-0018).
 - :func:`drive_backup` (the argument-free driver the CLI and Epic 6's ``api/``
   share) canonicalises the Site Root, opens or joins the Run
   (``cli.context.join_or_open``), reads the Site Descriptor, builds the
@@ -23,8 +24,7 @@ Three layers, each calling only the next:
 name and becomes visible only through the store's ``publish()``, after the
 verifier passes (AD-20); any failure before that discards the staged file.
 
-Exit-code numbers are E002-S01-005: until then ``run_backup`` returns ``0`` on
-success and ``1`` on every failure. Encryption binds ``None`` until
+Encryption binds ``None`` until
 E008-S01-001 binds Epic 4's cipher.
 """
 
@@ -61,7 +61,7 @@ from l3io.wp.backup.adapters.tar import (
 from l3io.wp.backup.cli.adapter_sets import real_adapters
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import wordpress_source, wordpress_spec
-from l3io.wp.backup.cli.output import emit_failure, emit_result
+from l3io.wp.backup.cli.output import emit_result
 from l3io.wp.backup.cli.passphrase import note_unused_passphrase
 from l3io.wp.backup.cli.scope import backup_scope_from_cli
 from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
@@ -83,11 +83,11 @@ from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.errors import (
     ArchiveExistsError,
-    BackupError,
     InvalidSiteDescriptorError,
     UsageError,
 )
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
+from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import (
     StorageTarget,
@@ -434,26 +434,20 @@ def _cipher(
     return None
 
 
-def run_backup(args: argparse.Namespace) -> int:
-    """``wpbackup2 backup``: ``0`` on success, non-zero on every failure."""
-    secrets = SecretRegistry()
-    try:
-        request = BackupRequest(
-            site_root=Path(args.wp_dir),
-            scope=backup_scope_from_cli(args.mode),
-            target=None if not args.archive else storage_target_from_cli(args.archive),
-            wp_config=None if args.wp_config is None else Path(args.wp_config),
-            credentials=wordpress_spec(aws_secret_id=None, aws_region=None),
-            cipher=_cipher(environ=os.environ, secrets=secrets),
-        )
-        result = drive_backup(request, ctx=None, secrets=secrets)
-    except BackupError as exc:
-        emit_failure(
-            "command_failed",
-            f"wpbackup2: error: {exc}",
-            error=type(exc).__name__,
-            secrets=secrets,
-        )
-        return 1
+def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
+    """``wpbackup2 backup``: ``ExitCode.OK``, or raises ``BackupError``.
+
+    ``secrets`` is the root's registry; the Run adopts it, and the root
+    reports a failure through it (ADR-0018).
+    """
+    request = BackupRequest(
+        site_root=Path(args.wp_dir),
+        scope=backup_scope_from_cli(args.mode),
+        target=None if not args.archive else storage_target_from_cli(args.archive),
+        wp_config=None if args.wp_config is None else Path(args.wp_config),
+        credentials=wordpress_spec(aws_secret_id=None, aws_region=None),
+        cipher=_cipher(environ=os.environ, secrets=secrets),
+    )
+    result = drive_backup(request, ctx=None, secrets=secrets)
     emit_result(str(result.path))
-    return 0
+    return ExitCode.OK

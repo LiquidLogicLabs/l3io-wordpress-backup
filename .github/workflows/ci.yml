@@ -115,6 +115,11 @@ jobs:
       - name: AD-25 flag map is total
         run: uv run pytest tests/contracts/test_flag_map.py -q
 
+      # AG-25 / FR-21 — the README's CLI usage and exit-code table are generated
+      # from the parser and the ExitCode enum; drift fails here.
+      - name: AG-25 generated CLI docs are current
+        run: uv run python tools/gen_cli_docs.py --check
+
       # AD-27 -- the namespace guard, checked HERE and not only at publish time.
       # This is a PEP 420 native namespace package: `src/l3io/` and `src/l3io/wp/`
       # must contain no `__init__.py`, because one there shadows the namespace and

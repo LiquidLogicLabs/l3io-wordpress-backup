@@ -1,5 +1,5 @@
 next:
-  '002': 55
+  '002': 59
   '003': 30
   '004': 42
 backlog:
@@ -1083,13 +1083,43 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-006.md (Round 2, N-01)
-- key: BL-E002-054
+- key: BL-E002-055
   epic: '002'
   sprint: '01'
-  title: "E002-S01-005 review: confirm cli/exit.py renders non-BackupError tracebacks through the Run's SecretRegistry (run_backup/run_verify catch BackupError only today)"
-  source: code-review (E002-S01-006)
+  title: "F-03: a failed verify's stderr and command_failed record no longer name the Archive path"
+  source: code-review (E002-S01-005)
   source_phase: code-review
-  source_ref: E002-S01-006
+  source_ref: E002-S01-005
   severity: Low
   status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-006.md (checks with no finding, not counted)
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+- key: BL-E002-056
+  epic: '002'
+  sprint: '01'
+  title: 'F-04: on KeyboardInterrupt run_finished claims exit_code 1/FAILED while the process exits 130'
+  source: code-review (E002-S01-005)
+  source_phase: code-review
+  source_ref: E002-S01-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+- key: BL-E002-057
+  epic: '002'
+  sprint: '01'
+  title: 'F-05: literal-exit-code guard misses return <int>, SystemExit(<int>), sys.exit(<int>) and exit_code tuple assignments'
+  source: code-review (E002-S01-005)
+  source_phase: code-review
+  source_ref: E002-S01-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+- key: BL-E002-058
+  epic: '002'
+  sprint: '01'
+  title: "F-06: argparse usage errors on stderr do not name the USAGE code's meaning (end-to-end test exempts USAGE)"
+  source: code-review (E002-S01-005)
+  source_phase: code-review
+  source_ref: E002-S01-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md

@@ -147,3 +147,17 @@ resolved:
   resolved_at: '2026-10-28T20:54:14Z'
   ref: 7b78347
   note: loser_drop_started intent step and undo row
+- key: BL-E002-054
+  epic: '002'
+  sprint: '01'
+  title: "E002-S01-005 review: confirm cli/exit.py renders non-BackupError tracebacks through the Run's SecretRegistry (run_backup/run_verify catch BackupError only today)"
+  source: code-review (E002-S01-006)
+  source_phase: code-review
+  source_ref: E002-S01-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-006.md (checks with no finding, not counted)
+  resolution: fixed
+  resolved_at: '2026-11-03T06:05:46Z'
+  ref: E002-S01-005
+  note: "cli.main catches every Exception and reports it through the Run's SecretRegistry (cli/exit.py report_failure re-opens it for the pipeline): a non-BackupError exits FAILED, its exc_info traceback is redacted, and its message is never printed. Test: tests/unit/cli/test_render_failure.py::test_bl_e002_054_a_defect_exits_failed_and_leaks_nothing"

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 wpdb = pytest.importorskip("l3io.wp.database")
 
+import l3io.wp.backup.cli as cli_root  # noqa: E402
 from l3io.wp.backup.adapters.redaction import REDACTED  # noqa: E402
 from l3io.wp.backup.cli import adapter_sets, main  # noqa: E402
 from l3io.wp.backup.cli import backup as backup_cli  # noqa: E402
@@ -119,7 +120,13 @@ def watched_names(module: object, *drivers: str) -> set[str]:
 BACKUP_DRIVERS = ("run_backup", "drive_backup", "backup")
 
 
+#: The CLI root creates the Run's SecretRegistry and reports its failure.
+ROOT_DRIVERS = ("main",)
+
+
 def _watch_root(sentinel: CredentialSentinel) -> None:
+    for name in watched_names(cli_root, *ROOT_DRIVERS):
+        sentinel.watch(cli_root, name)
     for name in watched_names(backup_cli, *BACKUP_DRIVERS):
         sentinel.watch(backup_cli, name)
     for name in watched_names(adapter_sets, "real_adapters"):
@@ -200,13 +207,13 @@ def test_the_resolved_password_is_registered_before_it_could_be_emitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created: list[backup_cli.SecretRegistry] = []
-    real = backup_cli.SecretRegistry
+    real = cli_root.SecretRegistry
 
     def spy() -> backup_cli.SecretRegistry:
         created.append(real())
         return created[-1]
 
-    monkeypatch.setattr(backup_cli, "SecretRegistry", spy)
+    monkeypatch.setattr(cli_root, "SecretRegistry", spy)
     code, _ = _backup(credential_sentinel, capsys, mode="db")
     assert code == 0
     assert len(created) == 1
@@ -265,9 +272,13 @@ def test_verify_emits_no_credential(
     code, archive = _backup(credential_sentinel, capsys, mode="all")
     assert code == 0
     names = watched_names(verify_cli, "run_verify", "drive_verify")
-    assert {"SecretRegistry", "storage_target_from_cli", "verify_archive"} <= names
+    assert {"storage_target_from_cli", "verify_archive"} <= names
     for name in names:
         credential_sentinel.watch(verify_cli, name)
+    root = watched_names(cli_root, *ROOT_DRIVERS)
+    assert {"SecretRegistry", "report_failure"} <= root
+    for name in root:
+        credential_sentinel.watch(cli_root, name)
     debug = ["--log-level", "DEBUG", "verify", "--archive"]
     assert main([*debug, str(archive)]) == 0
     missing = credential_sentinel.workdir / "absent.tar.gz"
@@ -285,9 +296,11 @@ def test_verify_emits_no_credential(
 
 
 def test_the_watched_set_is_derived_and_covers_the_credential_path() -> None:
+    assert {"SecretRegistry", "report_failure"} <= watched_names(
+        cli_root, *ROOT_DRIVERS
+    )
     names = watched_names(backup_cli, *BACKUP_DRIVERS)
     assert {
-        "SecretRegistry",
         "site_descriptor_from_wp_config",
         "wordpress_source",
         "real_adapters",

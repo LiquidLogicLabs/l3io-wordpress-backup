@@ -5,8 +5,8 @@
 always leaves one ``error`` record in the structured stream naming the error
 class — a failure before the Run opened included — and, unless that stream is
 JSON, the plain ``wpbackup2: ...`` line too, so ``--log-format json`` stderr
-stays one JSON object per line. The text is redacted here: the Run, and with
-it the pipeline's registry, has already closed.
+stays one JSON object per line. The text is redacted here as well as by the
+pipeline, whose registry the root re-opens for the report.
 """
 
 from __future__ import annotations
@@ -35,10 +35,27 @@ def emit_result(text: str) -> None:
 
 
 def emit_failure(
-    event: str, message: str, *, error: str, secrets: SecretRegistry
+    event: str,
+    message: str,
+    *,
+    error: str,
+    secrets: SecretRegistry,
+    exc_info: BaseException | None = None,
+    stderr_text: str | None = None,
+    **fields: object,
 ) -> None:
-    """One ``event`` record at ERROR, and the plain line unless logging is JSON."""
+    """One ``event`` record at ERROR, and the plain line unless logging is JSON.
+
+    ``stderr_text`` replaces ``message`` on the plain line only (a longer
+    form, such as one with a traceback). ``exc_info`` puts a traceback on the
+    record; it is redacted only while the Run's registry is open for the
+    pipeline (``cli.exit.report_failure``).
+    """
     text = secrets.redact(message)
-    _log.error(event, error=error, message=text)
+    if exc_info is None:
+        _log.error(event, error=error, message=text, **fields)
+    else:
+        _log.error(event, error=error, message=text, exc_info=exc_info, **fields)
     if configured_format() != "json":
-        print(text, file=sys.stderr)
+        plain = text if stderr_text is None else secrets.redact(stderr_text)
+        print(plain, file=sys.stderr)

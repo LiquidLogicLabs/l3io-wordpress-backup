@@ -17,6 +17,7 @@ import argparse
 import logging
 
 from l3io.wp.backup import __version__
+from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
 
 __all__ = [
     "BACKUP_COMMAND",
@@ -25,6 +26,7 @@ __all__ = [
     "RESTORE_COMMAND",
     "VERIFY_COMMAND",
     "build_parser",
+    "exit_code_epilog",
 ]
 
 BACKUP_COMMAND = "backup"
@@ -46,11 +48,21 @@ def _log_level(text: str) -> str:
     return name
 
 
+def exit_code_epilog() -> str:
+    """The exit-code table for ``--help``, generated from ``ExitCode`` (FR-21)."""
+    rows = [
+        f"  {int(code):>2}  {code.name:<19}  {DESCRIPTIONS[code]}" for code in ExitCode
+    ]
+    return "\n".join(["exit codes:", *rows])
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser with both frozen subcommands registered."""
     parser = argparse.ArgumentParser(
         prog="wpbackup2",
         description="Backup/restore your WordPress content and database.",
+        epilog=exit_code_epilog(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"

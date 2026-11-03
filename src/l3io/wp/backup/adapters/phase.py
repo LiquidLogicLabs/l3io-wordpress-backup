@@ -9,9 +9,12 @@ and re-raised unchanged. :func:`join_phase` lets a step that may run inside
 its own phase (verification, inside the store's ``VERIFY``) annotate that
 record rather than emit a second one.
 
-Until E002-S01-005 maps errors to exit codes, ``exit_code`` is ``0`` on success
-and ``1`` on failure. Nothing here configures logging; the Run ID reaches the
-record through ``structlog.contextvars`` (AD-10).
+``exit_code`` is ``0`` on success and, on failure, the exception's
+``exit_code`` (``domain.errors.exit_code_of`` — the same mapping the CLI's
+``exit_code_for`` applies, which ``adapters/`` may not import), so the failing
+phase's record and ``run_finished`` carry the same code (FR-21). Nothing
+here configures logging; the Run ID reaches the record through
+``structlog.contextvars`` (AD-10).
 
 **Tracing hook (AD-24).** :data:`ACTIVE_TRACER` holds the open Run's tracer and
 registry, set and reset by ``cli.context.open_run``; ``None`` means
@@ -33,6 +36,8 @@ import structlog
 
 from l3io.wp.backup.adapters.noop import NoopTracer
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.domain.errors import exit_code_of
+from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.tracing import Redactor, Tracer
 
 __all__ = ["ACTIVE_TRACER", "PhaseRecord", "join_phase", "phase"]
@@ -60,11 +65,21 @@ def _tracer() -> tuple[Tracer, Redactor]:
 
 @dataclass(slots=True)
 class PhaseRecord:
-    """What a step reports about itself: ``bytes``, and any extra ``fields``."""
+    """What a step reports about itself: ``bytes``, and any extra ``fields``.
+
+    :meth:`fail` marks a step that returns a failure rather than raising (a
+    verification that did not pass), so its record says ``failed`` with the
+    same code the Run finishes with.
+    """
 
     name: str
     bytes: int = 0
     fields: dict[str, object] = field(default_factory=dict)
+    failure: ExitCode | None = None
+
+    def fail(self, exit_code: ExitCode) -> None:
+        """Record this step as failed with ``exit_code`` without raising."""
+        self.failure = exit_code
 
 
 @contextmanager
@@ -75,17 +90,23 @@ def phase(name: str) -> Iterator[PhaseRecord]:
         record = PhaseRecord(name=name)
         token = _current.set(record)
         started = time.monotonic_ns()
-        outcome, exit_code = "failed", 1
+        outcome, exit_code = "failed", ExitCode.FAILED
         try:
             yield record
-            outcome, exit_code = "ok", 0
+            if record.failure is None:
+                outcome, exit_code = "ok", ExitCode.OK
+            else:
+                exit_code = record.failure
+        except BaseException as exc:
+            exit_code = exit_code_of(exc)
+            raise
         finally:
             _current.reset(token)
             _emit(record, started, outcome, exit_code)
-            span.set_outcome(exit_code=exit_code, archive_bytes=record.bytes)
+            span.set_outcome(exit_code=int(exit_code), archive_bytes=record.bytes)
 
 
-def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: int) -> None:
+def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: ExitCode) -> None:
     emit = _log.info if outcome == "ok" else _log.error
     extra = {k: v for k, v in record.fields.items() if k not in _FIXED_KEYS}
     emit(
@@ -94,7 +115,7 @@ def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: int) -> No
         duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
         bytes=record.bytes,
         outcome=outcome,
-        exit_code=exit_code,
+        exit_code=int(exit_code),
         **extra,
     )
 

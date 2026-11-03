@@ -14,8 +14,10 @@ what it created and unbinds only what it bound — a caller's own
 creates nothing; otherwise it opens one. A driver binds adapters only when the
 Run was opened here (``RunHandle.opened``), so a set is bound exactly once.
 
-The exit code is ``0`` on success and ``1`` on any exception until
-E002-S01-005 maps errors to the exit-code table.
+``run_finished`` carries ``exit_code`` as the integer and ``exit_reason`` as
+the :class:`~l3io.wp.backup.domain.exit_codes.ExitCode` member name (FR-21):
+``OK`` on success, the code a driver reported (:meth:`RunContext.report_failure`),
+or :func:`~l3io.wp.backup.cli.exit.exit_code_for` of an escaping exception.
 """
 
 from __future__ import annotations
@@ -37,11 +39,13 @@ from l3io.wp.backup.adapters.noop import GuardedTracer, NoopTracer
 from l3io.wp.backup.adapters.phase import ACTIVE_TRACER
 from l3io.wp.backup.adapters.redaction import SecretRegistry, open_registry
 from l3io.wp.backup.adapters.workspace import run_workspace
+from l3io.wp.backup.cli.exit import exit_code_for
 from l3io.wp.backup.domain.errors import (
     AdaptersAlreadyBoundError,
     AdaptersNotBoundError,
     RunContextActiveError,
 )
+from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.clock import Clock
 from l3io.wp.backup.ports.tracing import RunSpan, Tracer
@@ -69,7 +73,7 @@ class _RunState:
 
     def __init__(self) -> None:
         self.adapters: AdapterSet | None = None
-        self.outcome: tuple[int, str | None] | None = None
+        self.outcome: tuple[ExitCode, str | None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +107,7 @@ class RunContext:
             raise AdaptersAlreadyBoundError(self.run_id)
         self._state.adapters = adapter_set
 
-    def report_failure(self, *, exit_code: int, error_type: str) -> None:
+    def report_failure(self, *, exit_code: ExitCode, error_type: str) -> None:
         """A failure the driver returns rather than raises (a failed verify).
 
         ``run_finished`` and the root span then carry it; an exception escaping
@@ -125,9 +129,9 @@ def active_run() -> RunContext | None:
     return _ACTIVE.get()
 
 
-def _outcome(state: _RunState) -> tuple[int, str | None]:
-    """A Run with no exception: ``0``, or the failure its driver reported."""
-    return (0, None) if state.outcome is None else state.outcome
+def _outcome(state: _RunState) -> tuple[ExitCode, str | None]:
+    """A Run with no exception: ``OK``, or the failure its driver reported."""
+    return (ExitCode.OK, None) if state.outcome is None else state.outcome
 
 
 @contextmanager
@@ -198,18 +202,21 @@ def open_run(
             raise
         finally:
             exit_code, error_type = (
-                (1, type(error).__name__) if error is not None else _outcome(run_state)
+                (exit_code_for(error), type(error).__name__)
+                if error is not None
+                else _outcome(run_state)
             )
             registry.log_registered()
-            emit = _log.info if exit_code == 0 else _log.error
+            emit = _log.info if exit_code is ExitCode.OK else _log.error
             emit(
                 "run_finished",
                 run_id=run_id,
-                exit_code=exit_code,
+                exit_code=int(exit_code),
+                exit_reason=exit_code.name,
                 duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
                 error=error_type,
             )
-            run_span.set_outcome(exit_code=exit_code, error_type=error_type)
+            run_span.set_outcome(exit_code=int(exit_code), error_type=error_type)
 
 
 @contextmanager

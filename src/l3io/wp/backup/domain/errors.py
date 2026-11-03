@@ -14,12 +14,22 @@ field ever carries a credential value — only labels, keys, paths and codes.
 ``snapshot_path`` is typed :class:`~pathlib.PurePath` because ``domain/`` may
 not import the I/O-capable ``Path`` (AD-1); a ``Path`` is a ``PurePath``, so
 the restore driver sets it with the real path.
+
+**Exit codes (FR-21).** Every class carries its process exit code as the class
+attribute ``exit_code``, a member of
+:class:`~l3io.wp.backup.domain.exit_codes.ExitCode`. :class:`BackupError` says
+``FAILED``; exactly the classes that name a different kind override it, and
+every subclass inherits from its base. A later class inherits its code or
+declares ``exit_code`` itself with an **existing** member — nothing in ``cli/``
+changes. :func:`exit_code_of` reads the attribute for any exception.
 """
 
 from __future__ import annotations
 
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
+
+from l3io.wp.backup.domain.exit_codes import ExitCode
 
 if TYPE_CHECKING:
     from l3io.wp.backup.domain.archive_format import VerificationResult
@@ -57,11 +67,15 @@ __all__ = [
     "UnsupportedStorageSchemeError",
     "UsageError",
     "VerificationFailedError",
+    "exit_code_of",
 ]
 
 
 class BackupError(Exception):
     """The base of every error this package raises across a public boundary."""
+
+    #: The process exit code this kind of failure ends a Run with.
+    exit_code: ClassVar[ExitCode] = ExitCode.FAILED
 
     #: Set by the restore driver on any error escaping after the Safety
     #: Snapshot completed, so the failure output names it.
@@ -71,9 +85,13 @@ class BackupError(Exception):
 class RefusedError(BackupError):
     """A check found a reason not to act, so nothing was done."""
 
+    exit_code: ClassVar[ExitCode] = ExitCode.REFUSED
+
 
 class UsageError(BackupError):
     """The caller supplied an invalid combination of arguments."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.USAGE
 
 
 class PassphraseUnavailableError(UsageError):
@@ -125,6 +143,8 @@ class CredentialsError(BackupError):
     defined; neither is ever a secret value.
     """
 
+    exit_code: ClassVar[ExitCode] = ExitCode.CREDENTIALS
+
     def __init__(
         self, source: str, *, missing_key: str | None = None, reason: str = ""
     ) -> None:
@@ -148,6 +168,8 @@ class AdminCredentialsRequiredError(CredentialsError):
 
 class DatabaseUnreachableError(BackupError):
     """The database server could not be reached."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.UNREACHABLE
 
     def __init__(self, host: str, port: int) -> None:
         self.host = host
@@ -182,6 +204,8 @@ class ArchiveExistsError(RefusedError):
 
 class MissingExtraError(BackupError):
     """An optional feature was used without its extra installed (AD-8)."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
 
     def __init__(self, extra: str) -> None:
         self.extra = extra
@@ -234,6 +258,8 @@ class ConfigWriteFailedError(BackupError):
 class SiteLockedError(BackupError):
     """Another Run holds the Site Lock."""
 
+    exit_code: ClassVar[ExitCode] = ExitCode.LOCKED
+
     def __init__(
         self,
         site_root: PurePath,
@@ -258,6 +284,8 @@ class SiteLockedError(BackupError):
 
 class PreflightFailedError(BackupError):
     """A tool the Run needs is absent or unusable."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
 
     def __init__(
         self,
@@ -286,6 +314,8 @@ class MalformedManifestError(BackupError):
 class VerificationFailedError(BackupError):
     """An Archive failed verification; ``result`` says why."""
 
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
+
     def __init__(self, result: VerificationResult) -> None:
         self.result = result
         first = result.failures[0] if result.failures else None
@@ -302,6 +332,8 @@ class VerificationFailedError(BackupError):
 class UnrecognisedArchiveError(BackupError):
     """The Archive is none of the shapes this build reads (AD-23)."""
 
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
+
     def __init__(self, found: tuple[str, ...]) -> None:
         self.found = found
         names = ", ".join(repr(name) for name in found) or "no members"
@@ -310,6 +342,8 @@ class UnrecognisedArchiveError(BackupError):
 
 class UnsupportedFormatVersionError(BackupError):
     """The Manifest's ``format_version`` is not one this build reads."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
 
     def __init__(self, found: int) -> None:
         self.found = found
@@ -387,3 +421,12 @@ class AdaptersAlreadyBoundError(BackupError):
     def __init__(self, run_id: str) -> None:
         self.run_id = run_id
         super().__init__(f"the adapters of Run {run_id} are already bound")
+
+
+def exit_code_of(exc: BaseException) -> ExitCode:
+    """``exc``'s ``exit_code`` when it is a :class:`BackupError`, else ``FAILED``.
+
+    A non-``BackupError`` reaching a boundary is a defect, so it is a plain
+    failure; no class is matched by name.
+    """
+    return type(exc).exit_code if isinstance(exc, BackupError) else ExitCode.FAILED

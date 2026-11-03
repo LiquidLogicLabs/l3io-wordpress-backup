@@ -782,8 +782,9 @@ def verify_archive(path: Path) -> VerificationResult:
     publish), else emits its own: ``bytes`` read, ``format_version`` (or
     ``"v0"``), ``integrity``, ``dump_present``, ``passed`` and, on failure,
     the first ``reason`` and ``member``; the format fields are ``None`` when
-    the Archive could not be classified. A missing or unreadable file raises
-    :class:`ArchiveNotFoundError`.
+    the Archive could not be classified. A failed verification marks the phase
+    ``failed`` with ``VERIFICATION_FAILED`` though it returns rather than
+    raises. A missing or unreadable file raises :class:`ArchiveNotFoundError`.
     """
     with join_phase(BackupStep.VERIFY.value) as record:
         scan = _stream_outer(path)
@@ -802,6 +803,8 @@ def verify_archive(path: Path) -> VerificationResult:
                 reason=first.reason.value,
                 member=None if first.member is None else repr(first.member),
             )
+        if not result.passed:
+            record.fail(VerificationFailedError.exit_code)
     return result
 
 

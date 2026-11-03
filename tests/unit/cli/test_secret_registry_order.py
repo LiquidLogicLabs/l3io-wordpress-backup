@@ -20,6 +20,7 @@ from l3io.wp.backup.cli.context import join_or_open, open_run
 from l3io.wp.backup.cli.parser import build_parser
 from l3io.wp.backup.cli.passphrase import resolve_passphrase
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.exit_codes import ExitCode
 
 pytestmark = pytest.mark.usefixtures("fake_database")
 
@@ -82,8 +83,8 @@ def test_run_backup_registers_the_passphrase_before_run_started(
         ["backup", "--wp-dir", str(site), "--archive", str(final)]
     )
     with capture_logs(processors=[record]):
-        code = backup_cli.run_backup(args)
-    assert code == 0
+        code = backup_cli.run_backup(args, secrets=SecretRegistry())
+    assert code is ExitCode.OK
     assert order.index("register:passphrase:argument") < order.index("run_started")
     # The registry the passphrase went into is the one the Run adopted.
     assert opened_with == [registries[0]]

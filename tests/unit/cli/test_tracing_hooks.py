@@ -22,6 +22,7 @@ from l3io.wp.backup.cli import backup as backup_cli
 from l3io.wp.backup.cli.context import join_or_open, open_run
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.errors import DumpFailedError
+from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.tracing import PhaseSpan, Redactor, RunSpan, Tracer
 from tests.unit.cli.conftest import FakeDatabase
 
@@ -259,10 +260,12 @@ def test_a_failed_verify_finishes_its_run_non_zero(
         )
     assert not result.passed
     (finished,) = [e for e in logs if e["event"] == "run_finished"]
-    assert finished["exit_code"] == 1
+    code = int(ExitCode.VERIFICATION_FAILED)
+    assert finished["exit_code"] == code
+    assert finished["exit_reason"] == "VERIFICATION_FAILED"
     assert finished["error"] == "VerificationFailedError"
-    assert ("run_outcome", 1, "VerificationFailedError") in journal
-    assert main(["verify", "--archive", str(corrupt)]) == 1
+    assert ("run_outcome", code, "VerificationFailedError") in journal
+    assert main(["verify", "--archive", str(corrupt)]) == code
     capsys.readouterr()
 
 

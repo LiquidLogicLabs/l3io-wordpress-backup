@@ -48,20 +48,23 @@ any step-specific fields (verification adds `format_version`, `integrity`,
 | `phase` | string | The step: `DUMP`, `COLLECT_SITE_ROOT`, `ENCRYPT`, `WRITE_ARCHIVE`, `VERIFY`, `PUBLISH` |
 | `duration_ms` | number | Monotonic time the step took |
 | `bytes` | integer | Bytes the step produced or read; `0` when not applicable |
-| `exit_code` | integer | `0` on success, non-zero on failure |
+| `exit_code` | integer | `0` on success; on failure the error's code from the [exit-code table](../README.md#exit-codes), the same one `run_finished` carries |
 | `outcome` | string | `ok` or `failed` |
 <!-- /schema:phase -->
 
 `run_started` carries `operation` (`backup`, `verify`), `started_at` and the
-package `version`; `run_finished` carries `exit_code`, `duration_ms` and, on
-failure, `error` (the error's class name) — a verification that fails is a
-failure here too. They are the first and last records of every Run.
+package `version`; `run_finished` carries `exit_code` (the integer from the
+[exit-code table](../README.md#exit-codes)), `exit_reason` (its name, such as
+`VERIFICATION_FAILED`), `duration_ms` and, on failure, `error` (the error's
+class name) — a verification that fails is a failure here too. They are the first and last records of every Run.
 
 ## Failures
 
-A failed command always leaves one `error` record naming the error class in
-`error` and the operator message in `message`: `command_failed`, or
-`verify_failed` for an Archive that did not verify. This holds for a failure
+A failed command always leaves one `command_failed` record at `error`, naming
+the error class in `error`, the operator message in `message`, and the code in
+`exit_code` and `exit_reason` — an Archive that did not verify included
+(`VerificationFailedError`, exit 8). An unexpected exception (a defect) also
+carries its traceback, redacted like every other field. This holds for a failure
 before any Run opened (a missing `--wp-dir`, a bad `--archive`), which has no
 `run_finished`. With `--log-format console` the plain `wpbackup2: ...` line is
 printed to stderr as well; with `--log-format json` it is not, so stderr stays
@@ -81,7 +84,7 @@ structlog.contextvars.bind_contextvars(correlation_id="job-1234")
 ## What is and is not covered
 
 - Records emitted before the Run opens (argument translation, the passphrase
-  note) and after it closes (`command_failed`, `verify_failed`) carry no
+  note) and after it closes (`command_failed`) carry no
   `run_id`. A Run opens after the Site Root is checked.
 - A record from a thread started without `contextvars.copy_context().run`
   carries no `run_id` (contextvars do not cross a raw `threading.Thread`). It
