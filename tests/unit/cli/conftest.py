@@ -17,7 +17,7 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.cli import adapter_sets
-from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult
+from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
 from l3io.wp.backup.domain.errors import DumpFailedError
 
 DUMP_TEXT = b"-- dump\n"
@@ -29,10 +29,12 @@ class FakeDatabase:
     def __init__(self) -> None:
         self.fail = False
         self.calls: list[Path] = []
+        self.checks: list[DatabaseLocation] = []
+        self.readiness = Readiness(ready=True)
 
-    def check_dump(self, location: DatabaseLocation) -> object:
-        msg = "not used by a backup"
-        raise AssertionError(msg)
+    def check_dump(self, location: DatabaseLocation) -> Readiness:
+        self.checks.append(location)
+        return self.readiness
 
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
         self.calls.append(destination)

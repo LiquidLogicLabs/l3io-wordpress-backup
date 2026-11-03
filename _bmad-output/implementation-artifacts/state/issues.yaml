@@ -1,5 +1,5 @@
 next:
-  '002': 76
+  '002': 81
   '003': 30
   '004': 43
 backlog:
@@ -1281,3 +1281,53 @@ backlog:
   severity: Medium
   status: backlog
   description: adapters/crypto is Epic 4's module; the E002 H2 security fix created it first.
+- key: BL-E002-076
+  epic: '002'
+  sprint: '02'
+  title: "R8: execute_backup_plan does not check the plan's exclusion set agrees with the exclusion policy passed to the writer"
+  source: code-review (E002-S02-007)
+  source_phase: code-review
+  source_ref: E002-S02-007
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
+- key: BL-E002-077
+  epic: '002'
+  sprint: '02'
+  title: 'R9: top-level --whatIf is silently ignored by actions that do not honour it (verify; restore once Epic 3 wires it)'
+  source: code-review (E002-S02-007)
+  source_phase: code-review
+  source_ref: E002-S02-007
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
+- key: BL-E002-078
+  epic: '002'
+  sprint: '02'
+  title: 'R10: dry-run effects test does not observe the Run workspace contents while active (no-op writes-nothing AC)'
+  source: code-review (E002-S02-007)
+  source_phase: code-review
+  source_ref: E002-S02-007
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
+- key: BL-E002-079
+  epic: '002'
+  sprint: '02'
+  title: 'R11: the --what-if alias has no behavioural test'
+  source: code-review (E002-S02-007)
+  source_phase: code-review
+  source_ref: E002-S02-007
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
+- key: BL-E002-080
+  epic: '002'
+  sprint: '02'
+  title: 'R12: Site Root collection now runs after staging, so a collection failure stages then discards; not noted or tested'
+  source: code-review (E002-S02-007)
+  source_phase: code-review
+  source_ref: E002-S02-007
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md

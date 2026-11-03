@@ -96,6 +96,21 @@ class DatabaseDouble:
         )
 
 
+def _ready(connection: object, credentials: object, **kw: object) -> object:
+    """Stands in for database's ``check_dump``: nothing blocks the dump."""
+    return wpdb.Verdict("dump", ())
+
+
+@pytest.fixture(autouse=True)
+def _dump_readiness(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Preflight's ``check_dump`` (AD-13) passes over the double; a live test
+    keeps the real one."""
+    if request.node.get_closest_marker("integration") is None:
+        monkeypatch.setattr(wpdb, "check_dump", _ready)
+
+
 def _called_names(module: object, *drivers: str) -> set[str]:
     """Every bare name the drivers call — derived from their source."""
     tree = ast.parse(inspect.getsource(module))  # type: ignore[arg-type]
@@ -181,10 +196,14 @@ def _backup(
     capsys: pytest.CaptureFixture[str],
     *,
     mode: str,
+    rehearse: bool = False,
 ) -> tuple[int, Path]:
     archive = sentinel.workdir / f"backup-{mode}.tar.gz"
     argv = ["backup", "--wp-dir", str(sentinel.site), "--archive", str(archive)]
-    code = main(["--log-level", "DEBUG", "--log-format", "json", *argv, "--mode", mode])
+    root = ["--log-level", "DEBUG", "--log-format", "json"]
+    if rehearse:
+        root.append("--whatIf")
+    code = main([*root, *argv, "--mode", mode])
     out = capsys.readouterr()
     sentinel.add("stdout", out.out)
     sentinel.add("stderr", out.err)
@@ -219,6 +238,23 @@ def test_a_backup_emits_no_credential(
     for i, handed in enumerate(double.handed):
         credential_sentinel.add_repr(f"database double handed {i}", handed)
     assert double.handed, "the double was never called: the Run dumped nothing"
+    credential_sentinel.assert_clean()
+
+
+def test_a_dry_run_emits_no_credential(
+    credential_sentinel: CredentialSentinel,
+    double: DatabaseDouble,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-19: a Dry Run resolves real credentials; its ``planned_action``
+    rendering and its stdout plan carry none of them."""
+    _watch_root(credential_sentinel)
+    code, archive = _backup(credential_sentinel, capsys, mode="all", rehearse=True)
+    assert code == 0
+    assert not archive.exists()
+    assert double.handed == [], "a Dry Run reached the dump"
+    planned = [e for e in credential_sentinel.logs if e["event"] == "planned_action"]
+    assert planned, "the Dry Run logged no planned action"
     credential_sentinel.assert_clean()
 
 

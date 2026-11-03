@@ -65,7 +65,11 @@ def test_the_run_id_is_bound_and_only_what_was_bound_is_unbound(workdir: Path) -
     try:
         with open_run(operation="backup") as ctx:
             bound = structlog.contextvars.get_contextvars()
-            assert bound == {"correlation_id": "caller-1", "run_id": ctx.run_id}
+            assert bound == {
+                "correlation_id": "caller-1",
+                "run_id": ctx.run_id,
+                "dry_run": False,
+            }
         assert structlog.contextvars.get_contextvars() == {"correlation_id": "caller-1"}
     finally:
         structlog.contextvars.clear_contextvars()

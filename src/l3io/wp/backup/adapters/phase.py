@@ -3,7 +3,8 @@
 :func:`phase` times a step on the monotonic clock and, on exit, emits exactly
 one ``phase_completed`` record carrying ``phase``, ``duration_ms``, ``bytes``
 (set by the step through the yielded :class:`PhaseRecord`; ``0`` when not
-applicable), ``outcome`` (``ok``/``failed``) and ``exit_code``, plus any
+applicable), ``outcome`` (``ok``/``failed``, or :data:`SKIPPED_OUTCOME` for a
+step a no-op command adapter stood in for) and ``exit_code``, plus any
 step-specific ``fields`` the step adds. An exception is recorded as ``failed``
 and re-raised unchanged. :func:`join_phase` lets a step that may run inside
 its own phase (verification, inside the store's ``VERIFY``) annotate that
@@ -34,13 +35,12 @@ from typing import Final
 
 import structlog
 
-from l3io.wp.backup.adapters.noop import NoopTracer
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.errors import exit_code_of
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.tracing import Redactor, Tracer
 
-__all__ = ["ACTIVE_TRACER", "PhaseRecord", "join_phase", "phase"]
+__all__ = ["ACTIVE_TRACER", "SKIPPED_OUTCOME", "PhaseRecord", "join_phase", "phase"]
 
 _log = structlog.get_logger(__name__)
 
@@ -48,6 +48,10 @@ _NS_PER_MS = 1_000_000
 _FIXED_KEYS: Final = frozenset(
     {"phase", "duration_ms", "bytes", "outcome", "exit_code"}
 )
+
+#: The outcome a no-op command adapter's step records: nothing was performed,
+#: so a rehearsal's log never claims an effect occurred (triage E-8).
+SKIPPED_OUTCOME: Final = "skipped_dry_run"
 
 _current: ContextVar[PhaseRecord | None] = ContextVar("phase", default=None)
 
@@ -58,6 +62,10 @@ ACTIVE_TRACER: ContextVar[tuple[Tracer, Redactor] | None] = ContextVar(
 
 
 def _tracer() -> tuple[Tracer, Redactor]:
+    # Imported here: ``adapters.noop``'s command no-ops record through
+    # ``phase``, so a module-level import would be circular.
+    from l3io.wp.backup.adapters.noop import NoopTracer
+
     active = ACTIVE_TRACER.get()
     # Outside a Run nothing is registered: an empty registry redacts nothing.
     return active if active is not None else (NoopTracer(), SecretRegistry())
@@ -69,17 +77,25 @@ class PhaseRecord:
 
     :meth:`fail` marks a step that returns a failure rather than raising (a
     verification that did not pass), so its record says ``failed`` with the
-    same code the Run finishes with.
+    same code the Run finishes with. :meth:`skip` marks a step a no-op
+    command adapter stood in for: its record says :data:`SKIPPED_OUTCOME`
+    with ``bytes=0``.
     """
 
     name: str
     bytes: int = 0
     fields: dict[str, object] = field(default_factory=dict)
     failure: ExitCode | None = None
+    skipped: bool = False
 
     def fail(self, exit_code: ExitCode) -> None:
         """Record this step as failed with ``exit_code`` without raising."""
         self.failure = exit_code
+
+    def skip(self) -> None:
+        """Record this step as not performed; it moved no bytes."""
+        self.skipped = True
+        self.bytes = 0
 
 
 @contextmanager
@@ -94,7 +110,8 @@ def phase(name: str) -> Iterator[PhaseRecord]:
         try:
             yield record
             if record.failure is None:
-                outcome, exit_code = "ok", ExitCode.OK
+                outcome = SKIPPED_OUTCOME if record.skipped else "ok"
+                exit_code = ExitCode.OK
             else:
                 exit_code = record.failure
         except BaseException as exc:
@@ -107,7 +124,7 @@ def phase(name: str) -> Iterator[PhaseRecord]:
 
 
 def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: ExitCode) -> None:
-    emit = _log.info if outcome == "ok" else _log.error
+    emit = _log.error if outcome == "failed" else _log.info
     extra = {k: v for k, v in record.fields.items() if k not in _FIXED_KEYS}
     emit(
         "phase_completed",

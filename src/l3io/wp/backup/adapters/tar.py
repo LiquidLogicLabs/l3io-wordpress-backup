@@ -72,6 +72,8 @@ from l3io.wp.backup.adapters.phase import join_phase, phase
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.core.verify import verify_probe
 from l3io.wp.backup.domain.archive_format import (
+    CONFIG_RELATIVE,
+    DUMP_RELATIVE,
     ENCRYPTED_PAYLOAD_MEMBER,
     MANIFEST_MAX_BYTES,
     MANIFEST_MEMBER,
@@ -105,6 +107,7 @@ from l3io.wp.backup.domain.errors import (
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
 from l3io.wp.backup.domain.storage_target import StorageTarget, parse_storage_target
+from l3io.wp.backup.ports.archive import ManifestBuilder
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
@@ -112,6 +115,7 @@ __all__ = [
     "ArchiveMemberSource",
     "SiteRootCollection",
     "TarArchiveProbe",
+    "TarArchiveWriter",
     "collect_site_root",
     "decrypt_payload",
     "extract_archive",
@@ -514,6 +518,55 @@ def write_archive(
         plain.unlink(missing_ok=True)
         sealed.unlink(missing_ok=True)
     return manifest
+
+
+class TarArchiveWriter:
+    """``ArchiveWriterCommand``: collection, encryption and the write (ADR-0019).
+
+    Calls :func:`collect_site_root` and :func:`write_archive` unchanged and
+    emits the ``COLLECT_SITE_ROOT``, ``ENCRYPT`` (encrypted path) and
+    ``WRITE_ARCHIVE`` phase records. Inner members are the Dump, the config,
+    then the Site Root's, in that order.
+    """
+
+    __slots__ = ()
+
+    def write(
+        self,
+        out: IO[bytes],
+        *,
+        site_root: Path | None,
+        dump: Path | None,
+        config: Path,
+        exclusion: ExclusionPolicy,
+        cipher: PayloadCipher | None,
+        manifest_builder: ManifestBuilder,
+        workspace: Path,
+    ) -> Manifest:
+        """Collect ``site_root`` (if any) and write the Archive into ``out``."""
+        collection: SiteRootCollection | None = None
+        if site_root is not None:
+            with phase(BackupStep.COLLECT_SITE_ROOT.value) as record:
+                collection = collect_site_root(site_root, exclusion)
+                record.bytes = sum(m.size for m in collection.members)
+        members: list[ArchiveMemberSource] = []
+        if dump is not None:
+            members.append(file_member(MemberRole.DUMP, DUMP_RELATIVE, dump))
+        members.append(file_member(MemberRole.CONFIG, CONFIG_RELATIVE, config))
+        excluded: tuple[ExcludedEntry, ...] = ()
+        if collection is not None:
+            members.extend(collection.members)
+            excluded = collection.excluded
+
+        def build(index: tuple[ManifestMember, ...]) -> Manifest:
+            return manifest_builder(index, excluded)
+
+        with phase(BackupStep.WRITE_ARCHIVE.value) as record:
+            manifest = write_archive(
+                out, build, members, workspace=workspace, cipher=cipher
+            )
+            record.bytes = manifest.payload.size
+        return manifest
 
 
 # --------------------------------------------------------------------------

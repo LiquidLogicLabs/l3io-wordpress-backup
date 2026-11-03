@@ -79,6 +79,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Log format on stderr (default: console on a terminal, else json)",
     )
+    # AD-22 freezes the camelCase spelling; --what-if is its alias (triage E-7).
+    parser.add_argument(
+        "--whatIf",
+        "--what-if",
+        dest="what_if",
+        action="store_true",
+        help=(
+            "Dry Run: resolve credentials, run preflight and every query for "
+            "real, print the ordered plan, and change nothing"
+        ),
+    )
 
     subparsers = parser.add_subparsers(dest="action", help="Action being requested")
     backup = subparsers.add_parser(BACKUP_COMMAND, help="Perform a WordPress backup")

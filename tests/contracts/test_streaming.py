@@ -18,15 +18,17 @@ cipher), ``extract_archive`` from the decrypted payload, and ``read_member``
 reaching the last member through the outer tar's payload.
 
 **Reach.** The RSS test covers the byte movers in :data:`RSS_COVERED` (the
-traversal and writer, and the local store). A tripwire walks every module under
+traversal and writer, ``TarArchiveWriter`` included, the local store, and the
+Dry Run's no-op command halves in ``noop.py``, measured over the same
+fixture). A tripwire walks every module under
 ``adapters/`` (recursively, whatever its name) and fails on any other module
 with the *capability* to move Archive bytes, detected from the AST: it imports
 ``tarfile`` or ``gzip`` (any spelling), or defines a function named like an
 ``ArchiveStoreCommand`` member (derived from the Protocol). A covered module's
 top-level functions and classes are pinned too, so new code added *inside*
 ``tar.py`` or ``store.py`` (E002-S01-003's verifier, say) fails until its story
-extends the RSS test. E002-S02-007's writer port and every remote store trip
-the module tripwire the same way.
+extends the RSS test. Every remote store trips the module tripwire the same
+way.
 
 The instrument is calibrated in both directions, because an RSS assertion that
 cannot tell a streaming copy from a whole-file read reports success over
@@ -105,6 +107,7 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "verify_archive_view",
             "verify_or_raise",
             "SiteRootCollection",
+            "TarArchiveWriter",
             "_HashingWriter",
             "_add",
             "_add_file",
@@ -122,6 +125,22 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "collect_site_root",
             "file_member",
             "write_archive",
+        }
+    ),
+    # The Dry Run's command halves: driven by the "backup-noop" leg.
+    "noop.py": frozenset(
+        {
+            "ActionLog",
+            "GuardedTracer",
+            "NoopArchiveStore",
+            "NoopArchiveWriter",
+            "NoopDatabase",
+            "NoopTracer",
+            "SkippedCall",
+            "_Failed",
+            "_GuardedPhaseSpan",
+            "_GuardedRunSpan",
+            "_NoopStagedArchive",
         }
     ),
     "store.py": frozenset(
@@ -179,12 +198,15 @@ mode, *paths = sys.argv[1:]
 paths = [Path(p) for p in paths]
 extra = {}
 
-if mode in ("backup", "backup-buffered"):
+if mode in ("backup", "backup-buffered", "backup-noop"):
     from datetime import UTC, datetime
     from pathlib import PurePosixPath
     from l3io.wp.backup.adapters.database import locate_wp_config
     from l3io.wp.backup.adapters.store import LocalArchiveStore
-    from l3io.wp.backup.adapters.tar import verify_or_raise
+    from l3io.wp.backup.adapters.noop import (
+        ActionLog, NoopArchiveStore, NoopArchiveWriter, NoopDatabase,
+    )
+    from l3io.wp.backup.adapters.tar import TarArchiveWriter, verify_or_raise
     from l3io.wp.backup.adapters.workspace import run_workspace
     from l3io.wp.backup.cli.backup import execute_backup_plan
     from l3io.wp.backup.core.backup import build_backup_plan
@@ -218,18 +240,36 @@ if mode in ("backup", "backup-buffered"):
         credential_source="wp-config.php",
     )
     target = StorageTarget(scheme="file", path=PurePosixPath(final))
-    plan = build_backup_plan(site, BackupScope.ALL, target, encrypted=False)
+    plan = build_backup_plan(
+        site, BackupScope.ALL, target, encrypted=False,
+        exclusion_source="none", exclusion_patterns=(),
+    )
     config = locate_wp_config(site_root, stated=None)
+    if mode == "backup-noop":
+        # The Dry Run's command halves over the same fixture (AD-4).
+        log = ActionLog()
+        database, store, writer = (
+            NoopDatabase(log), NoopArchiveStore(log), NoopArchiveWriter(log),
+        )
+    else:
+        database = CopyingDatabase()
+        store = LocalArchiveStore(verify=verify_or_raise)
+        writer = TarArchiveWriter()
     before = baseline()
     with run_workspace(final.parent) as workspace:
         result = execute_backup_plan(
             plan, site=site, config=config, workspace=workspace,
-            database=CopyingDatabase(),
-            store=LocalArchiveStore(verify=verify_or_raise),
+            database=database, store=store, writer=writer,
             cipher=None, exclusion=INCLUDE_EVERYTHING, origin=None,
             now=datetime.now(UTC),
         )
     growth = peak() - before
+    if mode == "backup-noop":
+        print(json.dumps({
+            "growth": growth, "performed": result.performed,
+            "skipped": len(log.calls), "archive_exists": final.exists(),
+        }))
+        raise SystemExit(0)
     import tarfile
     from l3io.wp.backup.domain.archive_format import MANIFEST_MEMBER, manifest_from_json
     with tarfile.open(final, mode="r|") as outer:
@@ -380,6 +420,15 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     tmp_path: Path,
 ) -> None:
     site_root, dump, final = _site(tmp_path, SITE_FILE_BYTES, DUMP_BYTES)
+
+    # The Dry Run's no-op command halves (``noop.py``) over the same fixture:
+    # nothing is read, written or published, and nothing accumulates.
+    rehearsed = _measure("backup-noop", site_root, dump, final)
+    assert rehearsed["performed"] is False
+    assert rehearsed["archive_exists"] is False
+    assert rehearsed["skipped"] >= 3
+    assert rehearsed["growth"] < RSS_BOUND_BYTES
+
     measured = _measure("backup", site_root, dump, final)
 
     # Scope: the whole fixture went in, and an Archive as large came out, so

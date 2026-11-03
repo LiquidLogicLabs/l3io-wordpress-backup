@@ -10,6 +10,16 @@ its ``finally``, ``run_finished`` with the exit code and duration, then removes
 what it created and unbinds only what it bound — a caller's own
 ``correlation_id`` is never cleared.
 
+``dry_run`` is the root's Dry Run selection (AD-4): bound once as a context
+variable, so every record in the Run carries it (``run_started`` included),
+and stated on the root span as ``l3io.dry_run``, and kept on the context as
+:attr:`RunContext.dry_run` so a joining driver can see it. It selects nothing
+here; the driver selects the adapter set
+(``cli.adapter_sets.dry_run_adapters``). A joined Run inherits the outer root's
+selection, with one refusal: a Dry Run request cannot join a real Run —
+:func:`join_or_open` raises ``UsageError`` rather than let a rehearsal write.
+A real request joining a Dry Run root stays safe and inherits it.
+
 :func:`join_or_open` is what a driver calls: given a context it joins it and
 creates nothing; otherwise it opens one. A driver binds adapters only when the
 Run was opened here (``RunHandle.opened``), so a set is bound exactly once.
@@ -44,6 +54,7 @@ from l3io.wp.backup.domain.errors import (
     AdaptersAlreadyBoundError,
     AdaptersNotBoundError,
     RunContextActiveError,
+    UsageError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.adapter_set import AdapterSet
@@ -78,7 +89,10 @@ class _RunState:
 
 @dataclass(frozen=True, slots=True)
 class RunContext:
-    """One Run: its identity, logger, clock, registry, tracer and workspace."""
+    """One Run: its identity, logger, clock, registry, tracer and workspace.
+
+    ``dry_run`` is the selection the Run's root made (AD-4), as data.
+    """
 
     run_id: str
     started_at: datetime
@@ -88,6 +102,7 @@ class RunContext:
     secrets: SecretRegistry
     tracer: Tracer
     run_span: RunSpan
+    dry_run: bool = False
     _state: _RunState = field(default_factory=_RunState, repr=False)
 
     def __repr__(self) -> str:
@@ -142,6 +157,7 @@ def open_run(
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
     workspace_parent: Path | None = None,
+    dry_run: bool = False,
 ) -> Iterator[RunContext]:
     """Open a Run; :class:`RunContextActiveError` if one is already active."""
     active = _ACTIVE.get()
@@ -157,7 +173,7 @@ def open_run(
     error: BaseException | None = None
     run_state = _RunState()
     with ExitStack() as stack:
-        tokens = structlog.contextvars.bind_contextvars(run_id=run_id)
+        tokens = structlog.contextvars.bind_contextvars(run_id=run_id, dry_run=dry_run)
         stack.callback(structlog.contextvars.reset_contextvars, **tokens)
         stack.enter_context(open_registry(registry))
         tracer_token = ACTIVE_TRACER.set((guarded, registry))
@@ -166,8 +182,8 @@ def open_run(
             guarded.run_span(
                 run_id=run_id,
                 operation=operation,
-                # The root states the Dry Run fact (AD-4); E002-S02-007 sets it.
-                attributes={"l3io.operation": operation, "l3io.dry_run": False},
+                # The root states the Dry Run fact (AD-4).
+                attributes={"l3io.operation": operation, "l3io.dry_run": dry_run},
                 command_args=command_args,
                 secrets=registry,
             )
@@ -178,6 +194,7 @@ def open_run(
             started_at=started_at.isoformat().replace("+00:00", "Z"),
             operation=operation,
             version=__version__,
+            dry_run=dry_run,
         )
         try:
             with run_workspace(workspace_parent) as workspace:
@@ -191,6 +208,7 @@ def open_run(
                     secrets=registry,
                     tracer=bound_tracer,
                     run_span=run_span,
+                    dry_run=dry_run,
                 )
                 ctx_token = _ACTIVE.set(ctx)
                 try:
@@ -242,9 +260,22 @@ def join_or_open(
     tracer: Tracer | None = None,
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
+    dry_run: bool = False,
 ) -> Iterator[RunHandle]:
-    """Join ``ctx`` — creating, binding and opening nothing — or open a Run."""
+    """Join ``ctx`` — creating, binding and opening nothing — or open a Run.
+
+    ``dry_run`` applies only to a Run opened here; a joined Run keeps the
+    selection its own root made. Joining a real Run with ``dry_run=True``
+    raises :class:`UsageError`: the request asked for a rehearsal and the Run
+    would write.
+    """
     if ctx is not None:
+        if dry_run and not ctx.dry_run:
+            msg = (
+                f"a Dry Run {operation} cannot join Run {ctx.run_id}, which is "
+                "not a Dry Run"
+            )
+            raise UsageError(msg)
         yield RunHandle(ctx=ctx, opened=False)
         return
     with open_run(
@@ -252,5 +283,6 @@ def join_or_open(
         tracer=tracer,
         secrets=secrets,
         command_args=command_args,
+        dry_run=dry_run,
     ) as opened:
         yield RunHandle(ctx=opened, opened=True)

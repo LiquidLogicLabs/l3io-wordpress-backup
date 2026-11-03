@@ -32,6 +32,7 @@ This schema is part of the CLI contract (PRD §8). Log message wording is not.
 | Field | Type | On | Meaning |
 |---|---|---|---|
 | `run_id` | string (UUIDv4) | every record emitted inside a Run | The Run's identifier; random, so it leaks neither time nor path |
+| `dry_run` | boolean | every record emitted inside a Run | `true` when the Run is a Dry Run (`--whatIf`): real queries, no-op commands |
 | `timestamp` | string (ISO 8601, UTC, `Z`) | every record | When the record was emitted |
 | `level` | string | every record | `debug`, `info`, `warning`, `error`, `critical` |
 | `logger` | string | every record | The emitting logger, e.g. `l3io.wp.backup.adapters.phase`, `l3io.wp.database`, `l3io.wp.config.adapters.config_file` |
@@ -53,7 +54,7 @@ decrypted the whole payload with its passphrase:
 | `duration_ms` | number | Monotonic time the step took |
 | `bytes` | integer | Bytes the step produced or read; `0` when not applicable |
 | `exit_code` | integer | `0` on success; on failure the error's code from the [exit-code table](../README.md#exit-codes), the same one `run_finished` carries |
-| `outcome` | string | `ok` or `failed` |
+| `outcome` | string | `ok` or `failed`; `skipped_dry_run` (with `bytes` `0`) for a step a Dry Run did not perform |
 <!-- /schema:phase -->
 
 `run_started` carries `operation` (`backup`, `verify`), `started_at` and the
@@ -61,6 +62,11 @@ package `version`; `run_finished` carries `exit_code` (the integer from the
 [exit-code table](../README.md#exit-codes)), `exit_reason` (its name, such as
 `VERIFICATION_FAILED`), `duration_ms` and, on failure, `error` (the error's
 class name) — a verification that fails is a failure here too. They are the first and last records of every Run.
+
+Before preflight, a backup logs one `planned_action` record per action it
+plans, in order — `ordinal`, `step`, the rendered `action` line and the step's
+parameters (the collection line adds `exclusion_source` and
+`exclusion_patterns`) — in a real Run and in a Dry Run alike.
 
 ## Failures
 

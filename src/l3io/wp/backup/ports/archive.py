@@ -9,18 +9,43 @@ facts only, it never decides a format (``domain.archive_format.classify``
 does). Its one ``bytes`` return is :meth:`ArchiveProbe.read_member`, bounded by
 ``max_bytes`` and exempted by name in ``tests/contracts/test_port_types.py``
 (ADR-0016 amendment).
+
+``ArchiveWriterCommand`` (ADR-0019) is where the Site Root is collected, the
+payload encrypted and the Archive written, so a Dry Run, binding its no-op,
+reads no Site Root file and writes nothing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import IO, Protocol
+from typing import IO, Protocol, runtime_checkable
 
-from l3io.wp.backup.domain.archive_format import ArchiveView, MemberDigest, MemberIndex
+from l3io.wp.backup.domain.archive_format import (
+    ArchiveView,
+    Manifest,
+    ManifestMember,
+    MemberDigest,
+    MemberIndex,
+)
+from l3io.wp.backup.domain.exclusion import ExcludedEntry
 from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.ports.crypto import PayloadCipher
+from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
-__all__ = ["ArchiveProbe", "ArchiveStoreCommand", "ArchiveStoreQuery", "StagedArchive"]
+__all__ = [
+    "ArchiveProbe",
+    "ArchiveStoreCommand",
+    "ArchiveStoreQuery",
+    "ArchiveWriterCommand",
+    "ManifestBuilder",
+    "StagedArchive",
+]
+
+#: Builds the Manifest from the member index written and what was excluded.
+ManifestBuilder = Callable[
+    [tuple[ManifestMember, ...], tuple[ExcludedEntry, ...]], Manifest
+]
 
 
 class StagedArchive(Protocol):
@@ -48,11 +73,37 @@ class ArchiveStoreQuery(Protocol):
         ...
 
 
+@runtime_checkable
 class ArchiveStoreCommand(Protocol):
     """What changes the Archive store."""
 
     def stage(self, target: StorageTarget) -> StagedArchive:
         """Begin writing an Archive for ``target``."""
+        ...
+
+
+@runtime_checkable
+class ArchiveWriterCommand(Protocol):
+    """What collects a Site and writes its Archive (ADR-0019)."""
+
+    def write(
+        self,
+        out: IO[bytes],
+        *,
+        site_root: Path | None,
+        dump: Path | None,
+        config: Path,
+        exclusion: ExclusionPolicy,
+        cipher: PayloadCipher | None,
+        manifest_builder: ManifestBuilder,
+        workspace: Path,
+    ) -> Manifest:
+        """Write one Archive into ``out``; its Manifest.
+
+        ``site_root`` is ``None`` for a ``database`` scope and ``dump`` for
+        ``files``. ``workspace`` is the Run's private directory, where the
+        payload is staged before it is copied into ``out``.
+        """
         ...
 
 

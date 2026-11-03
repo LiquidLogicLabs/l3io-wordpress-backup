@@ -8,7 +8,7 @@ at construction. The Dump is written to a path, never returned as ``bytes``
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
 
@@ -23,6 +23,7 @@ class DatabaseQuery(Protocol):
         ...
 
 
+@runtime_checkable
 class DatabaseCommand(Protocol):
     """What produces database artefacts."""
 

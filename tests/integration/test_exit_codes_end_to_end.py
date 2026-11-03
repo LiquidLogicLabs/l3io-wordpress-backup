@@ -7,7 +7,8 @@ fails, so a pending entry cannot outlive the story that adds its case.
 
 Each case is real code with a double only at the outermost dependency:
 ``l3io.wp.database.dump`` raises what database raises, and the package's own
-adapter maps it. No MySQL is needed.
+adapter maps it; ``l3io.wp.database.check_dump`` (preflight, AD-13) reports a
+ready dump unless a case says otherwise. No MySQL is needed.
 """
 
 from __future__ import annotations
@@ -44,6 +45,16 @@ class _Env:
             encoding="utf-8",
         )
         (self.site / "index.php").write_text("<?php\n", encoding="utf-8")
+        self.check_dump_finds()
+
+    def check_dump_finds(self, *codes: object) -> None:
+        """Preflight's ``check_dump`` reports ``codes`` (none: ready)."""
+        findings = tuple(wpdb.Finding(code, "double") for code in codes)
+
+        def check_dump(*_a: object, **_k: object) -> object:
+            return wpdb.Verdict("dump", findings)
+
+        self.monkeypatch.setattr(wpdb, "check_dump", check_dump)
 
     def backup(self, *extra: str) -> int:
         archive = self.tmp / "out.tar.gz"
@@ -51,7 +62,20 @@ class _Env:
             ["backup", "--wp-dir", str(self.site), "--archive", str(archive), *extra]
         )
 
-    def dump_raises(self, exc: Exception) -> None:
+    def backup_rehearsed(self) -> int:
+        archive = self.tmp / "out.tar.gz"
+        return run(
+            [
+                "--whatIf",
+                "backup",
+                "--wp-dir",
+                str(self.site),
+                "--archive",
+                str(archive),
+            ]
+        )
+
+    def dump_raises(self, exc: BaseException) -> None:
         def dump(*_a: object, **_k: object) -> object:
             raise exc
 
@@ -92,9 +116,14 @@ def _unreachable(env: _Env) -> list[int]:
 
 
 def _not_ready(env: _Env) -> list[int]:
+    # Preflight (AD-13): the dump's client tool is missing, in a real Run and
+    # in a Dry Run alike; neither reaches the dump.
+    env.check_dump_finds(wpdb.Code.CLIENT_TOOL_MISSING)
+    env.dump_raises(AssertionError("preflight let the dump run"))
+    preflight = [env.backup(), env.backup_rehearsed()]
     # The database extra absent: importing it fails.
     env.monkeypatch.setitem(sys.modules, "l3io.wp.database", None)
-    return [env.backup()]
+    return [*preflight, env.backup()]
 
 
 def _verification_failed(env: _Env) -> list[int]:

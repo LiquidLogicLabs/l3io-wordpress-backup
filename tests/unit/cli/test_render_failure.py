@@ -100,7 +100,9 @@ def test_a_broken_stderr_does_not_change_the_code(
 def test_bl_e002_054_a_defect_exits_failed_and_leaks_nothing(
     site: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def defect(request: object, *, ctx: object, secrets: SecretRegistry) -> None:
+    def defect(
+        request: object, *, ctx: object, secrets: SecretRegistry, **_: object
+    ) -> None:
         secrets.register(SECRET, source="test")
         msg = f"a dependency echoed {SECRET}"
         raise RuntimeError(msg)

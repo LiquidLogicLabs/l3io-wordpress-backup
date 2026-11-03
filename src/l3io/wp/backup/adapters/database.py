@@ -62,6 +62,7 @@ __all__ = [
     "LocatedConfig",
     "WpDatabase",
     "admin_source",
+    "blocked_dump_error",
     "locate_wp_config",
     "require_wp_config_credentials",
     "site_descriptor_from_archive_config",
@@ -401,6 +402,19 @@ def admin_source(
 # --------------------------------------------------------------------------
 
 
+def blocked_dump_error(
+    location: DatabaseLocation, blockers: tuple[str, ...], *, credential_source: str
+) -> BackupError | None:
+    """What a dump blocked by ``blockers`` fails with when the cause is the
+    server (``DatabaseUnreachableError``) or the credentials
+    (``CredentialsError``); ``None`` for any other finding."""
+    if _UNREACHABLE_CODE in blockers:
+        return DatabaseUnreachableError(location.host, location.port)
+    if _CREDENTIAL_CODES.intersection(blockers):
+        return CredentialsError(credential_source, reason=", ".join(blockers))
+    return None
+
+
 def _codes(verdict: Verdict) -> tuple[tuple[str, ...], tuple[str, ...]]:
     blockers = tuple(str(f.code) for f in verdict.blockers)
     warnings = tuple(str(f.code) for f in verdict.warnings)
@@ -496,13 +510,10 @@ class WpDatabase:
 
     def _refusal(self, location: DatabaseLocation, verdict: Verdict) -> Exception:
         blockers, _ = _codes(verdict)
-        if _UNREACHABLE_CODE in blockers:
-            return DatabaseUnreachableError(location.host, location.port)
-        if _CREDENTIAL_CODES.intersection(blockers):
-            return CredentialsError(
-                self._credentials.source, reason=", ".join(blockers)
-            )
-        return DatabaseRefusedError(findings=blockers)
+        error = blocked_dump_error(
+            location, blockers, credential_source=self._credentials.source
+        )
+        return DatabaseRefusedError(findings=blockers) if error is None else error
 
     @staticmethod
     def _connection(location: DatabaseLocation) -> Connection:

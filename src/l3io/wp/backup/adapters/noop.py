@@ -1,4 +1,17 @@
-"""AD-24 — the inert tracer, and the guard that falls back to it.
+"""AD-4/AD-24 — the no-op command adapters, the inert tracer and its guard.
+
+**No-op command adapters (AD-4).** One per ``*Command`` Protocol under
+``ports/``: :class:`NoopDatabase` (``DatabaseCommand``),
+:class:`NoopArchiveWriter` (``ArchiveWriterCommand``) and
+:class:`NoopArchiveStore` (``ArchiveStoreCommand``). A Dry Run binds them in
+place of the real command halves (``cli.adapter_sets.dry_run_adapters``); the
+query halves stay real. Each performs no effect, records the call into the
+:class:`ActionLog` it was built with, emits ``phase_completed`` with
+``outcome="skipped_dry_run"`` and ``bytes=0`` (joining the step's phase when the
+executor has one open) and returns a value of its declared type that lets the
+plan continue. The no-op writer reads no Site Root file and calls no exclusion
+policy (ADR-0019); the no-op store's staged Archive is an ``os.devnull`` writer
+whose ``publish()`` returns ``False`` and calls no verifier (ADR-0022).
 
 :class:`NoopTracer` implements ``ports.tracing.Tracer``, ``RunSpan`` and
 ``PhaseSpan`` and records nothing; ``tracer=None`` means ``NoopTracer()``.
@@ -12,12 +25,23 @@ call for that Run is a no-op. Only ``Exception`` is caught —
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
-from typing import Final, TypeVar
+from dataclasses import dataclass
+from pathlib import Path
+from typing import IO, Final, TypeVar
 
 import structlog
 
+from l3io.wp.backup.adapters.phase import join_phase, phase
+from l3io.wp.backup.core.backup import BackupStep
+from l3io.wp.backup.domain.archive_format import Manifest
+from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult
+from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.ports.archive import ManifestBuilder
+from l3io.wp.backup.ports.crypto import PayloadCipher
+from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 from l3io.wp.backup.ports.tracing import (
     PhaseSpan,
     Redactor,
@@ -26,7 +50,15 @@ from l3io.wp.backup.ports.tracing import (
     Tracer,
 )
 
-__all__ = ["GuardedTracer", "NoopTracer"]
+__all__ = [
+    "ActionLog",
+    "GuardedTracer",
+    "NoopArchiveStore",
+    "NoopArchiveWriter",
+    "NoopDatabase",
+    "NoopTracer",
+    "SkippedCall",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -218,3 +250,133 @@ class _GuardedPhaseSpan:
                 exit_code=exit_code, archive_bytes=archive_bytes
             )
         )
+
+
+# --------------------------------------------------------------------------
+# No-op command adapters (AD-4)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SkippedCall:
+    """One command a no-op adapter stood in for."""
+
+    adapter: str
+    method: str
+    target: str | None = None
+
+
+class ActionLog:
+    """The commands a Dry Run did not perform, in the order they were reached."""
+
+    __slots__ = ("_calls",)
+
+    def __init__(self) -> None:
+        self._calls: list[SkippedCall] = []
+
+    def __repr__(self) -> str:
+        return f"ActionLog({len(self._calls)} calls)"
+
+    def record(self, adapter: str, method: str, target: str | None = None) -> None:
+        """Append one skipped call."""
+        self._calls.append(SkippedCall(adapter, method, target))
+
+    @property
+    def calls(self) -> tuple[SkippedCall, ...]:
+        """Every call recorded so far."""
+        return tuple(self._calls)
+
+
+class NoopDatabase:
+    """``DatabaseCommand``: dumps nothing and writes nothing."""
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
+        """A zero-byte result; ``destination`` is not created."""
+        del destination
+        with join_phase(BackupStep.DUMP.value) as record:
+            record.skip()
+        self._log.record("NoopDatabase", "dump_to", location.name)
+        return DumpResult(bytes=0, duration_ms=0.0)
+
+
+class NoopArchiveWriter:
+    """``ArchiveWriterCommand``: collects, encrypts and writes nothing."""
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def write(
+        self,
+        out: IO[bytes],
+        *,
+        site_root: Path | None,
+        dump: Path | None,
+        config: Path,
+        exclusion: ExclusionPolicy,
+        cipher: PayloadCipher | None,
+        manifest_builder: ManifestBuilder,
+        workspace: Path,
+    ) -> Manifest:
+        """The Manifest of an empty index; nothing is read or written."""
+        del out, dump, config, exclusion, workspace
+        if site_root is not None:
+            with phase(BackupStep.COLLECT_SITE_ROOT.value) as record:
+                record.skip()
+        if cipher is not None:
+            with phase(BackupStep.ENCRYPT.value) as record:
+                record.skip()
+        with phase(BackupStep.WRITE_ARCHIVE.value) as record:
+            record.skip()
+        self._log.record("NoopArchiveWriter", "write")
+        return manifest_builder((), ())
+
+
+class _NoopStagedArchive:
+    """A staged Archive that is never written, verified or published."""
+
+    __slots__ = ("_log", "_stream", "_target")
+
+    def __init__(self, log: ActionLog, target: str) -> None:
+        self._log = log
+        self._target = target
+        self._stream: IO[bytes] = Path(os.devnull).open("wb")  # noqa: SIM115
+
+    @property
+    def stream(self) -> IO[bytes]:
+        """An ``os.devnull`` writer: nothing accumulates (AD-21)."""
+        return self._stream
+
+    def publish(self) -> bool:
+        """``False``: not performed. No verifier is called."""
+        self._stream.close()
+        with phase(BackupStep.VERIFY.value) as record:
+            record.skip()
+        with phase(BackupStep.PUBLISH.value) as record:
+            record.skip()
+        self._log.record("NoopArchiveStore", "publish", self._target)
+        return False
+
+    def discard(self) -> None:
+        """Nothing was staged; the sink is closed."""
+        self._stream.close()
+
+
+class NoopArchiveStore:
+    """``ArchiveStoreCommand``: stages nothing at the Storage Target."""
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def stage(self, target: StorageTarget) -> _NoopStagedArchive:
+        """A staged Archive whose stream discards every byte."""
+        self._log.record("NoopArchiveStore", "stage", str(target.path))
+        return _NoopStagedArchive(self._log, str(target.path))

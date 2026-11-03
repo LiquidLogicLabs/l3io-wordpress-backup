@@ -1,7 +1,28 @@
 """Protocol definitions — the interfaces through which effects are reached.
 
-Every port splits into queries and commands (AD-4), so a Dry Run binds real
-queries and no-op commands rather than branching on a flag.
+Every port splits into queries and commands (AD-4, AG-12): each capability is
+two ``typing.Protocol`` classes named ``<Capability>Query`` and
+``<Capability>Command``. A query never changes the Site, the database or a
+Storage Target; a command may. A Dry Run binds the real queries and the no-op
+commands of ``adapters/noop.py`` rather than branching on a flag.
+
+Single-role allowance — the Protocols that are neither, each with its reason:
+
+- ``ArchiveProbe``: a query; it reads an Archive and writes nothing.
+- ``Clock``: a query; it tells the time.
+- ``Preflight``: a query; it looks for tools and changes nothing (AD-13).
+- ``PayloadCipher``: a transform from a reader to a writer (ADR-0024).
+- ``ExclusionPolicy``: a pure query over paths it is handed.
+- ``Tracer``: observation; it records spans and changes nothing (AD-24).
+- ``RunSpan``: observation; the root span a ``Tracer`` opens.
+- ``PhaseSpan``: observation; a phase span a ``Tracer`` opens.
+- ``Redactor``: observation; what a span needs from the Run's registry.
+- ``StagedArchive``: what ``ArchiveStoreCommand.stage`` returns; reached
+  only through that command.
+
+``tests/contracts/test_port_split.py`` reads this list: every Protocol under
+``ports/`` is a ``*Query``, a ``*Command`` or named here, and every name here
+is a Protocol that exists. E002-S02-008 adds ``SiteLock``.
 """
 
 from __future__ import annotations

@@ -52,7 +52,7 @@ Generated from the parser by `tools/gen_cli_docs.py`; CI fails if it drifts.
 <!-- BEGIN GENERATED: cli-usage (tools/gen_cli_docs.py) -->
 ```text
 $ wpbackup2 --help
-usage: wpbackup2 [-h] [--version] [--log-level LOG_LEVEL] [--log-format {console,json}]
+usage: wpbackup2 [-h] [--version] [--log-level LOG_LEVEL] [--log-format {console,json}] [--whatIf]
                  {backup,restore,verify} ...
 
 Backup/restore your WordPress content and database.
@@ -71,6 +71,8 @@ options:
                         Logging level (stdlib level names; default INFO)
   --log-format {console,json}
                         Log format on stderr (default: console on a terminal, else json)
+  --whatIf, --what-if   Dry Run: resolve credentials, run preflight and every query for real,
+                        print the ordered plan, and change nothing
 
 exit codes:
    0  OK                   the Run succeeded

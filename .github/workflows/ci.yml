@@ -95,12 +95,13 @@ jobs:
         run: uv run python tools/check_purity.py
 
       # AD-4 — Dry Run is adapter selection. A conditional anywhere outside a
-      # composition root is the defect this gate exists to catch.
+      # composition root is the defect this gate exists to catch. The exemption
+      # is anchored to the two roots by path: --exclude-dir would match a
+      # directory named cli/ or api/ at any depth.
       - name: AD-4 no dry-run conditionals
         run: |
-          if grep -rnE '\b(dry_run|what_if)\b' src/l3io/wp/backup \
-               --include='*.py' \
-               --exclude-dir=cli --exclude-dir=api; then
+          if grep -rnE '\b(dry_run|what_if)\b' src/l3io/wp/backup --include='*.py' \
+               | grep -vE '^src/l3io/wp/backup/(cli|api)/'; then
             echo "::error::AD-4 — dry-run conditional outside a composition root"
             exit 1
           fi

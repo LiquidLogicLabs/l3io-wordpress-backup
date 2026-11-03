@@ -5,11 +5,18 @@ from __future__ import annotations
 import importlib.util
 import inspect
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import pytest
 
-from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
+from l3io.wp.backup.core.backup import (
+    DUMP_REQUIREMENT,
+    BackupPlan,
+    BackupStep,
+    build_backup_plan,
+)
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
 
@@ -24,10 +31,13 @@ SITE = SiteDescriptor(
     credential_source="wp-config.php",
 )
 TARGET = StorageTarget(scheme="file", path=PurePosixPath("/backups/site.tar.gz"))
+NO_EXCLUSIONS: dict[str, Any] = {"exclusion_source": "none", "exclusion_patterns": ()}
 
 
 def test_all_runs_every_step_in_order_without_encryption() -> None:
-    plan = build_backup_plan(SITE, BackupScope.ALL, TARGET, encrypted=False)
+    plan = build_backup_plan(
+        SITE, BackupScope.ALL, TARGET, encrypted=False, **NO_EXCLUSIONS
+    )
     assert plan == BackupPlan(
         scope=BackupScope.ALL,
         target=TARGET,
@@ -38,11 +48,16 @@ def test_all_runs_every_step_in_order_without_encryption() -> None:
             BackupStep.VERIFY,
             BackupStep.PUBLISH,
         ),
+        exclusion_source="none",
+        exclusion_patterns=(),
+        required_tools=(DUMP_REQUIREMENT,),
     )
 
 
 def test_encrypt_is_present_iff_encrypted_and_before_the_write() -> None:
-    plan = build_backup_plan(SITE, BackupScope.ALL, TARGET, encrypted=True)
+    plan = build_backup_plan(
+        SITE, BackupScope.ALL, TARGET, encrypted=True, **NO_EXCLUSIONS
+    )
     assert plan.steps == (
         BackupStep.DUMP,
         BackupStep.COLLECT_SITE_ROOT,
@@ -54,15 +69,19 @@ def test_encrypt_is_present_iff_encrypted_and_before_the_write() -> None:
     assert plan.steps.count(BackupStep.ENCRYPT) == 1
 
 
-@pytest.mark.parametrize("name", ["scope", "encrypted"])
-def test_scope_and_encryption_have_no_default(name: str) -> None:
-    """Neither can be selected by omission."""
+@pytest.mark.parametrize(
+    "name", ["scope", "encrypted", "exclusion_source", "exclusion_patterns"]
+)
+def test_scope_encryption_and_exclusions_have_no_default(name: str) -> None:
+    """None can be selected by omission."""
     parameter = inspect.signature(build_backup_plan).parameters[name]
     assert parameter.default is inspect.Parameter.empty
 
 
 def test_the_plan_is_frozen() -> None:
-    plan = build_backup_plan(SITE, BackupScope.ALL, TARGET, encrypted=False)
+    plan = build_backup_plan(
+        SITE, BackupScope.ALL, TARGET, encrypted=False, **NO_EXCLUSIONS
+    )
     with pytest.raises(AttributeError):
         plan.steps = ()  # type: ignore[misc]
 
@@ -86,7 +105,7 @@ TAIL = (BackupStep.WRITE_ARCHIVE, BackupStep.VERIFY, BackupStep.PUBLISH)
 @pytest.mark.parametrize("encrypted", [False, True])
 @pytest.mark.parametrize("scope", list(BackupScope))
 def test_each_scope_runs_exactly_its_steps(scope: BackupScope, encrypted: bool) -> None:
-    plan = build_backup_plan(SITE, scope, TARGET, encrypted=encrypted)
+    plan = build_backup_plan(SITE, scope, TARGET, encrypted=encrypted, **NO_EXCLUSIONS)
     middle = (BackupStep.ENCRYPT,) if encrypted else ()
     assert plan.scope is scope
     assert plan.steps == CAPTURE[scope] + middle + TAIL
@@ -118,3 +137,33 @@ def test_the_mode_defaults_tool_guards_backup_scope(
     err = capsys.readouterr().err
     assert "planted.py:1" in err
     assert "BackupScope" in err
+
+
+# --------------------------------------------------------------------------
+# AD-13 — required tools travel in the plan
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("scope", list(BackupScope))
+def test_required_tools_follow_the_dump_step(scope: BackupScope) -> None:
+    plan = build_backup_plan(SITE, scope, TARGET, encrypted=False, **NO_EXCLUSIONS)
+    dumps = BackupStep.DUMP in plan.steps
+    assert plan.required_tools == ((DUMP_REQUIREMENT,) if dumps else ())
+
+
+def test_extra_tools_follow_the_plans_own_deduplicated_stricter_wins() -> None:
+    age_old = ToolRequirement("age", (1, 0), "passphrase encryption")
+    age_new = ToolRequirement("age", (1, 2), "passphrase encryption", "apt install age")
+    plan = build_backup_plan(
+        SITE,
+        BackupScope.ALL,
+        TARGET,
+        encrypted=False,
+        exclusion_source="custom",
+        exclusion_patterns=("*.log",),
+        extra_tools=(age_old, age_new, DUMP_REQUIREMENT),
+    )
+    assert [t.name for t in plan.required_tools] == [DUMP_REQUIREMENT.name, "age"]
+    assert plan.required_tools[1].minimum_version == (1, 2)
+    assert plan.exclusion_source == "custom"
+    assert plan.exclusion_patterns == ("*.log",)

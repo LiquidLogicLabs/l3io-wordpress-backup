@@ -48,7 +48,7 @@ def documented(text: str, name: str) -> set[str]:
 def test_the_tables_parse() -> None:
     text = DOC.read_text(encoding="utf-8")
     assert documented(text, "record") == {
-        "run_id", "timestamp", "level", "logger", "event",
+        "run_id", "dry_run", "timestamp", "level", "logger", "event",
     }  # fmt: skip
     assert len(documented(text, "phase")) >= 4
 

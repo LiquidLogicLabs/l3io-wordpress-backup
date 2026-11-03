@@ -20,6 +20,7 @@ from tests.conftest import pipeline_events
 
 pytest.importorskip("l3io.wp.database")
 
+from l3io.wp.backup.adapters import tar
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
     locate_wp_config,
@@ -27,19 +28,20 @@ from l3io.wp.backup.adapters.database import (
 from l3io.wp.backup.adapters.store import LocalArchiveStore
 from l3io.wp.backup.adapters.tar import (
     SiteRootCollection,
+    TarArchiveWriter,
     verify_or_raise,
 )
 from l3io.wp.backup.adapters.workspace import WORKSPACE_PREFIX
 from l3io.wp.backup.cli import adapter_sets, main
 from l3io.wp.backup.cli import backup as backup_cli
-from l3io.wp.backup.core.backup import BackupStep, build_backup_plan
+from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
 from l3io.wp.backup.domain.archive_format import (
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
     MemberRole,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
-from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult
+from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
 from l3io.wp.backup.domain.errors import (
     BackupError,
     DumpFailedError,
@@ -61,6 +63,9 @@ class FakeDatabase:
         self.fail = fail
         self.calls: list[tuple[DatabaseLocation, Path]] = []
 
+    def check_dump(self, location: DatabaseLocation) -> Readiness:
+        return Readiness(ready=True)
+
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
         self.calls.append((location, destination))
         if self.fail:
@@ -70,6 +75,19 @@ class FakeDatabase:
         with os.fdopen(fd, "wb") as handle:
             handle.write(DUMP_TEXT)
         return DumpResult(bytes=len(DUMP_TEXT), duration_ms=1.0)
+
+
+def _plan(
+    site: SiteDescriptor, scope: BackupScope, target: StorageTarget, *, encrypted: bool
+) -> BackupPlan:
+    return build_backup_plan(
+        site,
+        scope,
+        target,
+        encrypted=encrypted,
+        exclusion_source="none",
+        exclusion_patterns=(),
+    )
 
 
 def _site(site_root: Path) -> SiteDescriptor:
@@ -96,9 +114,7 @@ def _run(
 ) -> backup_cli.BackupResult:
     site = _site(site_root)
     target = StorageTarget(scheme="file", path=PurePosixPath(final))
-    plan = build_backup_plan(
-        site, BackupScope.ALL, target, encrypted=cipher is not None
-    )
+    plan = _plan(site, BackupScope.ALL, target, encrypted=cipher is not None)
     return backup_cli.execute_backup_plan(
         plan,
         site=site,
@@ -106,6 +122,7 @@ def _run(
         workspace=workspace,
         database=database or FakeDatabase(),
         store=LocalArchiveStore(verify=verify),
+        writer=TarArchiveWriter(),
         cipher=cipher,  # type: ignore[arg-type]
         exclusion=INCLUDE_EVERYTHING,
         origin=None,
@@ -143,7 +160,7 @@ def test_a_backup_publishes_one_archive_and_a_record_per_step(
     assert "credential_source" not in read.manifest.source
     records = [e for e in logs if e["event"] == "phase_completed"]
     assert [e["phase"] for e in records] == [
-        s.value for s in build_backup_plan(
+        s.value for s in _plan(
             _site(site_root), BackupScope.ALL,
             StorageTarget("file", PurePosixPath(final)), encrypted=False,
         ).steps
@@ -177,7 +194,7 @@ def test_a_cipher_without_an_encrypt_step_is_refused(
 ) -> None:
     site = _site(site_root)
     target = StorageTarget(scheme="file", path=PurePosixPath(tmp_path / "a.tar"))
-    plan = build_backup_plan(site, BackupScope.ALL, target, encrypted=False)
+    plan = _plan(site, BackupScope.ALL, target, encrypted=False)
     with pytest.raises(UsageError):
         backup_cli.execute_backup_plan(
             plan,
@@ -186,6 +203,7 @@ def test_a_cipher_without_an_encrypt_step_is_refused(
             workspace=workspace,
             database=FakeDatabase(),
             store=LocalArchiveStore(verify=verify_or_raise),
+            writer=TarArchiveWriter(),
             cipher=cipher,
             exclusion=INCLUDE_EVERYTHING,
             origin=None,
@@ -231,14 +249,14 @@ def test_a_write_failure_discards_the_staged_archive(
     out = tmp_path / "out"
     out.mkdir()
     (site_root / "vanishing.txt").write_text("x")
-    original = backup_cli.collect_site_root
+    original = tar.collect_site_root
 
     def collect_then_delete(root: Path, policy: ExclusionPolicy) -> SiteRootCollection:
         collection = original(root, policy)
         (root / "vanishing.txt").unlink()
         return collection
 
-    monkeypatch.setattr(backup_cli, "collect_site_root", collect_then_delete)
+    monkeypatch.setattr(tar, "collect_site_root", collect_then_delete)
     with pytest.raises(BackupError) as caught:
         _run(site_root, out / "a.tar", workspace)
     assert "vanishing.txt" in str(caught.value)
@@ -530,7 +548,7 @@ def test_the_database_binding_must_match_the_plans_dump_step(
 ) -> None:
     site = _site(site_root)
     target = StorageTarget(scheme="file", path=PurePosixPath(tmp_path / "a.tar"))
-    plan = build_backup_plan(site, scope, target, encrypted=False)
+    plan = _plan(site, scope, target, encrypted=False)
     wrong = None if BackupStep.DUMP in plan.steps else FakeDatabase()
     with pytest.raises(UsageError):
         backup_cli.execute_backup_plan(
@@ -540,6 +558,7 @@ def test_the_database_binding_must_match_the_plans_dump_step(
             workspace=workspace,
             database=wrong,
             store=LocalArchiveStore(verify=verify_or_raise),
+            writer=TarArchiveWriter(),
             cipher=None,
             exclusion=INCLUDE_EVERYTHING,
             origin=None,
