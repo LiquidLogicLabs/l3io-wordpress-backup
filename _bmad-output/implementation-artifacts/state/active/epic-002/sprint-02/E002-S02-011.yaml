@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S02'
 title: Register the restore vocabulary and flags
 classification: standard
-status: backlog
-updated_at: '2026-11-03T16:16:32Z'
+status: ready-for-dev
+updated_at: '2026-11-03T16:17:57Z'
 depends_on:
 - 'E002-S01-001'
 - 'E002-S01-002'

@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S02'
 title: Prevent two runs colliding on one site
 classification: standard
-status: backlog
-updated_at: '2026-11-03T16:16:31Z'
+status: ready-for-dev
+updated_at: '2026-11-03T16:17:56Z'
 estimate:
   man_hours: 14.79
   hitl_hours: 0.0

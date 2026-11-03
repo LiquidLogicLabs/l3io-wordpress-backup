@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S02'
 title: Give restore the database, file and config operations it needs
 classification: complex
-status: backlog
-updated_at: '2026-11-03T16:16:32Z'
+status: ready-for-dev
+updated_at: '2026-11-03T16:17:57Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
