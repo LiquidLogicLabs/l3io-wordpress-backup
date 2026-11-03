@@ -26,6 +26,7 @@ from l3io.wp.backup.adapters.database import (  # noqa: E402
     require_wp_config_credentials,
     site_descriptor_from_wp_config,
 )
+from l3io.wp.backup.adapters.redaction import SecretRegistry  # noqa: E402
 from l3io.wp.backup.domain.database import (  # noqa: E402
     DatabaseLocation,
     DumpResult,
@@ -66,7 +67,10 @@ def _adapter(tmp_path: Path, *, password: str) -> tuple[WpDatabase, DatabaseLoca
     site, config = _site(tmp_path, password=password)
     descriptor, credentials = site_descriptor_from_wp_config(site, config_file=config)
     require_wp_config_credentials(credentials)  # wp-config.php is the provider
-    return WpDatabase(credentials), descriptor.database_location()
+    return (
+        WpDatabase(credentials, secrets=SecretRegistry()),
+        descriptor.database_location(),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -122,7 +126,7 @@ def _verdict(*codes: str) -> object:
 
 @pytest.fixture
 def database() -> WpDatabase:
-    return WpDatabase(wpdb.Explicit("someone", "never-shown"))
+    return WpDatabase(wpdb.Explicit("someone", "never-shown"), secrets=SecretRegistry())
 
 
 def test_a_transfer_error_is_a_dump_failure(

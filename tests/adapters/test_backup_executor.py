@@ -264,7 +264,9 @@ def cli_site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Any
     )
     (root / "index.php").write_text("<?php\n")
     database = FakeDatabase()
-    monkeypatch.setattr(backup_cli, "WpDatabase", lambda credentials: database)
+    monkeypatch.setattr(
+        backup_cli, "WpDatabase", lambda credentials, *, secrets: database
+    )
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     import tempfile

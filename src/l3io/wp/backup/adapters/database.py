@@ -12,38 +12,61 @@ call, before any write (AD-8). Every database exception reaching a public
 boundary is re-raised as a package error with ``raise ... from`` (AD-14).
 Credentials are passed straight from database's sources to database's
 functions and are never stored, logged or put in an exception message.
+
+This is the only module that constructs database's credential classes
+(ADR-0015 amendment): :func:`wordpress_source` and :func:`admin_source` turn a
+backup-owned ``CredentialSpec`` into a source. Every source they return
+registers each password it resolves with the Run's ``SecretRegistry``
+immediately after ``resolve()`` (ADR-0018), and an explicit spec's password is
+registered when the source is built. Usernames are not secrets.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 import structlog
 
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.archive_format import ConfigLocation
+from l3io.wp.backup.domain.credentials import (
+    AwsSecretCredentialSpec,
+    CredentialSpec,
+    ExplicitCredentialSpec,
+)
 from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
 from l3io.wp.backup.domain.errors import (
+    BackupError,
     CredentialsError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
     InvalidSiteDescriptorError,
     MissingExtraError,
+    UsageError,
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
 
 if TYPE_CHECKING:
-    from l3io.wp.database import Connection, CredentialSource, Verdict
+    from l3io.wp.database import (
+        Connection,
+        CredentialSource,
+        ResolvedCredentials,
+        Verdict,
+    )
 
 __all__ = [
     "LocatedConfig",
     "WpDatabase",
+    "admin_source",
     "locate_wp_config",
     "require_wp_config_credentials",
     "site_descriptor_from_archive_config",
     "site_descriptor_from_wp_config",
+    "wordpress_source",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -263,6 +286,117 @@ def _url_constants(config_file: Path, label: str) -> tuple[str | None, str | Non
 
 
 # --------------------------------------------------------------------------
+# Credential sources — the only construction of database's credential classes
+# --------------------------------------------------------------------------
+
+_AWS_NOT_BOUND = (
+    "an AWS Secrets Manager credential needs Epic 5's provider, "
+    "which this build does not bind"
+)
+
+
+class _RegisteringSource:
+    """A ``CredentialSource`` that registers each password it resolves.
+
+    Registration happens immediately after the wrapped ``resolve()``, so a
+    password is known to the Run's registry before anything can emit it. A
+    failure that is not one of database's own credential errors is re-raised
+    as ``CredentialsError`` naming the label and the failure class; its text
+    is untrusted, so it is not chained.
+    """
+
+    __slots__ = ("_inner", "_secrets")
+
+    def __init__(self, inner: CredentialSource, secrets: SecretRegistry) -> None:
+        self._inner = inner
+        self._secrets = secrets
+
+    def __repr__(self) -> str:
+        return f"RegisteringSource({self.source!r})"
+
+    @property
+    def source(self) -> str:
+        return self._inner.source
+
+    @property
+    def secrets(self) -> SecretRegistry:
+        return self._secrets
+
+    def resolve(self) -> ResolvedCredentials:
+        from l3io.wp import database as wpdb
+
+        label = self.source
+        failure: str | None = None
+        try:
+            resolved = self._inner.resolve()
+        except (wpdb.DatabaseError, BackupError):
+            raise
+        except Exception as exc:
+            failure = type(exc).__name__
+        if failure is not None:
+            # Raised outside the handler, so not even __context__ holds the
+            # untrusted exception.
+            raise CredentialsError(label, reason=failure)
+        self._secrets.register(resolved.password, source=label)
+        return resolved
+
+
+def _registering(source: CredentialSource, secrets: SecretRegistry) -> CredentialSource:
+    """``source`` registering into ``secrets``; re-wrapped if bound to another."""
+    if isinstance(source, _RegisteringSource) and source.secrets is secrets:
+        return source
+    return _RegisteringSource(source, secrets)
+
+
+def _explicit(
+    spec: ExplicitCredentialSpec, secrets: SecretRegistry
+) -> CredentialSource:
+    from l3io.wp import database as wpdb
+
+    secrets.register(spec.password, source="explicit")
+    return wpdb.Explicit(spec.username, spec.password)
+
+
+def wordpress_source(
+    spec: CredentialSpec | None,
+    *,
+    wp_config: CredentialSource,
+    environ: Mapping[str, str],  # noqa: ARG001 - Epic 5 binds the environment step
+    secrets: SecretRegistry,
+) -> CredentialSource:
+    """The WordPress account's source, in ``WORDPRESS_CREDENTIAL_PRECEDENCE`` order.
+
+    ``None`` is ``wp-config.php`` alone. An explicit spec comes first, then
+    ``wp-config.php``; the environment step is skipped until Epic 5 binds its
+    provider. An AWS spec is ``UsageError`` until then.
+    """
+    _require_extra()
+    from l3io.wp import database as wpdb
+
+    if spec is None:
+        return _registering(wp_config, secrets)
+    if isinstance(spec, AwsSecretCredentialSpec):
+        raise UsageError(_AWS_NOT_BOUND)
+    chain = wpdb.CredentialChain(_explicit(spec, secrets), wp_config)
+    return _registering(chain, secrets)
+
+
+def admin_source(
+    spec: CredentialSpec | None,
+    *,
+    environ: Mapping[str, str],  # noqa: ARG001 - Epic 5 binds the environment step
+    secrets: SecretRegistry,
+) -> CredentialSource | None:
+    """The administrator's source, or ``None``: never ``wp-config.php``."""
+    if spec is None:
+        return None
+    _require_extra()
+    if isinstance(spec, AwsSecretCredentialSpec):
+        raise UsageError(_AWS_NOT_BOUND)
+    return _registering(_explicit(spec, secrets), secrets)
+
+
+# --------------------------------------------------------------------------
 # The database ports, backup half
 # --------------------------------------------------------------------------
 
@@ -276,14 +410,18 @@ def _codes(verdict: Verdict) -> tuple[tuple[str, ...], tuple[str, ...]]:
 class WpDatabase:
     """``DatabaseQuery`` and ``DatabaseCommand``, backup halves.
 
-    The WordPress ``CredentialSource`` is bound at construction; no method
-    takes a credential. E002-S01-006 adds the Run's ``SecretRegistry`` here.
+    The WordPress ``CredentialSource`` and the Run's ``SecretRegistry`` are
+    bound at construction; no method takes a credential. A source not built
+    by :func:`wordpress_source` is wrapped so that what database resolves
+    from it is registered all the same.
     """
 
     __slots__ = ("_credentials",)
 
-    def __init__(self, credentials: CredentialSource) -> None:
-        self._credentials = credentials
+    def __init__(
+        self, credentials: CredentialSource, *, secrets: SecretRegistry
+    ) -> None:
+        self._credentials = _registering(credentials, secrets)
 
     def __repr__(self) -> str:
         return f"WpDatabase(credentials={self._credentials.source!r})"
@@ -308,7 +446,15 @@ class WpDatabase:
         except wpdb.DatabaseError as exc:
             raise DumpFailedError(type(exc).__name__) from exc
         blockers, warnings = _codes(verdict)
-        _log.info("dump_readiness", blockers=blockers, warnings=warnings)
+        _log.info(
+            "dump_readiness",
+            db_host=location.host,
+            db_port=location.port,
+            db_name=location.name,
+            credential_source=self._credentials.source,
+            blockers=blockers,
+            warnings=warnings,
+        )
         return Readiness(ready=verdict.ok, blockers=blockers, warnings=warnings)
 
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
@@ -327,7 +473,10 @@ class WpDatabase:
         except wpdb.RefusedError as exc:
             raise self._refusal(location, exc.verdict) from exc
         except wpdb.TransferError as exc:
-            raise DumpFailedError(str(exc)) from exc
+            # Structured fields only, never the dependency's text (AD-7).
+            code = exc.exit_code
+            reason = "the dump stopped" if code is None else f"the dump exited {code}"
+            raise DumpFailedError(reason) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
         except (

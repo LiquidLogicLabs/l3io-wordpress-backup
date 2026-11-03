@@ -43,6 +43,7 @@ __all__ = [
     "MemberReadRefusedError",
     "MissingExtraError",
     "PassphraseRequiredError",
+    "PassphraseUnavailableError",
     "PreflightFailedError",
     "ProvisioningFailedError",
     "RefusedError",
@@ -70,6 +71,21 @@ class RefusedError(BackupError):
 
 class UsageError(BackupError):
     """The caller supplied an invalid combination of arguments."""
+
+
+class PassphraseUnavailableError(UsageError):
+    """AD-26 — passphrase encryption was requested and no usable one resolved.
+
+    ``variable`` is the environment variable consulted, never its value.
+    """
+
+    def __init__(self, variable: str, *, reason: str) -> None:
+        self.variable = variable
+        self.reason = reason
+        super().__init__(
+            f"no usable passphrase: {reason} (pass passphrase=, set {variable}, "
+            "or run on a terminal so it can be prompted for)"
+        )
 
 
 class InvalidSiteDescriptorError(BackupError):

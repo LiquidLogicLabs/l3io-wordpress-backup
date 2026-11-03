@@ -1,5 +1,5 @@
 next:
-  '002': 52
+  '002': 55
   '003': 30
   '004': 42
 backlog:
@@ -1063,3 +1063,33 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+- key: BL-E002-052
+  epic: '002'
+  sprint: '01'
+  title: "ExplicitCredentialSpec repr: story AC says password='***' but the single-redaction contract forbids the literal outside adapters/redaction.py; amend AC to 'repr omits the password'"
+  source: code-review (E002-S01-006)
+  source_phase: code-review
+  source_ref: E002-S01-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-006.md (F-11)
+- key: BL-E002-053
+  epic: '002'
+  sprint: '01'
+  title: DumpFailedError still chains TransferError, whose message database builds from the tool's first stderr line; add a hygiene case with the sentinel in the message and decide chain vs from None
+  source: code-review (E002-S01-006)
+  source_phase: code-review
+  source_ref: E002-S01-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-006.md (Round 2, N-01)
+- key: BL-E002-054
+  epic: '002'
+  sprint: '01'
+  title: "E002-S01-005 review: confirm cli/exit.py renders non-BackupError tracebacks through the Run's SecretRegistry (run_backup/run_verify catch BackupError only today)"
+  source: code-review (E002-S01-006)
+  source_phase: code-review
+  source_ref: E002-S01-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-006.md (checks with no finding, not counted)
