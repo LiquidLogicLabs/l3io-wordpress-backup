@@ -18,9 +18,48 @@ pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.cli import adapter_sets
 from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
-from l3io.wp.backup.domain.errors import DumpFailedError
+from l3io.wp.backup.domain.errors import DumpFailedError, SiteLockedError
+from l3io.wp.backup.domain.lock import LockHolder
 
 DUMP_TEXT = b"-- dump\n"
+
+
+class RecordingSiteLock:
+    """A ``SiteLock`` journaling ``acquire``/``release`` into ``events``.
+
+    ``refuse`` makes ``acquire`` raise ``SiteLockedError`` naming a holder.
+    """
+
+    def __init__(self, events: list[object] | None = None) -> None:
+        self.events: list[object] = [] if events is None else events
+        self.refuse = False
+
+    def acquire(self, site_root: Path, holder: LockHolder) -> RecordedHandle:
+        self.events.append(("lock.acquire", site_root, holder.run_id))
+        if self.refuse:
+            raise SiteLockedError(
+                site_root, Path("/state/x.lock"), holder_run_id="other", holder_pid=1
+            )
+        return RecordedHandle(self, site_root)
+
+
+class RecordedHandle:
+    def __init__(self, owner: RecordingSiteLock, site_root: Path) -> None:
+        self.owner = owner
+        self._site_root = site_root
+
+    @property
+    def site_root(self) -> Path:
+        return self._site_root
+
+    def release(self) -> None:
+        self.owner.events.append(("lock.release", self._site_root))
+
+    def __enter__(self) -> RecordedHandle:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
 
 
 class FakeDatabase:

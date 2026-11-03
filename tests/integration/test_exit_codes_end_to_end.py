@@ -24,9 +24,10 @@ wpdb = pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.cli import main  # noqa: E402
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode  # noqa: E402
+from tests.site_lock_holder import HOLDER_RUN_ID, held_elsewhere  # noqa: E402
 
 #: Codes only a later story can produce, and the story that adds the case.
-PENDING_CASES: Final[dict[ExitCode, str]] = {ExitCode.LOCKED: "E002-S02-008"}
+PENDING_CASES: Final[dict[ExitCode, str]] = {}
 
 
 class _Env:
@@ -132,6 +133,14 @@ def _verification_failed(env: _Env) -> list[int]:
     return [run(["verify", "--archive", str(corrupt)])]
 
 
+def _locked(env: _Env) -> list[int]:
+    # AD-19: another process holds the Site; a real Run and a Dry Run both
+    # refuse before reading it, and the dump is never reached.
+    env.dump_raises(AssertionError("a locked Run reached the dump"))
+    with held_elsewhere(env.site):
+        return [env.backup(), env.backup_rehearsed()]
+
+
 CASES: Final[dict[ExitCode, Callable[[_Env], list[int]]]] = {
     ExitCode.FAILED: _failed,
     ExitCode.USAGE: _usage,
@@ -140,6 +149,7 @@ CASES: Final[dict[ExitCode, Callable[[_Env], list[int]]]] = {
     ExitCode.UNREACHABLE: _unreachable,
     ExitCode.NOT_READY: _not_ready,
     ExitCode.VERIFICATION_FAILED: _verification_failed,
+    ExitCode.LOCKED: _locked,
 }
 
 FAILURES = [code for code in ExitCode if code is not ExitCode.OK]
@@ -166,7 +176,11 @@ def test_every_failure_code_is_produced(
     assert observed
     assert all(value == int(code) for value in observed), observed
     if code is not ExitCode.USAGE:
-        assert DESCRIPTIONS[code] in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert DESCRIPTIONS[code] in err
+        if code is ExitCode.LOCKED:
+            # The stderr message names the holder (FR-28).
+            assert HOLDER_RUN_ID in err
 
 
 def test_success_exits_zero(

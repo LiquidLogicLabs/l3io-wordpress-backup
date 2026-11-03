@@ -163,6 +163,20 @@ def _reset_logging() -> Iterator[None]:
     root.setLevel(level)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_state_dir(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Every Run's Site Lock (AD-19) lands in a per-test state directory.
+
+    ``platformdirs`` reads ``XDG_STATE_HOME``; a subprocess inherits it. The
+    directory is a sibling of ``tmp_path``, never inside a test's Site Root.
+    """
+    state = tmp_path_factory.mktemp("xdg-state")
+    monkeypatch.setenv("XDG_STATE_HOME", str(state))
+    return state
+
+
 def _environ() -> dict[str, str]:
     """``os.environ`` without the variable pytest itself rewrites per phase."""
     return {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}

@@ -94,6 +94,8 @@ DECLARED = {
     "PassphraseRejectedError": ExitCode.VERIFICATION_FAILED,
     "PayloadDamagedError": ExitCode.VERIFICATION_FAILED,
     "SiteLockedError": ExitCode.LOCKED,
+    # E002-S02-008: an unusable lock directory; the Run does not proceed unlocked.
+    "SiteLockLocationError": ExitCode.NOT_READY,
     "MissingExtraError": ExitCode.NOT_READY,
     "PreflightFailedError": ExitCode.NOT_READY,
 }

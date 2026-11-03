@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S02'
 title: Prevent two runs colliding on one site
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-03T16:17:56Z'
+status: done
+updated_at: '2026-11-03T17:14:42Z'
 estimate:
   man_hours: 14.79
   hitl_hours: 0.0
@@ -29,3 +29,35 @@ depends_on:
 - 'E002-S01-004'
 - 'E002-S01-005'
 - 'E002-S02-007'
+completion_evidence:
+  test_runs:
+  - command: uv run pytest -q tests/adapters/test_site_lock.py tests/integration/test_site_lock_signals.py tests/unit/cli/test_lock_order.py tests/unit/cli/test_lock_joining.py tests/integration/test_exit_codes_end_to_end.py
+    exit_code: 0
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 20
+actual:
+  elapsed_hours: 0.3
+  man_hours: 14
+  hitl_hours: 0
+  tokens_k:
+    total: 9121.87
+    input: 0.134
+    output: 88.307
+    cache_write: 283.336
+    cache_read: 8750.096
+  cost: 8.35
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-03T17:14:42Z'

@@ -19,10 +19,13 @@ Single-role allowance — the Protocols that are neither, each with its reason:
 - ``Redactor``: observation; what a span needs from the Run's registry.
 - ``StagedArchive``: what ``ArchiveStoreCommand.stage`` returns; reached
   only through that command.
+- ``SiteLock``: command-only Run machinery (AD-19); a Dry Run takes the lock
+  for real, so it has no no-op.
+- ``LockHandle``: what ``SiteLock.acquire`` returns; reached only through it.
 
 ``tests/contracts/test_port_split.py`` reads this list: every Protocol under
 ``ports/`` is a ``*Query``, a ``*Command`` or named here, and every name here
-is a Protocol that exists. E002-S02-008 adds ``SiteLock``.
+is a Protocol that exists.
 """
 
 from __future__ import annotations

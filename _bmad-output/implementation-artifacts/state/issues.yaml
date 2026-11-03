@@ -1,5 +1,5 @@
 next:
-  '002': 81
+  '002': 84
   '003': 30
   '004': 43
 backlog:
@@ -1331,3 +1331,33 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
+- key: BL-E002-081
+  epic: '002'
+  sprint: '02'
+  title: 'Site Lock: a second SIGTERM during Run cleanup can interrupt workspace removal (handler stays installed through finally)'
+  source: code-review (E002-S02-008)
+  source_phase: code-review
+  source_ref: E002-S02-008
+  severity: Low
+  status: backlog
+  description: F2 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
+- key: BL-E002-082
+  epic: '002'
+  sprint: '02'
+  title: 'Site Lock: a refusal can briefly name a dead holder while a new holder has the flock but has not yet rewritten the stale record'
+  source: code-review (E002-S02-008)
+  source_phase: code-review
+  source_ref: E002-S02-008
+  severity: Low
+  status: backlog
+  description: F3 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
+- key: BL-E002-083
+  epic: '002'
+  sprint: '02'
+  title: Site Lock key (resolved path string) does not merge macOS case-insensitive spellings or Linux bind mounts of one Site (spec gap in AD-19)
+  source: code-review (E002-S02-008)
+  source_phase: code-review
+  source_ref: E002-S02-008
+  severity: Low
+  status: backlog
+  description: F4 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md

@@ -11,7 +11,10 @@ Three layers, each calling only the next:
   prints, on stdout, the actions planned before it was refused.
 - :func:`drive_backup` (the argument-free driver the CLI and Epic 6's ``api/``
   share) canonicalises the Site Root, opens or joins the Run
-  (``cli.context.join_or_open``), reads the Site Descriptor, builds the
+  (``cli.context.join_or_open``) holding that Site's Site Lock (AD-19,
+  ``cli.adapter_sets.real_site_lock`` unless a ``site_lock`` is given) — so a
+  CLI and a library caller are locked identically, before the first read of
+  Site state, and a Dry Run takes it for real — reads the Site Descriptor, builds the
   WordPress credential source through ``cli/credentials.py``, plans, logs each
   planned action as ``planned_action`` and hands the actions to its caller's
   ``on_plan``, binds the adapter set only when it opened the Run, and calls
@@ -66,7 +69,11 @@ from l3io.wp.backup.adapters.database import (
 )
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.cli.adapter_sets import dry_run_adapters, real_adapters
+from l3io.wp.backup.cli.adapter_sets import (
+    dry_run_adapters,
+    real_adapters,
+    real_site_lock,
+)
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import wordpress_source, wordpress_spec
 from l3io.wp.backup.cli.output import emit_result
@@ -110,6 +117,7 @@ from l3io.wp.backup.ports.archive import (
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.database import DatabaseCommand
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
+from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.preflight import Preflight
 from l3io.wp.backup.ports.tracing import Tracer
 
@@ -524,8 +532,13 @@ def drive_backup(
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
     on_plan: Callable[[Sequence[PlannedAction]], None] | None = None,
+    site_lock: SiteLock | None = None,
 ) -> BackupResult:
     """The backup driver: returns or raises ``BackupError``; never prints.
+
+    The Site Lock for the canonical Site Root is held for the whole Run
+    (``site_lock=None`` binds ``cli.adapter_sets.real_site_lock()``); a Run
+    already holding it is joined without acquiring it again.
 
     The planned actions are logged, and handed to ``on_plan``, before any
     check or effect, so a Run refused by a query has reported what it
@@ -544,6 +557,8 @@ def drive_backup(
         secrets=secrets,
         command_args=command_args,
         dry_run=request.dry_run,
+        site_root=site_root,
+        site_lock=real_site_lock() if site_lock is None else site_lock,
     ) as handle:
         run = handle.ctx
         config = locate_wp_config(site_root, stated=request.wp_config)

@@ -28,10 +28,22 @@ Run was opened here (``RunHandle.opened``), so a set is bound exactly once.
 the :class:`~l3io.wp.backup.domain.exit_codes.ExitCode` member name (FR-21):
 ``OK`` on success, the code a driver reported (:meth:`RunContext.report_failure`),
 or :func:`~l3io.wp.backup.cli.exit.exit_code_for` of an escaping exception.
+
+**The Site Lock (AD-19).** Given a canonical ``site_root`` and a ``site_lock``,
+:func:`open_run` acquires the lock after the Run ID and the root span exist and
+before the workspace or any phase — so before the driver's first read of Site
+state — and releases it in the same ``finally`` that removes the workspace. A
+refusal is therefore a failed root span with ``LOCKED``. The handle is
+:attr:`RunContext.site_lock`. A driver joining a Run whose lock is keyed on the
+same Site acquires nothing; joining for a different Site it acquires that
+Site's lock under the Run's ID and releases it itself. Both arguments or
+neither: one alone is a ``UsageError``, never a silently unlocked Run.
 """
 
 from __future__ import annotations
 
+import os
+import socket
 import time
 import uuid
 from collections.abc import Iterator, Sequence
@@ -57,8 +69,10 @@ from l3io.wp.backup.domain.errors import (
     UsageError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.lock import LockHolder
 from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.clock import Clock
+from l3io.wp.backup.ports.lock import LockHandle, SiteLock
 from l3io.wp.backup.ports.tracing import RunSpan, Tracer
 
 __all__ = [
@@ -91,7 +105,8 @@ class _RunState:
 class RunContext:
     """One Run: its identity, logger, clock, registry, tracer and workspace.
 
-    ``dry_run`` is the selection the Run's root made (AD-4), as data.
+    ``dry_run`` is the selection the Run's root made (AD-4), as data;
+    ``site_lock`` the Site Lock its root holds, if it was opened for a Site.
     """
 
     run_id: str
@@ -103,6 +118,7 @@ class RunContext:
     tracer: Tracer
     run_span: RunSpan
     dry_run: bool = False
+    site_lock: LockHandle | None = None
     _state: _RunState = field(default_factory=_RunState, repr=False)
 
     def __repr__(self) -> str:
@@ -149,6 +165,27 @@ def _outcome(state: _RunState) -> tuple[ExitCode, str | None]:
     return (ExitCode.OK, None) if state.outcome is None else state.outcome
 
 
+def _lock_request(
+    site_root: Path | None, site_lock: SiteLock | None
+) -> tuple[Path, SiteLock] | None:
+    """The Site and lock asked for, or ``None``; one of the pair alone is refused."""
+    if site_root is None and site_lock is None:
+        return None
+    if site_root is None or site_lock is None:
+        msg = "a Site Lock needs both site_root and site_lock"
+        raise UsageError(msg)
+    return site_root, site_lock
+
+
+def _holder(run_id: str, started_at: datetime) -> LockHolder:
+    return LockHolder(
+        run_id=run_id,
+        pid=os.getpid(),
+        started_at=started_at,
+        hostname=socket.gethostname(),
+    )
+
+
 @contextmanager
 def open_run(
     *,
@@ -158,11 +195,18 @@ def open_run(
     command_args: Sequence[str] | None = None,
     workspace_parent: Path | None = None,
     dry_run: bool = False,
+    site_root: Path | None = None,
+    site_lock: SiteLock | None = None,
 ) -> Iterator[RunContext]:
-    """Open a Run; :class:`RunContextActiveError` if one is already active."""
+    """Open a Run; :class:`RunContextActiveError` if one is already active.
+
+    Given ``site_root`` (canonical) and ``site_lock``, the Run holds the Site
+    Lock from before its workspace exists until after it is removed.
+    """
     active = _ACTIVE.get()
     if active is not None:
         raise RunContextActiveError(active.run_id)
+    request = _lock_request(site_root, site_lock)
     run_id = str(uuid.uuid4())
     registry = SecretRegistry() if secrets is None else secrets
     bound_tracer: Tracer = NoopTracer() if tracer is None else tracer
@@ -197,7 +241,14 @@ def open_run(
             dry_run=dry_run,
         )
         try:
-            with run_workspace(workspace_parent) as workspace:
+            with ExitStack() as held:
+                lock: LockHandle | None = None
+                if request is not None:
+                    # AD-19: before the first read of Site state.
+                    root, locker = request
+                    lock = locker.acquire(root, _holder(run_id, started_at))
+                    held.callback(lock.release)
+                workspace = held.enter_context(run_workspace(workspace_parent))
                 ctx = RunContext(
                     _state=run_state,
                     run_id=run_id,
@@ -209,6 +260,7 @@ def open_run(
                     tracer=bound_tracer,
                     run_span=run_span,
                     dry_run=dry_run,
+                    site_lock=lock,
                 )
                 ctx_token = _ACTIVE.set(ctx)
                 try:
@@ -261,6 +313,8 @@ def join_or_open(
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
     dry_run: bool = False,
+    site_root: Path | None = None,
+    site_lock: SiteLock | None = None,
 ) -> Iterator[RunHandle]:
     """Join ``ctx`` — creating, binding and opening nothing — or open a Run.
 
@@ -268,7 +322,12 @@ def join_or_open(
     selection its own root made. Joining a real Run with ``dry_run=True``
     raises :class:`UsageError`: the request asked for a rehearsal and the Run
     would write.
+
+    ``site_root``/``site_lock``: a joined Run already holding this Site's lock
+    acquires nothing; one holding none, or another Site's, acquires this
+    Site's under its own Run ID and releases it on leaving.
     """
+    request = _lock_request(site_root, site_lock)
     if ctx is not None:
         if dry_run and not ctx.dry_run:
             msg = (
@@ -276,7 +335,14 @@ def join_or_open(
                 "not a Dry Run"
             )
             raise UsageError(msg)
-        yield RunHandle(ctx=ctx, opened=False)
+        with ExitStack() as held:
+            if request is not None and (
+                ctx.site_lock is None or ctx.site_lock.site_root != request[0]
+            ):
+                root, locker = request
+                joined = locker.acquire(root, _holder(ctx.run_id, ctx.started_at))
+                held.callback(joined.release)
+            yield RunHandle(ctx=ctx, opened=False)
         return
     with open_run(
         operation=operation,
@@ -284,5 +350,7 @@ def join_or_open(
         secrets=secrets,
         command_args=command_args,
         dry_run=dry_run,
+        site_root=site_root,
+        site_lock=site_lock,
     ) as opened:
         yield RunHandle(ctx=opened, opened=True)

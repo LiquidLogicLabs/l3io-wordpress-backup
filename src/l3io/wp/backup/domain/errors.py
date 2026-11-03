@@ -63,6 +63,9 @@ __all__ = [
     "ProvisioningFailedError",
     "RefusedError",
     "RunContextActiveError",
+    "RunTerminated",
+    "SiteLockLocationError",
+    "SiteLockReleaseError",
     "SiteLockedError",
     "UnrecognisedArchiveError",
     "UnsafeMemberPathError",
@@ -259,7 +262,7 @@ class ConfigWriteFailedError(BackupError):
 
 
 class SiteLockedError(BackupError):
-    """Another Run holds the Site Lock."""
+    """Another Run holds the Site Lock (AD-19)."""
 
     exit_code: ClassVar[ExitCode] = ExitCode.LOCKED
 
@@ -271,18 +274,57 @@ class SiteLockedError(BackupError):
         holder_run_id: str | None = None,
         holder_pid: int | None = None,
         holder_started_at: str | None = None,
+        holder_hostname: str | None = None,
     ) -> None:
         self.site_root = site_root
         self.lock_path = lock_path
         self.holder_run_id = holder_run_id
         self.holder_pid = holder_pid
         self.holder_started_at = holder_started_at
+        self.holder_hostname = holder_hostname
         holder = (
-            f"run {holder_run_id}, pid {holder_pid}, since {holder_started_at}"
+            f"held by run {holder_run_id}, pid {holder_pid} on "
+            f"{holder_hostname or 'an unknown host'}, since {holder_started_at}"
             if holder_run_id is not None
-            else "holder unknown"
+            else "the holder could not be identified"
         )
-        super().__init__(f"site {str(site_root)!r} is locked ({holder})")
+        super().__init__(
+            f"site {str(site_root)!r} is locked ({holder}; lock file "
+            f"{str(lock_path)!r})"
+        )
+
+
+class SiteLockLocationError(BackupError):
+    """The Site Lock's directory is unusable, or inside the Site Root (AD-19).
+
+    The Run does not proceed unlocked.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
+
+    def __init__(self, path: PurePath, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"site lock directory {str(path)!r}: {reason}")
+
+
+class SiteLockReleaseError(BackupError):
+    """A Site Lock handle was released more often than acquired. A defect."""
+
+    def __init__(self, site_root: PurePath) -> None:
+        self.site_root = site_root
+        super().__init__(
+            f"the site lock for {str(site_root)!r} was released more often than "
+            "it was acquired"
+        )
+
+
+class RunTerminated(BackupError):
+    """The Run received SIGTERM; raised so its ``finally`` chain runs (FR-28)."""
+
+    def __init__(self, signal_name: str) -> None:
+        self.signal_name = signal_name
+        super().__init__(f"the run was terminated by {signal_name}")
 
 
 class PreflightFailedError(BackupError):

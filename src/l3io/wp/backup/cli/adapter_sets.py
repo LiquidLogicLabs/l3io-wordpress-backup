@@ -6,6 +6,10 @@ only other constructor: a Dry Run is adapter selection, never a conditional
 and substitutes only the command halves with their no-ops from
 ``adapters/noop.py``. Later stories extend both for the fields they add
 (E002-S02-012).
+
+:func:`real_site_lock` binds the Site Lock (AD-19). It is Run machinery, not a
+field of the ``AdapterSet``: the Run Context acquires it before any set is
+bound, and a Dry Run takes it for real, so there is no Dry Run variant.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from l3io.wp.backup.adapters.database import WpDatabase
+from l3io.wp.backup.adapters.lock import FcntlSiteLock
 from l3io.wp.backup.adapters.noop import (
     ActionLog,
     NoopArchiveStore,
@@ -27,12 +32,13 @@ from l3io.wp.backup.adapters.tar import (
     verify_or_raise,
 )
 from l3io.wp.backup.ports.adapter_set import AdapterSet
+from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.tracing import Tracer
 
 if TYPE_CHECKING:
     from l3io.wp.database import CredentialSource
 
-__all__ = ["dry_run_adapters", "real_adapters"]
+__all__ = ["dry_run_adapters", "real_adapters", "real_site_lock"]
 
 
 def real_adapters(
@@ -74,3 +80,8 @@ def dry_run_adapters(real: AdapterSet, *, log: ActionLog | None = None) -> Adapt
         archive_writer=NoopArchiveWriter(skipped),
         tracer=real.tracer,
     )
+
+
+def real_site_lock() -> SiteLock:
+    """The Site Lock over ``fcntl.flock`` in the per-user state directory."""
+    return FcntlSiteLock()

@@ -525,6 +525,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "opentelemetry-api" },
+    { name = "platformdirs" },
     { name = "structlog" },
 ]
 
@@ -569,6 +570,7 @@ requires-dist = [
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
+    { name = "platformdirs", specifier = ">=4.3,<5" },
     { name = "structlog", specifier = ">=26.1,<27" },
 ]
 provides-extras = ["database", "otel"]
@@ -928,6 +930,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5a/82/42f767fc1c1143d6fd36efb827202a2d997a375e160a71eb2888a925aac1/pathspec-1.1.1.tar.gz", hash = "sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a", size = 135180, upload-time = "2026-04-27T01:46:08.907Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189", size = 57328, upload-time = "2026-04-27T01:46:07.06Z" },
+]
+
+[[package]]
+name = "platformdirs"
+version = "4.14.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/6e/886dc7c9d21e2d95aceb696f1e31271742033aeef3661f6e9c8921493592/platformdirs-4.14.3.tar.gz", hash = "sha256:021add1ab113483edbcd4694f5fbb2d688b893ea30d35e1155bb371cf4be0be8", size = 71124, upload-time = "2026-11-01T16:27:32.928Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/41/f0aa003909ee77a9e7e55f8659abb635ca23ab0d022a449bbb18da87a1ef/platformdirs-4.14.3-py3-none-any.whl", hash = "sha256:cba2d05fe5e18b26b1fa6f376b8e6234c012abe1f8696c486fface7d0054e931", size = 35276, upload-time = "2026-11-01T16:27:31.498Z" },
 ]
 
 [[package]]
