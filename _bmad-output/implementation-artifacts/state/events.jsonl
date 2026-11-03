@@ -503,3 +503,4 @@
 {"epic": "E002", "event": "actual", "from": null, "key": "E002", "node": "epic", "session": null, "sprint": null, "to": null, "ts": "2026-11-03T19:09:26Z"}
 {"epic": "E002", "event": "actual", "from": null, "key": "E002", "node": "epic", "session": null, "sprint": null, "to": null, "ts": "2026-11-03T19:09:27Z"}
 {"agent": "l3io-pm-epic-closure", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-03T19:10:01Z"}
+{"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-110", "ref": "BL-E002-109", "resolution": "duplicate", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-03T19:10:10Z"}

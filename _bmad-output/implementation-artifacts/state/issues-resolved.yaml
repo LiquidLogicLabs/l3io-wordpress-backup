@@ -187,3 +187,17 @@ resolved:
   resolution: deferred
   resolved_at: '2026-11-03T16:11:23Z'
   note: "Shawn decision 2026-11-03 (option a + authenticate mode) implemented, uncommitted: keyless verify prints 'checksums consistent - authenticity not checked (no key)' and logs authenticated=false; verify --authenticate decrypts the payload via decrypt_payload. Close as fixed with the commit SHA."
+- key: BL-E002-110
+  epic: '002'
+  sprint: ''
+  title: Phase log field has two spellings (backup UPPER vs restore kebab)
+  source: epic-arch-review (AD-1x)
+  source_phase: epic-arch-review
+  source_ref: AD-1x
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-1x). Duplicate of BL-E002-109 pointer; kept for visibility
+  resolution: duplicate
+  resolved_at: '2026-11-03T19:10:09Z'
+  ref: BL-E002-109
+  note: stray duplicate from epic closure (source ref AD-1x)

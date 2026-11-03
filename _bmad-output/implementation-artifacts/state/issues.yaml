@@ -1619,16 +1619,6 @@ backlog:
   kind: spec-proposal
   ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/AD-1.md
   description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md.'
-- key: BL-E002-110
-  epic: '002'
-  sprint: ''
-  title: Phase log field has two spellings (backup UPPER vs restore kebab)
-  source: epic-arch-review (AD-1x)
-  source_phase: epic-arch-review
-  source_ref: AD-1x
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-1x). Duplicate of BL-E002-109 pointer; kept for visibility
 - key: BL-E002-111
   epic: '002'
   sprint: ''
