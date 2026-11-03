@@ -169,6 +169,9 @@ jobs:
       matrix:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
+      # pyproject.toml is read by the PyPI-only extras check below.
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
       - uses: actions/download-artifact@v8
         with: { name: dist, path: dist }
       # Resolve THE wheel once, asserting the set has exactly one member.
@@ -201,6 +204,24 @@ jobs:
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$WHEEL" \
                  python -c "from l3io.wp import backup; print('import ok')"
+
+      # FR-25 for a PyPI release: every extra must install from PyPI ALONE. The
+      # same check as ci.yml's, with --no-sources, uv's built-in switch that ignores
+      # [tool.uv.sources] -- so the TestPyPI index development uses is not
+      # consulted. Until the family (database, config, the age binder) is on PyPI
+      # this FAILS, and that is the intent: a PyPI release of a package whose
+      # extras cannot resolve from PyPI is refused here rather than broken for the
+      # user (Shawn, 2026-11-02/03). TestPyPI and mirror targets skip it: they are
+      # not PyPI releases, and ci.yml checks the development indexes.
+      - name: every optional extra installs from PyPI alone (PyPI releases only)
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'
+        run: |
+          set -euo pipefail
+          venv="$(mktemp -d)/venv"
+          uv venv -q --python "${{ matrix.python }}" "$venv"
+          uv pip install --python "$venv" --no-build --no-sources -r pyproject.toml --all-extras
+          uv pip install --python "$venv" --no-deps "$WHEEL"
+          "$venv/bin/python" -c "from l3io.wp import backup, database, config; print('extras install ok')"
 
       # The version assertions live HERE, against the installed wheel, not in
       # version-gate against the source tree. `__version__` is a literal and the

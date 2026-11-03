@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+from collections.abc import Iterator
 
 import pytest
 import yaml
@@ -244,74 +245,85 @@ def test_wp_cli_is_pinned_and_checksummed() -> None:
         assert "sha512sum -c" in run, f"{where}: the download is never verified"
 
 
+def _steps(wf: pathlib.Path) -> Iterator[tuple[str, str, dict]]:
+    """Every step of every job, with its ``run:`` stripped of comment lines."""
+    for job_id, job in _jobs(wf).items():
+        for step in job.get("steps") or []:
+            lines = (step.get("run") or "").splitlines()
+            code = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
+            yield f"{wf.name}:{job_id}", code, step
+
+
 def _extras_installs() -> list[tuple[str, str, dict]]:
-    """Every step whose non-comment ``run:`` installs the built wheel with extras."""
-    found = []
-    for wf in WORKFLOWS:
-        for job_id, job in _jobs(wf).items():
-            for step in job.get("steps") or []:
-                run = step.get("run") or ""
-                lines = run.splitlines()
-                code = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
-                if "${wheel}[" in code or "l3io-wordpress-backup[" in code:
-                    found.append((f"{wf.name}:{job_id}", code, step))
-    return found
+    """Every step that installs all of this package's extras."""
+    return [
+        found
+        for wf in WORKFLOWS
+        for found in _steps(wf)
+        if "--all-extras" in found[1] and "uv pip install" in found[1]
+    ]
 
 
-def test_every_extra_is_install_checked_from_public_indexes() -> None:
+def test_every_extra_is_install_checked_wheels_only() -> None:
     """FR-25: every runtime dependency resolves from its declared index.
 
     The base-wheel checks cannot see a broken extra. E004 gate AG-3 (2026-10-28)
     found the age passphrase binder resolvable only from a git source, so an
-    operator's ``[database]`` install would have built Rust from source. One step
-    must install the wheel with every extra, with ``--no-build``, deriving the
-    extras from pyproject.toml rather than listing them.
-
-    Since 2026-11-02 (Shawn) the family resolves anonymously from TestPyPI through
-    an EXPLICIT index, and the set of packages taken from it is derived from
-    uv.lock. A non-explicit TestPyPI index would let a squatted copy of any
-    dependency there win, and a hand-kept package list would drift from the lock.
+    operator's ``[database]`` install would have built Rust from source. Each
+    extras check installs EVERY extra (``--all-extras``, so a new extra is
+    covered without an edit) with ``--no-build``.
     """
     installs = _extras_installs()
-    assert installs, "no workflow step installs the built wheel with its extras"
+    assert installs, "no workflow step installs the package's extras"
     for where, code, _step in installs:
         assert "--no-build" in code, f"{where}: a source build would pass this check"
-        assert "optional-dependencies" in code, (
-            f"{where}: the extras are not derived from pyproject.toml, so a new extra "
-            f"would go unchecked"
+        assert "-r pyproject.toml" in code, f"{where}: not reading pyproject.toml"
+
+
+def test_dev_and_test_use_the_sources_a_pypi_release_does_not() -> None:
+    """Which index, by uv's built-in switch rather than scripting (2026-11-03).
+
+    Development and test honour ``[tool.uv.sources]`` (the family from TestPyPI);
+    a PyPI release passes ``--no-sources`` and so resolves from PyPI alone. Both
+    halves must exist: ci.yml checks the development indexes on every run, and
+    publish.yml checks PyPI only when the target is PyPI. Losing the second
+    would let a PyPI release ship extras that cannot install from PyPI.
+    """
+    installs = _extras_installs()
+    dev = [i for i in installs if i[0].startswith("ci.yml:")]
+    release = [i for i in installs if i[0].startswith("publish.yml:")]
+    assert dev, "ci.yml has no extras install check"
+    assert release, "publish.yml has no extras install check for a PyPI release"
+    for where, code, _step in dev:
+        assert "--no-sources" not in code, (
+            f"{where}: development must honour [tool.uv.sources] (TestPyPI)"
         )
-        if "test.pypi.org" in code:
-            assert "explicit = true" in code, (
-                f"{where}: TestPyPI is not an explicit index, so a squatted package "
-                f"there could replace a PyPI dependency"
-            )
-            # The READ of the lock, not merely the word: an error message naming
-            # uv.lock would satisfy a bare substring test (a planted hand-kept list
-            # passed it, 2026-11-03).
-            assert 'tomllib.load(open("uv.lock"' in code, (
-                f"{where}: the TestPyPI packages are not derived from uv.lock"
-            )
+    for where, code, step in release:
+        assert "--no-sources" in code, f"{where}: a PyPI release must ignore sources"
+        cond = str(step.get("if", ""))
+        assert "inputs.target == 'pypi'" in cond, (
+            f"{where}: the PyPI-only check must run exactly for a PyPI release, "
+            f"got if: {cond!r}"
+        )
 
 
-def test_the_login_gated_extras_check_is_gated_on_the_event_not_the_secret() -> None:
+def test_a_login_gated_index_never_runs_on_pull_requests() -> None:
     """A step that uses the login-gated family index must not run on pull requests.
 
     The family Gitea index needs a login and this repository is public, so a
-    fork's pull request has no ``GITEA_TOKEN``. Today no step uses that index: the
-    extras check resolves anonymously from TestPyPI (Shawn, 2026-11-02). This
-    guards the way back: if a step uses ``--index family=`` again, it must run off
-    pull requests, gated on ``github.event_name`` and never on whether a secret is
+    fork's pull request has no ``GITEA_TOKEN``. Today no install step uses that
+    index (2026-11-02). This guards the way back: such a step must run off pull
+    requests, gated on ``github.event_name`` and never on whether a secret is
     empty, which evaluates silently (publish.yml records that trap).
     """
-    installs = _extras_installs()
-    assert installs, "no workflow step installs the built wheel with its extras"
-    for where, code, step in installs:
-        if "--index family=" not in code:
-            continue  # an anonymous index needs no gate
-        cond = str(step.get("if", ""))
-        assert "secrets." not in cond, (
-            f"{where}: gated on a secret, which evaluates empty and skips silently"
-        )
-        assert re.fullmatch(r"github\.event_name != 'pull_request'", cond.strip()), (
-            f"{where}: a login-gated step must run off pull requests only, got {cond!r}"
-        )
+    for wf in WORKFLOWS:
+        for where, code, step in _steps(wf):
+            if "--index family=" not in code:
+                continue
+            cond = str(step.get("if", ""))
+            assert "secrets." not in cond, (
+                f"{where}: gated on a secret, which evaluates empty and skips silently"
+            )
+            assert cond.strip() == "github.event_name != 'pull_request'", (
+                f"{where}: a login-gated step must run off pull requests, got {cond!r}"
+            )

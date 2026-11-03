@@ -335,45 +335,27 @@ jobs:
           wheel=$(ls "$DIST_DIR"/*.whl)
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$wheel" wpbackup2 --version
-      - name: every optional extra installs from public indexes, wheels only
+      - name: every optional extra installs, wheels only (dev and test indexes)
         # FR-25: "every runtime dependency resolves from its declared index at
         # release time". The steps above install the BASE wheel only, so a broken
-        # extra would pass them. This one installs the built wheel with EVERY extra
-        # in pyproject.toml (derived, not listed, so an extra added later -- E004's
-        # `encryption` -- is covered with no edit here), with --no-build, so a
-        # dependency that only has an sdist or a git source fails here rather than
-        # at an operator's install. That is the failure E004 gate AG-3 found for
-        # the age passphrase binder (2026-10-28).
+        # extra would pass them. This one installs every extra (`--all-extras`, so
+        # one added later -- E004's `encryption` -- is covered with no edit) with
+        # --no-build, so a dependency that only has an sdist or a git source fails
+        # here, not at an operator's install (E004 gate AG-3, 2026-10-28). Then the
+        # built wheel itself, --no-deps. The dependencies are read from
+        # pyproject.toml, which is what the wheel is built from.
         #
-        # Anonymous, so it runs on pull requests too, including from forks. The
-        # family packages come from TestPyPI through an EXPLICIT index, exactly as
-        # pyproject.toml does: only the packages uv.lock resolves from TestPyPI are
-        # taken from it (derived from the lock, not listed), and everything else
-        # from PyPI. A plain `--index-url testpypi` would let a squatted copy of
-        # any dependency on TestPyPI win. TestPyPI is a stepping stone (Shawn,
-        # 2026-11-02); when the family is on PyPI the explicit index goes.
+        # WHICH INDEX, with no scripting (Shawn, 2026-11-02/03): uv's own switch.
+        # Here, for development and test, uv honours [tool.uv.sources], so the
+        # family comes from TestPyPI through the explicit index pyproject.toml
+        # declares, and everything else from PyPI. A PyPI release runs the same
+        # check with --no-sources, i.e. PyPI only (publish.yml, smoke). Anonymous,
+        # so this runs on pull requests too.
         run: |
           set -euo pipefail
-          wheel=$(realpath "$(ls "$DIST_DIR"/*.whl)")
-          extras=$(python3 -c 'import tomllib; print(",".join(tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]))')
-          test -n "$extras" || { echo "::error::no optional extras found in pyproject.toml"; exit 1; }
-          family=$(python3 -c 'import tomllib; print(" ".join(p["name"] for p in tomllib.load(open("uv.lock","rb"))["package"] if p.get("source",{}).get("registry","").startswith("https://test.pypi.org/")))')
-          test -n "$family" || { echo "::error::uv.lock resolves nothing from TestPyPI; this step's index is stale"; exit 1; }
-          echo "extras under test: $extras; from TestPyPI: $family"
-          probe=$(mktemp -d)
-          {
-            printf '[project]\nname = "extras-probe"\nversion = "0"\nrequires-python = ">=3.11"\n'
-            # The family names are direct dependencies of the probe too: uv applies
-            # an explicit index's sources only to DIRECT dependencies, and they reach
-            # the probe transitively, through the wheel. Their version bounds still
-            # come from the wheel's metadata.
-            printf 'dependencies = ["l3io-wordpress-backup[%s]"' "$extras"
-            for p in $family; do printf ', "%s"' "$p"; done
-            printf ']\n'
-            printf '[[tool.uv.index]]\nname = "testpypi"\nurl = "https://test.pypi.org/simple/"\nexplicit = true\n'
-            printf '[tool.uv.sources]\nl3io-wordpress-backup = { path = "%s" }\n' "$wheel"
-            for p in $family; do printf '%s = { index = "testpypi" }\n' "$p"; done
-          } > "$probe/pyproject.toml"
-          cd "$probe"
-          uv sync --no-build --python "${{ matrix.python }}" --no-install-project
-          uv run --no-sync python -c "from l3io.wp import backup, database, config; print('extras install ok')"
+          wheel=$(ls "$DIST_DIR"/*.whl)
+          venv="$(mktemp -d)/venv"
+          uv venv -q --python "${{ matrix.python }}" "$venv"
+          uv pip install --python "$venv" --no-build -r pyproject.toml --all-extras
+          uv pip install --python "$venv" --no-deps "$wheel"
+          "$venv/bin/python" -c "from l3io.wp import backup, database, config; print('extras install ok')"

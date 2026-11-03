@@ -663,3 +663,35 @@ Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md
   win.
 - **E004 gate:** the credentials MAJOR is resolved. The E005→E004 tool-docs MAJOR is
   still open.
+
+## Update — 2026-11-03 (later): which index, by uv's own switch
+
+- **Shawn:** development and test builds use TestPyPI, and a release uses PyPI, with no
+  custom scripting.
+- **The switch is built into uv: `--no-sources`.**
+  - By default, uv honours `[tool.uv.sources]`, so the family comes from TestPyPI through
+    the explicit index.
+  - With `--no-sources`, uv ignores them, so everything comes from PyPI.
+  - Releases already build with `uv build --no-sources`, so a published wheel never
+    references TestPyPI.
+- **ci.yml (`verify-install`, every run, pull requests included):**
+  `uv pip install --no-build -r pyproject.toml --all-extras`, then the built wheel
+  `--no-deps`. This replaces `98b65d9`'s probe project, extras one-liner and `uv.lock`
+  parsing.
+- **publish.yml (smoke, only for a `workflow_dispatch` with `target=pypi`):** the same
+  check with `--no-sources`. It FAILS until database, config and the binder are on PyPI.
+  That is intended: a PyPI release whose extras cannot resolve from PyPI is refused
+  (FR-25). The smoke job now checks out the repository to read `pyproject.toml`.
+- **Contract tests** are proven by five plants:
+  - dev allows source builds;
+  - dev passes `--no-sources`;
+  - release drops `--no-sources`;
+  - the release step runs for every target;
+  - the release step is removed.
+- **Verified:**
+  - `make ci` passes on Python 3.11–3.14;
+  - `make ci-dryrun` covers all 13 legs, including `publish.yml` with `target=pypi`;
+  - locally, both modes run: the default resolves database 0.2.1 and config 0.1.3
+    from TestPyPI, and `--no-sources` fails with "l3io-wordpress-database was not found".
+  - The release step itself has only been dry-run under act, because running it for
+    real needs a PyPI release dispatch.
