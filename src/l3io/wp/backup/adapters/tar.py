@@ -117,6 +117,7 @@ __all__ = [
     "extract_archive",
     "file_member",
     "verify_archive",
+    "verify_archive_view",
     "verify_or_raise",
     "write_archive",
 ]
@@ -780,11 +781,23 @@ def verify_archive(path: Path) -> VerificationResult:
 
     Annotates the enclosing ``VERIFY`` phase when there is one (the store's
     publish), else emits its own: ``bytes`` read, ``format_version`` (or
-    ``"v0"``), ``integrity``, ``dump_present``, ``passed`` and, on failure,
-    the first ``reason`` and ``member``; the format fields are ``None`` when
-    the Archive could not be classified. A failed verification marks the phase
-    ``failed`` with ``VERIFICATION_FAILED`` though it returns rather than
-    raises. A missing or unreadable file raises :class:`ArchiveNotFoundError`.
+    ``"v0"``), ``integrity``, ``dump_present``, ``passed``,
+    ``authenticated`` (always ``False``: the checksums live in the
+    unauthenticated Manifest, so a keyless pass proves consistency, not
+    authenticity) and, on failure, the first ``reason`` and ``member``; the
+    format fields are ``None`` when the Archive could not be classified. A
+    failed verification marks the phase ``failed`` with
+    ``VERIFICATION_FAILED`` though it returns rather than raises. A missing or
+    unreadable file raises :class:`ArchiveNotFoundError`.
+    """
+    return verify_archive_view(path)[1]
+
+
+def verify_archive_view(path: Path) -> tuple[ArchiveView | None, VerificationResult]:
+    """:func:`verify_archive`, also returning the classified view (``None`` if none).
+
+    For a caller that acts on the verified Archive (``verify --authenticate``)
+    without streaming it a second time to classify it.
     """
     with join_phase(BackupStep.VERIFY.value) as record:
         scan = _stream_outer(path)
@@ -796,6 +809,7 @@ def verify_archive(path: Path) -> VerificationResult:
             integrity=None if view is None else result.integrity.value,
             dump_present=None if view is None else view.dump_present,
             passed=result.passed,
+            authenticated=False,
         )
         if result.failures:
             first = result.failures[0]
@@ -805,7 +819,7 @@ def verify_archive(path: Path) -> VerificationResult:
             )
         if not result.passed:
             record.fail(VerificationFailedError.exit_code)
-    return result
+    return view, result
 
 
 def verify_or_raise(path: Path) -> None:
@@ -961,6 +975,15 @@ class _ExtractFilter:
         return filtered
 
 
+#: The refusal on an interpreter without the June 2025 tarfile security fixes.
+_UNPATCHED_TARFILE: Final = (
+    "this Python lacks the June 2025 tarfile security fixes (CVE-2025-4517, "
+    "CVE-2025-4330, CVE-2025-4138, CVE-2024-12718: os.path.ALLOW_MISSING is "
+    "absent), so its data filter can be escaped; upgrade Python to a patched "
+    "release (3.11.13+, 3.12.11+, 3.13.4+)"
+)
+
+
 def _check_exclude(exclude: frozenset[PurePosixPath]) -> None:
     for entry in exclude:
         if entry.is_absolute() or ".." in entry.parts or not entry.parts:
@@ -987,12 +1010,20 @@ def extract_archive(
     reported in ``skipped_links``, any other refusal, a hard link anywhere and
     a member outside the index raise :class:`ExtractionRefusedError`. ``exclude``
     holds role-relative paths whose bytes are never written. An interpreter
-    without ``tarfile.data_filter`` is refused before anything is read.
+    without ``tarfile.data_filter`` is refused before anything is read, and so
+    is one without the June 2025 tarfile fixes (CVE-2025-4517, -4330, -4138,
+    CVE-2024-12718), on which the ``data`` filter can be escaped: the fix
+    added ``os.path.ALLOW_MISSING``, so its absence is the test (by
+    capability, not version number; Shawn, 2026-11-03). Upgrade Python to a
+    patched release. Only this function is gated: ``read_member`` and
+    ``decrypt_payload`` stream members and write none to a destination.
     Members written before a refusal stay written.
     """
     _check_exclude(exclude)
     if not hasattr(tarfile, "data_filter"):
         raise ExtractionRefusedError(None, "this Python's tarfile has no data filter")
+    if not hasattr(os.path, "ALLOW_MISSING"):
+        raise ExtractionRefusedError(None, _UNPATCHED_TARFILE)
     archive = _archive_path(source)
     extract = _ExtractFilter(
         view=view,

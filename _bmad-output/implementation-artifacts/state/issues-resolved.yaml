@@ -161,3 +161,29 @@ resolved:
   resolved_at: '2026-11-03T06:05:46Z'
   ref: E002-S01-005
   note: "cli.main catches every Exception and reports it through the Run's SecretRegistry (cli/exit.py report_failure re-opens it for the pipeline): a non-BackupError exits FAILED, its exc_info traceback is redacted, and its message is never printed. Test: tests/unit/cli/test_render_failure.py::test_bl_e002_054_a_defect_exits_failed_and_leaks_nothing"
+- key: BL-E002-059
+  epic: '002'
+  sprint: '01'
+  title: Extraction safe only on patched CPython (tar filter CVE-2025-4517 family); conflicts with ADR-0009 - owner decision needed before Epic 3 restore
+  source: redteam (H1)
+  source_phase: redteam
+  source_ref: H1
+  severity: High
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: deferred
+  resolved_at: '2026-11-03T16:11:22Z'
+  note: 'Shawn decision 2026-11-03 (option a) implemented, uncommitted: extract_archive refuses an interpreter without os.path.ALLOW_MISSING (June 2025 tarfile CVE fixes); .python-version pinned 3.11.15. Close as fixed with the commit SHA.'
+- key: BL-E002-060
+  epic: '002'
+  sprint: '01'
+  title: verify reports VERIFIED on a forged archive (checksum in unprotected manifest); conflicts with ADR-0024 wording - owner decision needed, wording to 'consistent'
+  source: redteam (H2)
+  source_phase: redteam
+  source_ref: H2
+  severity: High
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: deferred
+  resolved_at: '2026-11-03T16:11:23Z'
+  note: "Shawn decision 2026-11-03 (option a + authenticate mode) implemented, uncommitted: keyless verify prints 'checksums consistent - authenticity not checked (no key)' and logs authenticated=false; verify --authenticate decrypts the payload via decrypt_payload. Close as fixed with the commit SHA."

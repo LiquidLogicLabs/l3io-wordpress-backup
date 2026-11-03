@@ -101,6 +101,8 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "decrypt_payload",
             "extract_archive",
             "verify_archive",
+            # verify_archive's body; driven through verify_or_raise below.
+            "verify_archive_view",
             "verify_or_raise",
             "SiteRootCollection",
             "_HashingWriter",

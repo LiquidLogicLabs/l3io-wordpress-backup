@@ -113,4 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument(
         "--archive", help="Path or file: URL of the archive to check.", required=True
     )
+    verify.add_argument(
+        "--authenticate",
+        action="store_true",
+        help=(
+            "Decrypt the encrypted payload to prove the archive authentic; "
+            "without it, verify proves only that its checksums are consistent. "
+            "The passphrase comes from L3IO_WP_BACKUP_PASSPHRASE or a prompt."
+        ),
+    )
     return parser

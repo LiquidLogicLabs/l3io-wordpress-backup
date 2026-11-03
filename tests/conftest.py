@@ -19,6 +19,7 @@ Epic 3 story 3.1 applies the sentinel to a full restore; Epic 4
 from __future__ import annotations
 
 import hashlib
+import hmac
 import inspect
 import logging
 import os
@@ -29,7 +30,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import pytest
 import structlog
@@ -242,3 +243,168 @@ def credential_sentinel(
             secret in text for secret in sentinel.secrets for text in inputs
         ), "a planted sentinel already occurs in the fixture's own inputs"
         yield sentinel
+
+
+# --------------------------------------------------------------------------
+# A passphrase-encrypted Archive, and a forged one (BL-E002-060)
+# --------------------------------------------------------------------------
+
+_FAKE_AGE_MAGIC = b"fake-age/v1\n"
+_CHECK_BYTES = 16
+_TAG_BYTES = 32
+
+
+def _key_check(passphrase: str) -> bytes:
+    return hashlib.sha256(b"key-check:" + passphrase.encode()).digest()[:_CHECK_BYTES]
+
+
+def _tag(passphrase: str, body: bytes) -> bytes:
+    return hmac.new(passphrase.encode(), body, hashlib.sha256).digest()
+
+
+class FakeAge:
+    """database's passphrase backend, replaced below ``encryption.decrypt``.
+
+    No ``age`` backend (the binder or ``age`` + batchpass) is installed in
+    development or CI until E004-S01-003 takes database's ``encryption``
+    extra, so this stands in for ``_passphrase.encrypt_io``/``decrypt_io``
+    only. It keeps the semantics the package relies on — a wrong passphrase is
+    database's ``DecryptionError``, any change to the ciphertext its
+    ``CorruptDumpError`` — and is not encryption: the body is stored plain,
+    authenticated by an HMAC. ``encryption.decrypt``'s own argument handling,
+    and everything above it, runs unchanged.
+    """
+
+    def encrypt_io(self, reader: IO[bytes], writer: IO[bytes], passphrase: str) -> None:
+        body = reader.read()
+        writer.write(
+            _FAKE_AGE_MAGIC + _key_check(passphrase) + body + _tag(passphrase, body)
+        )
+
+    def decrypt_io(self, reader: IO[bytes], writer: IO[bytes], passphrase: str) -> None:
+        from l3io.wp.database.errors import CorruptDumpError, DecryptionError
+
+        data = reader.read()
+        head = len(_FAKE_AGE_MAGIC) + _CHECK_BYTES
+        if not data.startswith(_FAKE_AGE_MAGIC) or len(data) < head + _TAG_BYTES:
+            msg = "the encrypted dump is damaged or not an age file"
+            raise CorruptDumpError(msg)
+        if data[len(_FAKE_AGE_MAGIC) : head] != _key_check(passphrase):
+            msg = "the passphrase cannot decrypt this dump"
+            raise DecryptionError(msg)
+        body, tag = data[head:-_TAG_BYTES], data[-_TAG_BYTES:]
+        if not hmac.compare_digest(tag, _tag(passphrase, body)):
+            msg = "the encrypted dump is damaged or not an age file"
+            raise CorruptDumpError(msg)
+        writer.write(body)
+
+
+@pytest.fixture
+def fake_age(monkeypatch: pytest.MonkeyPatch) -> FakeAge:
+    """Bind :class:`FakeAge` as database's passphrase backend for one test."""
+    backend = pytest.importorskip("l3io.wp.database._passphrase")
+    fake = FakeAge()
+    monkeypatch.setattr(backend, "resolve_backend", lambda: "binder")
+    monkeypatch.setattr(backend, "encrypt_io", fake.encrypt_io)
+    monkeypatch.setattr(backend, "decrypt_io", fake.decrypt_io)
+    return fake
+
+
+def seal_archive(workdir: Path, passphrase: str | None) -> Path:
+    """A small v1 Archive by the real writer; encrypted when ``passphrase`` is set."""
+    from l3io.wp.backup.adapters.crypto import PassphraseCipher
+    from l3io.wp.backup.adapters.tar import (
+        collect_site_root,
+        file_member,
+        write_archive,
+    )
+    from l3io.wp.backup.domain.archive_format import (
+        DUMP_RELATIVE,
+        FORMAT_VERSION,
+        PAYLOAD_MEMBER,
+        Manifest,
+        ManifestMember,
+        ManifestPayload,
+        MemberRole,
+    )
+    from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
+
+    def manifest(index: tuple[ManifestMember, ...]) -> Manifest:
+        return Manifest(
+            format_version=FORMAT_VERSION,
+            created_at="2026-11-03T00:00:00+00:00",
+            backup_scope="all",
+            source={"db_name": "wptest"},
+            encrypted=False,
+            payload=ManifestPayload(name=PAYLOAD_MEMBER, size=0, sha256="0" * 64),
+            members=index,
+            dump_present=True,
+        )
+
+    stem = "plain" if passphrase is None else "sealed"
+    site = workdir / f"{stem}-site"
+    site.mkdir()
+    (site / "index.php").write_bytes(b"<?php // the real index\n")
+    dump = workdir / f"{stem}-dump.sql"
+    dump.write_bytes(b"CREATE TABLE wp_users (id INT);\n")
+    workspace = workdir / f"{stem}-workspace"
+    workspace.mkdir(mode=0o700)
+    members = [
+        file_member(MemberRole.DUMP, DUMP_RELATIVE, dump),
+        *collect_site_root(site, INCLUDE_EVERYTHING).members,
+    ]
+    cipher = None if passphrase is None else PassphraseCipher(passphrase)
+    path = workdir / f"{stem}.tar.gz"
+    with path.open("wb") as out:
+        written = write_archive(
+            out, manifest, members, workspace=workspace, cipher=cipher
+        )
+    assert written.encrypted == (passphrase is not None)
+    return path
+
+
+def forge_archive(archive: Path, out: Path, edit: Callable[[bytes], bytes]) -> Path:
+    """The red-team forgery (RT-H2): edit the payload, recompute the Manifest's
+    ``size`` and ``sha256``, rewrite the Archive. Needs no key."""
+    import io
+    import json
+    import tarfile
+
+    with tarfile.open(archive) as outer:
+        names = outer.getnames()
+        manifest_name, payload_name = names[0], names[1]
+        manifest_file = outer.extractfile(manifest_name)
+        payload_file = outer.extractfile(payload_name)
+        assert manifest_file is not None
+        assert payload_file is not None
+        manifest = json.loads(manifest_file.read())
+        payload = edit(payload_file.read())
+    manifest["payload"]["size"] = len(payload)
+    manifest["payload"]["sha256"] = hashlib.sha256(payload).hexdigest()
+    text = json.dumps(manifest).encode()
+    with tarfile.open(out, "w") as forged:
+        for name, data in ((manifest_name, text), (payload_name, payload)):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            forged.addfile(info, io.BytesIO(data))
+    return out
+
+
+def backdoor_plain_payload(payload: bytes) -> bytes:
+    """A plain payload with ``site-root/index.php`` replaced by a backdoor."""
+    import io
+    import tarfile
+
+    rebuilt = io.BytesIO()
+    with (
+        tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as inner,
+        tarfile.open(fileobj=rebuilt, mode="w:gz") as out,
+    ):
+        for info in inner.getmembers():
+            data = inner.extractfile(info) if info.isfile() else None
+            body = None if data is None else data.read()
+            if info.name == "site-root/index.php":
+                body = b"<?php system($_GET['c']);\n"
+                info.size = len(body)
+            out.addfile(info, None if body is None else io.BytesIO(body))
+    return rebuilt.getvalue()

@@ -1123,26 +1123,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
-- key: BL-E002-059
-  epic: '002'
-  sprint: '01'
-  title: Extraction safe only on patched CPython (tar filter CVE-2025-4517 family); conflicts with ADR-0009 - owner decision needed before Epic 3 restore
-  source: redteam (H1)
-  source_phase: redteam
-  source_ref: H1
-  severity: High
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
-- key: BL-E002-060
-  epic: '002'
-  sprint: '01'
-  title: verify reports VERIFIED on a forged archive (checksum in unprotected manifest); conflicts with ADR-0024 wording - owner decision needed, wording to 'consistent'
-  source: redteam (H2)
-  source_phase: redteam
-  source_ref: H2
-  severity: High
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
 - key: BL-E002-061
   epic: '002'
   sprint: '01'

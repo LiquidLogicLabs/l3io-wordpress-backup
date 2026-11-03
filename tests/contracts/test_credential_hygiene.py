@@ -57,7 +57,12 @@ from l3io.wp.backup.domain.errors import (  # noqa: E402
     CredentialsError,
     DumpFailedError,
 )
-from tests.conftest import write_wp_config  # noqa: E402
+from tests.conftest import (  # noqa: E402
+    backdoor_plain_payload,
+    forge_archive,
+    seal_archive,
+    write_wp_config,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "core"
@@ -118,6 +123,23 @@ def watched_names(module: object, *drivers: str) -> set[str]:
 
 
 BACKUP_DRIVERS = ("run_backup", "drive_backup", "backup")
+#: ``verify --authenticate`` (BL-E002-060): ``_authenticate`` resolves and uses
+#: the passphrase.
+VERIFY_DRIVERS = ("run_verify", "drive_verify", "_authenticate")
+#: Parameters that receive AD-26's inputs — the passphrase or the environment
+#: holding it — by design. A callable taking one is a passphrase *source*: its
+#: arguments hold the secret, so it is not spied on; what it returns and emits
+#: still is. Derived from each signature, not listed.
+PASSPHRASE_INPUTS = frozenset({"environ", "explicit", "passphrase"})
+
+
+def takes_a_passphrase(owner: object, name: str) -> bool:
+    """Whether ``owner.name``'s signature has a :data:`PASSPHRASE_INPUTS` parameter."""
+    try:
+        parameters = inspect.signature(getattr(owner, name)).parameters
+    except (TypeError, ValueError):
+        return False
+    return bool(PASSPHRASE_INPUTS & parameters.keys())
 
 
 #: The CLI root creates the Run's SecretRegistry and reports its failure.
@@ -272,7 +294,7 @@ def test_verify_emits_no_credential(
     code, archive = _backup(credential_sentinel, capsys, mode="all")
     assert code == 0
     names = watched_names(verify_cli, "run_verify", "drive_verify")
-    assert {"storage_target_from_cli", "verify_archive"} <= names
+    assert {"storage_target_from_cli", "verify_archive_view"} <= names
     for name in names:
         credential_sentinel.watch(verify_cli, name)
     root = watched_names(cli_root, *ROOT_DRIVERS)
@@ -308,6 +330,12 @@ def test_the_watched_set_is_derived_and_covers_the_credential_path() -> None:
     } <= names
     assert "Path" not in names  # not a package callable
     assert "WpDatabase" in watched_names(adapter_sets, "real_adapters")
+    assert {
+        "resolve_passphrase",
+        "PassphraseCipher",
+        "decrypt_payload",
+        "verify_archive_view",
+    } <= watched_names(verify_cli, *VERIFY_DRIVERS)
 
 
 def test_a_failed_transfer_emits_no_credential(
@@ -353,6 +381,117 @@ def test_a_passphrase_in_the_environment_is_never_emitted(
     ]
     assert len(ignored) == 1
     credential_sentinel.assert_clean()
+
+
+def _tamper(payload: bytes) -> bytes:
+    flipped = bytearray(payload)
+    flipped[len(flipped) // 2] ^= 0x01
+    return bytes(flipped)
+
+
+@pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
+@pytest.mark.usefixtures("fake_age")
+def test_verify_authenticate_emits_no_passphrase(
+    credential_sentinel: CredentialSentinel,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BL-E002-060: the passphrase reaches no argv, log, error or output.
+
+    Success, a damaged (forged) payload, a wrong passphrase on the library
+    path and a plain Archive, at DEBUG, with every package callable the verify
+    drivers reach spied on except the passphrase sources.
+    """
+    passphrase = credential_sentinel.passphrase
+    assert passphrase is not None
+    workdir = credential_sentinel.workdir
+    sealed = seal_archive(workdir, passphrase)
+    forged = forge_archive(sealed, workdir / "forged.tar.gz", _tamper)
+    plain = forge_archive(
+        seal_archive(workdir, None),
+        workdir / "plain-forged.tar.gz",
+        backdoor_plain_payload,
+    )
+    monkeypatch.setattr(verify_cli, "terminal_prompt", lambda: None)
+    names = watched_names(verify_cli, *VERIFY_DRIVERS)
+    sources = {name for name in names if takes_a_passphrase(verify_cli, name)}
+    assert sources == {
+        "drive_verify",
+        "_authenticate",
+        "resolve_passphrase",
+        "PassphraseCipher",
+    }
+    for name in names - sources:
+        credential_sentinel.watch(verify_cli, name)
+    for name in watched_names(cli_root, *ROOT_DRIVERS):
+        credential_sentinel.watch(cli_root, name)
+    debug = ["--log-level", "DEBUG", "--log-format", "json", "verify"]
+    runs = [
+        ([*debug, "--archive", str(sealed), "--authenticate"], 0),
+        ([*debug, "--archive", str(forged), "--authenticate"], 8),
+        ([*debug, "--archive", str(plain), "--authenticate"], 2),
+    ]
+    for argv, expected in runs:
+        credential_sentinel.add("argv", repr(argv))
+        assert main(argv) == expected
+    out = capsys.readouterr()
+    assert '"authenticated": true' in out.err, "the pipeline wrote no pass"
+    credential_sentinel.add("verify stdout", out.out)
+    credential_sentinel.add("verify stderr", out.err)
+    request = verify_cli.VerifyRequest(
+        archive=backup_cli.storage_target_from_cli(str(sealed)), authenticate=True
+    )
+    for wrong in (f"{passphrase}-not", None):
+        with pytest.raises(BackupError) as caught:
+            verify_cli.drive_verify(
+                request,
+                ctx=None,
+                passphrase=wrong,
+                environ={"L3IO_WP_BACKUP_PASSPHRASE": f"x{passphrase}"},
+            )
+        credential_sentinel.add_exception("verify --authenticate driver", caught.value)
+    credential_sentinel.assert_clean()
+
+
+@pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
+@pytest.mark.usefixtures("fake_age")
+@pytest.mark.parametrize("plant", ["error from the cipher", "spied argument"])
+def test_a_passphrase_leak_on_the_authenticate_path_is_caught(
+    credential_sentinel: CredentialSentinel,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    plant: str,
+) -> None:
+    """The case above examines the new path: a leak planted inside it fails."""
+    from l3io.wp.backup.adapters import crypto
+
+    passphrase = credential_sentinel.passphrase
+    assert passphrase is not None
+    sealed = seal_archive(credential_sentinel.workdir, passphrase)
+    monkeypatch.setattr(verify_cli, "terminal_prompt", lambda: None)
+    request = verify_cli.VerifyRequest(
+        archive=backup_cli.storage_target_from_cli(str(sealed)), authenticate=True
+    )
+    if plant == "error from the cipher":
+
+        def leaky(self: crypto.PassphraseCipher, *_: object) -> None:
+            raise LookupError(self._passphrase)
+
+        monkeypatch.setattr(crypto.PassphraseCipher, "decrypt", leaky)
+        with pytest.raises(LookupError) as raised:
+            verify_cli.drive_verify(request, ctx=None, environ=os.environ)
+        credential_sentinel.add_exception("verify driver", raised.value)
+    else:
+        monkeypatch.setattr(
+            crypto.PassphraseCipher, "__repr__", lambda self: self._passphrase
+        )
+        credential_sentinel.watch(verify_cli, "decrypt_payload")
+        argv = ["--log-level", "DEBUG", "verify", "--archive", str(sealed)]
+        assert main([*argv, "--authenticate"]) == 0
+        credential_sentinel.add("verify stderr", capsys.readouterr().err)
+    with pytest.raises(AssertionError) as caught:
+        credential_sentinel.assert_clean()
+    assert passphrase not in str(caught.value)
 
 
 # --------------------------------------------------------------------------

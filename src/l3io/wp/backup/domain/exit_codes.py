@@ -19,7 +19,10 @@ added only for a genuinely new kind of failure, and only by E002.
 - a missing tool — WP-CLI (FR-13), or any FR-27 prerequisite — is
   ``NOT_READY``;
 - a decryption failure (Epic 4) is ``CREDENTIALS`` for a missing or wrong key
-  and ``VERIFICATION_FAILED`` for corrupt ciphertext.
+  and ``VERIFICATION_FAILED`` for corrupt ciphertext — except under ``verify
+  --authenticate``, where a wrong passphrase is ``VERIFICATION_FAILED`` too
+  (``PassphraseRejectedError``; Shawn, 2026-11-03): the Archive could not be
+  authenticated.
 
 Each error class carries its code as the class attribute
 ``BackupError.exit_code`` (``domain/errors.py``); the CLI reads that attribute

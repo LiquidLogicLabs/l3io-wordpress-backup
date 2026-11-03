@@ -40,7 +40,11 @@ This schema is part of the CLI contract (PRD §8). Log message wording is not.
 
 Every `phase_completed` record also carries exactly these phase fields, plus
 any step-specific fields (verification adds `format_version`, `integrity`,
-`dump_present`, `passed`, and on failure `reason` and `member`):
+`dump_present`, `passed`, `authenticated`, and on failure `reason` and
+`member`). `authenticated` is `false` for every keyless verification — the
+checksums it checks live in the unprotected Manifest, so a pass means
+consistent, not authentic — and `true` only when `verify --authenticate`
+decrypted the whole payload with its passphrase:
 
 <!-- schema:phase -->
 | Field | Type | Meaning |

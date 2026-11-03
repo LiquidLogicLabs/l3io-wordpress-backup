@@ -24,7 +24,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DOC = PROJECT_ROOT / "docs" / "logging.md"
 #: Fields ``verify_archive`` adds to its phase record (AD-23), not the schema's.
 VERIFY_EXTRAS = frozenset(
-    {"format_version", "integrity", "dump_present", "passed", "reason", "member"}
+    {
+        "format_version",
+        "integrity",
+        "dump_present",
+        "passed",
+        "authenticated",
+        "reason",
+        "member",
+    }
 )
 
 

@@ -23,6 +23,8 @@ Credit for the original version of this goes to [Cariad Eccleston](https://githu
 pip install l3io-wordpress-backup
 ```
 
+Requirements: Python 3.11 or newer. Extracting an archive also needs a Python with the June 2025 `tarfile` security fixes (3.11.13+, 3.12.11+, 3.13.4+; CVE-2025-4517); on an older one extraction is refused — upgrade Python.
+
 ## Usage
 
 To backup:
@@ -36,6 +38,8 @@ To check an archive without touching a site:
 ```
 wpbackup2 verify --archive ~/backup.tar.gz
 ```
+
+Without a key, `verify` proves the archive's checksums are **consistent** with its manifest, not that the archive is **authentic**: the manifest is unprotected, so anyone who can rewrite the archive can rewrite its checksums too. It says so (`authenticity not checked (no key)`). For an encrypted archive, `--authenticate` decrypts the whole payload with its passphrase — taken from `L3IO_WP_BACKUP_PASSPHRASE` or a terminal prompt, never from the command line — and `age` authenticates every chunk. A wrong passphrase or a tampered payload exits 8; a plain archive is refused, since there is nothing to authenticate.
 
 `restore` is listed in `--help` but is not available in this build.
 
@@ -105,11 +109,14 @@ options:
 
 ```text
 $ wpbackup2 verify --help
-usage: wpbackup2 verify [-h] --archive ARCHIVE
+usage: wpbackup2 verify [-h] --archive ARCHIVE [--authenticate]
 
 options:
   -h, --help         show this help message and exit
   --archive ARCHIVE  Path or file: URL of the archive to check.
+  --authenticate     Decrypt the encrypted payload to prove the archive authentic; without it,
+                     verify proves only that its checksums are consistent. The passphrase comes
+                     from L3IO_WP_BACKUP_PASSPHRASE or a prompt.
 ```
 <!-- END GENERATED: cli-usage -->
 

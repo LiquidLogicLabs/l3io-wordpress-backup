@@ -90,6 +90,9 @@ DECLARED = {
     "VerificationFailedError": ExitCode.VERIFICATION_FAILED,
     "UnrecognisedArchiveError": ExitCode.VERIFICATION_FAILED,
     "UnsupportedFormatVersionError": ExitCode.VERIFICATION_FAILED,
+    # verify --authenticate (BL-E002-060): the payload could not be authenticated.
+    "PassphraseRejectedError": ExitCode.VERIFICATION_FAILED,
+    "PayloadDamagedError": ExitCode.VERIFICATION_FAILED,
     "SiteLockedError": ExitCode.LOCKED,
     "MissingExtraError": ExitCode.NOT_READY,
     "PreflightFailedError": ExitCode.NOT_READY,

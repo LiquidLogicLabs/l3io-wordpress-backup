@@ -367,3 +367,5 @@
 {"epic": "E002", "event": "actual", "from": null, "key": "S01", "node": "sprint", "session": null, "sprint": "S01", "to": null, "ts": "2026-11-03T06:25:39Z"}
 {"epic": "E002", "event": "status", "from": "backlog", "key": "S01", "node": "sprint", "session": null, "sprint": "S01", "to": "done", "ts": "2026-11-03T06:25:53Z"}
 {"agent": "l3io-pm-closure", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "ts": "2026-11-03T06:26:17Z"}
+{"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-059", "ref": null, "resolution": "deferred", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-03T16:11:22Z"}
+{"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-060", "ref": null, "resolution": "deferred", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-03T16:11:23Z"}

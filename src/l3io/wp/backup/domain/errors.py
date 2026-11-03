@@ -40,6 +40,7 @@ __all__ = [
     "AdminCredentialsRequiredError",
     "ArchiveExistsError",
     "ArchiveHasNoDumpError",
+    "ArchiveNotEncryptedError",
     "ArchiveNotFoundError",
     "ArchiveReadError",
     "ArchiveWriteError",
@@ -54,8 +55,10 @@ __all__ = [
     "MalformedManifestError",
     "MemberReadRefusedError",
     "MissingExtraError",
+    "PassphraseRejectedError",
     "PassphraseRequiredError",
     "PassphraseUnavailableError",
+    "PayloadDamagedError",
     "PreflightFailedError",
     "ProvisioningFailedError",
     "RefusedError",
@@ -226,7 +229,7 @@ class DatabaseRefusedError(RefusedError):
 class PassphraseRequiredError(RefusedError):
     """Encryption was requested, or the Archive is encrypted, and no passphrase."""
 
-    def __init__(self, operation: Literal["backup", "restore"]) -> None:
+    def __init__(self, operation: Literal["backup", "restore", "verify"]) -> None:
         self.operation = operation
         super().__init__(f"{operation} needs a passphrase and none was resolved")
 
@@ -327,6 +330,52 @@ class VerificationFailedError(BackupError):
             else f"{first.reason.value} ({first.member!r})"
         )
         super().__init__(f"archive verification failed: {detail}")
+
+
+class PassphraseRejectedError(BackupError):
+    """The passphrase cannot open the encrypted payload (``DecryptionError``).
+
+    ``VERIFICATION_FAILED``: the payload could not be authenticated (Shawn,
+    2026-11-03). Kept distinct from :class:`PayloadDamagedError` (ADR-0014).
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
+
+    def __init__(self) -> None:
+        super().__init__(
+            "authentication failed: the passphrase cannot decrypt this archive"
+        )
+
+
+class PayloadDamagedError(BackupError):
+    """The encrypted payload is damaged, truncated or not ``age``.
+
+    Database's ``CorruptDumpError``.
+
+    ``age`` authenticates every chunk, so a tampered payload lands here.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
+
+    def __init__(self) -> None:
+        super().__init__(
+            "authentication failed: the encrypted payload is damaged or tampered with"
+        )
+
+
+class ArchiveNotEncryptedError(UsageError):
+    """``--authenticate`` was asked of an Archive with no encrypted payload.
+
+    Nothing in a plain Archive can be authenticated, so passing would be the
+    false reassurance BL-E002-060 removes.
+    """
+
+    def __init__(self, archive: str) -> None:
+        self.archive = archive
+        super().__init__(
+            f"archive {archive!r} is not encrypted, so there is nothing to "
+            "authenticate; verify it without --authenticate"
+        )
 
 
 class UnrecognisedArchiveError(BackupError):

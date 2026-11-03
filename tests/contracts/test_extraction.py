@@ -19,7 +19,9 @@ escaping target skipped and reported (ADR-0017 amendment); a hard link
 refused wherever it points, including at an in-destination file that
 ``data_filter`` alone allows (2026-11-03 amendment); containment re-checked
 after the role prefix is stripped; the refusal path when ``data_filter`` is
-absent; and ``exclude``. The stdlib mechanism tests below them keep proving
+absent, and when ``os.path.ALLOW_MISSING`` is (an interpreter without the
+June 2025 tarfile CVE fixes, BL-E002-059; both states simulated); and
+``exclude``. The stdlib mechanism tests below them keep proving
 that ``filter='data'`` itself refuses, and that the fixture really escapes
 without it.
 """
@@ -477,6 +479,34 @@ def test_no_data_filter_takes_the_refusal_path(
     assert _tree(destination) == {}
 
 
+def test_no_allow_missing_takes_the_refusal_path(
+    tmp_path: Path, destination: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E002-059: no ``os.path.ALLOW_MISSING`` is an unpatched tarfile; refused.
+
+    Simulated, so it runs on any interpreter: the attribute is removed (and
+    ``raising=False`` lets it run on one that never had it).
+    """
+    source, view = _v1(tmp_path, [_file("site-root/index.php", b"<?php")])
+    monkeypatch.delattr(os.path, "ALLOW_MISSING", raising=False)
+    with pytest.raises(ExtractionRefusedError, match="CVE-2025-4517") as caught:
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert "upgrade Python" in str(caught.value)
+    assert _tree(destination) == {}
+
+
+def test_with_allow_missing_present_extraction_proceeds(
+    tmp_path: Path, destination: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other state, simulated on an unpatched interpreter that lacks it."""
+    if not hasattr(os.path, "ALLOW_MISSING"):
+        monkeypatch.setattr(os.path, "ALLOW_MISSING", object(), raising=False)
+    source, view = _v1(tmp_path, [_file("site-root/index.php", b"<?php")])
+    result = extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert _tree(destination) == {"index.php": b"<?php"}
+    assert result.members == 1
+
+
 def test_an_excluded_member_is_never_written(tmp_path: Path, destination: Path) -> None:
     kept = destination / "wp-config.php"
     kept.write_bytes(CONFIG)
@@ -639,6 +669,15 @@ def test_the_interpreter_provides_the_data_filter() -> None:
     it is not licence to fall back to ``fully_trusted``.
     """
     assert hasattr(tarfile, "data_filter")
+
+
+def test_the_interpreter_has_the_tarfile_cve_fixes() -> None:
+    """BL-E002-059, asserted per interpreter: the dev pin and CI legs are patched.
+
+    A leg failing this extracts nothing (``extract_archive`` refuses); the fix
+    is a patched interpreter, never a fallback.
+    """
+    assert hasattr(os.path, "ALLOW_MISSING")
 
 
 def test_the_data_filter_refuses_a_traversing_member(tmp_path: Path) -> None:
