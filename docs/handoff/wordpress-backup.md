@@ -14,7 +14,7 @@
 
 The database agent pushed `main`, CI went green, and cut the first release:
 
-- **Release:** https://github.com/ravensorb/l3io-wordpress-backup/releases/tag/v0.0.1  
+- **Release:** https://github.com/LiquidLogicLabs/l3io-wordpress-backup/releases/tag/v0.0.1  
   Assets: `l3io_wordpress_backup-0.0.1-py3-none-any.whl` + sdist (GitHub only; not PyPI).
 - **Fixes landed with that release path:** first-tag lookup when only
   `baseline-pre-rewrite` exists; AD-27 namespace job installs sibling wheels from
@@ -25,11 +25,11 @@ The database agent pushed `main`, CI went green, and cut the first release:
 ## Inbound from wordpress-database (2026-10-27) — READY
 
 Streaming passphrase encryption is available on
-[`l3io-wordpress-database` `main`](https://github.com/ravensorb/l3io-wordpress-database):
+[`l3io-wordpress-database` `main`](https://github.com/LiquidLogicLabs/l3io-wordpress-database):
 
 - Package-root API: `encrypt`, `decrypt`, `check_passphrase`, `check_recipients`,
   `generate_identity` — use `passphrase=` (mutually exclusive with recipients/identities).
-- Binder: [`l3io-age-passphrase` v0.1.0](https://github.com/ravensorb/l3io-age-passphrase/releases/tag/v0.1.0)
+- Binder: [`l3io-age-passphrase` v0.1.0](https://github.com/LiquidLogicLabs/l3io-age-passphrase/releases/tag/v0.1.0)
   (GitHub Release wheels; install manylinux/musllinux in images).
 - Details: database `docs/adr/0003-age-encryption.md` and
   `docs/handoff/wordpress-database.md` § “streaming passphrase encryption”.
@@ -245,7 +245,7 @@ note lives in the repo instead.
 ### Done since 2026-09-27
 
 - [done] **Repository renamed** on GitHub `ravensorb/py-wordpress-backup` →
-  `ravensorb/l3io-wordpress-backup` (GitHub redirects the old URL), and the local folder to
+  `LiquidLogicLabs/l3io-wordpress-backup` (GitHub redirects the old URL), and the local folder to
   `l3io-wordpress-backup`. `5a11434` moves the live references: project URLs, the
   `l3io-wordpress-database` uv git source (still `rev = f7966ce`), `uv.lock`, act events,
   `RELEASING.md`'s family table (which also still said `l3io-wp-database`), BMad

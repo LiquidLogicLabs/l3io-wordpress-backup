@@ -281,8 +281,8 @@ jobs:
         # shape as a consumer would until the family is on an index). Wrong name
         # `l3io-wp-database` and bare PyPI lookups failed the first v0.0.1 publish.
         env:
-          CONFIG_WHEEL: https://github.com/ravensorb/l3io-wordpress-config/releases/download/v0.1.1/l3io_wordpress_config-0.1.1-py3-none-any.whl
-          DATABASE_WHEEL: https://github.com/ravensorb/l3io-wordpress-database/releases/download/v0.1.0/l3io_wordpress_database-0.1.0-py3-none-any.whl
+          CONFIG_WHEEL: https://github.com/LiquidLogicLabs/l3io-wordpress-config/releases/download/v0.1.1/l3io_wordpress_config-0.1.1-py3-none-any.whl
+          DATABASE_WHEEL: https://github.com/LiquidLogicLabs/l3io-wordpress-database/releases/download/v0.1.0/l3io_wordpress_database-0.1.0-py3-none-any.whl
         run: |
           set -euo pipefail
           uv run --isolated --no-project \

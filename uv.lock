@@ -564,8 +564,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=45,<51" },
-    { name = "l3io-wordpress-config", marker = "extra == 'database'", git = "https://github.com/ravensorb/l3io-wordpress-config.git?rev=e975ca6c18f2353f648615bf31c33e6e5d36eb27" },
-    { name = "l3io-wordpress-database", marker = "extra == 'database'", git = "https://github.com/ravensorb/l3io-wordpress-database.git?rev=48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" },
+    { name = "l3io-wordpress-config", marker = "extra == 'database'", git = "https://github.com/LiquidLogicLabs/l3io-wordpress-config.git?rev=e975ca6c18f2353f648615bf31c33e6e5d36eb27" },
+    { name = "l3io-wordpress-database", marker = "extra == 'database'", git = "https://github.com/LiquidLogicLabs/l3io-wordpress-database.git?rev=48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
@@ -599,12 +599,12 @@ test = [
 [[package]]
 name = "l3io-wordpress-config"
 version = "0.1.2"
-source = { git = "https://github.com/ravensorb/l3io-wordpress-config.git?rev=e975ca6c18f2353f648615bf31c33e6e5d36eb27#e975ca6c18f2353f648615bf31c33e6e5d36eb27" }
+source = { git = "https://github.com/LiquidLogicLabs/l3io-wordpress-config.git?rev=e975ca6c18f2353f648615bf31c33e6e5d36eb27#e975ca6c18f2353f648615bf31c33e6e5d36eb27" }
 
 [[package]]
 name = "l3io-wordpress-database"
 version = "0.2.0"
-source = { git = "https://github.com/ravensorb/l3io-wordpress-database.git?rev=48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2#48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" }
+source = { git = "https://github.com/LiquidLogicLabs/l3io-wordpress-database.git?rev=48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2#48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pymysql", extra = ["rsa"] },
