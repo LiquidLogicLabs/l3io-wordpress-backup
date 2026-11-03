@@ -564,8 +564,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=45,<51" },
-    { name = "l3io-wordpress-config", marker = "extra == 'database'", git = "https://github.com/LiquidLogicLabs/l3io-wordpress-config.git?rev=e975ca6c18f2353f648615bf31c33e6e5d36eb27" },
-    { name = "l3io-wordpress-database", marker = "extra == 'database'", git = "https://github.com/LiquidLogicLabs/l3io-wordpress-database.git?rev=48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" },
+    { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.3,<0.2", index = "https://test.pypi.org/simple/" },
+    { name = "l3io-wordpress-database", marker = "extra == 'database'", specifier = ">=0.2.1,<0.3", index = "https://test.pypi.org/simple/" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
@@ -598,17 +598,25 @@ test = [
 
 [[package]]
 name = "l3io-wordpress-config"
-version = "0.1.2"
-source = { git = "https://github.com/LiquidLogicLabs/l3io-wordpress-config.git?rev=e975ca6c18f2353f648615bf31c33e6e5d36eb27#e975ca6c18f2353f648615bf31c33e6e5d36eb27" }
+version = "0.1.3"
+source = { registry = "https://test.pypi.org/simple/" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/aa/68/15c3caef2df285b96ba8543228f762800eceb807ebd466c598cd0b176457/l3io_wordpress_config-0.1.3.tar.gz", hash = "sha256:5009b8045576d37f640db47175c48a396bbab30878eadc0082ca44dddf1a5da7", size = 139941, upload-time = "2026-11-03T01:49:30.798Z" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/51/2a/0b3c1f0c0841a12e962852f67799d9b453d3491b28ecc682546344be8eb3/l3io_wordpress_config-0.1.3-py3-none-any.whl", hash = "sha256:40e9ee3bcfe0bc154dce002cb743be95d0ffafadcdc3d5db2952aadfd02a032d", size = 21687, upload-time = "2026-11-03T01:49:29.5Z" },
+]
 
 [[package]]
 name = "l3io-wordpress-database"
-version = "0.2.0"
-source = { git = "https://github.com/LiquidLogicLabs/l3io-wordpress-database.git?rev=48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2#48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" }
+version = "0.2.1"
+source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pymysql", extra = ["rsa"] },
     { name = "structlog" },
+]
+sdist = { url = "https://test-files.pythonhosted.org/packages/6f/1a/917d4223450a08ed07c1771bccfb62be5800de433bfd21798dfe07937535/l3io_wordpress_database-0.2.1.tar.gz", hash = "sha256:4c78791b0b8a4cd88abda6c0ba21a2bd7593007329e38abcf55f965e5e4eaa7c", size = 52516, upload-time = "2026-11-03T01:57:14.498Z" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/87/80/c1c761e0d8b5f0b8fc99020d1b9194d30a2ab96bee9e609961c01c792844/l3io_wordpress_database-0.2.1-py3-none-any.whl", hash = "sha256:422c9f5d750977172fa5c9a81b0c9eba7f28aa7ee3f74675a9c4473748067d1f", size = 62677, upload-time = "2026-11-03T01:57:13.212Z" },
 ]
 
 [[package]]

@@ -628,3 +628,38 @@ Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md
       guards it, proven by three plants. `make ci` passes.
     - Still to do in E004-S01-003: when it adds the `encryption` extra, the dev lock takes
       the binder from this index, not database's git source.
+
+## Update — 2026-11-03: the family resolves from TestPyPI, no git pins, no credentials
+
+- **Shawn (2026-11-02):** use TestPyPI for development and CI, anonymously, through an
+  explicit uv index. The family Gitea index needs a login and this repository is public.
+  PyPI comes before backup's first real release.
+- **On TestPyPI:**
+  - `l3io-wordpress-database` 0.2.1 (source-identical to 0.2.0);
+  - `l3io-wordpress-config` 0.1.3 (source-identical to 0.1.2);
+  - `l3io-age-passphrase` 0.1.1.
+
+  None of the family is on pypi.org yet (checked 2026-11-02).
+- **`pyproject.toml`:**
+  - database and config come from the `testpypi` index (`explicit = true`, so nothing else
+    is taken from TestPyPI);
+  - the extra floors are `>=0.2.1` and `>=0.1.3`;
+  - `uv.lock` has no git source left.
+  - The family stays an extra until it is on PyPI, which is the revert condition stated
+    in `pyproject.toml`.
+- **CI, verify-install:** installs the built wheel with every extra, `--no-build`, from
+  PyPI plus an explicit TestPyPI index whose package set is read from `uv.lock`. It
+  needs no login and runs on pull requests.
+  - The contract tests are proven by four plants: source builds allowed, a non-explicit
+    TestPyPI index, a hand-kept package list, and hand-kept extras.
+- **Traps:**
+  - uv applies `[tool.uv.sources]` only to DIRECT dependencies. A transitive family
+    package needs `override-dependencies`, or to be named directly. This bit twice: the
+    binder on 2026-10-30, and the CI probe on 2026-11-03.
+  - A bare `uv.lock` substring check passed a hand-kept list, because an error message
+    contained the word. Check the read, not the word.
+- **Not adopted:** database's suggested `--index-url testpypi --extra-index-url pypi`.
+  It makes TestPyPI the primary index, so a squatted copy of any dependency there would
+  win.
+- **E004 gate:** the credentials MAJOR is resolved. The E005→E004 tool-docs MAJOR is
+  still open.

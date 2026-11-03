@@ -73,3 +73,25 @@ Applied in `e44ac5b`, with in-place edits to 21 stories.
   - **Needs Shawn's decision.**
 
 **Verdict after one resolution pass: BLOCKED** — 2 blocking findings.
+
+## The credentials MAJOR — resolved 2026-11-03 (Shawn's decision of 2026-11-02)
+
+- **Decision:** the family resolves anonymously from **TestPyPI** for development and CI,
+  through an explicit uv index. TestPyPI is a stepping stone, not a release index: the
+  family moves to PyPI before backup's first real release (Shawn's call when it comes).
+- **What exists now:** database 0.2.1, config 0.1.3 and binder 0.1.1 are on TestPyPI.
+  - database 0.2.1 and config 0.1.3 are source-identical to 0.2.0 and 0.1.2 (`git diff`
+    over `src/` is empty).
+  - database 0.2.1's published metadata names config and the binder by version range.
+- **Changes:**
+  - `pyproject.toml`: database and config come from the `testpypi` explicit index; there
+    are no git sources left in `uv.lock`.
+  - The CI extras check is anonymous: an explicit TestPyPI index, with its package set
+    derived from `uv.lock`, and it runs on pull requests.
+  - The contract test is proven by four plants. A guard keeps any future family-index
+    step off pull requests, gated on the event.
+- **E004-S01-003:** takes the binder from the same index when it adds the `encryption`
+  extra, via `override-dependencies`, because uv applies sources only to direct
+  dependencies.
+- **Still open for E004:** the architect's MAJOR. E005-S01-002's tool-docs check fails
+  once `adapters/crypto` exists, and nothing records the order.

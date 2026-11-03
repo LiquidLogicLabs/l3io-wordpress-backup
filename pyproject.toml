@@ -51,26 +51,17 @@ dependencies = [
 # below stops forbidding it.
 # l3io-wordpress-database: the API this rewrite builds on -- dump/load, survey,
 # ensure, drop_database, CredentialChain and age encryption -- released at v0.1.0
-# (2026-10-20); passphrase= arrived in v0.2.0, which the source below pins
-# (ADR-0014). Its `encryption` extra is NOT taken yet: it requires the
-# l3io-age-passphrase binder, which is on GitHub Releases only, and uv does not
-# honour a dependency's own [tool.uv.sources], so taking it now would build the
-# Rust binder from source. Story E004-S01-003 adds the extra with a source for
-# the binder's release wheels.
+# (2026-10-20); passphrase= arrived in v0.2.0 (ADR-0014). v0.2.1 (2026-11-03) is
+# the same source as v0.2.0 (`git diff v0.2.0 v0.2.1 -- src/` is empty) and the
+# first database release on TestPyPI; its published metadata names config and the
+# binder by version range, not by git. Its `encryption` extra is NOT taken yet:
+# story E004-S01-003 adds it, and the binder then comes from TestPyPI too.
 #
-# Pinned by REV rather than by a tag: a tag can be
-# deleted or moved, and the lock would not notice -- the lock records
-# the resolved commit, not the ref that found it, so CI stays green on a
-# dependency no fresh clone can resolve. That trap cost py-wordpress-database a
-# dangling pin when its own v1.5.0 reference was deleted from py-wpconfigr.
-#
-# STILL NOT AN INDEX DEPENDENCY, and the revert condition above is NOT met:
-# /simple/l3io-wordpress-database/ returns 401 unauthenticated. Consuming the
-# registry would mean every developer and every CI runner needs credentials
-# before a clean clone resolves, and this repository is public -- a PR runner
-# clones it with no token. It moves into `dependencies` when the package is
-# resolvable from an index a consumer already uses, not merely when it is
-# published somewhere.
+# STILL AN EXTRA, and the revert condition above is NOT met. TestPyPI is where the
+# family resolves anonymously for development and CI (Shawn, 2026-11-02), but it
+# is not an index a consumer already uses: a plain `pip install` searches PyPI
+# only. The family moves to PyPI before backup's first real release; then this
+# moves into `dependencies`.
 #
 # The NAMESPACE is unaffected: it imports as l3io.wp.database (docs/adr/0012).
 # l3io-wordpress-config is named directly, not left to database's `wpconfig`
@@ -80,10 +71,11 @@ dependencies = [
 # four scanner defects PHP 8.4 confirmed on real configs: a define inside a
 # multi-line comment read as live (wrong DB_NAME), DEFINE() in other cases
 # unread, CRLF files rewritten as LF, and WpConfigString.set raising on CRLF
-# (ADR-0023's OVERWRITE path). Nothing below 0.1.2 may be resolved.
+# (ADR-0023's OVERWRITE path). 0.1.3 is the same code with LiquidLogicLabs URLs,
+# and is the first config release on TestPyPI. Nothing below 0.1.3 may be resolved.
 database = [
-  "l3io-wordpress-database>=0.2.0,<0.3",
-  "l3io-wordpress-config>=0.1.2,<0.2",
+  "l3io-wordpress-database>=0.2.1,<0.3",
+  "l3io-wordpress-config>=0.1.3,<0.2",
 ]
 
 # AD-8 — an optional dependency is an optional import. Nothing here may be
@@ -103,17 +95,24 @@ Issues = "https://github.com/LiquidLogicLabs/l3io-wordpress-backup/issues"
 [project.scripts]
 wpbackup2 = "l3io.wp.backup.cli:run_from_cli"
 
-# Development and CI arrangement only, and a deliberate choice over the Gitea
-# index l3io-wordpress-database will be staged to: that index requires credentials
-# (/simple/ returns 401 unauthenticated), so consuming it would mean every
-# developer and every CI runner needs secrets. The GitHub repository is public.
-# Pinned to a rev, never a branch — a branch re-resolves on every `uv lock -U`.
-# `uv build --no-sources` keeps this out of published metadata (ADR-0007).
+# Development and CI only: `uv build --no-sources` keeps all of this out of the
+# published metadata (ADR-0007). The family resolves from TestPyPI, anonymously,
+# not from git and not from the family Gitea index (Shawn, 2026-11-02): that index
+# needs a login, and this repository is public, so a clean clone or a fork's pull
+# request has no token. TestPyPI is a stepping stone, not a release index -- the
+# family moves to PyPI before backup's first real release, and these lines go.
 [tool.uv.sources]
-# v0.2.0 = 48a7da9 (released 2026-10-27; streaming passphrase= on encrypt/decrypt/dump/load).
-l3io-wordpress-database = { git = "https://github.com/LiquidLogicLabs/l3io-wordpress-database.git", rev = "48a7da9ac896411ed3d34be9ac39d6f3f3d87ab2" }
-# v0.1.2 = e975ca6 (released 2026-10-29; scanner fixes, commit 9597931).
-l3io-wordpress-config = { git = "https://github.com/LiquidLogicLabs/l3io-wordpress-config.git", rev = "e975ca6c18f2353f648615bf31c33e6e5d36eb27" }
+# v0.2.1 (2026-11-03): src identical to v0.2.0 (48a7da9).
+l3io-wordpress-database = { index = "testpypi" }
+# v0.1.3 (2026-11-03): src identical to v0.1.2 (e975ca6).
+l3io-wordpress-config = { index = "testpypi" }
+
+# `explicit = true`: TestPyPI holds name-squatted and junk packages, so ONLY the
+# packages named in [tool.uv.sources] are taken from it; everything else is PyPI.
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
 
 [tool.uv]
 required-version = "==0.11.6"
