@@ -118,6 +118,11 @@ def test_the_recorded_commands_are_every_command_field() -> None:
         "archive_store_command",
         "database_command",
         "archive_writer",
+        "restore_database_command",
+        "site_files_command",
+        "config_command",
+        "search_replace",
+        "journal_command",
     }
 
 

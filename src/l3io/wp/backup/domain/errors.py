@@ -68,6 +68,7 @@ __all__ = [
     "SiteLockLocationError",
     "SiteLockReleaseError",
     "SiteLockedError",
+    "UnboundAdapterError",
     "UnrecognisedArchiveError",
     "UnsafeMemberPathError",
     "UnsupportedFormatVersionError",
@@ -526,6 +527,23 @@ class AdaptersAlreadyBoundError(BackupError):
     def __init__(self, run_id: str) -> None:
         self.run_id = run_id
         super().__init__(f"the adapters of Run {run_id} are already bound")
+
+
+class UnboundAdapterError(BackupError):
+    """A port whose real implementation has not landed was called. A defect.
+
+    No plan reaches a placeholder-bound port unless the feature behind it was
+    supplied, so this is a programming error, never a user's: ``port`` names
+    the Protocol method called and ``supplier`` the story or epic that binds
+    the real implementation.
+    """
+
+    def __init__(self, port: str, *, supplier: str) -> None:
+        self.port = port
+        self.supplier = supplier
+        super().__init__(
+            f"{port} has no implementation bound yet ({supplier} binds it)"
+        )
 
 
 def exit_code_of(exc: BaseException) -> ExitCode:

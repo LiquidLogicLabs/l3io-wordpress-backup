@@ -30,7 +30,9 @@ def site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("TMPDIR", str(work))
     monkeypatch.setattr(tempfile, "tempdir", None)
     monkeypatch.setattr(
-        adapter_sets, "WpDatabase", lambda credentials, *, secrets: FakeDatabase()
+        adapter_sets,
+        "WpDatabase",
+        lambda credentials, *, secrets, admin=None: FakeDatabase(),
     )
     root = tmp_path / "www"
     root.mkdir()

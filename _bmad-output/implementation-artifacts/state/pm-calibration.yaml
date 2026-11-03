@@ -14,6 +14,7 @@ scope:
       - 0.2487
       - 0.1203
       - 0.1163
+      - 0.1324
       models_seen:
       - claude-opus-5
     man_hours:
@@ -27,6 +28,7 @@ scope:
       - 3.2008
       - 1.8671
       - 2.6673
+      - 1.8671
       models_seen:
       - claude-opus-5
     hitl_hours:
@@ -50,6 +52,7 @@ scope:
       - 11.6613
       - 4.2491
       - 4.1898
+      - 4.5814
       models_seen:
       - claude-opus-5
   complex:
@@ -89,8 +92,8 @@ fix:
   simple: {}
   standard:
     reworked:
-      mean_man_hours: 15.7778
-      samples: 9
+      mean_man_hours: 15.6
+      samples: 10
   complex:
     reworked:
       mean_man_hours: 18.0
@@ -160,4 +163,9 @@ token_mix:
     output: 0.0102
     cache_write: 0.0319
     cache_read: 0.9579
+    model: claude-opus-5
+  - input: 0.0
+    output: 0.0081
+    cache_write: 0.0268
+    cache_read: 0.9651
     model: claude-opus-5

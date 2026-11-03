@@ -1,5 +1,5 @@
 next:
-  '002': 87
+  '002': 88
   '003': 30
   '004': 43
 backlog:
@@ -1389,3 +1389,13 @@ backlog:
   severity: Medium
   status: backlog
   description: Found by E002-S02-011; no story owns it yet.
+- key: BL-E002-087
+  epic: '002'
+  sprint: '02'
+  title: cli/adapter_sets.py carries a module-wide ruff noqa ARG002 for its placeholder classes; move them to their own module or use per-method del
+  source: code-review (E002-S02-012)
+  source_phase: code-review
+  source_ref: E002-S02-012
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-012.md (F5)

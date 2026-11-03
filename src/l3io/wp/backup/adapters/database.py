@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Final, NoReturn
 
 import structlog
 
@@ -37,8 +37,16 @@ from l3io.wp.backup.domain.credentials import (
     CredentialSpec,
     ExplicitCredentialSpec,
 )
-from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
+from l3io.wp.backup.domain.database import (
+    DatabaseLocation,
+    DatabaseTargetState,
+    DumpResult,
+    EnsureOutcome,
+    LoadResult,
+    Readiness,
+)
 from l3io.wp.backup.domain.errors import (
+    AdminCredentialsRequiredError,
     BackupError,
     CredentialsError,
     DatabaseRefusedError,
@@ -46,6 +54,7 @@ from l3io.wp.backup.domain.errors import (
     DumpFailedError,
     InvalidSiteDescriptorError,
     MissingExtraError,
+    UnboundAdapterError,
     UsageError,
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -59,6 +68,8 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
+    "ADMIN_FLAGS",
+    "ADMIN_SOURCE",
     "LocatedConfig",
     "WpDatabase",
     "admin_source",
@@ -80,6 +91,13 @@ _SETTINGS_NAME = "wp-settings.php"
 _CREDENTIAL_CODES = frozenset({"authentication_failed", "credentials_unobtainable"})
 _UNREACHABLE_CODE = "unreachable"
 _MISSING_PRIVILEGE = "missing_privilege"
+
+#: The flags that bind the administrator, named by ``AdminCredentialsRequiredError``.
+ADMIN_FLAGS: Final = ("--admin-username", "--admin-password")
+#: The ``source`` label of that error: the half that was not given.
+ADMIN_SOURCE: Final = "administrator"
+#: The story that replaces the restore-half stubs with the real methods.
+_RESTORE_SUPPLIER = "E002-S02-009"
 
 
 def _require_extra() -> None:
@@ -422,23 +440,40 @@ def _codes(verdict: Verdict) -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 class WpDatabase:
-    """``DatabaseQuery`` and ``DatabaseCommand``, backup halves.
+    """``DatabaseQuery`` and ``DatabaseCommand``.
 
-    The WordPress ``CredentialSource`` and the Run's ``SecretRegistry`` are
-    bound at construction; no method takes a credential. A source not built
-    by :func:`wordpress_source` is wrapped so that what database resolves
-    from it is registered all the same.
+    The WordPress ``CredentialSource``, the administrator's when one was given,
+    and the Run's ``SecretRegistry`` are bound at construction; no method
+    takes a credential. A source not built by :func:`wordpress_source` or
+    :func:`admin_source` is wrapped so that what database resolves from it is
+    registered all the same.
+
+    The backup halves are implemented here. The restore halves are declared
+    (E002-S02-012) and raise ``UnboundAdapterError`` until E002-S02-009 lands
+    them — after the AD-29 administrator check, so a missing administrator is
+    refused first, before any connection, exactly as the real method will.
     """
 
-    __slots__ = ("_credentials",)
+    __slots__ = ("_admin", "_credentials")
 
     def __init__(
-        self, credentials: CredentialSource, *, secrets: SecretRegistry
+        self,
+        credentials: CredentialSource,
+        *,
+        secrets: SecretRegistry,
+        admin: CredentialSource | None = None,
     ) -> None:
         self._credentials = _registering(credentials, secrets)
+        self._admin = None if admin is None else _registering(admin, secrets)
 
     def __repr__(self) -> str:
-        return f"WpDatabase(credentials={self._credentials.source!r})"
+        admin = None if self._admin is None else self._admin.source
+        return f"WpDatabase(credentials={self._credentials.source!r}, admin={admin!r})"
+
+    @property
+    def administrator_bound(self) -> bool:
+        """Whether an administrator source was bound (AD-29)."""
+        return self._admin is not None
 
     def check_dump(self, location: DatabaseLocation) -> Readiness:
         """Database's ``check_dump``, its verdict copied as finding codes."""
@@ -507,6 +542,93 @@ class WpDatabase:
         except OSError as exc:
             raise DumpFailedError(exc.strerror or type(exc).__name__) from exc
         return DumpResult(bytes=result.bytes, duration_ms=result.duration_ms)
+
+    # ----------------------------------------------------------------------
+    # Restore halves — declared here, implemented by E002-S02-009
+    # ----------------------------------------------------------------------
+
+    def _require_admin(self) -> None:
+        """AD-29: ``AdminCredentialsRequiredError`` before any connection."""
+        if self._admin is None:
+            raise AdminCredentialsRequiredError(ADMIN_SOURCE, flags=ADMIN_FLAGS)
+
+    @staticmethod
+    def _unbound(method: str) -> NoReturn:
+        port = f"WpDatabase.{method}"
+        raise UnboundAdapterError(port, supplier=_RESTORE_SUPPLIER)
+
+    def survey_target(
+        self,
+        location: DatabaseLocation,
+        *,
+        table_prefix: str,
+        wordpress_user: str | None,
+    ) -> DatabaseTargetState:
+        """Not yet implemented: E002-S02-009."""
+        del location, table_prefix, wordpress_user
+        self._require_admin()
+        self._unbound("survey_target")
+
+    def check_ensure(self, location: DatabaseLocation) -> Readiness:
+        """Not yet implemented: E002-S02-009."""
+        del location
+        self._require_admin()
+        self._unbound("check_ensure")
+
+    def check_load(
+        self, location: DatabaseLocation, *, source: Path | None
+    ) -> Readiness:
+        """Not yet implemented: E002-S02-009."""
+        del location, source
+        self._require_admin()
+        self._unbound("check_load")
+
+    def check_revoke(
+        self, location: DatabaseLocation, *, user: str, confirm: str
+    ) -> Readiness:
+        """Not yet implemented: E002-S02-009."""
+        del location, user, confirm
+        self._require_admin()
+        self._unbound("check_revoke")
+
+    def check_drop_database(
+        self, location: DatabaseLocation, *, confirm: str
+    ) -> Readiness:
+        """Not yet implemented: E002-S02-009."""
+        del location, confirm
+        self._require_admin()
+        self._unbound("check_drop_database")
+
+    def ensure_database(self, location: DatabaseLocation) -> EnsureOutcome:
+        """Not yet implemented: E002-S02-009."""
+        del location
+        self._require_admin()
+        self._unbound("ensure_database")
+
+    def load_dump(
+        self, location: DatabaseLocation, source: IO[bytes] | Path
+    ) -> LoadResult:
+        """Not yet implemented: E002-S02-009. Loads as the WordPress account.
+
+        When implemented, database's ``load`` is called with ``replace=None``
+        and no decryption argument (AD-18.3, ADR-0024).
+        """
+        del location, source
+        self._unbound("load_dump")
+
+    def revoke_grants(
+        self, location: DatabaseLocation, *, user: str, confirm: str
+    ) -> bool:
+        """Not yet implemented: E002-S02-009."""
+        del location, user, confirm
+        self._require_admin()
+        self._unbound("revoke_grants")
+
+    def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
+        """Not yet implemented: E002-S02-009."""
+        del location, confirm
+        self._require_admin()
+        self._unbound("drop_database")
 
     def _refusal(self, location: DatabaseLocation, verdict: Verdict) -> Exception:
         blockers, _ = _codes(verdict)

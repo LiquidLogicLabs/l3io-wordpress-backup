@@ -23,7 +23,11 @@ from l3io.wp.backup.ports.archive import (
     ArchiveStoreQuery,
     ArchiveWriterCommand,
 )
+from l3io.wp.backup.ports.config import ConfigCommand, ConfigQuery
 from l3io.wp.backup.ports.database import DatabaseCommand, DatabaseQuery
+from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
+from l3io.wp.backup.ports.search_replace import SearchReplaceCommand
+from l3io.wp.backup.ports.site_files import SiteFilesCommand, SiteFilesQuery
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = ["AdapterSet"]
@@ -40,9 +44,21 @@ class AdapterSet:
     database_command: DatabaseCommand
     archive_writer: ArchiveWriterCommand
     tracer: Tracer
+    # The restore ports (E002-S02-012). ``restore_database_*`` are the
+    # ``database_*`` instances unless a relocated WordPress account is bound;
+    # the Safety Snapshot keeps using ``database_*``.
+    restore_database_query: DatabaseQuery
+    restore_database_command: DatabaseCommand
+    site_files_query: SiteFilesQuery
+    site_files_command: SiteFilesCommand
+    config_query: ConfigQuery
+    config_command: ConfigCommand
+    search_replace: SearchReplaceCommand
+    journal_query: RunJournalQuery
+    journal_command: RunJournalCommand
 
     def __repr__(self) -> str:
-        # Types only: the database halves hold a credential source.
+        # Types only: the database halves hold credential sources.
         fields = ", ".join(
             f"{f.name}={type(getattr(self, f.name)).__name__}"
             for f in dataclasses.fields(self)

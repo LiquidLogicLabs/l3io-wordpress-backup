@@ -1,9 +1,12 @@
 """AD-4/AD-24 — the no-op command adapters, the inert tracer and its guard.
 
 **No-op command adapters (AD-4).** One per ``*Command`` Protocol under
-``ports/``: :class:`NoopDatabase` (``DatabaseCommand``),
-:class:`NoopArchiveWriter` (``ArchiveWriterCommand``) and
-:class:`NoopArchiveStore` (``ArchiveStoreCommand``). A Dry Run binds them in
+``ports/``: :class:`NoopDatabase` (``DatabaseCommand``, both halves),
+:class:`NoopArchiveWriter` (``ArchiveWriterCommand``),
+:class:`NoopArchiveStore` (``ArchiveStoreCommand``), and the restore twins
+:class:`NoopSiteFiles` (``SiteFilesCommand``), :class:`NoopConfigWriter`
+(``ConfigCommand``), :class:`NoopSearchReplace` (``SearchReplaceCommand``) and
+:class:`NoopRunJournal` (``RunJournalCommand``). A Dry Run binds them in
 place of the real command halves (``cli.adapter_sets.dry_run_adapters``); the
 query halves stay real. Each performs no effect, records the call into the
 :class:`ActionLog` it was built with, emits ``phase_completed`` with
@@ -12,6 +15,11 @@ executor has one open) and returns a value of its declared type that lets the
 plan continue. The no-op writer reads no Site Root file and calls no exclusion
 policy (ADR-0019); the no-op store's staged Archive is an ``os.devnull`` writer
 whose ``publish()`` returns ``False`` and calls no verifier (ADR-0022).
+A restore twin's result says ``performed=False`` (ADR-0022); it records
+``keep``, ``exclude``, the **keys** of a config write — never its values — and
+the journal event, so a restore Dry Run's log shows each skipped effect.
+:class:`NoopDatabase`'s restore methods make the same AD-29 administrator
+check as the real adapter, so a Dry Run refuses where the real Run would.
 
 :class:`NoopTracer` implements ``ports.tracing.Tracer``, ``RunSpan`` and
 ``PhaseSpan`` and records nothing; ``tracer=None`` means ``NoopTracer()``.
@@ -26,22 +34,44 @@ call for that Run is a no-op. Only ``Exception`` is caught —
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import IO, Final, TypeVar
 
 import structlog
 
-from l3io.wp.backup.adapters.phase import join_phase, phase
+from l3io.wp.backup.adapters.database import ADMIN_FLAGS, ADMIN_SOURCE
+from l3io.wp.backup.adapters.phase import SKIPPED_OUTCOME, join_phase, phase
 from l3io.wp.backup.core.backup import BackupStep
-from l3io.wp.backup.domain.archive_format import Manifest
-from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult
+from l3io.wp.backup.domain.archive_format import (
+    ArchiveView,
+    ExtractResult,
+    Manifest,
+    MemberRole,
+)
+from l3io.wp.backup.domain.config import ConfigWriteResult, ConstantValue
+from l3io.wp.backup.domain.database import (
+    DatabaseLocation,
+    DumpResult,
+    EnsureOutcome,
+    LoadResult,
+)
+from l3io.wp.backup.domain.errors import AdminCredentialsRequiredError
+from l3io.wp.backup.domain.journal import JournalHeader
+from l3io.wp.backup.domain.restore import RestorePhase
+from l3io.wp.backup.domain.search_replace import (
+    UNRESOLVED_URL,
+    Replacement,
+    SearchReplaceReport,
+    UrlRelocation,
+)
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.archive import ManifestBuilder
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
+from l3io.wp.backup.ports.site_files import require_site_relative
 from l3io.wp.backup.ports.tracing import (
     PhaseSpan,
     Redactor,
@@ -51,11 +81,16 @@ from l3io.wp.backup.ports.tracing import (
 )
 
 __all__ = [
+    "JOURNAL_PHASE",
     "ActionLog",
     "GuardedTracer",
     "NoopArchiveStore",
     "NoopArchiveWriter",
+    "NoopConfigWriter",
     "NoopDatabase",
+    "NoopRunJournal",
+    "NoopSearchReplace",
+    "NoopSiteFiles",
     "NoopTracer",
     "SkippedCall",
 ]
@@ -287,13 +322,34 @@ class ActionLog:
         return tuple(self._calls)
 
 
+def _skip(phase_name: str, **fields: object) -> None:
+    """One ``phase_completed`` record, ``skipped_dry_run``, joining an open one."""
+    with join_phase(phase_name) as record:
+        record.skip()
+        record.fields.update(fields)
+
+
+def _names(paths: Iterable[PurePosixPath]) -> list[str]:
+    return sorted(str(p) for p in paths)
+
+
 class NoopDatabase:
-    """``DatabaseCommand``: dumps nothing and writes nothing."""
+    """``DatabaseCommand``: dumps, creates, loads, revokes and drops nothing.
 
-    __slots__ = ("_log",)
+    ``administrator`` is whether the real adapter it stands in for has an
+    administrator bound: the restore methods other than ``load_dump`` refuse
+    without one, as the real ones do (AD-29).
+    """
 
-    def __init__(self, log: ActionLog) -> None:
+    __slots__ = ("_administrator", "_log")
+
+    def __init__(self, log: ActionLog, *, administrator: bool = False) -> None:
         self._log = log
+        self._administrator = administrator
+
+    def _require_admin(self) -> None:
+        if not self._administrator:
+            raise AdminCredentialsRequiredError(ADMIN_SOURCE, flags=ADMIN_FLAGS)
 
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
         """A zero-byte result; ``destination`` is not created."""
@@ -302,6 +358,47 @@ class NoopDatabase:
             record.skip()
         self._log.record("NoopDatabase", "dump_to", location.name)
         return DumpResult(bytes=0, duration_ms=0.0)
+
+    def ensure_database(self, location: DatabaseLocation) -> EnsureOutcome:
+        """Nothing created, granted or set."""
+        self._require_admin()
+        _skip(RestorePhase.LOAD_DUMP.value, method="ensure_database")
+        self._log.record("NoopDatabase", "ensure_database", location.name)
+        return EnsureOutcome(
+            created_database=False,
+            created_user=False,
+            password_set=False,
+            granted=False,
+            warnings=(SKIPPED_OUTCOME,),
+            performed=False,
+        )
+
+    def load_dump(
+        self, location: DatabaseLocation, source: IO[bytes] | Path
+    ) -> LoadResult:
+        """Nothing loaded; ``source`` is not read."""
+        del source
+        _skip(RestorePhase.LOAD_DUMP.value, method="load_dump")
+        self._log.record("NoopDatabase", "load_dump", location.name)
+        return LoadResult(bytes=0, duration_ms=0.0, performed=False)
+
+    def revoke_grants(
+        self, location: DatabaseLocation, *, user: str, confirm: str
+    ) -> bool:
+        """``False``: nothing revoked."""
+        del confirm
+        self._require_admin()
+        _skip(RestorePhase.CLEAN.value, method="revoke_grants", user=user)
+        self._log.record("NoopDatabase", "revoke_grants", location.name)
+        return False
+
+    def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
+        """``False``: nothing dropped."""
+        del confirm
+        self._require_admin()
+        _skip(RestorePhase.CLEAN.value, method="drop_database")
+        self._log.record("NoopDatabase", "drop_database", location.name)
+        return False
 
 
 class NoopArchiveWriter:
@@ -380,3 +477,156 @@ class NoopArchiveStore:
         """A staged Archive whose stream discards every byte."""
         self._log.record("NoopArchiveStore", "stage", str(target.path))
         return _NoopStagedArchive(self._log, str(target.path))
+
+
+class NoopSiteFiles:
+    """``SiteFilesCommand``: removes and extracts nothing."""
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def clean(self, site_root: Path, *, keep: frozenset[PurePosixPath]) -> int:
+        """``0``: nothing removed. ``keep`` is checked as the real one checks it."""
+        require_site_relative(keep, argument="keep")
+        _skip(RestorePhase.CLEAN.value, method="clean", keep=_names(keep))
+        self._log.record("NoopSiteFiles", "clean", str(site_root))
+        return 0
+
+    def extract(
+        self,
+        source: StorageTarget,
+        destination: Path,
+        view: ArchiveView,
+        *,
+        roles: frozenset[MemberRole],
+        exclude: frozenset[PurePosixPath] = frozenset(),
+        payload: Path | None = None,
+    ) -> ExtractResult:
+        """Nothing read or written; ``exclude`` is checked as the real one checks it."""
+        del source, view, payload
+        require_site_relative(exclude, argument="exclude")
+        _skip(
+            RestorePhase.EXTRACT.value,
+            method="extract",
+            roles=sorted(r.value for r in roles),
+            exclude=_names(exclude),
+        )
+        self._log.record("NoopSiteFiles", "extract", str(destination))
+        return ExtractResult(members=0, bytes=0, skipped_links=())
+
+
+class NoopConfigWriter:
+    """``ConfigCommand``: writes, copies and replaces nothing.
+
+    Records constant **names** only: ``set_constants`` may be handed a
+    ``DB_PASSWORD`` value (relocation), and it must never reach a log.
+    """
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def _skipped(self, method: str, target: Path, keys: Iterable[str]) -> None:
+        _skip(RestorePhase.REWRITE_CONFIG.value, method=method, keys=sorted(keys))
+        self._log.record("NoopConfigWriter", method, str(target))
+
+    def set_constants(
+        self, config_file: Path, values: Mapping[str, str | int | bool]
+    ) -> ConfigWriteResult:
+        """Nothing changed; the keys of ``values`` are recorded, not the values."""
+        self._skipped("set_constants", config_file, values.keys())
+        return ConfigWriteResult(changed=(), performed=False)
+
+    def save_copy(self, config_file: Path, destination: Path) -> ConfigWriteResult:
+        """Nothing copied; ``destination`` is not created."""
+        del config_file
+        self._skipped("save_copy", destination, ())
+        return ConfigWriteResult(changed=(), performed=False)
+
+    def replace_file(
+        self,
+        config_file: Path,
+        source: Path,
+        *,
+        keep: Mapping[str, ConstantValue],
+    ) -> ConfigWriteResult:
+        """Nothing replaced; the keys of ``keep`` are recorded."""
+        del source
+        self._skipped("replace_file", config_file, keep.keys())
+        return ConfigWriteResult(changed=(), performed=False)
+
+
+class NoopSearchReplace:
+    """``SearchReplaceCommand``: replaces nothing and reads nothing.
+
+    The planned pairs carry :data:`UNRESOLVED_URL` as ``old`` and every count
+    is ``None``: the stored URLs live in a database a Dry Run did not load.
+    """
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def relocate_content(
+        self, site_root: Path, urls: UrlRelocation
+    ) -> SearchReplaceReport:
+        """The planned pairs, ``old`` unresolved; nothing replaced."""
+        targets = (urls.site_url, urls.home_url)
+        news = list(dict.fromkeys(u for u in targets if u is not None))
+        _skip(RestorePhase.SEARCH_REPLACE.value, method="relocate_content")
+        self._log.record("NoopSearchReplace", "relocate_content", str(site_root))
+        return SearchReplaceReport(
+            pairs=tuple(Replacement(old=UNRESOLVED_URL, new=new) for new in news),
+            replacements=None,
+            tables=None,
+            remaining=None,
+            merged=False,
+        )
+
+
+#: The ``phase`` of a skipped journal call's ``phase_completed`` record. A
+#: journal call is not a restore phase's effect, so it never joins one; the
+#: restore phase it concerns is the record's ``journal_phase`` field.
+JOURNAL_PHASE: Final = "journal"
+
+
+class NoopRunJournal:
+    """``RunJournalCommand``: records nothing, so a Dry Run resolves nothing."""
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: ActionLog) -> None:
+        self._log = log
+
+    def _skipped(self, event: str, target: str | None = None, **fields: object) -> None:
+        # ``journal_event``: ``event`` is the log record's own name.
+        _skip(JOURNAL_PHASE, journal_event=event, **fields)
+        self._log.record("NoopRunJournal", event, target)
+
+    def begin_run(self, header: JournalHeader) -> None:
+        """Nothing written."""
+        self._skipped("begin_run", header.run_id)
+
+    def phase_started(self, phase: RestorePhase, target: str) -> None:
+        """Nothing written."""
+        self._skipped("phase_started", target, journal_phase=phase.value)
+
+    def step_completed(self, phase: RestorePhase, step: str) -> None:
+        """Nothing written."""
+        self._skipped("step_completed", step, journal_phase=phase.value)
+
+    def phase_completed(self, phase: RestorePhase) -> None:
+        """Nothing written."""
+        self._skipped("phase_completed", None, journal_phase=phase.value)
+
+    def finish_run(self) -> None:
+        """Nothing written."""
+        self._skipped("finish_run")
+
+    def resolve(self, run_id: str, resolved_by: str) -> None:
+        """Nothing resolved (ADR-0021)."""
+        self._skipped("resolve", run_id, resolved_by=resolved_by)

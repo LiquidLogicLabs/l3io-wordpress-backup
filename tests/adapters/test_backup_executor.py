@@ -285,7 +285,7 @@ def cli_site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Any
     (root / "index.php").write_text("<?php\n")
     database = FakeDatabase()
     monkeypatch.setattr(
-        adapter_sets, "WpDatabase", lambda credentials, *, secrets: database
+        adapter_sets, "WpDatabase", lambda credentials, *, secrets, admin=None: database
     )
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
@@ -481,7 +481,9 @@ def test_a_files_backup_resolves_no_credential_and_binds_no_database(
 
     monkeypatch.setattr(backup_cli, "site_descriptor_from_wp_config", descriptor)
     monkeypatch.setattr(
-        adapter_sets, "WpDatabase", lambda credentials, *, secrets: RefusingDatabase()
+        adapter_sets,
+        "WpDatabase",
+        lambda credentials, *, secrets, admin=None: RefusingDatabase(),
     )
     final = tmp_path / "files.tar.gz"
     argv = ["backup", "--wp-dir", str(root), "--archive", str(final)]

@@ -141,6 +141,16 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_GuardedPhaseSpan",
             "_GuardedRunSpan",
             "_NoopStagedArchive",
+            # The restore twins (E002-S02-012) open no file and read no
+            # source, so they move no bytes for this leg to measure;
+            # tests/unit/adapters/test_noop_restore.py asserts they touch
+            # nothing. ``_skip``/``_names`` build their log records.
+            "NoopConfigWriter",
+            "NoopRunJournal",
+            "NoopSearchReplace",
+            "NoopSiteFiles",
+            "_names",
+            "_skip",
         }
     ),
     "store.py": frozenset(
