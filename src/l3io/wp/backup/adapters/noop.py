@@ -450,6 +450,11 @@ class _NoopStagedArchive:
         """An ``os.devnull`` writer: nothing accumulates (AD-21)."""
         return self._stream
 
+    @property
+    def staged_path(self) -> Path | None:
+        """``None``: nothing is staged on disk."""
+        return None
+
     def publish(self) -> bool:
         """``False``: not performed. No verifier is called."""
         self._stream.close()

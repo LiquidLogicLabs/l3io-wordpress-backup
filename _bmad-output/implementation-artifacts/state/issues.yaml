@@ -1,5 +1,5 @@
 next:
-  '002': 92
+  '002': 106
   '003': 30
   '004': 43
 backlog:
@@ -1439,3 +1439,143 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+- key: BL-E002-092
+  epic: '002'
+  sprint: '02'
+  title: 'RunTerminated (SIGTERM) is an Exception: swallowed by tracer guard and exclusion decide'
+  source: adversarial (AD-1)
+  source_phase: adversarial
+  source_ref: AD-1
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+- key: BL-E002-093
+  epic: '002'
+  sprint: '02'
+  title: No-op twins skip refusals the real adapters make (clean target, keep None, absent wp-config)
+  source: adversarial (AD-2)
+  source_phase: adversarial
+  source_ref: AD-2
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+- key: BL-E002-094
+  epic: '002'
+  sprint: '02'
+  title: Site Lock is per OS user and keyed on path only; no database-keyed lock
+  source: adversarial (AD-3)
+  source_phase: adversarial
+  source_ref: AD-3
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+- key: BL-E002-095
+  epic: '002'
+  sprint: '02'
+  title: No contract test that flags removed from NOT_YET_IMPLEMENTED are read by their driver
+  source: adversarial (AD-4)
+  source_phase: adversarial
+  source_ref: AD-4
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+- key: BL-E002-096
+  epic: '002'
+  sprint: '02'
+  title: Remaining adversarial/clean-release LOW findings AD-5..AD-12, CR-1, CR-2
+  source: adversarial (AD-5)
+  source_phase: adversarial
+  source_ref: AD-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+- key: BL-E002-097
+  epic: '002'
+  sprint: '02'
+  title: Restore database account created at host % (network-reachable); revoke misses localhost
+  source: redteam (RT-1)
+  source_phase: redteam
+  source_ref: RT-1
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+- key: BL-E002-098
+  epic: '002'
+  sprint: '02'
+  title: LocalSiteFiles.extract tarfile data-filter check/open race via symlink swap (root restore)
+  source: redteam (RT-2)
+  source_phase: redteam
+  source_ref: RT-2
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+- key: BL-E002-099
+  epic: '002'
+  sprint: '02'
+  title: SIGTERM during set_constants loses the written-keys record; cutover half-done
+  source: redteam (RT-6)
+  source_phase: redteam
+  source_ref: RT-6
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+- key: BL-E002-100
+  epic: '002'
+  sprint: '02'
+  title: Default backup from inside Site Root still collects earlier Archives (size doubles per run)
+  source: redteam (RT-1-self-inclusion)
+  source_phase: redteam
+  source_ref: RT-1-self-inclusion
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+- key: BL-E002-101
+  epic: '002'
+  sprint: '02'
+  title: backup --whatIf after the subcommand is rejected with no hint
+  source: ux-review (UX-1)
+  source_phase: ux-review
+  source_ref: UX-1
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
+- key: BL-E002-102
+  epic: '002'
+  sprint: '02'
+  title: Dry Run output not labelled as a plan; does not say write-time failures go undetected
+  source: ux-review (UX-2)
+  source_phase: ux-review
+  source_ref: UX-2
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
+- key: BL-E002-103
+  epic: '002'
+  sprint: '02'
+  title: Remaining UX findings UX-3..UX-11 and redteam MEDIUM/LOW observations
+  source: ux-review (UX-3)
+  source_phase: ux-review
+  source_ref: UX-3
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
+- key: BL-E002-104
+  epic: '002'
+  sprint: '02'
+  title: check_load answers as the WordPress account rather than the administrator; noop phase names (SD-02-1 disposed spec-proposal)
+  source: arch-drift (SD-02-1)
+  source_phase: arch-drift
+  source_ref: SD-02-1
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md
+- key: BL-E002-105
+  epic: '002'
+  sprint: '02'
+  title: Arch MINOR findings SD-02-3..SD-02-12
+  source: arch-drift (SD-02-3)
+  source_phase: arch-drift
+  source_ref: SD-02-3
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md

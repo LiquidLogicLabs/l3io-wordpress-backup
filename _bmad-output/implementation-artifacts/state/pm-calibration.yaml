@@ -85,12 +85,14 @@ closure:
     elapsed_hours:
       samples:
       - 0.0714
+      - 0.2101
     man_hours:
       samples:
       - 1.619
     tokens_k:
       samples:
       - 60.0112
+      - 2.7619
   epic: {}
 fix:
   simple: {}
@@ -107,11 +109,14 @@ orchestration:
     elapsed_hours:
       samples:
       - 0.006
+      - 0.0249
     man_hours:
       samples:
       - 0.0
+      - 0.0
     tokens_k:
       samples:
+      - 0.0
       - 0.0
   epic: {}
 metrics_migrated_at: '2026-11-03T02:42:08Z'

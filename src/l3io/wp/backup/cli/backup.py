@@ -100,7 +100,11 @@ from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     UsageError,
 )
-from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING, ExcludedEntry
+from l3io.wp.backup.domain.exclusion import (
+    INCLUDE_EVERYTHING,
+    ExcludedEntry,
+    ExclusionDecision,
+)
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -173,6 +177,35 @@ class PlannedAction:
     step: str
     text: str
     fields: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _SkipStaged:
+    """An exclusion policy that also leaves out the Archive being written.
+
+    The staged file is created before the Site Root is collected; with a
+    target inside the Site Root (the default is the current directory) it
+    would otherwise be collected into itself.
+    """
+
+    inner: ExclusionPolicy
+    site_root: Path
+    staged: Path
+
+    @property
+    def source(self) -> str:
+        return self.inner.source
+
+    @property
+    def patterns(self) -> tuple[str, ...]:
+        return self.inner.patterns
+
+    def decide(self, relative: PurePosixPath, *, is_dir: bool) -> ExclusionDecision:
+        if not is_dir and self.site_root / relative == self.staged:
+            return ExclusionDecision(
+                excluded=True, pattern="the Archive being written", protected=False
+            )
+        return self.inner.decide(relative, is_dir=is_dir)
 
 
 def default_exclusion_policy() -> ExclusionPolicy:
@@ -408,6 +441,10 @@ def execute_backup_plan(
                     record.bytes = dumped.bytes
             elif step is BackupStep.WRITE_ARCHIVE:
                 staged = store.stage(plan.target)
+                if collects and staged.staged_path is not None:
+                    exclusion = _SkipStaged(
+                        exclusion, Path(site.site_root), staged.staged_path
+                    )
                 manifest = writer.write(
                     staged.stream,
                     site_root=Path(site.site_root) if collects else None,

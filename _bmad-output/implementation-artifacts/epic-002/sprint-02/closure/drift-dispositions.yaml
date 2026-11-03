@@ -1,0 +1,18 @@
+review: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md
+findings:
+  SD-02-1:
+    severity: MAJOR
+    title: Each no-op command hard-codes the restore phase it belongs to. `adapters/phase.py::join_phase` joins only when the innermost open phase has that exact name; otherwise it opens a new phase and emits its own `phase_completed`. The AD-17 amendments (2026-10-20, 2026-10-27) put the `DB_*` cutover `set_constants` call inside `LOAD_DUMP`. AD-18.3 drops the database that loses the cutover after the load. So under the dry-run set, a cutover emits a `rewrite-config` record nested in `load-dump`, and a drop emits a `clean` record after `load-dump`. The real adapters emit no phase records at all. A Dry Run's phase sequence would then differ from the real Run's, and it would contradict the order that Epic 3's phase-sequence test asserts ("no `DB_*` write precedes the end of the load"). The adapter is deciding plan structure that belongs to the executor.
+    disposition: spec-proposal
+    spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram
+    adr:
+    commit:
+    issue:
+  SD-02-2:
+    severity: MAJOR
+    title: The parser docstring states that AD-22 preserves `python -m wpbackup2`. In practice the legacy `wpbackup2/` tree occupies that module name and is excluded from the wheel, so the invocation does not reach the new parser. The contract test carries a strict xfail. It is tracked only as BL-E002-086 ("no story owns it yet"). This hard-rule deviation of the frozen contract has no owner and no ADR.
+    disposition: spec-proposal
+    spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-22--the-cli-is-a-frozen-contract-the-python-api-is-not
+    adr:
+    commit:
+    issue:

@@ -56,6 +56,11 @@ class StagedArchive(Protocol):
         """Where the Archive's bytes are written."""
         ...
 
+    @property
+    def staged_path(self) -> Path | None:
+        """The temporary file the bytes land in; ``None`` when none exists."""
+        ...
+
     def publish(self) -> bool:
         """Make the Archive visible; ``False`` only for the no-op store."""
         ...
