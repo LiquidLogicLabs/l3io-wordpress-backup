@@ -7,7 +7,8 @@ findings:
     spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram
     adr:
     commit:
-    issue:
+    issue: BL-E002-107
+    proposal: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-02-1.md
   SD-02-2:
     severity: MAJOR
     title: The parser docstring states that AD-22 preserves `python -m wpbackup2`. In practice the legacy `wpbackup2/` tree occupies that module name and is excluded from the wheel, so the invocation does not reach the new parser. The contract test carries a strict xfail. It is tracked only as BL-E002-086 ("no story owns it yet"). This hard-rule deviation of the frozen contract has no owner and no ADR.
@@ -15,4 +16,5 @@ findings:
     spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-22--the-cli-is-a-frozen-contract-the-python-api-is-not
     adr:
     commit:
-    issue:
+    issue: BL-E002-108
+    proposal: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-02-2.md

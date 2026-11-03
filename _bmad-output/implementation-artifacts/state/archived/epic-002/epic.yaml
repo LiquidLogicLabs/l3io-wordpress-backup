@@ -1,0 +1,61 @@
+key: 'E002'
+title: 'Walking skeleton — take a backup and prove it'
+goal: 'One operator-visible capability (`backup` and `verify` both working end to end) that necessarily lands every shared contract: the Site Descriptor, the archive format, the `ports/` Protocols, the Run Context, the CLI parser, and the no-op command adapters that make Dry Run structural. **Sequential — it blocks everything else, and that is its job.**'
+status: done
+updated_at: '2026-11-03T19:09:38Z'
+origin: epics.md
+origin_note: goal and title taken from planning-artifacts/epics.md
+estimate:
+  man_hours_low: 173.4
+  man_hours_high: 197.05
+  hitl_hours_low: 5.51
+  hitl_hours_high: 6.26
+  elapsed_hours_low: 34.64
+  elapsed_hours_high: 39.36
+  tokens_k_min: 87233
+  tokens_k_max: 99128
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 78.43
+  cost_high: 89.14
+  model: claude-opus-5
+  confidence: medium
+actual:
+  elapsed_hours: 6.19
+  man_hours: 360
+  hitl_hours: 0
+  tokens_k:
+    total: 249439.73
+    input: 3.514
+    output: 2005.56
+    cache_write: 8548.276
+    cache_read: 238882.381
+  cost: 133.81
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-03T19:09:26Z'
+orchestration:
+  elapsed_hours: 0.05
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 0
+    input: 0
+    output: 0
+    cache_write: 0
+    cache_read: 0
+  cost: 0.0
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-03T19:09:26Z'
+closed:
+  date: '2026-11-03'
+retrospective:
+  summary: Epic E002 delivered backup, Site Lock, verify and the restore ports/adapters across 12 stories in 2 sprints; CI replay passed 1357 tests. Cross-story seams (the .partial self-archive, phase-name spelling) were the recurring defect source, and most findings went to the backlog as Epic 3/7 preconditions.
+  learnings: Test end results across stories, not only per step; settle cross-flow identifier spelling (log phase field) before the second producer ships; AD-4 grep gate and cli/api boundary rely on convention; restore security preconditions RT-1/3/4/8 need Epic 3/7 owners; BL-E002-086 and BL-E004-042 remain open.

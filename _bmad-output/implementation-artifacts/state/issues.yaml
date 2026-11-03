@@ -1,5 +1,5 @@
 next:
-  '002': 106
+  '002': 122
   '003': 30
   '004': 43
 backlog:
@@ -1579,3 +1579,163 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md
+- key: BL-E002-106
+  epic: '002'
+  sprint: ''
+  title: 'Spec proposal: **What happens.** `core/verify.verify` selects a whole v1 or v0 rule set on `view.payload is None`. `payload` is `None` exactly when the Archive is v0, so this is a version branch under another name. The v0 rule set (`_v0`) then re-inspects the raw `MemberIndex` (`MANIFEST_MEMBER in index.names`). `adapters/tar` picks the extraction source and the kind checks the same way.<br>**Why the guard misses it.** The contract test matches only the token `format_version`. Its own "not covered" note names copied values, not proxies like this one. So the gate stays green over the branch AD-23 exists to prevent: two consumers, here `core/verify` and `adapters/tar`, each re-deriving the format.<br>**Status.** E002-S01-003:61 and :65 specify this placement, so the story text diverges from the spine. This is reported, not reopened.'
+  source: spec-sync (SD-01-2)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-01-2.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-23--archive-format-detection-is-explicit-and-one-way. From: _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/arch-drift-review.md.'
+- key: BL-E002-107
+  epic: '002'
+  sprint: ''
+  title: "Spec proposal: Each no-op command hard-codes the restore phase it belongs to. `adapters/phase.py::join_phase` joins only when the innermost open phase has that exact name; otherwise it opens a new phase and emits its own `phase_completed`. The AD-17 amendments (2026-10-20, 2026-10-27) put the `DB_*` cutover `set_constants` call inside `LOAD_DUMP`. AD-18.3 drops the database that loses the cutover after the load. So under the dry-run set, a cutover emits a `rewrite-config` record nested in `load-dump`, and a drop emits a `clean` record after `load-dump`. The real adapters emit no phase records at all. A Dry Run's phase sequence would then differ from the real Run's, and it would contradict the order that Epic 3's phase-sequence test asserts (\"no `DB_*` write precedes the end of the load\"). The adapter is deciding plan structure that belongs to the executor."
+  source: spec-sync (SD-02-1)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-02-1.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
+- key: BL-E002-108
+  epic: '002'
+  sprint: ''
+  title: 'Spec proposal: The parser docstring states that AD-22 preserves `python -m wpbackup2`. In practice the legacy `wpbackup2/` tree occupies that module name and is excluded from the wheel, so the invocation does not reach the new parser. The contract test carries a strict xfail. It is tracked only as BL-E002-086 ("no story owns it yet"). This hard-rule deviation of the frozen contract has no owner and no ADR.'
+  source: spec-sync (SD-02-2)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-02-2.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-22--the-cli-is-a-frozen-contract-the-python-api-is-not. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
+- key: BL-E002-109
+  epic: '002'
+  sprint: ''
+  title: "Spec proposal: Sprint 1 emitted the `phase` field in upper case (`DUMP`, `VERIFY`). Sprint 2 declared restore phases in lower-case kebab (`load-dump`, `rewrite-config`, `search-replace`), and the no-op twins already emit them as `phase` through `_skip(RestorePhase.X.value)`. `docs/logging.md:53` defines the field as \"The step: `DUMP`, `COLLECT_SITE_ROOT`, ... `PUBLISH`\" with a closed list, and `jq 'select(.event==\"phase_completed\")'` (logging.md:10) is the documented query. Epic 3's executor will therefore emit a second spelling in the same field, and `VERIFY` exists in both flows with different spellings (`VERIFY` from `BackupStep`, `verify` from `RestorePhase`). The spine writes AD-17's phases in upper case, so the lower-case values are not in the spec. Nothing is wrong yet, but the field is still unemitted by a real restore, so renaming now costs a docstring and a test; after Epic 3 it is a log-schema break."
+  source: spec-sync (AD-1)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/AD-1.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md.'
+- key: BL-E002-110
+  epic: '002'
+  sprint: ''
+  title: Phase log field has two spellings (backup UPPER vs restore kebab)
+  source: epic-arch-review (AD-1x)
+  source_phase: epic-arch-review
+  source_ref: AD-1x
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-1x). Duplicate of BL-E002-109 pointer; kept for visibility
+- key: BL-E002-111
+  epic: '002'
+  sprint: ''
+  title: AD-4 CI grep gate misses self._dry_run / isDryRun / whatIf spellings
+  source: epic-arch-review (AD-2)
+  source_phase: epic-arch-review
+  source_ref: AD-2
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-2). '
+- key: BL-E002-112
+  epic: '002'
+  sprint: ''
+  title: Backup plan interpreter and exclusion policy live in cli/backup.py (AD-4 boundary by convention only)
+  source: epic-arch-review (AD-3)
+  source_phase: epic-arch-review
+  source_ref: AD-3
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-3). '
+- key: BL-E002-113
+  epic: '002'
+  sprint: ''
+  title: cryptography is a mandatory dependency but nothing under src imports it
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-4). '
+- key: BL-E002-114
+  epic: '002'
+  sprint: ''
+  title: Restore with no target wp-config.php trusts DB host/name/user from the Archive (admin credential exposure, drop aimed at Archive-named DB). Precondition for Epic 3.
+  source: epic-redteam (RT-1)
+  source_phase: epic-redteam
+  source_ref: RT-1
+  severity: Medium
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-1). Deferred: restore driver not built; placeholders fail closed.'
+- key: BL-E002-115
+  epic: '002'
+  sprint: ''
+  title: verify --authenticate authenticates payload bytes, not the Manifest (rollback/cross-site swap undetected)
+  source: epic-redteam (RT-2)
+  source_phase: epic-redteam
+  source_ref: RT-2
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-2). Within the 2026-11-03 owner decision on verify; owner to decide whether to extend.
+- key: BL-E002-116
+  epic: '002'
+  sprint: ''
+  title: Extraction has no size/member-count/free-space limit and CLEAN precedes EXTRACT. Precondition for Epic 3.
+  source: epic-redteam (RT-3)
+  source_phase: epic-redteam
+  source_ref: RT-3
+  severity: Medium
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-3). Deferred: executor not built.'
+- key: BL-E002-117
+  epic: '002'
+  sprint: ''
+  title: Archive passphrase stays in os.environ for the whole Run; child processes (wp-cli, Epic 7) inherit it
+  source: epic-redteam (RT-4)
+  source_phase: epic-redteam
+  source_ref: RT-4
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-4). Deferred to Epic 7 wiring.
+- key: BL-E002-118
+  epic: '002'
+  sprint: ''
+  title: Passphrase minimum of 4 characters exists for redaction, not as policy
+  source: epic-redteam (RT-5)
+  source_phase: epic-redteam
+  source_ref: RT-5
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-5). '
+- key: BL-E002-119
+  epic: '002'
+  sprint: ''
+  title: Second SIGTERM interrupts finally that removes the plaintext workspace
+  source: epic-redteam (RT-6)
+  source_phase: epic-redteam
+  source_ref: RT-6
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-6). '
+- key: BL-E002-120
+  epic: '002'
+  sprint: ''
+  title: verify --authenticate writes the whole decrypted site to disk only to discard it
+  source: epic-redteam (RT-7)
+  source_phase: epic-redteam
+  source_ref: RT-7
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-7). '
+- key: BL-E002-121
+  epic: '002'
+  sprint: ''
+  title: Plaintext Archive re-opened by path for extraction; extract_archive filters against the VERIFY-time view (swap window)
+  source: epic-redteam (RT-8)
+  source_phase: epic-redteam
+  source_ref: RT-8
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-8). Precondition for Epic 3.

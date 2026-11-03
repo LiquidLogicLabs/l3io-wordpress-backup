@@ -1,0 +1,11 @@
+review: _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: "Sprint 1 emitted the `phase` field in upper case (`DUMP`, `VERIFY`). Sprint 2 declared restore phases in lower-case kebab (`load-dump`, `rewrite-config`, `search-replace`), and the no-op twins already emit them as `phase` through `_skip(RestorePhase.X.value)`. `docs/logging.md:53` defines the field as \"The step: `DUMP`, `COLLECT_SITE_ROOT`, ... `PUBLISH`\" with a closed list, and `jq 'select(.event==\"phase_completed\")'` (logging.md:10) is the documented query. Epic 3's executor will therefore emit a second spelling in the same field, and `VERIFY` exists in both flows with different spellings (`VERIFY` from `BackupStep`, `verify` from `RestorePhase`). The spine writes AD-17's phases in upper case, so the lower-case values are not in the spec. Nothing is wrong yet, but the field is still unemitted by a real restore, so renaming now costs a docstring and a test; after Epic 3 it is a log-schema break."
+    disposition: spec-proposal
+    spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram
+    adr:
+    commit:
+    issue: BL-E002-109
+    proposal: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/AD-1.md
