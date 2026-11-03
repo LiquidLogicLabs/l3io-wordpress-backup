@@ -217,3 +217,20 @@ Unchanged: the member kinds, the hard-link and special-file rules, the symlink r
 the 2026-10-28 amendment (skip and warn), `manifest.json` first and never encrypted, and
 `SUPPORTED_FORMAT_VERSIONS` with its fixture test. `format_version` stays 1, because v1 is
 not yet released.
+
+## Amendment — 2026-11-03: hard links are refused by an explicit check
+
+Found by E002's pre-build re-check (2026-11-03) and confirmed on CPython 3.11:
+`tarfile.data_filter` allows a hard link whose target stays inside the destination (for
+example `x` → `wp-config.php`). The "hard links anywhere abort" rule of the 2026-10-28
+amendment therefore does not come from `tarfile`.
+
+- Under ADR-0024 the inner payload is not verified member by member, so the rule is now
+  enforced at extraction. E002-S01-003's filter callable refuses any `TarInfo.islnk()`
+  member before calling `data_filter`.
+- **Where this ADR says containment is entirely `tarfile`'s**, read: `tarfile`'s, plus
+  that one check and the symlink skip.
+- A hard-link member still fails Verification where Verification walks members: the outer
+  tar, and v0 Archives.
+- This package never writes `LNKTYPE` members, so a hard link in a payload is only ever
+  crafted.

@@ -285,3 +285,22 @@ Not taken on the reviewer's word:
 - AG-2: no `core/backup`, no store adapter, no `cli/*` in the ownership table
 - AG-3: coverage map names three epic titles that no longer exist
 - AG-4: Glossary L86 + FR-2 say `database`; AD-22 freezes `--mode db`; Conventions bind the Glossary
+
+## Pre-build re-check — 2026-11-03
+
+Since the gate passed, the E003 and E004 gates edited 10 of E002's 12 stories, so
+`l3io-arch-review` re-checked E002 as a whole before the build
+(`reviewer-l3io-arch-review-2026-11-03.md`). It found 0 BLOCKER, 2 MAJOR and 9 MINOR. It
+confirmed: no cross-epic leaks; sprint 01 closes green without sprint 02; the layering
+holds.
+
+- **MAJOR 1:** `data_filter` allows an in-destination hard link, which was confirmed on
+  CPython. E002-S01-003's filter now refuses `islnk()` explicitly, with a test using
+  `x` → `wp-config.php`. ADR-0017 has a 2026-11-03 amendment.
+- **MAJOR 2:** `StagedArchive.publish()` returns `bool`, and `BackupResult.performed` is
+  that value.
+
+The reviewer's re-check resolved both, with 2 new MINORs; ADR-0017's half is fixed here.
+The MINORs are in `state/issues.yaml`.
+
+**Verdict: still PASSED; buildable.**

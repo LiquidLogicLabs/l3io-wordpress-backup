@@ -1,5 +1,5 @@
 next:
-  '002': 24
+  '002': 34
   '003': 30
   '004': 42
 backlog:
@@ -783,3 +783,103 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+- key: BL-E002-024
+  epic: '002'
+  sprint: ''
+  title: Manifest.payload is required but the manifest builder and no-op writer must create a Manifest before a payload exists — make it Optional or build it after the payload
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-025
+  epic: '002'
+  sprint: ''
+  title: Verification does not check that the payload member name matches Manifest.encrypted (payload.tar.gz vs payload.tar.gz.age)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-026
+  epic: '002'
+  sprint: ''
+  title: Which phase records the inner-payload write, and where ENCRYPT is emitted inside write_archive, is unstated
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-027
+  epic: '002'
+  sprint: ''
+  title: E002-S01-010 AC L26-27 still describe the old archive layout (only a note supersedes them)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-028
+  epic: '002'
+  sprint: ''
+  title: E002-S01-003 non-goal L42 still says symlinks are refused at extraction and are Epic 3's call; L67 decides skip-and-warn here
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-029
+  epic: '002'
+  sprint: ''
+  title: 'Version drift: stories name database v0.2.0 (>=0.2.0) and config v0.1.1/v0.1.2; pyproject pins database >=0.2.1, config >=0.1.3 (TestPyPI)'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-030
+  epic: '002'
+  sprint: ''
+  title: join_or_open does not forward dry_run to open_run
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-031
+  epic: '002'
+  sprint: ''
+  title: E002-S01-004 says run_verify resolves a passphrase and cipher, but verification is keyless (ADR-0024)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-032
+  epic: '002'
+  sprint: ''
+  title: ADR-0024's outer Archive is an uncompressed tar, but the default name and the test fixture still end in .tar.gz
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+- key: BL-E002-033
+  epic: '002'
+  sprint: ''
+  title: E002-S01-010 L66 interface contract for LocalArchiveStore.publish() gives no return value (True only in Observability L100)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: backlog
+  description: See epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md Re-check
