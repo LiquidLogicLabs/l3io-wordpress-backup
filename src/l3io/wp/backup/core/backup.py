@@ -3,14 +3,15 @@
 Pure. :func:`build_backup_plan` receives every value it needs as an argument —
 it reads no path, clock or environment it was not handed (AD-12). ``scope``
 and ``encrypted`` are required with no default, so no caller selects a
-scope or skips encryption by omission. E002-S01-002 adds the per-scope plans;
-E002-S02-007 adds ``required_tools`` and the active exclusion set.
+scope or skips encryption by omission (AD-5). E002-S02-007 adds
+``required_tools`` and the active exclusion set.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import assert_never
 
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -48,12 +49,23 @@ def build_backup_plan(
 ) -> BackupPlan:
     """The plan for backing ``site`` up to ``target``.
 
-    For :attr:`BackupScope.ALL`: ``DUMP, COLLECT_SITE_ROOT, [ENCRYPT,]
+    The capture steps follow ``scope`` (FR-2): ``FILES`` collects the Site
+    Root, ``DATABASE`` dumps, ``ALL`` does both, dump first. Then ``[ENCRYPT,]
     WRITE_ARCHIVE, VERIFY, PUBLISH``, with ``ENCRYPT`` present exactly when
-    ``encrypted`` is true.
+    ``encrypted`` is true. Every scope writes, verifies and publishes a full
+    Archive.
     """
-    del site  # E002-S01-002's per-scope plans read it; ALL needs nothing from it.
-    steps: list[BackupStep] = [BackupStep.DUMP, BackupStep.COLLECT_SITE_ROOT]
+    del site  # No scope's plan depends on the Site yet; the executor reads it.
+    steps: list[BackupStep]
+    match scope:
+        case BackupScope.FILES:
+            steps = [BackupStep.COLLECT_SITE_ROOT]
+        case BackupScope.DATABASE:
+            steps = [BackupStep.DUMP]
+        case BackupScope.ALL:
+            steps = [BackupStep.DUMP, BackupStep.COLLECT_SITE_ROOT]
+        case _:
+            assert_never(scope)
     if encrypted:
         steps.append(BackupStep.ENCRYPT)
     steps.extend((BackupStep.WRITE_ARCHIVE, BackupStep.VERIFY, BackupStep.PUBLISH))

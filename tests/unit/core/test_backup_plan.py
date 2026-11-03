@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -68,3 +69,52 @@ def test_the_plan_is_frozen() -> None:
 
 def test_every_step_value_is_its_phase_name() -> None:
     assert all(step.value == step.name for step in BackupStep)
+
+
+# --------------------------------------------------------------------------
+# FR-2 — one plan per Backup Scope
+# --------------------------------------------------------------------------
+
+CAPTURE: dict[BackupScope, tuple[BackupStep, ...]] = {
+    BackupScope.FILES: (BackupStep.COLLECT_SITE_ROOT,),
+    BackupScope.DATABASE: (BackupStep.DUMP,),
+    BackupScope.ALL: (BackupStep.DUMP, BackupStep.COLLECT_SITE_ROOT),
+}
+TAIL = (BackupStep.WRITE_ARCHIVE, BackupStep.VERIFY, BackupStep.PUBLISH)
+
+
+@pytest.mark.parametrize("encrypted", [False, True])
+@pytest.mark.parametrize("scope", list(BackupScope))
+def test_each_scope_runs_exactly_its_steps(scope: BackupScope, encrypted: bool) -> None:
+    plan = build_backup_plan(SITE, scope, TARGET, encrypted=encrypted)
+    middle = (BackupStep.ENCRYPT,) if encrypted else ()
+    assert plan.scope is scope
+    assert plan.steps == CAPTURE[scope] + middle + TAIL
+
+
+def test_the_mode_defaults_tool_guards_backup_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AD-5: a defaulted ``BackupScope`` parameter is reported by the CI tool.
+
+    The planted file sits in a tree the tool has never seen, so this also
+    proves its file set is walked rather than listed.
+    """
+    tool_path = Path(__file__).resolve().parents[3] / "tools" / "check_mode_defaults.py"
+    spec = importlib.util.spec_from_file_location("check_mode_defaults", tool_path)
+    assert spec is not None
+    assert spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+
+    planted = tmp_path / "nested" / "planted.py"
+    planted.parent.mkdir()
+    planted.write_text(
+        "def plan(scope: BackupScope = BackupScope.ALL) -> None: ...\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tool, "PACKAGE_ROOT", tmp_path)
+    assert tool.main() == 1
+    err = capsys.readouterr().err
+    assert "planted.py:1" in err
+    assert "BackupScope" in err

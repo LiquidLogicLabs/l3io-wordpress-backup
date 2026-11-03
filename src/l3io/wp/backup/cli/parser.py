@@ -50,5 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="use this wp-config.php instead of searching for it",
         default=None,
     )
+    backup.add_argument(
+        "--mode",
+        choices=["files", "db", "all"],
+        default="all",
+        help="Indicate what to be Backup/Restore",
+    )
     subparsers.add_parser(RESTORE_COMMAND, help="Perform a WordPress restore")
     return parser

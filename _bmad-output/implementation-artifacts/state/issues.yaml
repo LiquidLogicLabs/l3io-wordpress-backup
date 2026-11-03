@@ -1,5 +1,5 @@
 next:
-  '002': 45
+  '002': 48
   '003': 30
   '004': 42
 backlog:
@@ -993,3 +993,33 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
+- key: BL-E002-045
+  epic: '002'
+  sprint: '01'
+  title: 'F-3: files-scope integration test simulates a stopped database with DB_HOST=db.invalid rather than stopping the CI db service'
+  source: code-review (E002-S01-002)
+  source_phase: code-review
+  source_ref: E002-S01-002
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-002.md
+- key: BL-E002-046
+  epic: '002'
+  sprint: '01'
+  title: 'F-4: no test asserts the early credential check (require_wp_config_credentials) still runs for --mode db/all in cli/backup.py'
+  source: code-review (E002-S01-002)
+  source_phase: code-review
+  source_ref: E002-S01-002
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-002.md
+- key: BL-E002-047
+  epic: '002'
+  sprint: '01'
+  title: 'F-5: failed --mode db test raises DumpFailedError, not DatabaseUnreachableError, and does not assert the exit code'
+  source: code-review (E002-S01-002)
+  source_phase: code-review
+  source_ref: E002-S01-002
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-002.md

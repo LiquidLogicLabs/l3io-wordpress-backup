@@ -47,6 +47,7 @@ from l3io.wp.backup.adapters.tar import (
     write_archive,
 )
 from l3io.wp.backup.adapters.workspace import run_workspace
+from l3io.wp.backup.cli.scope import backup_scope_from_cli
 from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
 from l3io.wp.backup.domain.archive_format import (
     CONFIG_RELATIVE,
@@ -127,7 +128,7 @@ def execute_backup_plan(
     site: SiteDescriptor,
     config: LocatedConfig,
     workspace: Path,
-    database: DatabaseCommand,
+    database: DatabaseCommand | None,
     store: ArchiveStoreCommand,
     cipher: PayloadCipher | None,
     exclusion: ExclusionPolicy,
@@ -139,11 +140,17 @@ def execute_backup_plan(
     ``ENCRYPT`` is emitted from inside the writer, and ``VERIFY`` and
     ``PUBLISH`` from inside ``publish()``, once each. Any exception after
     ``stage()`` discards the staged Archive before it propagates.
+    ``database`` is ``None`` exactly when the plan has no ``DUMP`` step: a
+    ``files`` backup binds no database and resolves no credential (FR-2).
     """
     encrypted = BackupStep.ENCRYPT in plan.steps
     if encrypted != (cipher is not None):
         msg = "the plan's ENCRYPT step and the cipher binding disagree"
         raise UsageError(msg)
+    if (BackupStep.DUMP in plan.steps) != (database is not None):
+        msg = "the plan's DUMP step and the database binding disagree"
+        raise UsageError(msg)
+    _log.info("backup_started", backup_scope=plan.scope.value)
     if cipher is not None:
         cipher.check()
     dump_path = workspace / DUMP_RELATIVE
@@ -170,8 +177,10 @@ def execute_backup_plan(
     try:
         for step in plan.steps:
             if step is BackupStep.DUMP:
+                # Bound: the DUMP/database check above ran before any step.
+                dumper = cast("DatabaseCommand", database)
                 with phase(step.value) as record:
-                    dumped = database.dump_to(site.database_location(), dump_path)
+                    dumped = dumper.dump_to(site.database_location(), dump_path)
                     record.bytes = dumped.bytes
                 members.append(file_member(MemberRole.DUMP, DUMP_RELATIVE, dump_path))
             elif step is BackupStep.COLLECT_SITE_ROOT:
@@ -255,19 +264,26 @@ def run_backup(args: argparse.Namespace) -> int:
         site, credentials = site_descriptor_from_wp_config(
             site_root, config_file=config.path
         )
-        require_wp_config_credentials(credentials)
         target = _target(args.archive or default_archive_name(site.db_name, now))
+        plan = build_backup_plan(
+            site, backup_scope_from_cli(args.mode), target, encrypted=False
+        )
+        # Only a plan that dumps touches the credentials (FR-2, AD-9): a
+        # `files` backup neither resolves them nor connects.
+        database: DatabaseCommand | None = None
+        if BackupStep.DUMP in plan.steps:
+            require_wp_config_credentials(credentials)
+            database = WpDatabase(credentials)
         store = LocalArchiveStore(verify=structural_check)
         with run_workspace(None) as workspace:
             if store.exists(target):
                 raise ArchiveExistsError(target.path)
-            plan = build_backup_plan(site, BackupScope.ALL, target, encrypted=False)
             result = execute_backup_plan(
                 plan,
                 site=site,
                 config=config,
                 workspace=workspace,
-                database=WpDatabase(credentials),
+                database=database,
                 store=store,
                 cipher=None,
                 exclusion=INCLUDE_EVERYTHING,

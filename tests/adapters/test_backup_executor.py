@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import stat
+import tarfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -405,3 +406,124 @@ def test_a_nul_in_a_file_url_is_a_usage_error_before_any_dump(
     url = f"file://{tmp_path}/x%00.tar"
     assert main(["backup", "--wp-dir", str(root), "--archive", url]) != 0
     assert database.calls == []
+
+
+# --------------------------------------------------------------------------
+# FR-2 — the Backup Scope selects the steps, never the Archive format
+# --------------------------------------------------------------------------
+
+
+class RefusingCredentials:
+    """A ``CredentialSource`` double: any attempt to resolve it fails the test."""
+
+    source = "wp-config.php"
+
+    def resolve(self) -> object:
+        msg = "a files backup resolved database credentials"
+        raise AssertionError(msg)
+
+
+def _roles(inner: list[tarfile.TarInfo]) -> set[str]:
+    return {info.name.split("/")[0] for info in inner}
+
+
+def test_a_files_backup_resolves_no_credential_and_binds_no_database(
+    tmp_path: Path,
+    cli_site: tuple[Path, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    archive_reader: Callable[..., Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root, _ = cli_site
+    real = backup_cli.site_descriptor_from_wp_config
+
+    def descriptor(site_root: Path, *, config_file: Path) -> tuple[Any, Any]:
+        site, _ = real(site_root, config_file=config_file)
+        return site, RefusingCredentials()
+
+    def no_database(credentials: object) -> object:
+        msg = "a files backup constructed a database adapter"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(backup_cli, "site_descriptor_from_wp_config", descriptor)
+    monkeypatch.setattr(backup_cli, "WpDatabase", no_database)
+    final = tmp_path / "files.tar.gz"
+    with capture_logs() as logs:
+        argv = ["backup", "--wp-dir", str(root), "--archive", str(final)]
+        code = main([*argv, "--mode", "files"])
+    assert code == 0, capsys.readouterr().err
+    read = archive_reader(final)
+    assert read.manifest.backup_scope == "files"
+    assert read.manifest.dump_present is False
+    assert _roles(read.inner) == {MemberRole.CONFIG.value, MemberRole.SITE_ROOT.value}
+    assert [e["phase"] for e in logs if e["event"] == "phase_completed"] == [
+        "COLLECT_SITE_ROOT", "WRITE_ARCHIVE", "VERIFY", "PUBLISH",
+    ]  # fmt: skip
+
+
+def test_a_db_backup_is_a_full_archive_with_no_site_root(
+    tmp_path: Path,
+    cli_site: tuple[Path, Any],
+    archive_reader: Callable[..., Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root, database = cli_site
+    out = tmp_path / "out"
+    out.mkdir()
+    final = out / "db.tar.gz"
+    with capture_logs() as logs:
+        code = main(
+            ["backup", "--wp-dir", str(root), "--archive", str(final), "--mode", "db"]
+        )
+    assert code == 0, capsys.readouterr().err
+    assert list(out.iterdir()) == [final]
+    assert list((tmp_path / "tmp").iterdir()) == []
+    assert len(database.calls) == 1
+    read = archive_reader(final)
+    assert read.manifest.backup_scope == "database"
+    assert read.manifest.dump_present is True
+    assert _roles(read.inner) == {MemberRole.DUMP.value, MemberRole.CONFIG.value}
+    started = [e for e in logs if e["event"] == "backup_started"]
+    assert [e["backup_scope"] for e in started] == ["database"]
+    assert [e["phase"] for e in logs if e["event"] == "phase_completed"] == [
+        "DUMP", "WRITE_ARCHIVE", "VERIFY", "PUBLISH",
+    ]  # fmt: skip
+
+
+def test_a_failed_db_backup_leaves_no_archive_and_no_loose_dump(
+    tmp_path: Path, cli_site: tuple[Path, Any]
+) -> None:
+    root, database = cli_site
+    database.fail = True
+    out = tmp_path / "out"
+    out.mkdir()
+    final = out / "db.tar.gz"
+    argv = ["backup", "--wp-dir", str(root), "--archive", str(final), "--mode", "db"]
+    assert main(argv) != 0
+    assert list(out.iterdir()) == []
+    assert list((tmp_path / "tmp").iterdir()) == []
+    assert not list(root.rglob("*.sql"))
+
+
+@pytest.mark.parametrize("scope", list(BackupScope))
+def test_the_database_binding_must_match_the_plans_dump_step(
+    tmp_path: Path, site_root: Path, workspace: Path, scope: BackupScope
+) -> None:
+    site = _site(site_root)
+    target = StorageTarget(scheme="file", path=PurePosixPath(tmp_path / "a.tar"))
+    plan = build_backup_plan(site, scope, target, encrypted=False)
+    wrong = None if BackupStep.DUMP in plan.steps else FakeDatabase()
+    with pytest.raises(UsageError):
+        backup_cli.execute_backup_plan(
+            plan,
+            site=site,
+            config=locate_wp_config(site_root, stated=None),
+            workspace=workspace,
+            database=wrong,
+            store=LocalArchiveStore(verify=structural_check),
+            cipher=None,
+            exclusion=INCLUDE_EVERYTHING,
+            origin=None,
+            now=NOW,
+        )
+    assert not (tmp_path / "a.tar").exists()
