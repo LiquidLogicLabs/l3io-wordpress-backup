@@ -1,8 +1,12 @@
+_lock:
+  session_id: b74a242a-6a71-45d8-8ece-7b06b152e53c
+  claimed_at: '2026-11-03T02:17:45Z'
+  ttl_minutes: 30
 key: 'E002'
 title: 'Walking skeleton — take a backup and prove it'
 goal: 'One operator-visible capability (`backup` and `verify` both working end to end) that necessarily lands every shared contract: the Site Descriptor, the archive format, the `ports/` Protocols, the Run Context, the CLI parser, and the no-op command adapters that make Dry Run structural. **Sequential — it blocks everything else, and that is its job.**'
-status: backlog
-updated_at: '2026-10-27T22:15:56Z'
+status: in-progress
+updated_at: '2026-11-03T02:17:44Z'
 origin: epics.md
 origin_note: goal and title taken from planning-artifacts/epics.md
 estimate:

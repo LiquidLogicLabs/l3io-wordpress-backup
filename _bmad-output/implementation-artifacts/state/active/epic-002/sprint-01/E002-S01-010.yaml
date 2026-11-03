@@ -3,8 +3,8 @@ epic: 'E002'
 sprint: 'S01'
 title: Write and publish an archive
 classification: standard
-status: backlog
-updated_at: '2026-10-27T22:15:53Z'
+status: ready-for-dev
+updated_at: '2026-11-03T02:18:45Z'
 depends_on:
 - 'E002-S01-001'
 estimate:

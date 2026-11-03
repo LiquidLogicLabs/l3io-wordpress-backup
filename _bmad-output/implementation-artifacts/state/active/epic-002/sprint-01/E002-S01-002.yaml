@@ -1,10 +1,10 @@
-key: 'E002-S01-005'
+key: 'E002-S01-002'
 epic: 'E002'
 sprint: 'S01'
-title: Branch automation on what happened
+title: Choose what the backup covers
 classification: standard
-status: backlog
-updated_at: '2026-10-27T22:15:52Z'
+status: ready-for-dev
+updated_at: '2026-11-03T02:18:42Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -17,19 +17,13 @@ estimate:
     hitl_hours: 1.0
     elapsed_hours: 1.0
     tokens_k: 1.0
-  confidence: medium
+  confidence: high
   tokens_k:
     total: 176
     input: 26
     output: 9
     cache_write: 53
     cache_read: 88
-previous_keys:
-- E002-S02-006
 depends_on:
 - 'E002-S01-001'
-- 'E002-S01-002'
-- 'E002-S01-004'
-- 'E002-S01-006'
-- 'E002-S01-003'
 - 'E002-S01-010'
