@@ -67,7 +67,7 @@ from tests.unit.cli.conftest import RecordingSiteLock
 MODE_KEYS = [k for k, e in FLAG_MAP.items() if not isinstance(e, FlagRejection)]
 DATABASE_MODES = [m for m in RestoreMode if restores_database(m)]
 FILE_ONLY_MODES = [m for m in RestoreMode if not restores_database(m)]
-EMPTY_DB = DatabaseTargetState(False, 0, False, None, None)
+EMPTY_DB = DatabaseTargetState(False, 0, False, None, None, 0, 0)
 
 
 @pytest.fixture

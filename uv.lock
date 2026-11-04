@@ -566,7 +566,7 @@ test = [
 requires-dist = [
     { name = "cryptography", specifier = ">=45,<51" },
     { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.3,<0.2", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-database", marker = "extra == 'database'", specifier = ">=0.3.0,<0.4", index = "https://test.pypi.org/simple/" },
+    { name = "l3io-wordpress-database", marker = "extra == 'database'", specifier = ">=0.3.1,<0.4", index = "https://test.pypi.org/simple/" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
@@ -609,16 +609,16 @@ wheels = [
 
 [[package]]
 name = "l3io-wordpress-database"
-version = "0.3.0"
+version = "0.3.1"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pymysql", extra = ["rsa"] },
     { name = "structlog" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/35/d4/43541778d46fdaf510df133187182d3ce9d90dbb3e99fa8e04cb6c9420dc/l3io_wordpress_database-0.3.0.tar.gz", hash = "sha256:ffd1638e90bf74a11f5a8bfc1b351d116b65cfdb8aa6bbbd16b0980608e1eed8", size = 55171, upload-time = "2026-11-04T07:09:47.604Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/dc/46/3adb6e1737d69a72b562210d1c282440008925db0f80a00f96244e5c92ff/l3io_wordpress_database-0.3.1.tar.gz", hash = "sha256:5c26a879a372ae93583a89fb8e80cd94c54428597e9b730bfc13b41d750e748d", size = 55436, upload-time = "2026-11-04T08:42:37.058Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/04/6f/6b620ac9b4860a57a94f104ac1358a4d7f575439926f221794835ab94cfd/l3io_wordpress_database-0.3.0-py3-none-any.whl", hash = "sha256:7164eb5a86d3f989c187aa938e9678fd20a6297a865ff9d86c5f851f6841668d", size = 65919, upload-time = "2026-11-04T07:09:46.669Z" },
+    { url = "https://test-files.pythonhosted.org/packages/fb/d8/df64168222e78d464d711a2de6c77a10d57b0686569a80faa90a5e60de03/l3io_wordpress_database-0.3.1-py3-none-any.whl", hash = "sha256:73770435b611983795451348ae9934c2548d2ef1743c87a235d65e4d98353599", size = 66117, upload-time = "2026-11-04T08:42:35.689Z" },
 ]
 
 [[package]]

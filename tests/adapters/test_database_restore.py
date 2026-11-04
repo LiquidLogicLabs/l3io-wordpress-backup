@@ -122,6 +122,8 @@ def test_survey_of_an_absent_database(target: Target) -> None:
         is_wordpress=False,
         schema_version=None,
         user_exists=False,
+        routine_count=0,
+        event_count=0,
     )
 
 
@@ -423,6 +425,8 @@ def test_survey_is_answered_by_the_administrator(
             schema_version=wpdb.SchemaVersion(57155),
             user_exists=None,
             user_privileges=None,
+            routine_count=3,
+            event_count=2,
         )
 
     monkeypatch.setattr(wpdb, "survey", survey)
@@ -430,7 +434,7 @@ def test_survey_is_answered_by_the_administrator(
         state = admin_database.survey_target(
             WHERE, table_prefix="xy_", wordpress_user=None
         )
-    assert state == DatabaseTargetState(True, 12, True, "57155", None)
+    assert state == DatabaseTargetState(True, 12, True, "57155", None, 3, 2)
     assert seen == {
         "wordpress_user": None,
         "user_host": "%",

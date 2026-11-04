@@ -62,7 +62,10 @@ class DatabaseTargetState:
     """What the administrator observed of a restore target (AD-29).
 
     Database's ``Survey``, copied field by field. ``user_exists`` is ``None``
-    when no WordPress user was asked about.
+    when no WordPress user was asked about. ``table_count`` includes views;
+    ``routine_count`` (procedures and functions) and ``event_count`` are
+    database's ``Survey`` fields since 0.3.1 (BL-E003-053), and have no
+    default so no constructor can leave them out.
     """
 
     database_exists: bool
@@ -70,6 +73,8 @@ class DatabaseTargetState:
     is_wordpress: bool
     schema_version: str | None
     user_exists: bool | None
+    routine_count: int
+    event_count: int
 
 
 @dataclass(frozen=True, slots=True)

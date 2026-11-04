@@ -450,7 +450,7 @@ class Harness:
         entries = len(list(self.site_root.iterdir()))
         return TargetState(
             site_root_empty=entries == 0,
-            database=DatabaseTargetState(True, 12, True, "57155", True),
+            database=DatabaseTargetState(True, 12, True, "57155", True, 0, 0),
             config_exists=self.config_path.exists(),
             site_root=self.site.site_root,
             site_root_entries=entries,

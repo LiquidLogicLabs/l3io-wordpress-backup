@@ -213,6 +213,34 @@ def test_a_non_empty_load_database_refuses_over_an_empty_live_one() -> None:
 
 
 @pytest.mark.parametrize(
+    ("counts", "detail"),
+    [
+        ({"routine_count": 1}, "0 tables, 1 routine"),
+        ({"event_count": 2}, "0 tables, 2 events"),
+        ({"routine_count": 3, "event_count": 1}, "0 tables, 3 routines, 1 event"),
+    ],
+    ids=["routines-only", "events-only", "both"],
+)
+@pytest.mark.parametrize("which", ["live", "load"])
+def test_a_database_with_only_routines_or_events_is_not_empty(
+    counts: dict[str, int], detail: str, which: str
+) -> None:
+    """BL-E003-053: no tables or views, but stored code the load would destroy."""
+    database = dataclasses.replace(EMPTY_DB, **counts)
+    target = (
+        dataclasses.replace(EMPTY, database=database, load_target=None)
+        if which == "live"
+        else dataclasses.replace(
+            EMPTY, database=EMPTY_DB, load_target=database, load_location=LOAD
+        )
+    )
+    with pytest.raises(NonEmptyTargetError) as caught:
+        check_target(RestoreMode.DATABASE, OverrideSet.none(), target)
+    assert caught.value.parts == ("database",)
+    assert caught.value.detail == detail
+
+
+@pytest.mark.parametrize(
     "database",
     [None, EMPTY_DB, dataclasses.replace(EMPTY_DB, database_exists=False)],
     ids=["no-survey", "no-tables", "absent"],

@@ -764,6 +764,8 @@ class WpDatabase:
             is_wordpress=survey.is_wordpress,
             schema_version=None if version is None else str(version.db_version),
             user_exists=survey.user_exists,
+            routine_count=survey.routine_count,
+            event_count=survey.event_count,
         )
         _completed(
             "database_surveyed",
@@ -772,6 +774,8 @@ class WpDatabase:
             observed_by=ADMIN_SOURCE,
             database_exists=state.database_exists,
             table_count=state.table_count,
+            routine_count=state.routine_count,
+            event_count=state.event_count,
             is_wordpress=state.is_wordpress,
             user_exists=state.user_exists,
         )

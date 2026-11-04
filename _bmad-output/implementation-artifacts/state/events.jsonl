@@ -644,3 +644,4 @@
 {"epic": "E003", "event": "actual", "from": null, "key": "E003-S02-006", "node": "story", "session": null, "sprint": "S02", "to": null, "ts": "2026-11-04T08:28:05Z"}
 {"epic": "E003", "event": "status", "from": "in-progress", "key": "E003-S02-006", "node": "story", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "to": "blocked", "ts": "2026-11-04T08:28:05Z"}
 {"event": "block_open", "reason": "Close-out gate item BL-E003-036 stays open: RT-002 waiver (unencrypted/STRUCTURAL_ONLY archives restore with a warning) needs owner ratification and ADR-0016/0022 amendment (BL-E003-054); everything else built, reviewed and verified", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "story": "E003-S02-006", "ts": "2026-11-04T08:28:05Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-053", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-04T08:53:01Z"}

@@ -1833,16 +1833,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-004.md
-- key: BL-E003-053
-  epic: '003'
-  sprint: '02'
-  title: 'FR-7 guard: a live database holding only routines/events (no tables or views) still reads as empty; needs l3io-wordpress-database survey to count routines and events (residual of BL-E003-035)'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Medium
-  status: backlog
-  description: l3io.wp.database survey_target counts tables and views only. Needs a database-library change (survey reports routine/event counts), then the backup package's TargetState/guard to consume it. Residual of BL-E003-035 / ADV-1.
 - key: BL-E003-054
   epic: '003'
   sprint: '02'

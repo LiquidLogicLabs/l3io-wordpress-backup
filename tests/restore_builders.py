@@ -56,6 +56,8 @@ FULL_DB = DatabaseTargetState(
     is_wordpress=True,
     schema_version="57155",
     user_exists=True,
+    routine_count=0,
+    event_count=0,
 )
 EMPTY_DB = dataclasses.replace(FULL_DB, table_count=0, is_wordpress=False)
 

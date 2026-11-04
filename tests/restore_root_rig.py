@@ -139,7 +139,7 @@ class Rig:
     executions: list[dict[str, Any]] = field(default_factory=list)
     backups: list[dict[str, Any]] = field(default_factory=list)
     survey: DatabaseTargetState = field(
-        default_factory=lambda: DatabaseTargetState(True, 12, True, "57155", True)
+        default_factory=lambda: DatabaseTargetState(True, 12, True, "57155", True, 0, 0)
     )
     execute: Callable[..., ExecutionReport] | None = None
     database: FakeDatabase | None = None

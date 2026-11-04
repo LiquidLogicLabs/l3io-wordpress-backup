@@ -159,7 +159,7 @@ def test_planted_inferences_are_seen_wherever_and_however_written(
         "    try:\n"
         "        login()\n"
         "    except (OSError, AuthenticationFailedError):\n"
-        "        return DatabaseTargetState(False, 0, False, None, None)\n",
+        "        return DatabaseTargetState(False, 0, False, None, None, 0, 0)\n",
         encoding="utf-8",
     )
     (tmp_path / "c.py").write_text(

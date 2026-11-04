@@ -37,7 +37,7 @@ class SurveyQuery:
         table_prefix: str,
         wordpress_user: str | None,
     ) -> DatabaseTargetState:
-        return DatabaseTargetState(True, 12, True, "57155", True)
+        return DatabaseTargetState(True, 12, True, "57155", True, 0, 0)
 
 
 def _target(adapters: AdapterSet, h: Harness) -> TargetState:

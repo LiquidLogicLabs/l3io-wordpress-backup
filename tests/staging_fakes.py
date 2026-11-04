@@ -60,8 +60,8 @@ from l3io.wp.backup.ports.restore import RestorePorts
 from tests.restore_harness import TARGET_DB, CommandLog, FakeConfig, Harness
 
 READY = Readiness(ready=True)
-WORDPRESS = DatabaseTargetState(True, 12, True, "57155", True)
-NOT_WORDPRESS = DatabaseTargetState(True, 3, False, None, True)
+WORDPRESS = DatabaseTargetState(True, 12, True, "57155", True, 0, 0)
+NOT_WORDPRESS = DatabaseTargetState(True, 3, False, None, True, 0, 0)
 RUN_ID = "run-1"
 
 

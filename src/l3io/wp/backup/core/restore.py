@@ -558,8 +558,16 @@ class ExecutionReport:
 
 
 def _survey_empty(db: DatabaseTargetState | None) -> bool:
-    """Absent, or present with no table: empty for FR-7 and the snapshot."""
-    return db is None or not db.database_exists or db.table_count == 0
+    """Absent, or present with no table, view, routine or event: empty.
+
+    For FR-7 and the snapshot. A database holding only stored routines or
+    events is not empty (BL-E003-053).
+    """
+    return (
+        db is None
+        or not db.database_exists
+        or db.table_count + db.routine_count + db.event_count == 0
+    )
 
 
 def _database_empty(target: TargetState) -> bool:
@@ -632,6 +640,16 @@ def _count(count: int, one: str, many: str) -> str:
     return f"{count} {one if count == 1 else many}"
 
 
+def _contents(db: DatabaseTargetState) -> str:
+    """What makes ``db`` non-empty: its tables, then any routines and events."""
+    parts = [_count(db.table_count, "table", "tables")]
+    if db.routine_count:
+        parts.append(_count(db.routine_count, "routine", "routines"))
+    if db.event_count:
+        parts.append(_count(db.event_count, "event", "events"))
+    return ", ".join(parts)
+
+
 def check_target(
     mode: RestoreMode, overrides: OverrideSet, target: TargetState
 ) -> None:
@@ -654,7 +672,7 @@ def check_target(
         entries = _count(target.site_root_entries, "entry", "entries")
         findings.append((repr(str(target.site_root)), entries))
     occupied = [
-        (_where(location, name), _count(db.table_count, "table", "tables"))
+        (_where(location, name), _contents(db))
         for db, location, name in (
             (target.database, target.database_location, "the live database"),
             (target.load_target, target.load_location, "the load database"),
