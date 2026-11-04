@@ -4,26 +4,26 @@ sprint: 'S02'
 title: Report honestly what the database restore did
 classification: standard
 status: backlog
-updated_at: '2026-10-28T18:09:32Z'
+updated_at: '2026-11-04T04:40:45Z'
 estimate:
-  man_hours: 7.5
-  hitl_hours: 0.44
-  elapsed_hours: 2.5
-  cost: 0.73
+  man_hours: 21.64
+  hitl_hours: 0.0
+  elapsed_hours: 0.44
+  cost: 13.93
   model: claude-opus-5
   fix_factor: 1.25
   scope_ratios:
-    man_hours: 1.0
-    hitl_hours: 1.0
-    elapsed_hours: 1.0
-    tokens_k: 1.0
+    man_hours: 2.8849
+    hitl_hours: 0.0
+    elapsed_hours: 0.1755
+    tokens_k: 7.1435
   confidence: medium
   tokens_k:
-    total: 176
-    input: 26
-    output: 9
-    cache_write: 53
-    cache_read: 88
+    total: 15729
+    input: 0
+    output: 132
+    cache_write: 493
+    cache_read: 15104
 depends_on:
 - 'E002-S01-001'
 - 'E002-S01-003'
