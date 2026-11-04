@@ -25,3 +25,9 @@ items:
   - key: BL-E002-117
     finding: "red team RT-4: the passphrase stays in os.environ, inherited by child processes"
     owner_story: E007-S01-003
+  - key: BL-E004-042
+    finding: "adapters/crypto.py::PassphraseCipher (from the E002 H2 fix) must become the one PayloadCipher, and the tests' FakeAge must give way to the real backend"
+    owner_story: E004-S01-003
+  - key: BL-E002-086
+    finding: "AD-22: python -m wpbackup2 must reach the new CLI (fixed on 2026-11-03; listed so it cannot quietly reopen)"
+    owner_story: E002-S02-011

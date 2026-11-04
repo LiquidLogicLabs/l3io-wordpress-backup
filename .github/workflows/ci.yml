@@ -341,6 +341,16 @@ jobs:
           wheel=$(ls "$DIST_DIR"/*.whl)
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$wheel" wpbackup2 --version
+      - name: python -m wpbackup2 runs from the installed distribution
+        # AD-22 freezes `python -m wpbackup2` as well as the console script. The
+        # step runs outside the checkout, so no on-disk tree can shadow the
+        # module the wheel ships.
+        run: |
+          set -euo pipefail
+          wheel=$(realpath "$(ls "$DIST_DIR"/*.whl)")
+          cd "$RUNNER_TEMP"
+          uv run --isolated --no-project --python "${{ matrix.python }}" \
+                 --with "$wheel" python -m wpbackup2 --version
       - name: every optional extra installs, wheels only (dev and test indexes)
         # FR-25: "every runtime dependency resolves from its declared index at
         # release time". The steps above install the BASE wheel only, so a broken

@@ -1381,14 +1381,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
-- key: BL-E002-086
-  epic: '002'
-  sprint: ''
-  title: 'AD-22: python -m wpbackup2 does not reach the new parser — the legacy wpbackup2/ tree occupies the module name on disk and is excluded from the wheel; needs a shim module (wpbackup2/__main__.py -> l3io.wp.backup.cli) and a decision on removing the legacy tree; tests/contracts/test_cli_surface.py holds a strict xfail'
-  source: story-dev
-  severity: Medium
-  status: backlog
-  description: Found by E002-S02-011; no story owns it yet.
 - key: BL-E002-087
   epic: '002'
   sprint: '02'

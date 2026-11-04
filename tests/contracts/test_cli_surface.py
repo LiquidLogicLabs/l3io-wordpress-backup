@@ -1,7 +1,7 @@
 """AD-22 / AG-10 — the frozen v0.2.21 CLI surface, checked against the legacy parser.
 
 The expected spellings are **not** a hand list. They are read by ``ast`` from
-the legacy parser, ``wpbackup2/__main__.py``, which stays on disk for exactly
+the legacy parser, ``legacy/wpbackup2/__main__.py``, which stays on disk for exactly
 this purpose: every ``add_argument`` option string, attributed to the
 subcommand(s) it lived on (``parents=[...]`` followed). Should that file be
 deleted, a committed snapshot (:data:`SNAPSHOT`) must replace it, or this
@@ -38,7 +38,7 @@ from l3io.wp.backup.cli.parser import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-LEGACY = ROOT / "wpbackup2" / "__main__.py"
+LEGACY = ROOT / "legacy" / "wpbackup2" / "__main__.py"
 #: ``[[command, spelling], ...]``; ``""`` is the top-level parser.
 SNAPSHOT = Path(__file__).with_name("legacy_cli_surface.json")
 TOP = ""
@@ -282,15 +282,8 @@ def test_the_console_script_reaches_main(monkeypatch: pytest.MonkeyPatch) -> Non
     assert calls == [None]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "AD-22 open legacy-tree item: the legacy wpbackup2/ tree occupies the "
-        "module name on disk but is excluded from the wheel, so `python -m "
-        "wpbackup2` does not reach this parser yet. Remove this marker when it does."
-    ),
-)
 def test_python_dash_m_wpbackup2_reaches_this_parser() -> None:
+    """Run from the repository root, where a ``wpbackup2/`` tree would shadow it."""
     result = subprocess.run(
         [sys.executable, "-m", "wpbackup2", "--version"],
         capture_output=True,

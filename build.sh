@@ -33,4 +33,4 @@ echo "Installing Locally"
 sudo python3 setup.py install
 echo "-------------------------------------------------------------------------------------------"
 
-rm -r wpbackup2.egg-info
+rm -r legacy/wpbackup2.egg-info

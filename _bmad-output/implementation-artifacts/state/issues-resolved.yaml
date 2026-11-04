@@ -201,3 +201,15 @@ resolved:
   resolved_at: '2026-11-03T19:10:09Z'
   ref: BL-E002-109
   note: stray duplicate from epic closure (source ref AD-1x)
+- key: BL-E002-086
+  epic: '002'
+  sprint: ''
+  title: 'AD-22: python -m wpbackup2 does not reach the new parser — the legacy wpbackup2/ tree occupies the module name on disk and is excluded from the wheel; needs a shim module (wpbackup2/__main__.py -> l3io.wp.backup.cli) and a decision on removing the legacy tree; tests/contracts/test_cli_surface.py holds a strict xfail'
+  source: story-dev
+  severity: Medium
+  status: resolved
+  description: Found by E002-S02-011; no story owns it yet.
+  resolution: fixed
+  resolved_at: '2026-11-04T02:34:02Z'
+  ref: E002-S02-011
+  note: python -m wpbackup2 now reaches the new CLI via src/wpbackup2; legacy tree moved to legacy/wpbackup2 (Shawn 2026-11-03)

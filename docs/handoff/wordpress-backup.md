@@ -270,7 +270,7 @@ note lives in the repo instead.
   `tests/contracts` alone: 41 passed, 2 skipped.
 - [todo] Stale legacy surface beside the rewrite: `README.md` documents only `wpbackup2`
   (Python 3.6, AWS flags); `setup.py`/`setup.cfg` (bumpversion 0.2.21) and the root `test.py`
-  predate the hatch build. The `wpbackup2/` package is the only working implementation while
+  predate the hatch build. The `wpbackup2/` package (now `legacy/wpbackup2/`, 2026-11-03) is the only working implementation while
   `src/l3io/wp/backup/` is placeholders and the CLI exits "not implemented". What to keep
   depends on AD-22's frozen surface; do not delete on inference.
 

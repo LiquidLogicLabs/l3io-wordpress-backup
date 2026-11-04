@@ -44,7 +44,7 @@ def test_every_ignored_module_tests_wpbackup2() -> None:
 
 # The legacy 0.2.21 tree, and the only paths ruff may skip besides the vendored
 # agent tooling. A rewrite path added to extend-exclude is never linted again.
-LEGACY_PATHS = {"wpbackup2", "tests/classes", "setup.py", "test.py", "README.md"}
+LEGACY_PATHS = {"legacy/wpbackup2", "tests/classes", "setup.py", "test.py", "README.md"}
 VENDORED_PATHS = {"_bmad", "_bmad-output", ".claude", ".agents", ".bmad"}
 
 
@@ -56,6 +56,8 @@ def test_ruff_skips_only_legacy_and_vendored_paths() -> None:
 
 def test_legacy_python_paths_are_the_legacy_package() -> None:
     files = [PROJECT_ROOT / p for p in ("setup.py", "test.py")]
-    files += sorted((PROJECT_ROOT / "wpbackup2").rglob("*.py"))
+    package = sorted((PROJECT_ROOT / "legacy" / "wpbackup2").rglob("*.py"))
+    assert package, "legacy/wpbackup2/ holds no module; this test would check nothing"
+    files += package
     assert all(f.is_file() for f in files)
     assert "l3io" not in set().union(*(_imported_roots(f) for f in files))

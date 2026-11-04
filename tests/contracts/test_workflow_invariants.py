@@ -327,3 +327,39 @@ def test_a_login_gated_index_never_runs_on_pull_requests() -> None:
             assert cond.strip() == "github.event_name != 'pull_request'", (
                 f"{where}: a login-gated step must run off pull requests, got {cond!r}"
             )
+
+
+#: ``uv run ... --with <the built wheel>`` — a step that runs the installed wheel.
+_RUNS_THE_WHEEL = re.compile(r'--with\s+"\$(?:wheel|WHEEL)"')
+
+
+def _wheel_jobs() -> dict[str, list[str]]:
+    """Every job with a step that runs the built wheel, mapped to those steps."""
+    jobs: dict[str, list[str]] = {}
+    for wf in WORKFLOWS:
+        for where, code, _step in _steps(wf):
+            if _RUNS_THE_WHEEL.search(code):
+                jobs.setdefault(where, []).append(code)
+    return jobs
+
+
+def test_python_dash_m_wpbackup2_runs_wherever_the_console_script_does() -> None:
+    """AD-22 freezes both invocations, so the wheel is proved to answer both.
+
+    Scope is every job that runs the console script ``wpbackup2 --version`` from
+    the built wheel, found by walking the workflows. The module run must ``cd``
+    away from the checkout first: from the repository root a ``wpbackup2/`` tree
+    on disk would answer instead of the wheel and pass for the wrong reason.
+    """
+    console = {
+        where: steps
+        for where, steps in _wheel_jobs().items()
+        if any(re.search(r'"\s+wpbackup2 --version', code) for code in steps)
+    }
+    assert console, "no job runs the console script from the built wheel"
+    for where, steps in console.items():
+        module = [c for c in steps if "python -m wpbackup2 --version" in c]
+        assert module, f"{where}: runs `wpbackup2` but never `python -m wpbackup2`"
+        assert all(re.search(r"^\s*cd\s", c, re.MULTILINE) for c in module), (
+            f"{where}: `python -m wpbackup2` runs inside the checkout"
+        )

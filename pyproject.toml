@@ -195,8 +195,11 @@ build-backend = "hatchling.build"
 # AD-27 — `packages` points at the namespace ROOT, and hatchling ships the
 # directories beneath it without synthesising `__init__.py` markers. There is no
 # `__init__.py` at src/l3io/ or src/l3io/wp/, and there never will be.
+#
+# `src/wpbackup2` is AD-22's `python -m wpbackup2`: a regular top-level package,
+# outside the `l3io` namespace, whose `__main__` delegates to the console entry.
 [tool.hatch.build.targets.wheel]
-packages = ["src/l3io"]
+packages = ["src/l3io", "src/wpbackup2"]
 
 # Hatchling's default sdist would sweep in the vendored agent tooling. Name the
 # contents instead.
@@ -208,13 +211,15 @@ include = ["/src", "/tests", "/tools", "/docs", "/README.md", "/LICENSE"]
 # --------------------------------------------------------------------------
 [tool.ruff]
 # The agent tooling directories are vendored, not ours. The rest is the legacy
-# 0.2.21 tree (the `wpbackup2/` package, its setuptools build, its tests and
-# the README that documents it), kept on disk until AD-22's frozen surface
-# decides what it becomes; it was never linted and is not the rewrite. test_legacy_test_exclusion guards that
+# 0.2.21 tree (the `legacy/wpbackup2/` package, its setuptools build, its tests
+# and the README that documents it), moved out of the module name's way so
+# `python -m wpbackup2` reaches the rewrite (AD-22, Shawn 2026-11-03) and kept on
+# disk because the frozen-surface test reads its parser; it was never linted and
+# is not the rewrite. test_legacy_test_exclusion guards that
 # this list names nothing else.
 extend-exclude = [
   "_bmad", "_bmad-output", ".claude", ".agents", ".bmad",
-  "wpbackup2", "tests/classes", "setup.py", "test.py", "README.md",
+  "legacy/wpbackup2", "tests/classes", "setup.py", "test.py", "README.md",
 ]
 line-length = 88
 target-version = "py311"
@@ -275,7 +280,7 @@ enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-# tests/classes/ tests the legacy `wpbackup2` package, which imports `wpconfigr`
+# tests/classes/ tests the legacy `legacy/wpbackup2` package, which imports `wpconfigr`
 # and `wpdatabase2`; neither is in the lock, so collecting it fails the whole
 # run. It also needs a live site and a tests/test_settings.json that is not in
 # the repository. Kept on disk until AD-22's frozen surface decides what the

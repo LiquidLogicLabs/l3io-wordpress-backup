@@ -4,8 +4,14 @@
 
 from subprocess import CalledProcessError, check_call
 import logging
+import os
+import pathlib
 
 logging.basicConfig(level=logging.DEBUG)
+
+# tests/classes import the 0.2.21 package, which now lives in legacy/ so that it
+# no longer shadows `python -m wpbackup2`.
+LEGACY = str(pathlib.Path(__file__).resolve().parent / 'legacy')
 
 try:
     check_call(['coverage',
@@ -14,7 +20,8 @@ try:
                 'unittest',
                 'discover',
                 '--start-directory',
-                'tests'])
+                'tests'],
+               env={**os.environ, 'PYTHONPATH': LEGACY})
 except CalledProcessError:
     exit(1)
 

@@ -47,7 +47,10 @@ freezes the outward CLI, so the entry point is named for the **preserved interfa
 for the distribution — an operator's existing cron line must keep working, and renaming the
 command would break exactly the callers AD-22 exists to protect. `python -m wpbackup2` is
 preserved for the same reason and needs its own packaging provision, since
-`packages = ["src/l3io"]` alone cannot ship a top-level `wpbackup2` module.
+`packages = ["src/l3io"]` alone cannot ship a top-level `wpbackup2` module. That provision
+is `src/wpbackup2/`, a regular package listed beside `src/l3io` in the wheel's `packages`,
+whose `__main__` calls the console entry; the 0.2.21 tree that occupied the name moved to
+`legacy/wpbackup2/` (Shawn, 2026-11-03, BL-E002-086).
 
 The rule therefore reads: named for the distribution, **unless an outward-compatibility
 constraint names it otherwise**, and where it does, that constraint is cited at the

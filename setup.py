@@ -44,6 +44,8 @@ setup(
     ],
     name='wpbackup2',
     license='MIT License',
+    # The 0.2.21 tree lives in legacy/ so it no longer shadows `python -m wpbackup2`.
+    package_dir={'': 'legacy'},
     packages=[
         'wpbackup2',
         'wpbackup2.classes',
