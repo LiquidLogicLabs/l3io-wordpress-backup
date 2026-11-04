@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 41
+  '003': 47
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1809,3 +1809,63 @@ backlog:
   severity: Low
   status: backlog
   description: See adversarial-review.md, redteam-report.md, arch-drift-review.md, ux-review.md in _bmad-output/implementation-artifacts/epic-003/sprint-01/closure.
+- key: BL-E003-041
+  epic: '003'
+  sprint: '02'
+  title: Load-database creation (EnsureOutcome.created_database) is not journaled; undo for an operator-named load DB cannot tell created vs pre-existing
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R4)
+- key: BL-E003-042
+  epic: '003'
+  sprint: '02'
+  title: Undo-table rows for failure paths (check_failed, readback_failed, staging_dropped) only asserted over successful-run prefixes
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R5)
+- key: BL-E003-043
+  epic: '003'
+  sprint: '02'
+  title: cutover_started:DB_PASSWORD is journaled before cutover_credentials() resolves; a credential failure leaves a misleading intent step
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R6)
+- key: BL-E003-044
+  epic: '003'
+  sprint: '02'
+  title: _drop_staging wraps drop_database and the staging_dropped journal write in one try; a journal failure after a successful drop is logged as a drop failure
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R7)
+- key: BL-E003-045
+  epic: '003'
+  sprint: '02'
+  title: RunJournal.resolve on a corrupt current.json raises CorruptJournalError with no resolution path for the operator
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R10)
+- key: BL-E003-046
+  epic: '003'
+  sprint: '02'
+  title: Story E003-S02-005 undo table and ADR-0020 still show LOAD_DUMP 'live site untouched' rows; code now names replaced files (fix R1) — update spec/ADR
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R1 follow-up)

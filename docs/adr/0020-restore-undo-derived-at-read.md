@@ -89,3 +89,21 @@ the refusal at every kill point, but never the undo text.
   harness; E003-S01-001 cites the signature.
 - **Revisit when:** a phase gains internal steps whose undo differs (for example staged file
   extraction). They become named steps under this rule; the rule itself does not change.
+
+## Amendment — 2026-11-04: undo text when files were already replaced
+
+Found in review of E003-S02-005 (R1), recorded as BL-E003-046. In a Mode that restores files
+(`all`, `all-clean`), `CLEAN` and `EXTRACT` complete before `LOAD_DUMP`. So a Run stopped in
+`LOAD_DUMP` before the cutover has already replaced files, and "live site untouched" would be
+false.
+
+- `undo_for` therefore also takes `files_changed`, computed purely from the entries by
+  `core/restore.py::replaced_files` (whether a `CLEAN`, `EXTRACT` or `REWRITE_CONFIG` phase
+  started).
+- When it is true, the `LOAD_DUMP` rows before the cutover say "the live database is
+  untouched, but files were replaced by this Run: <the Safety Snapshot undo>", and keep their
+  staging-database clause.
+- Everything else in this ADR stands. The derivation stays read-time and pure, and nothing
+  is stored.
+- E003-S02-005's undo table states the same.
+

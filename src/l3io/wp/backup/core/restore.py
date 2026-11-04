@@ -54,7 +54,7 @@ from l3io.wp.backup.domain.database import (
 )
 from l3io.wp.backup.domain.errors import ArchiveHasNoDumpError, RefusedError
 from l3io.wp.backup.domain.flag_map import FlagCombination, authorizing_combination
-from l3io.wp.backup.domain.journal import JournalEntry, JournalHeader
+from l3io.wp.backup.domain.journal import JournalEntry, JournalHeader, JournalRecord
 from l3io.wp.backup.domain.preflight import ToolRequirement, merge_requirements
 from l3io.wp.backup.domain.restore import (
     RESTORE_PHASE_ORDER,
@@ -78,8 +78,10 @@ __all__ = [
     "CONFIG_FILE_NAME",
     "CUTOVER_KEYS",
     "FREE_SPACE_MARGIN",
+    "MAX_DATABASE_NAME",
     "MAX_EXPANSION_RATIO",
     "NO_RELOCATION",
+    "STAGING_INFIX",
     "STEP_CHECK_FAILED",
     "STEP_CONFIG",
     "STEP_CONFIG_REPLACED",
@@ -97,7 +99,9 @@ __all__ = [
     "DatabaseRestoreReport",
     "ExecutionReport",
     "ExpansionRatioError",
+    "IncompleteRunError",
     "InsufficientSpaceError",
+    "NoConfigForCutoverError",
     "NonEmptyTargetError",
     "PlannedRestoreAction",
     "RestoreInputs",
@@ -110,12 +114,22 @@ __all__ = [
     "build_restore_plan",
     "check_expansion",
     "check_target",
+    "cutover_progress",
+    "incomplete_run_error",
+    "interrupted_phase",
     "is_orderly_failure",
+    "last_step",
+    "load_names",
+    "planned_cutover_keys",
+    "planned_cutover_targets",
     "planned_skipped_links",
     "render_flags",
+    "replaced_files",
     "snapshot_location",
     "snapshot_scope",
     "space_need",
+    "staging_name",
+    "undo_for",
 ]
 
 #: The name WordPress gives its configuration file.
@@ -176,6 +190,22 @@ class ArchiveHasNoConfigError(RefusedError):
         self.archive = archive
         super().__init__(
             f"archive {archive!r} holds no wp-config.php to overwrite the target's with"
+        )
+
+
+class NoConfigForCutoverError(RefusedError):
+    """A database Mode, and no ``wp-config.php`` will exist for the cutover.
+
+    Refused at plan time, before ``SNAPSHOT``: the cutover's ``set()`` never
+    creates a file, so it would otherwise be found only after the load.
+    """
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__(
+            f"the restore loads the database but no wp-config.php will exist at "
+            f"{path!r} for the cutover (the target has none and nothing lays one "
+            "down); nothing was changed"
         )
 
 
@@ -565,6 +595,329 @@ def is_orderly_failure(entries: tuple[JournalEntry, ...]) -> bool:
 
 
 # --------------------------------------------------------------------------
+# The staging database and the cutover set (AD-18.3, E003-S02-005)
+# --------------------------------------------------------------------------
+
+#: database's ``MAX_DATABASE_NAME``: :func:`staging_name` stays within it.
+MAX_DATABASE_NAME: Final = 64
+#: Between the live name and the Run ID in a staging database's name.
+STAGING_INFIX: Final = "_l3s_"
+_STAGING_LIVE_CHARS: Final = MAX_DATABASE_NAME - len(STAGING_INFIX) - 8
+_STAGING_RUN_CHARS: Final = 8
+
+
+def staging_name(live: str, run_id: str) -> str:
+    """The staging database a Run loads into: ``<live[:51]>_l3s_<run id[:8]>``.
+
+    Applies the length rule only (at most :data:`MAX_DATABASE_NAME`
+    characters); the name is validated by ``adapters/staging.py`` with
+    database's ``validate_database_name`` before its first use (AD-1).
+    """
+    run = run_id.replace("-", "")[:_STAGING_RUN_CHARS]
+    return f"{live[:_STAGING_LIVE_CHARS]}{STAGING_INFIX}{run}"
+
+
+def load_names(
+    live: str, run_id: str, relocation: RestoreRelocation
+) -> tuple[str, str | None]:
+    """``(load database, staging database)``; the staging one ``None`` when named.
+
+    ``--new-db-name`` (``relocation.load_database``) loads straight into the
+    operator's database; otherwise the Run's :func:`staging_name`.
+    """
+    if relocation.load_database:
+        return relocation.load_database, None
+    staging = staging_name(live, run_id)
+    return staging, staging
+
+
+def planned_cutover_keys(relocation: RestoreRelocation) -> tuple[str, ...]:
+    """The :data:`CUTOVER_KEYS` this Run's cutover writes, in that order.
+
+    ``DB_NAME`` always; ``DB_HOST``/``DB_USER`` when the relocation names
+    them; ``DB_PASSWORD`` when ``relocation.cutover_password``.
+    """
+    wanted = {"DB_NAME"}
+    if relocation.cutover_host is not None:
+        wanted.add("DB_HOST")
+    if relocation.cutover_user is not None:
+        wanted.add("DB_USER")
+    if relocation.cutover_password:
+        wanted.add("DB_PASSWORD")
+    return tuple(k for k in CUTOVER_KEYS if k in wanted)
+
+
+def planned_cutover_targets(
+    load_database: str, relocation: RestoreRelocation
+) -> dict[str, str]:
+    """The cutover's non-secret targets (``DB_NAME``/``DB_HOST``/``DB_USER``).
+
+    ``DB_PASSWORD`` is never here: it is resolved at its write (AD-18.1).
+    """
+    targets = {"DB_NAME": load_database}
+    if relocation.cutover_host is not None:
+        targets["DB_HOST"] = relocation.cutover_host
+    if relocation.cutover_user is not None:
+        targets["DB_USER"] = relocation.cutover_user
+    return targets
+
+
+# --------------------------------------------------------------------------
+# Reading a journal back: the interrupted phase and its undo (ADR-0020)
+# --------------------------------------------------------------------------
+
+
+def interrupted_phase(entries: tuple[JournalEntry, ...]) -> RestorePhase | None:
+    """The phase a Run was in when it stopped, from its journal ``entries``.
+
+    The last ``phase_started`` phase with no ``phase_completed`` after it;
+    when every started phase completed, the last completed one (the Run died
+    between phases, or before ``finish_run``); ``None`` when none started.
+    """
+    started = [i for i, e in enumerate(entries) if e.event == "phase_started"]
+    if not started:
+        return None
+    last = started[-1]
+    current = entries[last].phase
+    if any(e.event == "phase_completed" and e.phase is current for e in entries[last:]):
+        completed = [e.phase for e in entries if e.event == "phase_completed"]
+        return completed[-1]
+    return current
+
+
+def last_step(
+    entries: tuple[JournalEntry, ...], phase: RestorePhase | None
+) -> str | None:
+    """The ``step`` of the last ``step_completed`` entry of ``phase``, or ``None``."""
+    if phase is None:
+        return None
+    steps = [
+        e.step
+        for e in entries
+        if e.event == "step_completed" and e.phase is phase and e.step
+    ]
+    return steps[-1] if steps else None
+
+
+def cutover_progress(
+    entries: tuple[JournalEntry, ...], header: JournalHeader
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """``(written, pending)``: ``header.cutover_keys`` split by ``"cutover:<KEY>"``.
+
+    A key whose ``"cutover_started:<KEY>"`` is the last entry is pending: it
+    may or may not have landed, and resolution re-reads it.
+    """
+    landed = {
+        e.step.removeprefix(STEP_CUTOVER)
+        for e in entries
+        if e.event == "step_completed"
+        and e.phase is RestorePhase.LOAD_DUMP
+        and e.step
+        and e.step.startswith(STEP_CUTOVER)
+    }
+    written = tuple(k for k in header.cutover_keys if k in landed)
+    pending = tuple(k for k in header.cutover_keys if k not in landed)
+    return written, pending
+
+
+def _resolve_hint(header: JournalHeader) -> str:
+    return f"resolve with `--resolve-interrupted-run {header.run_id}`"
+
+
+def _snapshot_undo(header: JournalHeader) -> str:
+    if header.snapshot_path is None:
+        return "no Safety Snapshot: opted out"
+    return f"restore files from Safety Snapshot {header.snapshot_path}"
+
+
+def _prior_values(header: JournalHeader) -> str:
+    return (
+        "the values in prior_constants (DB_PASSWORD: from Safety Snapshot "
+        f"{header.snapshot_path or '(none: opted out)'})"
+    )
+
+
+def replaced_files(entries: tuple[JournalEntry, ...]) -> bool:
+    """Whether a ``CLEAN``, ``EXTRACT`` or ``REWRITE_CONFIG`` phase started.
+
+    A Mode that restores files runs them before ``LOAD_DUMP``, so a Run
+    stopped in ``LOAD_DUMP`` after one of them has already replaced files
+    under the Site Root (E003-S02-005 R1).
+    """
+    return any(e.event == "phase_started" and e.phase in _FILE_PHASES for e in entries)
+
+
+def _site_untouched(header: JournalHeader, *, files_changed: bool) -> str:
+    if not files_changed:
+        return "live site untouched"
+    return (
+        "the live database is untouched, but files were replaced by this Run: "
+        f"{_snapshot_undo(header)}"
+    )
+
+
+def _load_undo(step: str | None, header: JournalHeader, *, files_changed: bool) -> str:
+    """The ``LOAD_DUMP`` rows of the undo table (ADR-0020)."""
+    load, before = header.load_database, header.live_database_before
+    keys = header.cutover_keys
+    untouched = _site_untouched(header, files_changed=files_changed)
+    if step is None or step in {STEP_CHECK_FAILED, STEP_CUTOVER_READBACK_FAILED}:
+        if header.staging_database is None:
+            named = f"{load} existed and was empty before this Run; empty or drop it"
+            return f"{untouched}; {named}" if files_changed else named
+        return f"{untouched}; drop staging database {load}"
+    if step == STEP_STAGING_DROPPED:
+        return f"{untouched}; the staging database was already dropped"
+    if step.startswith(STEP_CUTOVER_STARTED):
+        key = step.removeprefix(STEP_CUTOVER_STARTED)
+        return (
+            f"the cutover was writing {key} and it may have landed; do not drop "
+            f"{load}; run `--resolve-interrupted-run {header.run_id}` to complete "
+            "the set (it re-reads which keys landed), or set the keys written so "
+            f"far back to {_prior_values(header)}"
+        )
+    if step.startswith(STEP_CUTOVER):
+        key = step.removeprefix(STEP_CUTOVER)
+        if keys and key != keys[-1]:
+            written = keys[: keys.index(key) + 1] if key in keys else (key,)
+            return (
+                f"set {', '.join(written)} back to {_prior_values(header)}, or run "
+                f"`--resolve-interrupted-run {header.run_id}` to complete the set"
+            )
+        return (
+            f"the site now runs on {load}; the previous database {before} is "
+            "retained; to go back, restore the database from Safety Snapshot "
+            f"{header.snapshot_path or '(none: opted out)'}"
+        )
+    if step == STEP_LOSER_DROP_STARTED:
+        return (
+            f"the site runs on {load}; removal of the previous database {before} "
+            "was in progress and it may be partly or fully dropped; to go back, "
+            "restore the database from Safety Snapshot "
+            f"{header.snapshot_path or '(none: opted out)'}"
+        )
+    if step == STEP_LOSER_DROPPED:
+        return f"the site runs on {load}; {before} was dropped, as this Mode names"
+    # A step this table does not know: never name a database to drop.
+    return f"unrecognised step {step!r} in LOAD_DUMP; inspect {header.wp_config_path}"
+
+
+def undo_for(
+    interrupted: RestorePhase | None,
+    step: str | None,
+    header: JournalHeader,
+    *,
+    files_changed: bool,
+) -> str:
+    """What would undo a Run interrupted in ``interrupted`` after ``step``.
+
+    The one derivation of ADR-0020's undo table, from the journal header,
+    the last step and whether a file phase started (:func:`replaced_files`);
+    nothing is stored. ``files_changed`` changes only the ``LOAD_DUMP`` rows
+    that would otherwise say the live site is untouched. From the first
+    ``"cutover_started:*"`` step on, the text never names
+    ``header.load_database`` as something to drop.
+    """
+    config = header.wp_config_path
+    match interrupted:
+        case (
+            None | RestorePhase.PREFLIGHT | RestorePhase.VERIFY | RestorePhase.SNAPSHOT
+        ):
+            return f"nothing on the Site was changed; {_resolve_hint(header)}"
+        case RestorePhase.CLEAN:
+            return _snapshot_undo(header)
+        case RestorePhase.EXTRACT:
+            if step == STEP_CONFIG_STARTED:
+                return (
+                    f"remove {config} if present (this Run was laying it down; "
+                    f"none existed), then {_snapshot_undo(header)}"
+                )
+            if step == STEP_CONFIG:
+                return (
+                    f"remove {config} (laid down by this Run; none existed), then "
+                    f"{_snapshot_undo(header)}"
+                )
+            return _snapshot_undo(header)
+        case RestorePhase.REWRITE_CONFIG:
+            if step is not None and step.startswith("config_"):
+                return f"copy {header.saved_config} back to {config}"
+            return header.phase_undo.get(interrupted) or f"{config} unchanged"
+        case RestorePhase.SEARCH_REPLACE:
+            return header.phase_undo.get(interrupted) or f"{config} unchanged"
+        case RestorePhase.LOAD_DUMP:
+            return _load_undo(step, header, files_changed=files_changed)
+        case _:
+            assert_never(interrupted)
+
+
+class IncompleteRunError(RefusedError):
+    """AD-18: an earlier Run on this Site never finished, and nothing was resolved.
+
+    ``interrupted_phase`` and ``undo`` are derived when the journal is read
+    (:func:`interrupted_phase`, :func:`undo_for`); ``written_keys`` and
+    ``pending_keys`` are set when the Run stopped inside the cutover.
+    Names, paths and the Run ID only — the journal holds no credential.
+    """
+
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        started_at: str,
+        interrupted_phase: RestorePhase | None,
+        undo: str,
+        journal_path: str,
+        written_keys: tuple[str, ...] = (),
+        pending_keys: tuple[str, ...] = (),
+    ) -> None:
+        self.run_id = run_id
+        self.started_at = started_at
+        self.interrupted_phase = interrupted_phase
+        self.undo = undo
+        self.journal_path = journal_path
+        self.written_keys = written_keys
+        self.pending_keys = pending_keys
+        phase = "no phase" if interrupted_phase is None else interrupted_phase.value
+        keys = ""
+        if written_keys or pending_keys:
+            keys = (
+                f"; cutover keys written: {', '.join(written_keys) or 'none'}, "
+                f"pending: {', '.join(pending_keys) or 'none'}"
+            )
+        super().__init__(
+            f"run {run_id} (started {started_at}) was interrupted in {phase}{keys}; "
+            f"undo: {undo}; journal: {journal_path}; acknowledge it with "
+            f"--resolve-interrupted-run {run_id}"
+        )
+
+
+def incomplete_run_error(
+    record: JournalRecord, journal_path: str
+) -> IncompleteRunError:
+    """The refusal a later Run raises for the incomplete ``record``."""
+    header, entries = record.header, record.entries
+    phase = interrupted_phase(entries)
+    step = last_step(entries, phase)
+    written: tuple[str, ...] = ()
+    pending: tuple[str, ...] = ()
+    if (
+        phase is RestorePhase.LOAD_DUMP
+        and step is not None
+        and (step.startswith((STEP_CUTOVER, STEP_CUTOVER_STARTED)))
+    ):
+        written, pending = cutover_progress(entries, header)
+    return IncompleteRunError(
+        run_id=header.run_id,
+        started_at=header.started_at,
+        interrupted_phase=phase,
+        undo=undo_for(phase, step, header, files_changed=replaced_files(entries)),
+        journal_path=journal_path,
+        written_keys=written,
+        pending_keys=pending,
+    )
+
+
+# --------------------------------------------------------------------------
 # BL-E002-116 — size, free space and expansion
 # --------------------------------------------------------------------------
 
@@ -811,6 +1164,25 @@ def _require_relocation_text(
             raise ValueError(msg)
 
 
+def _config_at_cutover(
+    site: SiteDescriptor,
+    mode: RestoreMode,
+    view: ArchiveView,
+    target: TargetState,
+    relocation: RestoreRelocation,
+    config_file: PurePosixPath,
+) -> bool:
+    """Whether a ``wp-config.php`` will exist at ``config_file`` for the cutover.
+
+    The target has one, a lay-down places one, or ``EXTRACT`` brings the
+    Archive's in-tree copy into a Site Root that holds the config path.
+    """
+    if target.config_exists or relocation.lay_down_config:
+        return True
+    in_tree = view.config_path == CONFIG_FILE_NAME
+    return restores_files(mode) and in_tree and config_file.parent == site.site_root
+
+
 def build_restore_plan(
     site: SiteDescriptor,
     mode: RestoreMode,
@@ -831,7 +1203,9 @@ def build_restore_plan(
     Refuses, before any effect: :class:`ArchiveHasNoDumpError` when ``mode``
     names the database and the Archive has no Dump;
     :class:`ArchiveHasNoConfigError` under ``OVERWRITE`` with no config in the
-    Archive; :class:`UnsafeSnapshotLocationError` when ``snapshot`` is
+    Archive; :class:`NoConfigForCutoverError` when ``mode`` loads the
+    database and no ``wp-config.php`` will exist for the cutover;
+    :class:`UnsafeSnapshotLocationError` when ``snapshot`` is
     ``TAKE`` and ``snapshot_dir`` may be web-served. First of all,
     :func:`check_target` refuses (:class:`NonEmptyTargetError`) a non-empty
     part of ``target`` that ``overrides`` (the FR-7 waivers) does not waive;
@@ -846,13 +1220,17 @@ def build_restore_plan(
         )
     if config_policy is ConfigPolicy.OVERWRITE and view.config_path is None:
         raise ArchiveHasNoConfigError(str(archive.path))
+    config_file = relocation.config_file or PurePosixPath(config_dir) / CONFIG_FILE_NAME
+    if restores_database(mode) and not _config_at_cutover(
+        site, mode, view, target, relocation, config_file
+    ):
+        raise NoConfigForCutoverError(str(config_file))
     scope = snapshot_scope(mode, target)
     location = None
     if snapshot is SnapshotPolicy.TAKE:
         location = snapshot_location(
             site.site_root, PurePosixPath(config_dir), PurePosixPath(snapshot_dir)
         )
-    config_file = relocation.config_file or PurePosixPath(config_dir) / CONFIG_FILE_NAME
     facts = _Facts(
         site=site,
         mode=mode,

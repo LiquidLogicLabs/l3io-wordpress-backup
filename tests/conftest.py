@@ -59,6 +59,11 @@ class CredentialSentinel:
     monkeypatch: pytest.MonkeyPatch = field(repr=False)
     popen: list[tuple[object, object]] = field(default_factory=list)
     texts: list[tuple[str, str]] = field(default_factory=list)
+    #: A second planted password, for a relocated account (E003-S02-005): the
+    #: cutover's ``DB_PASSWORD``. Unique per test and in :attr:`secrets`.
+    relocated_password: str = field(
+        default_factory=lambda: f"sentinel-pw2-{uuid.uuid4().hex}"
+    )
 
     def __repr__(self) -> str:
         # pytest prints a failing frame's arguments: never the sentinels.
@@ -72,7 +77,7 @@ class CredentialSentinel:
     @property
     def secrets(self) -> tuple[str, ...]:
         extra = () if self.passphrase is None else (self.passphrase,)
-        return (self.password, *extra)
+        return (self.password, self.relocated_password, *extra)
 
     def add(self, surface: str, text: str | bytes) -> None:
         """Capture ``text`` (CLI output, Manifest bytes, …) under ``surface``."""
