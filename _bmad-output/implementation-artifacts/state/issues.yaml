@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 35
+  '003': 41
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1761,3 +1761,51 @@ backlog:
   severity: Medium
   status: backlog
   description: "adapters/site_files.py::_listing raises InvalidSiteDescriptorError for any OSError, the same class as a missing root, so E003-S02-006's root cannot map it to REFUSED by type. Decide: a RefusedError subclass for a listing failure in E002's adapter, or amend the AC to FAILED. See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-002.md"
+- key: BL-E003-035
+  epic: '003'
+  sprint: '01'
+  title: "FR-7 guard: unsurveyed (None) and views-only live database read as empty (ADV-1); TargetState builder must distinguish 'no database' from 'not looked at'. Owner E003-S02-006"
+  source: closure-adversarial
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-1. Tests pin None as empty by design; the root that builds TargetState must survey in every database Mode. Views/routines are not counted by l3io.wp.database survey (library).
+- key: BL-E003-036
+  epic: '003'
+  sprint: '01'
+  title: 'Restore binds to the verified archive bytes: swap after VERIFY (RT-001) and unauthenticated manifest/STRUCTURAL_ONLY restore (RT-002). Owner E003-S02-006'
+  source: closure-redteam
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md RT-001, RT-002. Copy the verified payload into the workspace (or hash while extracting) before the CLI wires restore; decide refusal/waiver of STRUCTURAL_ONLY archives.
+- key: BL-E003-037
+  epic: '003'
+  sprint: '01'
+  title: Re-survey the target immediately before CLEAN and verify the snapshot was performed (RT-003, ADV-4, ADV-5, ADV-6). Owner E003-S02-003
+  source: closure-redteam
+  severity: Medium
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md RT-003 and _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-4/5/6: snapshot scope and the FR-7 decision come from a pre-run survey; no free-space check on the snapshot directory.'
+- key: BL-E003-038
+  epic: '003'
+  sprint: '01'
+  title: 'Config handling gaps: size limit late (ADV-7), relocated-config probe mismatch (ADV-8), journal left open after failed SNAPSHOT (ADV-9), overwrite outside guard/snapshot scope (ADV-10), workspace config copy not removed (ADV-11), tree-member config still written by a raw os.open (SD-01-1 remainder). Owner E003-S02-006'
+  source: closure-adversarial
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md and _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1.
+- key: BL-E003-039
+  epic: '003'
+  sprint: '01'
+  title: Refusal text uses domain spelling (mode=files force, 'files-clean') not CLI flags; docs/restore.md omits the FR-7 refusal and REFUSED exit number (UX-1..UX-7). Owner E003-S02-006
+  source: closure-ux
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md. S02-006 renders the CLI spelling (render_flags).
+- key: BL-E003-040
+  epic: '003'
+  sprint: '01'
+  title: 'Low-severity closure findings: ADV-12..14, CR-1..4, RT-004..007, SD-01-2..4, UX-8..11'
+  source: closure-all
+  severity: Low
+  status: backlog
+  description: See adversarial-review.md, redteam-report.md, arch-drift-review.md, ux-review.md in _bmad-output/implementation-artifacts/epic-003/sprint-01/closure.

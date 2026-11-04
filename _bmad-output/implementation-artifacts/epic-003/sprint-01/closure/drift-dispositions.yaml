@@ -1,0 +1,10 @@
+review: _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md
+findings:
+  SD-01-1:
+    severity: MAJOR
+    title: "`_archive_config` writes the Archive's config into the Run workspace with `os.open`/`os.fdopen` directly, not through a command port. ADR-0022 has the executor run every phase in a Dry Run over no-op command halves, so this write is not suppressed. The Dry Run therefore creates a `0600` file holding the source site's DB credentials. The executor's own docstring says a Dry Run is the no-op command halves. This is the defect class AD-4 exists to prevent. The CI grep gate and `test_restore_plan_equality.py` cannot see it, because the write is neither a conditional nor part of the plan."
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:

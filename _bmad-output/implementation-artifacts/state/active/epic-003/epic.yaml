@@ -1,6 +1,6 @@
 _lock:
   session_id: b74a242a-6a71-45d8-8ece-7b06b152e53c
-  claimed_at: '2026-11-04T03:13:11Z'
+  claimed_at: '2026-11-04T04:25:14Z'
   ttl_minutes: 240
 key: 'E003'
 title: 'Restore a site without destroying it'

@@ -264,3 +264,18 @@ def test_the_planned_skipped_links_are_the_extracted_skipped_links(
     assert key(planned) == key(result.skipped_links)
     assert {s.path for s in planned} == {"abs", "up", "sub/up2", "exactly"}
     assert (destination / "inside").is_symlink()
+
+
+def test_a_repeated_member_name_is_sized_by_its_largest_copy(tmp_path: Path) -> None:
+    """A small first copy must not hide a huge second one from the space check."""
+    path = tmp_path / "dup.tar"
+    with tarfile.open(path, "w") as tar:
+        for body in (b"x", b"y" * 5000):
+            info = tarfile.TarInfo("wp-root/dup.bin")
+            info.size = len(body)
+            tar.addfile(info, io.BytesIO(body))
+    probe = tar_module.TarArchiveProbe()
+    digests = probe.member_digests(
+        StorageTarget(scheme="file", path=PurePosixPath(path))
+    )
+    assert digests["wp-root/dup.bin"].size == 5000

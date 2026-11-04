@@ -716,7 +716,11 @@ def _walk(tar: tarfile.TarFile, scan: _Scan) -> None:
             and info.size <= MANIFEST_MAX_BYTES
         )
         digest, kept = _digest(tar, info, keep=keep)
-        scan.digests.setdefault(info.name, digest)
+        held = scan.digests.get(info.name)
+        if held is None or digest.size > held.size:
+            # A repeated name is sized by its largest copy, so a small first
+            # copy cannot hide a huge second one from the space check.
+            scan.digests[info.name] = digest
         if kept is not None:
             with contextlib.suppress(UnicodeDecodeError):
                 scan.manifest_text = kept.decode("utf-8")
@@ -781,7 +785,7 @@ class TarArchiveProbe:
         return _stream_outer(_archive_path(source)).index()
 
     def member_digests(self, source: StorageTarget) -> Mapping[str, MemberDigest]:
-        """Every outer member's type, size and SHA-256 (first occurrence)."""
+        """Every outer member's type, size and SHA-256 (largest occurrence)."""
         return MappingProxyType(_stream_outer(_archive_path(source)).digests)
 
     def read_member(

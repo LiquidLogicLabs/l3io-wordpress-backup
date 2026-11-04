@@ -104,6 +104,7 @@ _CHECK_PHASES: Final = frozenset({RestorePhase.PREFLIGHT, RestorePhase.VERIFY})
 _CONFIG_MAX_BYTES: Final = 1024 * 1024
 #: Where the Archive's config is copied in the Run workspace (``0600``).
 _ARCHIVE_CONFIG: Final = "archive-wp-config.php"
+_ARCHIVE_CONFIG_DIR: Final = "archive-config"
 _CONFIG_MODE: Final = 0o600
 #: The relative path ``CLEAN`` keeps and ``EXTRACT`` excludes under ``KEEP``.
 _KEPT_CONFIG: Final = frozenset({PurePosixPath(CONFIG_FILE_NAME)})
@@ -332,7 +333,7 @@ def _check_config(run: _Run) -> None:
     if relocation.lay_down_config and not run.lays_down_by_role:
         # The Archive's config is in its tree: it can be laid down only into
         # the Site Root, and only by a Mode that extracts the tree.
-        in_root = run.config_file.parent == run.site_root
+        in_root = _same_dir(run.config_file.parent, run.site_root)
         member = _config_member(inputs.view)
         if member is None or not in_root or not restores_files(run.plan.mode):
             raise ArchiveHasNoConfigError(str(inputs.archive.path))
@@ -445,7 +446,7 @@ def _snapshot(run: _Run, record: PhaseRecord) -> None:
 
 
 def _clean(run: _Run, record: PhaseRecord) -> None:
-    in_root = Path(run.inputs.config_path).parent == run.site_root
+    in_root = _same_dir(Path(run.inputs.config_path).parent, run.site_root)
     keep = _KEPT_CONFIG if in_root else frozenset()
     run.journal.phase_started(RestorePhase.CLEAN, str(run.site_root))
     removed = run.ports.adapters.site_files_command.clean(run.site_root, keep=keep)
@@ -475,7 +476,7 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
         # The tree's copy is excluded when the target keeps its own, or when
         # the config-role lay-down placed one in the Site Root; a lay-down from
         # the tree is this very extraction (``_check_config``).
-        laid_in_root = by_role and config_file.parent == run.site_root
+        laid_in_root = by_role and _same_dir(config_file.parent, run.site_root)
         keeps = run.config_existed or laid_in_root
         run.journal.phase_started(RestorePhase.EXTRACT, str(run.site_root))
         result = adapters.site_files_command.extract(
@@ -496,12 +497,32 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
     run.journal.phase_completed(RestorePhase.EXTRACT)
 
 
+def _same_dir(left: Path, right: Path) -> bool:
+    """Whether two paths name one directory, symlinks and ``..`` resolved."""
+    return os.path.realpath(left) == os.path.realpath(right)
+
+
 def _archive_config(run: _Run) -> Path:
-    """The Archive's config, read into the Run workspace at mode ``0600``."""
+    """The Archive's config, in the Run workspace at mode ``0600``.
+
+    A ``config``-role member is laid down by ``site_files_command`` so a Dry
+    Run's no-op half writes nothing. A config that lives in the tree is read
+    and written here (a port to extract one member is E003-S02-006's).
+    """
     inputs = run.inputs
     member = _config_member(inputs.view)
     if member is None:
         raise ArchiveHasNoConfigError(str(inputs.archive.path))
+    if member.role is MemberRole.CONFIG:
+        directory = Path(inputs.workspace) / _ARCHIVE_CONFIG_DIR
+        run.ports.adapters.site_files_command.extract(
+            inputs.archive,
+            directory,
+            inputs.view,
+            roles=frozenset({MemberRole.CONFIG}),
+            payload=run.payload,
+        )
+        return directory / CONFIG_FILE_NAME
     body = run.ports.adapters.archive_probe.read_member(
         inputs.archive,
         inputs.view,

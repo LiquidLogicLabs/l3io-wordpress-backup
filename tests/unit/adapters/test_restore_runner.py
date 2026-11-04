@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from structlog.testing import capture_logs
 
-from l3io.wp.backup.adapters.restore_runner import ArchiveChangedError
+from l3io.wp.backup.adapters.restore_runner import ArchiveChangedError, _same_dir
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
@@ -220,6 +220,30 @@ def test_overwrite_reads_the_archives_config_into_the_workspace(
     assert copied.stat().st_mode & 0o777 == 0o600
     warning = next(e for e in logs if e["event"] == "wp_config_overwritten")
     assert warning["log_level"] == "warning"
+
+
+def test_a_symlinked_site_root_still_keeps_the_targets_config(
+    tmp_path: Path, archive: Path
+) -> None:
+    """CLEAN compares directories, not strings: a link to the root is the root."""
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    link = tmp_path / "root-link"
+    link.symlink_to(h.site_root)
+    assert _same_dir(link, h.site_root)
+    assert not _same_dir(tmp_path, h.site_root)
+
+
+def test_an_overwrite_lays_a_config_role_member_down_through_the_port(
+    tmp_path: Path,
+) -> None:
+    """The Archive's config reaches the workspace by ``extract``, not a raw write."""
+    archive = write_v1(tmp_path, config_role=True)
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.FILES, config_policy=ConfigPolicy.OVERWRITE
+    )
+    h.run()
+    laid = [c for c in h.log.calls if c[2] == "extract" and c[3][1] == ["config"]]
+    assert [c[3][0] for c in laid] == [str(h.workspace / "archive-config")]
 
 
 def test_a_lay_down_extracts_the_config_role_first(tmp_path: Path) -> None:

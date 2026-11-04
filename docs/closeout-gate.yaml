@@ -31,3 +31,12 @@ items:
   - key: BL-E002-086
     finding: "AD-22: python -m wpbackup2 must reach the new CLI (fixed on 2026-11-03; listed so it cannot quietly reopen)"
     owner_story: E002-S02-011
+  - key: BL-E003-035
+    finding: "E003 sprint-01 closure ADV-1 (HIGH): the non-empty-target guard treats an unsurveyed or views-only live database as empty"
+    owner_story: E003-S02-006
+  - key: BL-E003-036
+    finding: "E003 sprint-01 closure red team RT-001/RT-002 (MEDIUM): Archive swap after verification; no authenticity binding"
+    owner_story: E003-S02-006
+  - key: BL-E003-037
+    finding: "E003 sprint-01 closure red team RT-003 (MEDIUM): the target is not re-surveyed before CLEAN"
+    owner_story: E003-S02-003
