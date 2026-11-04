@@ -505,3 +505,5 @@
 {"agent": "l3io-pm-epic-closure", "epic": "E002", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-03T19:10:01Z"}
 {"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-110", "ref": "BL-E002-109", "resolution": "duplicate", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-03T19:10:10Z"}
 {"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-086", "ref": "E002-S02-011", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-04T02:34:02Z"}
+{"agent": "l3io-arch-review", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-04T02:42:46Z"}
+{"agent": "l3io-arch-review", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-04T02:52:44Z"}
