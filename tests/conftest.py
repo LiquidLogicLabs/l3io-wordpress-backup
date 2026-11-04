@@ -64,6 +64,11 @@ class CredentialSentinel:
     relocated_password: str = field(
         default_factory=lambda: f"sentinel-pw2-{uuid.uuid4().hex}"
     )
+    #: A third, for a throwaway administrator account (E003-S02-004): the
+    #: database restore's ``--admin-password``. Unique per test, in :attr:`secrets`.
+    admin_password: str = field(
+        default_factory=lambda: f"sentinel-pw3-{uuid.uuid4().hex}"
+    )
 
     def __repr__(self) -> str:
         # pytest prints a failing frame's arguments: never the sentinels.
@@ -77,7 +82,7 @@ class CredentialSentinel:
     @property
     def secrets(self) -> tuple[str, ...]:
         extra = () if self.passphrase is None else (self.passphrase,)
-        return (self.password, self.relocated_password, *extra)
+        return (self.password, self.relocated_password, self.admin_password, *extra)
 
     def add(self, surface: str, text: str | bytes) -> None:
         """Capture ``text`` (CLI output, Manifest bytes, …) under ``surface``."""

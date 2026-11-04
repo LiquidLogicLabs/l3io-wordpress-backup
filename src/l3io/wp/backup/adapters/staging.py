@@ -53,6 +53,8 @@ from l3io.wp.backup.core.restore import (
     DatabaseRestoreReport,
     RestoreInputs,
     cutover_progress,
+    database_report_fields,
+    database_restored,
     interrupted_phase,
     last_step,
     load_names,
@@ -72,6 +74,7 @@ from l3io.wp.backup.domain.errors import (
     CredentialsError,
     DatabaseRefusedError,
     MissingExtraError,
+    ProvisioningFailedError,
     RefusedError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
@@ -310,17 +313,18 @@ def _post_load_check(
     *,
     ports: RestorePorts,
     journal: RunJournalCommand,
-) -> None:
+) -> bool:
     """Structural: the loaded database must be WordPress with a schema version.
 
     Given a not-performed ``LoadResult`` (a Dry Run's ``NoopDatabase``) it
-    surveys nothing and reports "would check" instead (ADR-0022).
+    surveys nothing, reports "would check" instead (ADR-0022) and returns
+    ``False``: nothing was checked. ``True`` only for a check that passed.
     """
     name = target.load.name
     if not loaded.performed:
         _log.info("staging_load_checked", staging_database=name, performed=False)
         _log.info("would_check", staging_database=name)
-        return
+        return False
     state = ports.adapters.restore_database_query.survey_target(
         target.load,
         table_prefix=inputs.site.table_prefix,
@@ -338,6 +342,7 @@ def _post_load_check(
         raise StagingCheckFailedError(
             name, is_wordpress=state.is_wordpress, schema_version=state.schema_version
         )
+    return True
 
 
 def _cutover_value(
@@ -358,8 +363,11 @@ def _cutover(
     *,
     ports: RestorePorts,
     journal: RunJournalCommand,
-) -> None:
-    """One atomic, verified ``set_constants`` per key, each journaled (AD-18.2)."""
+) -> tuple[str, ...]:
+    """One atomic, verified ``set_constants`` per key, each journaled (AD-18.2).
+
+    Returns the keys written, in order.
+    """
     config_file = Path(inputs.relocation.config_file or inputs.config_path)
     command = ports.adapters.config_command
     started = time.monotonic_ns()
@@ -404,6 +412,7 @@ def _cutover(
         outcome="ok",
         exit_code=int(ExitCode.OK),
     )
+    return tuple(landed)
 
 
 def _loser(
@@ -412,11 +421,20 @@ def _loser(
     *,
     ports: RestorePorts,
     journal: RunJournalCommand,
-) -> Literal["dropped", "retained", "absent"]:
-    """What happens to the database that lost the cutover (AD-18.3)."""
+    performed: bool,
+) -> Literal["dropped", "retained", "none", "absent"]:
+    """What happens to the database that lost the cutover (AD-18.3).
+
+    ``"none"`` when the administrator's survey found no live database, or a
+    performed drop found nothing to remove; a Dry Run's not-performed drop
+    reports ``"dropped"`` (would drop).
+    """
     live = target.live
     if target.load == live:
         return "absent"
+    if not inputs.live_database_exists:
+        _log.info("previous_database_absent", database=live.name)
+        return "none"
     if not removes_database(inputs.header.restore_mode):
         _log.info("previous_database_retained", database=live.name, reason="mode")
         return "retained"
@@ -433,7 +451,7 @@ def _loser(
     dropped = command.drop_database(live, confirm=live.name)
     journal.step_completed(_PHASE, STEP_LOSER_DROPPED)
     _log.info("previous_database_dropped", database=live.name, performed=dropped)
-    return "dropped"
+    return "dropped" if dropped or not performed else "none"
 
 
 def load_staged(
@@ -450,47 +468,118 @@ def load_staged(
     ``DatabaseRefusedError`` (``REFUSED``). A header built for another load
     database or key set is a programming error (``ValueError``), raised
     before any call.
+
+    FR-9: the returned report's ``restored`` is
+    ``core/restore.py::database_restored`` of the load's result, the check's
+    and the keys the cutover wrote; it is logged as ``database_restore_report``
+    (INFO). Any failure is logged as ``database_restore_report`` at ERROR
+    with ``restored: false`` and what is known — the ``ensure`` flags, the
+    provisioning steps that completed, the error class — and re-raised; a
+    failed load is never returned as a value.
     """
     target = _target(inputs)
-    _validate_name(target.load.name)
-    keys = _check_header(inputs, target)
-    _require_password_source(inputs, ports)
-    adapters = ports.adapters
-    command = adapters.restore_database_command
-    ensure = command.ensure_database(target.load)
-    if ensure.created_database:
-        _log.info(
-            "staging_database_created",
-            staging_database=target.load.name,
-            created_user=ensure.created_user,
-            granted=ensure.granted,
-            warnings=list(ensure.warnings),
-        )
+    ensure: EnsureOutcome | None = None
+    written: tuple[str, ...] | None = None
     try:
-        adapters.site_files_command.extract(
-            inputs.archive,
-            workspace,
-            inputs.view,
-            roles=frozenset({MemberRole.DUMP}),
-            payload=None if inputs.payload is None else Path(inputs.payload),
+        _validate_name(target.load.name)
+        keys = _check_header(inputs, target)
+        _require_password_source(inputs, ports)
+        adapters = ports.adapters
+        command = adapters.restore_database_command
+        ensure = command.ensure_database(target.load)
+        if ensure.created_database:
+            _log.info(
+                "staging_database_created",
+                staging_database=target.load.name,
+                created_user=ensure.created_user,
+                granted=ensure.granted,
+                warnings=list(ensure.warnings),
+            )
+        try:
+            adapters.site_files_command.extract(
+                inputs.archive,
+                workspace,
+                inputs.view,
+                roles=frozenset({MemberRole.DUMP}),
+                payload=None if inputs.payload is None else Path(inputs.payload),
+            )
+            loaded = command.load_dump(target.load, workspace / DUMP_RELATIVE)
+            checked = _post_load_check(
+                inputs, target, loaded, ports=ports, journal=journal
+            )
+        except BaseException:
+            _drop_staging(target, ensure, ports=ports, journal=journal)
+            raise
+        written = _cutover(inputs, target, keys, ensure, ports=ports, journal=journal)
+        previous = _loser(
+            inputs, target, ports=ports, journal=journal, performed=loaded.performed
         )
-        loaded = command.load_dump(target.load, workspace / DUMP_RELATIVE)
-        _post_load_check(inputs, target, loaded, ports=ports, journal=journal)
-    except BaseException:
-        _drop_staging(target, ensure, ports=ports, journal=journal)
+    except BaseException as exc:
+        _report_failure(target, ensure, written, exc)
         raise
-    _cutover(inputs, target, keys, ensure, ports=ports, journal=journal)
-    previous = _loser(inputs, target, ports=ports, journal=journal)
-    return DatabaseRestoreReport(
+    report = DatabaseRestoreReport(
         live_database_before=target.live.name,
         live_database_after=target.load.name,
         ensure=ensure,
         loaded_bytes=loaded.bytes,
         load_duration_ms=loaded.duration_ms,
         previous_database=previous,
-        restored=loaded.performed,
+        restored=database_restored(
+            loaded, check_passed=checked, cutover_written=written == keys
+        ),
         performed=loaded.performed,
     )
+    _log.info("database_restore_report", **database_report_fields(report))
+    return report
+
+
+def _report_failure(
+    target: _Target,
+    ensure: EnsureOutcome | None,
+    written: tuple[str, ...] | None,
+    exc: BaseException,
+) -> None:
+    """``database_restore_report`` at ERROR: what is known, never ``restored``.
+
+    Fields are names, flags, codes and the error class — never the error's
+    text, which may quote the dependency (AD-7). The cutover's progress is
+    stated: the keys written (``cutover_written``) and, once every key
+    landed, ``cutover_completed`` with the database the site now runs on —
+    so a failure after the cutover (the loser's drop) does not read as "the
+    restore did not happen".
+    """
+    fields: dict[str, object] = {
+        "live_database_before": target.live.name,
+        "load_database": target.load.name,
+        "restored": False,
+        "error_type": type(exc).__name__,
+    }
+    if ensure is not None:
+        fields.update(
+            created_database=ensure.created_database,
+            created_user=ensure.created_user,
+            password_set=ensure.password_set,
+            granted=ensure.granted,
+            warnings=list(ensure.warnings),
+            performed=ensure.performed,
+        )
+    if written is not None:
+        fields.update(
+            cutover_written=list(written),
+            cutover_completed=True,
+            live_database_after=target.load.name,
+        )
+    elif isinstance(exc, ConfigCutoverError):
+        fields.update(
+            cutover_written=list(exc.written),
+            cutover_pending=list(exc.pending),
+            cutover_completed=False,
+        )
+    if isinstance(exc, ProvisioningFailedError):
+        fields["completed"] = list(exc.completed)
+    if isinstance(exc, DatabaseRefusedError):
+        fields["findings"] = list(exc.findings)
+    _log.error("database_restore_report", **fields)
 
 
 # --------------------------------------------------------------------------

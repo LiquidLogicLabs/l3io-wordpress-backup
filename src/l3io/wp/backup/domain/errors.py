@@ -255,14 +255,29 @@ class PassphraseRequiredError(RefusedError):
         super().__init__(f"{operation} needs a passphrase and none was resolved")
 
 
+#: Database's ``ensure`` step names, as the report says them (FR-9).
+_PROVISIONING_STEP_TEXT: dict[str, str] = {
+    "create_database": "created database",
+    "create_user": "created user",
+    "set_password": "password set",
+    "grant": "granted access",
+}
+
+
 class ProvisioningFailedError(BackupError):
-    """Provisioning started and failed part-way."""
+    """Provisioning started and failed part-way.
+
+    ``completed`` is database's list of the steps that ran before the
+    failure; the message names each, then the failure, e.g. "created
+    database; then provisioning failed".
+    """
 
     def __init__(self, reason: str, *, completed: tuple[str, ...] = ()) -> None:
         self.reason = reason
         self.completed = completed
-        done = f" (completed: {', '.join(completed)})" if completed else ""
-        super().__init__(f"provisioning failed: {reason}{done}")
+        done = "; ".join(_PROVISIONING_STEP_TEXT.get(s, s) for s in completed)
+        progress = f" ({done}; then provisioning failed)" if done else ""
+        super().__init__(f"provisioning failed: {reason}{progress}")
 
 
 class ConfigWriteFailedError(BackupError):

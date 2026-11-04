@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 52
+  '003': 53
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -343,16 +343,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E003-027
-  epic: '003'
-  sprint: ''
-  title: E003-S02-005 load_staged returns DatabaseRestoreReport, but the rule computing restored is E003-S02-004's, which now runs after S02-005 — move the derivation into S02-005 or declare it pure in E003-S01-001
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
 - key: BL-E003-028
   epic: '003'
   sprint: ''
@@ -1401,16 +1391,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
-- key: BL-E002-089
-  epic: '002'
-  sprint: '02'
-  title: 'F6: test_no_sql_ddl misses bytes literals, DDL split across f-string parts, multi-line GRANT/REVOKE, SET PASSWORD / FLUSH PRIVILEGES / ROLE; widen or state limits in its docstring'
-  source: code-review (E002-S02-009)
-  source_phase: code-review
-  source_ref: E002-S02-009
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
 - key: BL-E002-090
   epic: '002'
   sprint: '02'
@@ -1901,3 +1881,13 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F7)
+- key: BL-E003-052
+  epic: '003'
+  sprint: '02'
+  title: "R-006: test_existence_by_admin triggers only on AuthenticationFailed/1045; AccessDeniedError (1044) handlers are the same AD-29 ambiguity and are not scanned nor named in its 'does not see' list"
+  source: code-review (E003-S02-004)
+  source_phase: code-review
+  source_ref: E003-S02-004
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-004.md

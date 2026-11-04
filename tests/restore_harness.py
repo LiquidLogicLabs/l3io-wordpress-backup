@@ -378,6 +378,9 @@ class Harness:
     snapshots: list[BackupScope] = field(default_factory=list)
     slot_calls: int = 0
     view_override: ArchiveView | None = None
+    #: The restore root's step-6 survey fact (E003-S02-004); :meth:`target`'s
+    #: database exists, so ``True`` unless a test removes both.
+    live_database_exists: bool = True
     #: The FR-7 waivers: ``--force`` by default, since the target is populated.
     overrides: OverrideSet = field(
         default_factory=lambda: OverrideSet(waived=frozenset(Override))
@@ -502,6 +505,7 @@ class Harness:
             config_path=self.config_path,
             payload=self.workspace / PAYLOAD_MEMBER if self.view.encrypted else None,
             workspace=self.workspace,
+            live_database_exists=self.live_database_exists,
         )
 
     @property

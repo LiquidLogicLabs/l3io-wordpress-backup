@@ -290,6 +290,13 @@ class RestoreSpec:
     relocated_user: str | None = None
     relocated_password: str | None = None
     state_home: str | None = None
+    #: A throwaway administrator (E003-S02-004); CI's own when ``None``.
+    admin_user: str | None = None
+    admin_password: str | None = None
+    #: The FR-7 waivers the plan is built under; every one by default.
+    overrides: OverrideSet = field(
+        default_factory=lambda: OverrideSet(waived=frozenset(Override))
+    )
 
 
 Wrap = Callable[[str, object], object]
@@ -307,13 +314,12 @@ def adapters_for(
 
     # CI's administrator: ``ensure`` grants, which needs GRANT OPTION that
     # ``live_account`` lacks. The WordPress account is always the sentinel's.
-    admin = admin_source(
-        ExplicitCredentialSpec(
-            os.environ.get("DB_ADMIN_USER", "root"), os.environ["DB_PASSWORD"]
-        ),
-        environ={},
-        secrets=secrets,
+    admin_spec = ExplicitCredentialSpec(
+        os.environ.get("DB_ADMIN_USER", "root"), os.environ["DB_PASSWORD"]
     )
+    if spec.admin_user is not None and spec.admin_password is not None:
+        admin_spec = ExplicitCredentialSpec(spec.admin_user, spec.admin_password)
+    admin = admin_source(admin_spec, environ={}, secrets=secrets)
     live = WpDatabase(
         wpdb.Explicit(spec.user, spec.password), secrets=secrets, admin=admin
     )
@@ -414,7 +420,7 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
     plan = build_restore_plan(
         site,
         spec.mode,
-        OverrideSet(waived=frozenset(Override)),
+        spec.overrides,
         view,
         target,
         archive=archive,
@@ -461,6 +467,8 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
         config_path=config_path,
         payload=None,
         workspace=workspace,
+        live_database_exists=target.database is not None
+        and target.database.database_exists,
     )
     ports = ports_for(spec, adapters)
     return execute_restore(

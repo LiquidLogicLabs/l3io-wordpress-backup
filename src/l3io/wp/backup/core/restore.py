@@ -12,7 +12,8 @@ module adds no second mode table.
 Also declared here, once, for the stories that produce or consume them:
 :func:`snapshot_scope`, :func:`snapshot_location`, :class:`SnapshotResult`,
 :class:`SnapshotFailedError`, :func:`recheck_target` (RT-003),
-:class:`DatabaseRestoreReport`, the journal step names (ADR-0020),
+:class:`DatabaseRestoreReport` with its pure derivation
+:func:`database_restored` (FR-9), the journal step names (ADR-0020),
 :func:`is_orderly_failure` (ADR-0021), :class:`RestoreRelocation` (Epic 7's
 seam), :class:`RestoreInputs`, :class:`ExecutionReport`, and the BL-E002-116
 size and free-space rule :func:`check_expansion`, with
@@ -54,6 +55,7 @@ from l3io.wp.backup.domain.database import (
     DatabaseLocation,
     DatabaseTargetState,
     EnsureOutcome,
+    LoadResult,
 )
 from l3io.wp.backup.domain.errors import ArchiveHasNoDumpError, RefusedError
 from l3io.wp.backup.domain.flag_map import FlagCombination, authorizing_combination
@@ -123,6 +125,8 @@ __all__ = [
     "check_expansion",
     "check_target",
     "cutover_progress",
+    "database_report_fields",
+    "database_restored",
     "incomplete_run_error",
     "interrupted_phase",
     "is_orderly_failure",
@@ -461,16 +465,58 @@ class SnapshotResult:
 
 @dataclass(frozen=True, slots=True)
 class DatabaseRestoreReport:
-    """What ``LOAD_DUMP`` did. ``restored`` only when load, check and cutover held."""
+    """What ``LOAD_DUMP`` did. ``restored`` only when load, check and cutover held.
+
+    ``restored`` is :func:`database_restored` of the effects' results; an
+    existing database is never a restored one. ``performed`` is ``False`` for
+    a Dry Run, whose report says "would load" and never ``restored``.
+
+    ``previous_database`` is what became of the database the cutover left:
+    ``"dropped"`` (or, in a Dry Run, would be), ``"retained"``, ``"none"``
+    when the administrator's survey found no live database, and
+    ``"absent"`` when the Dump loaded in place (no cutover target to leave).
+    """
 
     live_database_before: str
     live_database_after: str
     ensure: EnsureOutcome
     loaded_bytes: int
     load_duration_ms: float
-    previous_database: Literal["dropped", "retained", "absent"]
+    previous_database: Literal["dropped", "retained", "none", "absent"]
     restored: bool
     performed: bool
+
+
+def database_restored(
+    loaded: LoadResult, *, check_passed: bool, cutover_written: bool
+) -> bool:
+    """FR-9: the database was restored only if all three facts hold.
+
+    A performed load, the post-load check passed, and every cutover key
+    written. Taken from the effects' **results** (ADR-0022), never by
+    re-reading the server, so a load that did not happen — a Dry Run's
+    not-performed ``LoadResult`` included — can never be reported restored.
+    """
+    return loaded.performed and check_passed and cutover_written
+
+
+def database_report_fields(report: DatabaseRestoreReport) -> dict[str, object]:
+    """Every :class:`DatabaseRestoreReport` field, flat: the log record and JSON."""
+    ensure = report.ensure
+    return {
+        "live_database_before": report.live_database_before,
+        "live_database_after": report.live_database_after,
+        "created_database": ensure.created_database,
+        "created_user": ensure.created_user,
+        "password_set": ensure.password_set,
+        "granted": ensure.granted,
+        "warnings": list(ensure.warnings),
+        "loaded_bytes": report.loaded_bytes,
+        "load_duration_ms": report.load_duration_ms,
+        "previous_database": report.previous_database,
+        "restored": report.restored,
+        "performed": report.performed,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,6 +533,9 @@ class RestoreInputs:
     config_path: PurePath
     payload: PurePath | None
     workspace: PurePath
+    #: The administrator's survey of the live database (AD-29): whether it
+    #: existed. ``False`` makes the report's ``previous_database`` ``"none"``.
+    live_database_exists: bool
 
 
 @dataclass(frozen=True, slots=True)
