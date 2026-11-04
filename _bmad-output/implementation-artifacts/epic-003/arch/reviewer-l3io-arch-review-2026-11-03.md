@@ -148,3 +148,89 @@ The first two, and all seven MAJORs, are story-text corrections that need no new
 - If the owner keeps TLS in BL-E002-114: an ADR adopting an `l3io-wp-database` release with TLS on `Connection`, plus the `adapters/database.py` edit grant (Core §7).
 
 Sections read: the E003 story diff `c4ad808..HEAD`; all six E003 stories (S01-001 and S01-002 in full; S02-003:55-100; S02-004:50-100; S02-005:50-159; S02-006 in full); code: `domain/{restore,journal,flag_map,archive_format (ViewMember/ArchiveView/classify/Manifest), errors, database, site, preflight, config}.py`, `ports/{site_files,database,journal,adapter_set,config,preflight,crypto,search_replace,archive}.py`, `adapters/{tar (verify/extract/decrypt/read_member), site_files, crypto, phase, noop (NoopDatabase), database (LocatedConfig, descriptor constructors, credential sources)}.py`, `cli/{restore,adapter_sets,context (open_run/join_or_open),backup (backup()/BackupResult/PlannedAction/_cipher),credentials,scope,parser (NOT_YET_IMPLEMENTED, restore flags),passphrase,exit,__init__ (pre-Run check)}.py`, `core/` (listing; `core/backup.py` signatures); `pyproject.toml` import-linter contracts; `tests/contracts/{test_credential_hygiene,test_exception_hierarchy,test_exit_codes_family}.py` (relevant parts); `tests/unit/cli/test_drivers.py` header; `docs/closeout-gate.yaml`; `state/issues.yaml` BL-E002-114..117; `epic-002/epic-closure/redteam-report.md` RT-1/RT-3/RT-8/RT-10/RT-11 rows; E002 completion-note deviations (grep; E002-S01-004, E002-S02-007, E002-S02-008, E002-S02-011, E002-S02-012); the installed `l3io/wp/database/connection.py`. No spec section from `/tmp/wpb-tools/e003-sections.txt` was needed: every finding is a story-to-code comparison.
+
+## Re-check
+
+Re-check of commit `e926410`, against the code built at HEAD. Per the coordinator, two owner decisions are not reopened: TLS ships in `l3io-wordpress-database` 0.3.0, and BL-E002-116's limits are 0.95 × free space and an expansion ratio of 200.
+
+### 1. Are the BLOCKERs and MAJORs resolved? 10 of 10.
+
+- **BLOCKER 1 — decrypt errors: resolved.**
+  - S01-001:72, S01-001:121 and S01-001:178, and S02-006:107, now name `PassphraseRejectedError` and `PayloadDamagedError`, both exit 8. These match `domain/errors.py:433-461` and `adapters/crypto.py:86-88`.
+  - S02-006:57 builds `PassphraseCipher(resolved.value)` the same way `cli/verify.py:113` does.
+  - A grep of the six stories finds no remaining `ArchiveDecryptionError`, `EncryptedMemberCorruptError`, `build_payload_cipher` or `MemberCipher`.
+- **BLOCKER 2 — `test_no_flag_reads`: resolved.**
+  - S01-002:54-58 and S01-002:110 permit the two readers `cli/__init__.py` and `cli/restore.py`.
+  - The flag names are derived from `COVERED_FLAGS` minus `mode`, so `drop_database` is now included. Calls are excluded, so `adapters/database.py:774`'s `wpdb.drop_database(...)` is not counted as a read.
+  - Checked against the tree: the only attribute reads are `cli/__init__.py:89-91`.
+- **BLOCKER 3 — TLS: resolved by owner decision.**
+  - S02-006:15 grants the edits to `cli/parser.py`, `real_adapters(admin_tls=)`, `adapters/database.py`, the pin and the lock.
+  - S02-006:141 states the 0.3.0 API; S02-006:142 keeps BL-E002-114 open, and the story not done, until 0.3.0 is pinned.
+  - Not verifiable here: the installed `.venv` package is 0.2.x and has no `tls` in `connection.py`. The API is as the database agent confirmed it.
+- **MAJOR — Manifest match does not close RT-1: resolved.**
+  - S02-006:140 now requires `--archive-database HOST[:PORT]/NAME` and refuses a Manifest-only match.
+  - S02-006:143 tests a config and `Manifest.source` forged together.
+  - Note: `ArchiveView.backup_scope` is added (S01-001:161), but `Manifest.source` no longer needs to cross into the view.
+- **MAJOR — BL-E002-116 placement: resolved.**
+  - S01-001:56 grants the `domain/archive_format.py` edit.
+  - S01-001:161 adds `ViewMember.size: int | None` and `ArchiveView.backup_scope`, and says to update every constructor. Today that is 3 `ViewMember(` sites in `src/` and `tests/`, including `_classify_v1` at `domain/archive_format.py:738` and `_classify_v0` at `domain/archive_format.py:755`.
+  - S01-001:162 adds the constants `FREE_SPACE_MARGIN = 0.05` and `MAX_EXPANSION_RATIO = 200`.
+  - S01-001:163 defines v0 through `member_digests` and branches on `size is None`, never on `format_version`.
+  - But see the new MAJOR below on the workspace clause.
+- **MAJOR — unpatched-tarfile refusal is reached after `CLEAN`: resolved.**
+  - S01-001:166 moves `adapters/tar.py:1076-1079` into one `require_patched_tarfile()`, which `extract_archive` calls first.
+  - S01-001:69 step 3 runs it in every `PREFLIGHT`; S01-001:123 is the matching edge case.
+  - S01-001:166 adds a `monkeypatch.delattr` test that asserts an empty command log.
+- **MAJOR — `RestorePorts` undeclared: resolved.**
+  - S01-001:70 declares it once in `ports/restore.py`, holding `adapters: AdapterSet` whole, with one constructor, `restore_ports`.
+  - Holding the set whole is correct against `tests/contracts/test_adapter_set_owner.py`, which refuses a second class with two or more port halves; `RestorePorts` holds only callables beside the set.
+  - The layers contract is satisfied: `ports` may import `ports` and `domain`.
+  - It is cited at S02-005:66 and S02-005:71, and at S02-006:66.
+- **MAJOR — preflight port: resolved.**
+  - S01-001:69 step 1 calls `ports.preflight(plan.required_tools)`.
+  - S02-006:66 and S02-006:89 bind `functools.partial(require_tools, DumpReadinessPreflight(...))`. That matches the built `require_tools(preflight, requirements)` at `cli/preflight.py:98-100`, and the executor imports nothing from `cli/`.
+- **MAJOR — flag rendering from `core/`: resolved.**
+  - S01-002:59 makes the field `authorizing: FlagCombination`.
+  - S02-006:72 adds `render_flags` in `cli/restore.py` through `CLI_MODE_TO_SCOPE`.
+  - S02-006:165 adds a round-trip test over every non-rejection `FLAG_MAP` key.
+- **MAJOR — Dry Run `check_*` unassigned: resolved.**
+  - S01-001:68 adds a `check_database` slot, and S01-001:69 step 5 runs it in `PREFLIGHT`.
+  - S02-005:67 defines `check_staged` over the built `check_ensure`, `check_load(…, source=None)`, `check_revoke` and `check_drop_database` (`ports/database.py:59-77`).
+  - S02-005:237 tests parity between the real and dry-run sets; S02-004:100 points there.
+
+The 14 MINORs were also addressed, spot-checked in these places: S01-001:56, :58, :72, :75 and :79; S01-002:43, :61 and :63; S02-003:58 and :68; S02-005:68; S02-006:15, :57, :59, :61, :66, :68, :71 and :144.
+
+### 2. Did the edits introduce anything new?
+
+MAJOR: [Core §3; BL-E002-116] S01-001:162-163 refuses when `expanded > workspace_free`, where `expanded` is the sum of **every** member. The workspace never holds the expanded tree. It holds:
+- the decrypted payload, about `view.payload.size`, and only for an encrypted Archive (S01-001:71);
+- the Dump member, for `LOAD_DUMP` (S02-005:71);
+- a config copy.
+
+The Site Root members go to the target. As written, any site larger than the free space in `$TMPDIR`, often a small tmpfs, is refused even though the restore would succeed. Conversely, the target check also counts the Dump's bytes, which never land on the target. The owner's limits themselves are not in question. Remediation: compute the need per destination.
+- Target: the sum of `size` over the `site-root` (and `config`) members the Mode extracts, checked against `target_free × (1 − FREE_SPACE_MARGIN)`.
+- Workspace: `view.payload.size` when encrypted, plus the Dump member's `size` when the plan has `LOAD_DUMP`.
+- Ratio: unchanged. Also guard `compressed == 0`.
+
+MINOR: [(a) order of operations] S02-005:67 says a not-ready `Readiness` maps through `blocked_dump_error` and is then subject to the `ENSURE_RESOLVES` allowance. `authentication_failed` is in `_CREDENTIAL_CODES` (`adapters/database.py:100`), so if the mapping runs first, `blocked_dump_error` returns `CredentialsError` before the allowance applies. Also, `blocked_dump_error` requires `credential_source=` (`adapters/database.py:429-431`), which the story omits. Remediation: state that the `ENSURE_RESOLVES` blockers are removed from `check_load`'s result first, then the rest is mapped, and give the `credential_source` to pass.
+
+MINOR: [(a) contradiction] S01-002:59 retypes `NonEmptyTargetError.part` to a single `RestorePart`. S01-002:72 still requires one refusal naming both parts, "two `part` entries". Remediation: `parts: tuple[RestorePart, ...]`, with `found`/`detail`/`authorizing` kept per part. S01-002:91 already logs `parts` as a list.
+
+MINOR: [Core §4; grant scope] S02-006:15 and S02-006:140-141 register three new restore options: `--archive-database`, `--admin-tls` and `--admin-tls-ca`. Their effects fall outside the grant:
+- the README's CLI section is generated and checked (`tests/contracts/test_cli_docs.py` runs `tools/gen_cli_docs.py --check`), so `README.md` must be regenerated;
+- `tests/contracts/test_cli_surface.py:209` `ADDITIONS` should list the three flags.
+
+The grant names only `cli/parser.py`. Remediation: add `README.md` (regenerated) and the `ADDITIONS` entries to the grant and the test plan.
+
+MINOR: [Global rule 1, no hand-rolled parser] S02-006:140 splits `--archive-database`'s `HOST[:PORT]` "as WordPress's `DB_HOST` is". The descriptor already gets host and port from the library's own `DB_HOST` parsing (`adapters/database.py:243-262`, `config.connection()`; the library has `Connection.from_db_host`). Remediation: reuse that parser through a small helper in `adapters/database.py` (already granted for the TLS wiring), not a second split in `cli/restore.py`.
+
+MINOR: [owner observation, not reopening the design] S02-006:140 confirms host, port and name through `--archive-database`, and shows `DB_USER` without confirming it. That leaves open RT-1's account variant, where a forged `DB_USER` names an existing account and `ensure_database` resets its password and grant. Recorded for the owner. Confirming the user too, for example `HOST[:PORT]/NAME?user=` or a separate flag, would close it.
+
+Checked and clean:
+- **Sprint 01 → sprint 02:** S01-001's new `check_database` slot is faked in its tests (S01-001:178), and `restore_ports` is called only by S02-006.
+- **Layering:** `PlannedRestoreAction` is in `core`; `RestorePorts` is in `ports`; `AdminTls` and the TLS errors are in `adapters/database.py`; `ArchiveIdentityUnconfirmedError` and `render_flags` are in `cli/restore.py`. All are legal under `pyproject.toml:324-367`.
+- **No E004 or E005 code:** E005's P3 is still a one-line future substitution (S02-006:89).
+- **No contract stated twice:** `RestorePorts`, `execute_restore` and `build_restore_plan` each have one statement, and the other stories cite them.
+- **Names checked against the code:** all exist except the ones the stories create, and the 0.3.0 TLS names, which are external.
+
+New: MAJOR 1, MINOR 5.
