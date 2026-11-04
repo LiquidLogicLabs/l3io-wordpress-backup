@@ -175,3 +175,33 @@ def test_publish_after_discard_is_refused(tmp_path: Path) -> None:
     staged.discard()
     with pytest.raises(ArchiveWriteError):
         staged.publish()
+
+
+# --------------------------------------------------------------------------
+# M-4: the restore's store creates the Safety Snapshot's directory
+# --------------------------------------------------------------------------
+
+
+def test_a_store_that_creates_makes_the_missing_directory_owner_only(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "state" / "snapshots"
+    store = LocalArchiveStore(verify=Verifier(), create_directory=True)
+    staged = store.stage(_target(directory / "snap.tar.gz"))
+    staged.discard()
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+
+
+def test_by_default_a_missing_directory_is_not_created(tmp_path: Path) -> None:
+    directory = tmp_path / "missing"
+    with pytest.raises(ArchiveWriteError):
+        LocalArchiveStore(verify=Verifier()).stage(_target(directory / "site.tar.gz"))
+    assert not directory.exists()
+
+
+def test_an_uncreatable_directory_is_an_archive_write_error(tmp_path: Path) -> None:
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    store = LocalArchiveStore(verify=Verifier(), create_directory=True)
+    with pytest.raises(ArchiveWriteError):
+        store.stage(_target(blocker / "snapshots" / "snap.tar.gz"))

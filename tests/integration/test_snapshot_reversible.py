@@ -4,9 +4,13 @@ Unmarked, files only: a ``files-clean`` restore over a populated Site Root,
 with the real ``LocalSiteFiles`` and a ``take_snapshot`` that joins E002's
 ``backup(..., ctx=ctx)`` inside the restore's Run; then a second
 ``files-clean`` restore from the reported snapshot path. The Site Root tree
-(every path and its bytes) equals the one before the first restore. The
-database half (``CHECKSUM TABLE``) needs the root's real ``take_snapshot``
-binding over a live server, which E003-S02-006 builds (BL-E003-047).
+(every path and its bytes) equals the one before the first restore.
+
+The database half (BL-E003-047, E003-S02-006), marked ``integration``: a
+``database`` restore through ``wpbackup2 restore`` over the CI database, then
+a second one from the Safety Snapshot it reported; every table the live
+database held has the same ``CHECKSUM TABLE`` in the database the Site runs on
+afterwards.
 """
 
 from __future__ import annotations
@@ -21,7 +25,16 @@ from structlog.testing import capture_logs
 from l3io.wp.backup.adapters.lock import FcntlSiteLock
 from l3io.wp.backup.cli.adapter_sets import real_adapters
 from l3io.wp.backup.cli.context import RunContext, open_run
+from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import RestoreMode, SnapshotPolicy
+from tests.integration.live_cli import (
+    CliSite,
+    admin_account,  # noqa: F401 - a fixture
+    authorizing_flags,
+    cli_site,  # noqa: F401 - a fixture
+    run_cli,
+)
+from tests.integration.live_restore import read_keys
 from tests.restore_harness import Harness, joined_snapshot, write_v1
 
 
@@ -94,3 +107,28 @@ def test_restoring_the_snapshot_gives_back_the_pre_restore_tree(
     with capture_logs():
         back.run()
     assert _tree(harness.site_root) == before
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    "DB_HOST" not in os.environ, reason="needs the CI database (DB_HOST unset)"
+)
+def test_restoring_the_snapshot_gives_back_the_database(
+    cli_site: CliSite,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    site = cli_site
+    before = site.site.checksums()
+    flags = authorizing_flags(RestoreMode.DATABASE)
+    first = run_cli(site.argv(site.archive(), *flags), capsys)
+    assert first.code == int(ExitCode.OK), first.err[-3000:]
+    (written,) = first.events("safety_snapshot_written")
+    snapshot = Path(written["path"])
+    restored = str(read_keys(site.site.config)["DB_NAME"])
+    assert restored != site.site.database
+    assert site.site.checksums(restored) != before
+    second = run_cli(site.argv(snapshot, *flags), capsys)
+    assert second.code == int(ExitCode.OK), second.err[-3000:]
+    live = str(read_keys(site.site.config)["DB_NAME"])
+    after = site.site.checksums(live)
+    assert {table: after.get(table) for table in before} == before

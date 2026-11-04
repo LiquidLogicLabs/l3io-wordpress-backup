@@ -321,6 +321,25 @@ def test_save_copy_writes_an_owner_only_copy(
     assert _temps(destination.parent) == []
 
 
+def test_save_copy_creates_a_missing_directory_owner_only(
+    writer: WpConfigWriter, config: Path, tmp_path: Path
+) -> None:
+    """M-4: the command creates the snapshot directory, so a Dry Run's twin does not."""
+    destination = tmp_path / "state" / "snapshots" / "wp-config.php.saved"
+    writer.save_copy(config, destination)
+    assert destination.read_bytes() == config.read_bytes()
+    assert stat.S_IMODE(destination.parent.stat().st_mode) == 0o700
+
+
+def test_save_copy_into_an_uncreatable_directory_is_a_package_error(
+    writer: WpConfigWriter, config: Path, tmp_path: Path
+) -> None:
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    with pytest.raises(ConfigWriteFailedError):
+        writer.save_copy(config, blocker / "snapshots" / "wp-config.php.saved")
+
+
 # --------------------------------------------------------------------------
 # replace_file
 # --------------------------------------------------------------------------

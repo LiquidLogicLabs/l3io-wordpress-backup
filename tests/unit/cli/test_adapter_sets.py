@@ -195,9 +195,15 @@ class _Distinct:
     """A fresh database double per construction, recording what bound it."""
 
     def __init__(
-        self, credentials: object, *, secrets: object, admin: object = None
+        self,
+        credentials: object,
+        *,
+        secrets: object,
+        admin: object = None,
+        admin_tls: object = None,
     ) -> None:
         self.credentials, self.admin = credentials, admin
+        self.admin_tls = admin_tls
 
     def __repr__(self) -> str:
         return "_Distinct()"

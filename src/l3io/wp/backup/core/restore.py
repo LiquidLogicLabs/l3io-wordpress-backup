@@ -237,7 +237,8 @@ class ArchiveHasNoConfigError(RefusedError):
     def __init__(self, archive: str) -> None:
         self.archive = archive
         super().__init__(
-            f"archive {archive!r} holds no wp-config.php to overwrite the target's with"
+            f"archive {archive!r} holds no wp-config.php to overwrite the target's "
+            "with; omit --overwrite-wp-config to keep the target's"
         )
 
 

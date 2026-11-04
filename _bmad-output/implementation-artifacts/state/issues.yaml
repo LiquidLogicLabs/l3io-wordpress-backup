@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 53
+  '003': 69
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1621,16 +1621,6 @@ backlog:
   severity: Low
   status: backlog
   description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-4). '
-- key: BL-E002-114
-  epic: '002'
-  sprint: ''
-  title: Restore with no target wp-config.php trusts DB host/name/user from the Archive (admin credential exposure, drop aimed at Archive-named DB). Precondition for Epic 3.
-  source: epic-redteam (RT-1)
-  source_phase: epic-redteam
-  source_ref: RT-1
-  severity: Medium
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-1). Deferred: restore driver not built; placeholders fail closed.'
 - key: BL-E002-115
   epic: '002'
   sprint: ''
@@ -1731,24 +1721,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md (Recorded risk section)
-- key: BL-E003-034
-  epic: '003'
-  sprint: '01'
-  title: Unreadable Site Root exits FAILED (InvalidSiteDescriptorError), not REFUSED as E003-S01-002's AC says; needs a distinct error or an AC amendment
-  source: code-review (E003-S01-002) — review M-1, part 2; the safety property (never empty) holds
-  source_phase: code-review
-  source_ref: E003-S01-002
-  severity: Medium
-  status: backlog
-  description: "adapters/site_files.py::_listing raises InvalidSiteDescriptorError for any OSError, the same class as a missing root, so E003-S02-006's root cannot map it to REFUSED by type. Decide: a RefusedError subclass for a listing failure in E002's adapter, or amend the AC to FAILED. See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-002.md"
-- key: BL-E003-035
-  epic: '003'
-  sprint: '01'
-  title: "FR-7 guard: unsurveyed (None) and views-only live database read as empty (ADV-1); TargetState builder must distinguish 'no database' from 'not looked at'. Owner E003-S02-006"
-  source: closure-adversarial
-  severity: High
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-1. Tests pin None as empty by design; the root that builds TargetState must survey in every database Mode. Views/routines are not counted by l3io.wp.database survey (library).
 - key: BL-E003-036
   epic: '003'
   sprint: '01'
@@ -1831,16 +1803,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R10)
-- key: BL-E003-047
-  epic: '003'
-  sprint: '02'
-  title: 'E003-S02-003 database half of the snapshot tests deferred: no-deadlock all-clean child with load_staged, and reversibility via CHECKSUM TABLE, against the CI database (review F3). Owner E003-S02-006'
-  source: code-review (E003-S02-003)
-  source_phase: code-review
-  source_ref: E003-S02-003
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F3). The files halves are tests/integration/test_snapshot_joins_run.py and test_snapshot_reversible.py; the database cases need the root's real take_snapshot binding over a live server.
 - key: BL-E003-048
   epic: '003'
   sprint: '02'
@@ -1861,26 +1823,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F5)
-- key: BL-E003-050
-  epic: '003'
-  sprint: '02'
-  title: execute_restore accepts opted_out_by=None under SnapshotPolicy.SKIP and logs 'unspecified' (review F6)
-  source: code-review (E003-S02-003)
-  source_phase: code-review
-  source_ref: E003-S02-003
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F6)
-- key: BL-E003-051
-  epic: '003'
-  sprint: '02'
-  title: ADV-5 snapshot path check compares strings, not normalised paths; E003-S02-006 must put an absolute normalised snapshot_path in the header (review F7)
-  source: code-review (E003-S02-003)
-  source_phase: code-review
-  source_ref: E003-S02-003
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F7)
 - key: BL-E003-052
   epic: '003'
   sprint: '02'
@@ -1891,3 +1833,163 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-004.md
+- key: BL-E003-053
+  epic: '003'
+  sprint: '02'
+  title: 'FR-7 guard: a live database holding only routines/events (no tables or views) still reads as empty; needs l3io-wordpress-database survey to count routines and events (residual of BL-E003-035)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Medium
+  status: backlog
+  description: l3io.wp.database survey_target counts tables and views only. Needs a database-library change (survey reports routine/event counts), then the backup package's TargetState/guard to consume it. Residual of BL-E003-035 / ADV-1.
+- key: BL-E003-054
+  epic: '003'
+  sprint: '02'
+  title: 'Owner to ratify RT-002 policy: unencrypted and STRUCTURAL_ONLY archives restore with a warning; ADR-0016 amendment and ADR-0022 Consequences now state a tampered Archive can only abort (review M-2; remaining part of BL-E003-036)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md M-2. RT-001 (bind to verified bytes) is built. The waiver was a developer decision; the owner must ratify or choose refusal, and amend ADR-0016/ADR-0022 statements.
+- key: BL-E003-055
+  epic: '003'
+  sprint: '02'
+  title: "ADV-9: journal stays open after a failure before any destructive phase (e.g. failed SNAPSHOT); closing it needs an owner amendment of ADR-0021's 'only when' clause plus a phase-sequence guard (remaining part of BL-E003-038)"
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md M-1. The story's ADV-9 change was reverted to keep ADR-0021. Owner decision first; then a guard that every post-SNAPSHOT phase journals its start before its first effect.
+- key: BL-E003-056
+  epic: '003'
+  sprint: '02'
+  title: 'ADV-10 lay-down half: config written by relocation lay-down is outside the FR-7 guard/snapshot scope; needs Epic 7 (adapters/wpcli place_config) (remaining part of BL-E003-038)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-10. The --overwrite-wp-config half is fixed in E003-S02-006.
+- key: BL-E003-057
+  epic: '003'
+  sprint: '02'
+  title: 'SD-01-1 remainder: tree-member wp-config still written by a raw os.open, not through a config port; needs a ConfigCommand port change (remaining part of BL-E003-038)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1. Needs a story granted ports/config.py and adapters/tar.py.
+- key: BL-E003-058
+  epic: '003'
+  sprint: '02'
+  title: 'UX-4: core/restore refusal messages still use domain spelling in places; needs a story granted core/restore.py messages (remaining part of BL-E003-039)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md UX-4.
+- key: BL-E003-059
+  epic: '003'
+  sprint: '02'
+  title: 'UX-7: adapters/tar.py error wording not operator-facing; needs a story granted adapters/tar.py (remaining part of BL-E003-039)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md UX-7.
+- key: BL-E003-060
+  epic: '003'
+  sprint: '02'
+  title: 'L-1: STRUCTURAL_ONLY stderr warning printed only after a successful restore, not on failure'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-061
+  epic: '003'
+  sprint: '02'
+  title: 'L-2: --archive required for --resolve-interrupted-run but often never read'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-062
+  epic: '003'
+  sprint: '02'
+  title: 'L-3: rewritten test_no_restore_option_is_silently_accepted plants a violation of the rule, not its scope'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-063
+  epic: '003'
+  sprint: '02'
+  title: "L-5: TLS mode order and CLI --admin-tls choices are hand-kept copies of the database library's TlsMode"
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-064
+  epic: '003'
+  sprint: '02'
+  title: "L-6: 'admin_tls is passed only by the restore root' is not guarded by a contract test"
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-065
+  epic: '003'
+  sprint: '02'
+  title: 'L-7: Safety Snapshot path carried to the operator only for BackupError failures, not all failures after SNAPSHOT (AG-15)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-066
+  epic: '003'
+  sprint: '02'
+  title: 'L-8: end-to-end phase-order assertion in test_restore_cli passes vacuously'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-067
+  epic: '003'
+  sprint: '02'
+  title: 'L-9: RestorePhase-naming guard for cli/restore.py covers only attribute access, not aliases or iteration'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-068
+  epic: '003'
+  sprint: '02'
+  title: 'L-10: restore error messages name the workspace copy of the Archive, which is deleted with the Run'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md

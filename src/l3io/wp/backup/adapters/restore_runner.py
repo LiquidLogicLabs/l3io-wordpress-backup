@@ -100,6 +100,7 @@ from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
     ArchiveWriteError,
     BackupError,
+    MemberReadRefusedError,
     RefusedError,
     UnsafeMemberPathError,
     VerificationFailedError,
@@ -121,8 +122,10 @@ from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
 
 __all__ = [
+    "CONFIG_MAX_BYTES",
     "ArchiveChangedError",
     "TargetConfigMissingError",
+    "config_member",
     "execute_restore",
     "snapshot_result",
 ]
@@ -132,7 +135,7 @@ _log = structlog.get_logger(__name__)
 #: The phases that run before the journal begins: queries and verification.
 _CHECK_PHASES: Final = frozenset({RestorePhase.PREFLIGHT, RestorePhase.VERIFY})
 #: The largest Archive ``wp-config.php`` ``--overwrite-wp-config`` reads.
-_CONFIG_MAX_BYTES: Final = 1024 * 1024
+CONFIG_MAX_BYTES: Final = 1024 * 1024
 #: Where the Archive's config is copied in the Run workspace (``0600``).
 _ARCHIVE_CONFIG: Final = "archive-wp-config.php"
 _ARCHIVE_CONFIG_DIR: Final = "archive-config"
@@ -417,8 +420,10 @@ def _preflight(run: _Run) -> None:
     if run.cipher is not None:
         run.cipher.check()
     require_patched_tarfile()
+    # ADV-8: the file every later config decision acts on (the relocation's
+    # when it moves the config), not the located path.
     run.config_existed = run.ports.adapters.site_files_query.file_exists(
-        Path(run.inputs.config_path)
+        run.config_file
     )
     _check_config(run)
     _check_space(run)
@@ -433,15 +438,21 @@ def _check_config(run: _Run) -> None:
         # The Archive's config is in its tree: it can be laid down only into
         # the Site Root, and only by a Mode that extracts the tree.
         in_root = _same_dir(run.config_file.parent, run.site_root)
-        member = _config_member(inputs.view)
+        member = config_member(inputs.view)
         if member is None or not in_root or not restores_files(run.plan.mode):
             raise ArchiveHasNoConfigError(str(inputs.archive.path))
     writes = RestorePhase.REWRITE_CONFIG in run.plan.phases
     if writes and not run.config_existed and not relocation.lay_down_config:
         raise TargetConfigMissingError(str(run.config_file))
+    member = config_member(inputs.view) if run.overwrites_config else None
+    if member is not None and (member.size or 0) > CONFIG_MAX_BYTES:
+        # ADV-7: refused here, before CLEAN, not inside REWRITE_CONFIG. A v0
+        # member's size is unknown before reading; its read stays bounded.
+        reason = f"it is larger than {CONFIG_MAX_BYTES} bytes; nothing was changed"
+        raise MemberReadRefusedError(member.path, reason)
 
 
-def _config_member(view: ArchiveView) -> ViewMember | None:
+def config_member(view: ArchiveView) -> ViewMember | None:
     """The Archive's config: the ``config``-role file, else the one it names."""
     for member in view.members:
         if member.role is MemberRole.CONFIG and member.kind is MemberKind.FILE:
@@ -461,7 +472,7 @@ def _check_space(run: _Run) -> None:
     """BL-E002-116: refuse before ``CLEAN`` what the destinations cannot hold."""
     view, phases = run.inputs.view, run.plan.phases
     extracts = RestorePhase.EXTRACT in phases
-    config = _config_member(view) if run.overwrites_config else None
+    config = config_member(view) if run.overwrites_config else None
     sizes: dict[str, tuple[MemberRole, int]] = {}
     if all(m.size is not None for m in view.members) and view.payload is not None:
         sizes.update((m.path, (m.role, m.size or 0)) for m in view.members)
@@ -757,7 +768,7 @@ def _archive_config(run: _Run) -> Path:
     and written here (a port to extract one member is E003-S02-006's).
     """
     inputs = run.inputs
-    member = _config_member(inputs.view)
+    member = config_member(inputs.view)
     if member is None:
         raise ArchiveHasNoConfigError(str(inputs.archive.path))
     if member.role is MemberRole.CONFIG:
@@ -774,14 +785,18 @@ def _archive_config(run: _Run) -> Path:
         inputs.archive,
         inputs.view,
         member.path,
-        max_bytes=_CONFIG_MAX_BYTES,
+        max_bytes=CONFIG_MAX_BYTES,
         payload=run.payload,
     )
     path = Path(inputs.workspace) / _ARCHIVE_CONFIG
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    # ADV-11: a stale file is never reused; the new one is created, mode set
+    # on the descriptor before the first byte, and removed after the replace.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     try:
+        path.unlink(missing_ok=True)
         fd = os.open(path, flags, _CONFIG_MODE)
         with os.fdopen(fd, "wb") as out:
+            os.fchmod(out.fileno(), _CONFIG_MODE)
             out.write(body)
     except OSError as exc:
         raise ArchiveWriteError(path, exc.strerror or type(exc).__name__) from exc
@@ -801,7 +816,10 @@ def _rewrite_config(run: _Run) -> None:
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_SAVED)
         prior = adapters.config_query.read_constants(config_file, CUTOVER_KEYS)
         source = _archive_config(run)
-        adapters.config_command.replace_file(config_file, source, keep=dict(prior))
+        try:
+            adapters.config_command.replace_file(config_file, source, keep=dict(prior))
+        finally:
+            source.unlink(missing_ok=True)
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_REPLACED)
         _log.warning("wp_config_overwritten", path=str(config_file), saved=saved)
     rewrite = inputs.relocation.rewrite_values

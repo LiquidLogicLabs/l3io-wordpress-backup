@@ -20,11 +20,13 @@ def test_the_backup_root_binds_verify_or_raise(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bound: list[object] = []
+    creates: list[bool] = []
 
     class Recording(store_module.LocalArchiveStore):
-        def __init__(self, *, verify: object) -> None:
+        def __init__(self, *, verify: object, create_directory: bool = False) -> None:
             bound.append(verify)
-            super().__init__(verify=verify)  # type: ignore[arg-type]
+            creates.append(create_directory)
+            super().__init__(verify=verify, create_directory=create_directory)  # type: ignore[arg-type]
 
     monkeypatch.setattr(adapter_sets, "LocalArchiveStore", Recording)
     site = tmp_path / "site"
@@ -34,6 +36,7 @@ def test_the_backup_root_binds_verify_or_raise(
     argv = ["backup", "--wp-dir", str(site), "--archive", str(archive)]
     assert main([*argv, "--mode", "files"]) == 0
     assert bound == [tar_module.verify_or_raise]
+    assert creates == [False]  # a backup never creates its destination directory
     assert tar_module.verify_archive(archive).passed
 
 

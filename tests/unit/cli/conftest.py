@@ -117,6 +117,8 @@ def site(tmp_path: Path, workdir: Path) -> Path:
 def fake_database(monkeypatch: pytest.MonkeyPatch) -> FakeDatabase:
     database = FakeDatabase()
     monkeypatch.setattr(
-        adapter_sets, "WpDatabase", lambda credentials, *, secrets, admin=None: database
+        adapter_sets,
+        "WpDatabase",
+        lambda credentials, *, secrets, admin=None, admin_tls=None: database,
     )
     return database

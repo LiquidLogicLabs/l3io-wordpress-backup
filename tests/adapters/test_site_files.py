@@ -20,8 +20,10 @@ from l3io.wp.backup.domain.errors import (
     CleanFailedError,
     InvalidSiteDescriptorError,
     RefusedError,
+    UnreadableSiteRootError,
     UnsafeCleanTargetError,
 )
+from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.site_files import SiteFilesCommand
 from tests.contracts.test_extraction import _file, _v1
 
@@ -267,12 +269,31 @@ def test_a_missing_site_root_is_a_package_error(
     assert str(missing) in caught.value.paths
 
 
-def test_a_site_root_that_cannot_be_listed_is_a_package_error(
+def test_a_site_root_that_cannot_be_listed_is_refused(
     files: LocalSiteFiles, site: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """BL-E003-034: present and unreadable is a refusal, never "empty"."""
+
     def scandir(path: object) -> object:
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(site_files_module.os, "scandir", scandir)
-    with pytest.raises(InvalidSiteDescriptorError, match="Permission denied"):
+    with pytest.raises(UnreadableSiteRootError, match="PermissionError") as caught:
         files.clean(site, keep=frozenset())
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert not isinstance(caught.value, InvalidSiteDescriptorError)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores a mode-000 directory")
+@pytest.mark.parametrize("query", ["is_empty", "entry_count"])
+def test_a_mode_000_site_root_is_refused_not_read_as_empty(
+    files: LocalSiteFiles, site: Path, query: str
+) -> None:
+    site.chmod(0o000)
+    try:
+        with pytest.raises(UnreadableSiteRootError) as caught:
+            getattr(files, query)(site)
+    finally:
+        site.chmod(0o755)
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert str(site) in str(caught.value)

@@ -55,6 +55,7 @@ from l3io.wp.backup.domain.errors import (  # noqa: E402
     CredentialsError,
     DumpFailedError,
 )
+from l3io.wp.backup.domain.exit_codes import ExitCode  # noqa: E402
 from tests.conftest import (  # noqa: E402
     backdoor_plain_payload,
     forge_archive,
@@ -640,6 +641,153 @@ def test_restore_execute_is_credential_clean(
         s.add_repr(surface, value)
     kept = writer.read_constants(h.config_path, ["DB_PASSWORD"])["DB_PASSWORD"]
     assert kept == s.password  # the target's own password survived the overwrite
+    s.assert_clean()
+
+
+# --------------------------------------------------------------------------
+# The restore root, end to end through ``main`` (E003-S02-006)
+# --------------------------------------------------------------------------
+
+
+def _archive_of(site: Path, out: Path) -> Path:
+    """A v1 Archive of ``site`` (its ``wp-config.php`` in the tree), no Dump."""
+    from l3io.wp.backup.adapters.tar import collect_site_root, write_archive
+    from l3io.wp.backup.domain.archive_format import (
+        FORMAT_VERSION,
+        PAYLOAD_MEMBER,
+        Manifest,
+        ManifestMember,
+        ManifestPayload,
+    )
+    from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
+
+    def manifest(index: tuple[ManifestMember, ...]) -> Manifest:
+        return Manifest(
+            format_version=FORMAT_VERSION,
+            created_at="2026-11-04T00:00:00+00:00",
+            backup_scope="files",
+            source={"db_name": "wptest"},
+            encrypted=False,
+            payload=ManifestPayload(name=PAYLOAD_MEMBER, size=0, sha256="0" * 64),
+            members=index,
+            dump_present=False,
+            config_path="wp-config.php",
+        )
+
+    workspace = out.parent / "archive-workspace"
+    workspace.mkdir(mode=0o700)
+    members = list(collect_site_root(site, INCLUDE_EVERYTHING).members)
+    with out.open("wb") as stream:
+        write_archive(stream, manifest, members, workspace=workspace, cipher=None)
+    return out
+
+
+def test_restore_cli_is_credential_clean(
+    credential_sentinel: CredentialSentinel,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``wpbackup2 restore`` end to end: a full restore and the RT-1 refusal.
+
+    The Archive's and the target's ``wp-config.php`` hold the sentinel
+    password and ``--admin-password`` is the administrator sentinel. A
+    ``files`` restore with ``--force`` takes an unencrypted Safety Snapshot of
+    the target and restores over it; then a target with no ``wp-config.php``
+    is refused with ``ArchiveIdentityUnconfirmedError``, whose text names the
+    Archive's database and user. No output, log record or message may carry
+    either secret.
+    """
+    s = credential_sentinel
+    archive = _archive_of(s.site, tmp_path / "restore-archive.tar.gz")
+    common = ["--admin-username", "wpadmin", "--admin-password", s.admin_password]
+    full = [
+        "--log-format",
+        "json",
+        "restore",
+        "--wp-dir",
+        str(s.site),
+        "--archive",
+        str(archive),
+        "--mode",
+        "files",
+        "--force",
+        "--snapshot-dir",
+        str(tmp_path / "snapshots"),
+        *common,
+    ]
+    assert main(full) == int(ExitCode.OK)
+    restored = capsys.readouterr()
+    s.add("restore stdout", restored.out)
+    s.add("restore stderr", restored.err)
+    assert "safety snapshot is NOT encrypted" in restored.err
+    empty = tmp_path / "empty-target"
+    empty.mkdir()
+    refused = [*full[:4], str(empty), *full[5:]]
+    assert main(refused) == int(ExitCode.REFUSED)
+    refusal = capsys.readouterr()
+    s.add("refusal stdout", refusal.out)
+    s.add("refusal stderr", refusal.err)
+    assert "ArchiveIdentityUnconfirmedError" in refusal.err
+    assert os.environ.get("DB_NAME", "wptest") in refusal.err
+    s.assert_clean()
+
+
+@pytest.mark.parametrize(
+    ("spelling", "code"),
+    [
+        ("{user}:{pw}@{host}/{name}", ExitCode.USAGE),
+        ("{user}:{pw}@{host}", ExitCode.USAGE),
+        ("{user}@{pw}@{host}/{name}", ExitCode.REFUSED),
+    ],
+    ids=["user-colon-password", "malformed-with-password", "password-as-host"],
+)
+def test_a_password_typed_into_archive_database_is_never_echoed(
+    credential_sentinel: CredentialSentinel,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    spelling: str,
+    code: ExitCode,
+) -> None:
+    """L-4: ``--archive-database`` is shown only as its parsed parts, never raw.
+
+    An operator may type ``USER:PASSWORD@HOST/NAME`` out of URL habit; the
+    sentinel in the password position must reach no output or log record.
+    """
+    s = credential_sentinel
+    archive = _archive_of(s.site, tmp_path / "restore-archive.tar.gz")
+    empty = tmp_path / "empty-target"
+    empty.mkdir()
+    stated = spelling.format(
+        user=os.environ.get("DB_USER", "wp"),
+        pw=s.password,
+        host=os.environ.get("DB_HOST", "db.invalid"),
+        name=os.environ.get("DB_NAME", "wptest"),
+    )
+    argv = [
+        "--log-format",
+        "json",
+        "restore",
+        "--wp-dir",
+        str(empty),
+        "--archive",
+        str(archive),
+        "--mode",
+        "files",
+        "--force",
+        "--snapshot-dir",
+        str(tmp_path / "snapshots"),
+        "--archive-database",
+        stated,
+        "--admin-username",
+        "wpadmin",
+        "--admin-password",
+        s.admin_password,
+    ]
+    assert main(argv) == int(code)
+    ran = capsys.readouterr()
+    s.add("stdout", ran.out)
+    s.add("stderr", ran.err)
+    assert "--archive-database" in ran.err
     s.assert_clean()
 
 

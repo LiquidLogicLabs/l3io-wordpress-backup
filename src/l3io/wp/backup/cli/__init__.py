@@ -2,7 +2,8 @@
 
 Configures logging once (AD-10, ``cli/logging.py``) before any Run opens,
 creates the Run's ``SecretRegistry``, then dispatches: ``backup`` to
-:func:`l3io.wp.backup.cli.backup.run_backup` and ``verify`` to
+:func:`l3io.wp.backup.cli.backup.run_backup`, ``restore`` to
+:func:`l3io.wp.backup.cli.restore.run_restore` and ``verify`` to
 :func:`l3io.wp.backup.cli.verify.run_verify`, whose drivers open the Run
 Context (AD-16) with that registry. Anything else is refused rather than
 pretending to act.
@@ -108,7 +109,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     unavailable = not_yet_implemented(args.action, vars(args))
     if unavailable is not None:
         parser.error(unavailable)
-    if args.action not in (BACKUP_COMMAND, VERIFY_COMMAND):
+    if args.action == RESTORE_COMMAND and not args.archive:
+        parser.error("restore needs --archive (the archive to restore from)")
+    if args.action not in (BACKUP_COMMAND, RESTORE_COMMAND, VERIFY_COMMAND):
         parser.error(f"{args.action!r} is not implemented in this build")
     configure_logging(args.log_level, args.log_format)
     secrets = SecretRegistry()
@@ -118,6 +121,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from l3io.wp.backup.cli.backup import run_backup
 
                 code = run_backup(args, secrets=secrets)
+            elif args.action == RESTORE_COMMAND:
+                from l3io.wp.backup.cli.restore import run_restore
+
+                code = run_restore(args, secrets=secrets)
             else:
                 from l3io.wp.backup.cli.verify import run_verify
 

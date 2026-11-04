@@ -34,6 +34,7 @@ __all__ = ["LocalArchiveStore"]
 _log = structlog.get_logger(__name__)
 
 _STAGED_SUFFIX: Final = ".partial"
+_DIR_MODE: Final = 0o700
 
 
 def _final_path(target: StorageTarget) -> Path:
@@ -154,20 +155,29 @@ class _LocalStagedArchive:
 class LocalArchiveStore:
     """``ArchiveStoreQuery`` and ``ArchiveStoreCommand`` for local paths."""
 
-    __slots__ = ("_verify",)
+    __slots__ = ("_create_directory", "_verify")
 
-    def __init__(self, *, verify: Callable[[Path], None]) -> None:
+    def __init__(
+        self, *, verify: Callable[[Path], None], create_directory: bool = False
+    ) -> None:
         self._verify = verify
+        self._create_directory = create_directory
 
     def exists(self, target: StorageTarget) -> bool:
         """Whether anything is at the final name (a dangling link included)."""
         return _occupied(_final_path(target))
 
     def stage(self, target: StorageTarget) -> _LocalStagedArchive:
-        """Create the temporary file beside the final name, mode ``0600``."""
+        """Create the temporary file beside the final name, mode ``0600``.
+
+        With ``create_directory``, a missing destination directory is created
+        first (mode ``0700``); a failure is ``ArchiveWriteError``.
+        """
         final = _final_path(target)
         directory = final.parent
         try:
+            if self._create_directory:
+                directory.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
             fd, staged = tempfile.mkstemp(
                 prefix=f".{final.name}.", suffix=_STAGED_SUFFIX, dir=directory
             )

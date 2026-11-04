@@ -25,7 +25,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final, NoReturn
 
 from l3io.wp.backup.adapters.config_writer import WpConfigWriter
-from l3io.wp.backup.adapters.database import WpDatabase
+from l3io.wp.backup.adapters.database import AdminTls, WpDatabase
 from l3io.wp.backup.adapters.lock import FcntlSiteLock
 from l3io.wp.backup.adapters.noop import (
     ActionLog,
@@ -123,6 +123,8 @@ def real_adapters(
     restore_wordpress_source: CredentialSource | None = None,
     search_replace: SearchReplaceCommand | None = None,
     journal: tuple[RunJournalQuery, RunJournalCommand] | None = None,
+    admin_tls: AdminTls | None = None,
+    create_archive_directory: bool = False,
 ) -> AdapterSet:
     """The real set; a port not yet implemented is bound to its placeholder.
 
@@ -132,13 +134,27 @@ def real_adapters(
     which case they are a second ``WpDatabase`` bound to it and the same
     administrator; the Safety Snapshot keeps using ``database_*``. The
     credential sources are built by ``cli/credentials.py``, never here.
+    ``admin_tls`` (the restore root's only) puts every connection of both
+    ``WpDatabase`` instances under the TLS policy; ``None`` keeps plaintext.
+    ``create_archive_directory`` (the restore root's only) has the store
+    create a missing Archive directory ``0700`` when it stages, so the Safety
+    Snapshot's directory is made by the command a Dry Run replaces (AD-4).
     """
-    store = LocalArchiveStore(verify=verify_or_raise)
-    database = WpDatabase(wordpress_source, secrets=secrets, admin=admin_source)
+    store = LocalArchiveStore(
+        verify=verify_or_raise, create_directory=create_archive_directory
+    )
+    database = WpDatabase(
+        wordpress_source, secrets=secrets, admin=admin_source, admin_tls=admin_tls
+    )
     restore_database = (
         database
         if restore_wordpress_source is None
-        else WpDatabase(restore_wordpress_source, secrets=secrets, admin=admin_source)
+        else WpDatabase(
+            restore_wordpress_source,
+            secrets=secrets,
+            admin=admin_source,
+            admin_tls=admin_tls,
+        )
     )
     site_files = LocalSiteFiles()
     config = WpConfigWriter(secrets)

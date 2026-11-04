@@ -29,7 +29,7 @@ registered when the source is built. Usernames are not secrets.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -64,6 +64,8 @@ from l3io.wp.backup.domain.errors import (
     LoadFailedError,
     MissingExtraError,
     ProvisioningFailedError,
+    RefusedError,
+    UnreadableSiteRootError,
     UsageError,
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -73,17 +75,25 @@ if TYPE_CHECKING:
         Connection,
         CredentialSource,
         ResolvedCredentials,
+        TlsSettings,
         Verdict,
     )
 
 __all__ = [
     "ADMIN_FLAGS",
     "ADMIN_SOURCE",
+    "ADMIN_TLS_MODES",
+    "AdminTls",
+    "DatabaseTlsHandshakeError",
+    "DatabaseTlsVerificationError",
     "LocatedConfig",
     "WpDatabase",
     "admin_source",
     "blocked_dump_error",
+    "check_admin_tls",
+    "database_location_from_db_host",
     "locate_wp_config",
+    "password_at_call_time",
     "require_wp_config_credentials",
     "site_descriptor_from_archive_config",
     "site_descriptor_from_wp_config",
@@ -108,6 +118,98 @@ ADMIN_SOURCE: Final = "administrator"
 #: Every restore operation names the WordPress account at any host.
 _ANY_HOST: Final = "%"
 _NS_PER_MS: Final = 1_000_000
+
+
+# --------------------------------------------------------------------------
+# TLS for administrator connections (BL-E002-114)
+# --------------------------------------------------------------------------
+
+#: ``--admin-tls`` values, weakest first; each is a database ``TlsMode`` value
+#: with ``-`` for ``_``. The policy may be raised to one of them, never lowered.
+ADMIN_TLS_MODES: Final = ("required", "verify-ca", "verify-identity")
+_TLS_ORDER: Final = ("off", "required", "verify_ca", "verify_identity")
+
+
+@dataclass(frozen=True, slots=True)
+class AdminTls:
+    """The restore's TLS override for its database connections.
+
+    ``mode`` is an :data:`ADMIN_TLS_MODES` value or ``None`` (the policy for
+    the host as it is); ``ca_file`` the CA bundle, ``None`` meaning the
+    system store. Declared here so no ``l3io.wp.database`` type reaches
+    ``cli/`` (ADR-0015 amendment).
+    """
+
+    mode: str | None
+    ca_file: Path | None
+
+
+class DatabaseTlsHandshakeError(DatabaseUnreachableError):
+    """TLS was required and the server did not negotiate it. ``UNREACHABLE``."""
+
+    def __init__(self, host: str, port: int) -> None:
+        super().__init__(host, port)
+        self.args = (
+            f"database server {host}:{port} did not complete the required TLS "
+            "handshake; nothing was changed",
+        )
+
+
+class DatabaseTlsVerificationError(RefusedError):
+    """The server's TLS certificate did not verify. ``REFUSED``."""
+
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+        super().__init__(
+            f"the TLS certificate of database server {host}:{port} did not verify "
+            "(pass --admin-tls-ca FILE for a private CA); nothing was changed"
+        )
+
+
+def _tls_settings(admin_tls: AdminTls, host: str) -> TlsSettings:
+    """``tls_required_unless_local(host)``, raised to ``admin_tls``; never lowered."""
+    _require_extra()
+    from l3io.wp import database as wpdb
+
+    policy = wpdb.tls_required_unless_local(host, ca_file=admin_tls.ca_file)
+    mode = policy.mode
+    if admin_tls.mode is not None:
+        if admin_tls.mode not in ADMIN_TLS_MODES:
+            msg = f"--admin-tls {admin_tls.mode!r}: choose one of {ADMIN_TLS_MODES}"
+            raise UsageError(msg)
+        wanted = wpdb.TlsMode(admin_tls.mode.replace("-", "_"))
+        if _TLS_ORDER.index(wanted.value) < _TLS_ORDER.index(policy.mode.value):
+            msg = (
+                f"--admin-tls {admin_tls.mode} is below the policy for {host!r} "
+                f"({policy.mode.value.replace('_', '-')}); it may only raise it"
+            )
+            raise UsageError(msg)
+        mode = wanted
+    if mode is wpdb.TlsMode.OFF:
+        if admin_tls.ca_file is not None:
+            msg = f"--admin-tls-ca needs TLS, which is off for the local host {host!r}"
+            raise UsageError(msg)
+        return wpdb.TlsSettings()
+    try:
+        return wpdb.TlsSettings(mode=mode, ca_file=admin_tls.ca_file)
+    except wpdb.InvalidArgumentsError as exc:
+        raise UsageError(str(exc)) from exc
+
+
+def check_admin_tls(admin_tls: AdminTls | None, host: str) -> None:
+    """Raise ``UsageError`` now for an override no connection could use."""
+    if admin_tls is not None:
+        _tls_settings(admin_tls, host)
+
+
+def _tls_error(exc: BaseException, location: DatabaseLocation) -> BackupError:
+    """database's TLS errors as the package's two; never database's text."""
+    from l3io.wp import database as wpdb
+
+    if isinstance(exc, wpdb.TlsVerificationError):
+        return DatabaseTlsVerificationError(location.host, location.port)
+    return DatabaseTlsHandshakeError(location.host, location.port)
 
 
 def _require_extra() -> None:
@@ -149,9 +251,18 @@ def locate_wp_config(site_root: Path, *, stated: Path | None) -> LocatedConfig:
     In order: ``stated`` is used as given (canonicalised, never re-derived);
     else ``<root>/wp-config.php``; else ``<root>/../wp-config.php`` when the
     parent holds no ``wp-settings.php``; else ``InvalidSiteDescriptorError``
-    naming both paths searched.
+    naming both paths searched. A Site Root that exists and cannot be
+    searched (``EACCES``) is :class:`UnreadableSiteRootError`, a refusal
+    (BL-E003-034).
     """
     root = _site_root(site_root)
+    try:
+        return _locate(root, stated)
+    except OSError as exc:
+        raise UnreadableSiteRootError(root, type(exc).__name__) from exc
+
+
+def _locate(root: Path, stated: Path | None) -> LocatedConfig:
     in_root = root / _CONFIG_NAME
     in_parent = root.parent / _CONFIG_NAME
     if stated is not None:
@@ -266,6 +377,40 @@ def _parse(
         credential_source=label,
     )
     return descriptor, config
+
+
+def database_location_from_db_host(db_host: str, name: str) -> DatabaseLocation:
+    """``DB_HOST`` (``host`` or ``host:port``) and ``name`` as a location.
+
+    The same parsing ``wp-config.php``'s ``DB_HOST`` gets (database's
+    ``Connection.from_db_host``), exposed so ``--archive-database`` is not
+    parsed a second way (BL-E002-114). An empty host, a port that is not an
+    integer in range, or an invalid database name is a ``UsageError``.
+    """
+    _require_extra()
+    from l3io.wp import database as wpdb
+
+    try:
+        connection = wpdb.Connection.from_db_host(db_host, name)
+    except (wpdb.InvalidArgumentsError, wpdb.InvalidIdentifierError) as exc:
+        raise UsageError(str(exc)) from exc
+    return DatabaseLocation(
+        host=connection.host, port=connection.port, name=connection.database
+    )
+
+
+def password_at_call_time(source: CredentialSource) -> Callable[[], str]:
+    """A callable resolving ``source``'s password when called, never before.
+
+    ``RestorePorts.cutover_credentials`` for a relocated account: the value is
+    read at the cutover's write and registered by ``source`` (a source this
+    module built) as it resolves; nothing here keeps it.
+    """
+
+    def resolve() -> str:
+        return source.resolve().password
+
+    return resolve
 
 
 def require_wp_config_credentials(source: CredentialSource) -> None:
@@ -479,7 +624,7 @@ class WpDatabase:
     account. Every real command result carries ``performed=True`` (ADR-0022).
     """
 
-    __slots__ = ("_admin", "_credentials")
+    __slots__ = ("_admin", "_admin_tls", "_credentials")
 
     def __init__(
         self,
@@ -487,9 +632,13 @@ class WpDatabase:
         *,
         secrets: SecretRegistry,
         admin: CredentialSource | None = None,
+        admin_tls: AdminTls | None = None,
     ) -> None:
         self._credentials = _registering(credentials, secrets)
         self._admin = None if admin is None else _registering(admin, secrets)
+        # ``None``: every connection plaintext (the backup root). Set (the
+        # restore root): every connection of this instance under the policy.
+        self._admin_tls = admin_tls
 
     def __repr__(self) -> str:
         admin = None if self._admin is None else self._admin.source
@@ -508,6 +657,8 @@ class WpDatabase:
         connection = self._connection(location)
         try:
             verdict = wpdb.check_dump(connection, self._credentials)
+        except (wpdb.TlsHandshakeError, wpdb.TlsVerificationError) as exc:
+            raise _tls_error(exc, location) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
         except wpdb.AuthenticationFailedError as exc:
@@ -551,6 +702,8 @@ class WpDatabase:
             code = exc.exit_code
             reason = "the dump stopped" if code is None else f"the dump exited {code}"
             raise DumpFailedError(reason) from exc
+        except (wpdb.TlsHandshakeError, wpdb.TlsVerificationError) as exc:
+            raise _tls_error(exc, location) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
         except (
@@ -821,6 +974,8 @@ class WpDatabase:
             ) from exc
         except (wpdb.CorruptDumpError, wpdb.DecryptionError) as exc:
             raise LoadFailedError(type(exc).__name__) from exc
+        except (wpdb.TlsHandshakeError, wpdb.TlsVerificationError) as exc:
+            raise _tls_error(exc, location) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
         except (
@@ -851,14 +1006,26 @@ class WpDatabase:
         error = blocked_dump_error(location, blockers, credential_source=label)
         return DatabaseRefusedError(findings=blockers) if error is None else error
 
-    @staticmethod
-    def _connection(location: DatabaseLocation) -> Connection:
-        """The one place a database ``Connection`` is built from a location."""
+    def _connection(self, location: DatabaseLocation) -> Connection:
+        """The one place a database ``Connection`` is built from a location.
+
+        With an ``admin_tls`` bound, TLS is ``tls_required_unless_local`` for
+        ``location.host`` raised to the override (``UsageError`` below it,
+        before any connection); without one, plaintext as before.
+        """
         from l3io.wp import database as wpdb
 
+        tls = (
+            None
+            if self._admin_tls is None
+            else _tls_settings(self._admin_tls, location.host)
+        )
         try:
             return wpdb.Connection(
-                host=location.host, database=location.name, port=location.port
+                host=location.host,
+                database=location.name,
+                port=location.port,
+                tls=wpdb.TlsSettings() if tls is None else tls,
             )
         except (wpdb.InvalidArgumentsError, wpdb.InvalidIdentifierError) as exc:
             raise InvalidSiteDescriptorError(str(exc)) from exc

@@ -21,6 +21,7 @@ from l3io.wp.backup.domain.archive_format import ArchiveView, ExtractResult, Mem
 from l3io.wp.backup.domain.errors import (
     CleanFailedError,
     InvalidSiteDescriptorError,
+    UnreadableSiteRootError,
     UnsafeCleanTargetError,
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -36,14 +37,21 @@ _SITE_MARKERS: Final = ("wp-config.php", "wp-includes")
 
 
 def _listing(site_root: Path) -> list[os.DirEntry[str]]:
-    """``site_root``'s top-level entries; an unusable Site Root is a package error."""
+    """``site_root``'s top-level entries; an unusable Site Root is a package error.
+
+    Missing (or not a directory): :class:`InvalidSiteDescriptorError`. Present
+    and unreadable (``EACCES`` and the like): :class:`UnreadableSiteRootError`,
+    a refusal (BL-E003-034), so FR-7's guard never reads it as empty.
+    """
     try:
         with os.scandir(site_root) as entries:
             return list(entries)
-    except OSError as exc:
+    except (FileNotFoundError, NotADirectoryError) as exc:
         reason = exc.strerror or type(exc).__name__
         msg = f"the site root cannot be listed: {reason}"
         raise InvalidSiteDescriptorError(msg, paths=(str(site_root),)) from exc
+    except OSError as exc:
+        raise UnreadableSiteRootError(site_root, type(exc).__name__) from exc
 
 
 class LocalSiteFiles:

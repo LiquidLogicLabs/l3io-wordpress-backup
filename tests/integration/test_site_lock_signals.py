@@ -51,7 +51,7 @@ class Blocking:
         while True:
             time.sleep(0.05)
 
-adapter_sets.WpDatabase = lambda credentials, *, secrets, admin=None: Blocking()
+adapter_sets.WpDatabase = lambda credentials, **kwargs: Blocking()
 sys.exit(main(["backup", "--wp-dir", site, "--archive", archive]))
 """
 

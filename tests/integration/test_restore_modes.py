@@ -16,7 +16,14 @@ import pytest
 from l3io.wp.backup.adapters.config_writer import WpConfigWriter
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.restore import ConfigPolicy, RestoreMode
-from tests.restore_harness import ARCHIVE_DB, INDEX, TARGET_DB, Harness, write_v1
+from tests.restore_harness import (
+    ARCHIVE_DB,
+    INDEX,
+    TARGET_DB,
+    Harness,
+    wp_config,
+    write_v1,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -73,7 +80,10 @@ def test_overwrite_lands_the_archives_config_with_the_targets_db_values(
     landed = reader.read_constants(h.config_path, list(TARGET_DB))
     assert dict(landed) == TARGET_DB
     assert ARCHIVE_DB["DB_NAME"] not in text
-    archive_config = (h.workspace / "archive-wp-config.php").read_text(encoding="utf-8")
+    # ADV-11: the workspace copy is removed once the replace is done; the
+    # Archive's config is the one write_v1 wrote.
+    assert not (h.workspace / "archive-wp-config.php").exists()
+    archive_config = wp_config(ARCHIVE_DB)
     non_db = [line for line in archive_config.splitlines() if "DB_" not in line]
     assert [line for line in text.splitlines() if "DB_" not in line] == non_db
     saved = Path(h.header().saved_config or "")

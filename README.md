@@ -41,7 +41,13 @@ wpbackup2 verify --archive ~/backup.tar.gz
 
 Without a key, `verify` proves the archive's checksums are **consistent** with its manifest, not that the archive is **authentic**: the manifest is unprotected, so anyone who can rewrite the archive can rewrite its checksums too. It says so (`authenticity not checked (no key)`). For an encrypted archive, `--authenticate` decrypts the whole payload with its passphrase — taken from `L3IO_WP_BACKUP_PASSPHRASE` or a terminal prompt, never from the command line — and `age` authenticates every chunk. A wrong passphrase or a tampered payload exits 8; a plain archive is refused, since there is nothing to authenticate.
 
-`restore` is listed in `--help` but is not available in this build.
+To restore (see [docs/restore.md](docs/restore.md) for every mode, the refusals and their exit codes):
+
+```
+wpbackup2 restore --wp-dir /www/wordpress --archive ~/backup.tar.gz --mode all
+```
+
+A restore takes a Safety Snapshot of whatever it would change first, and refuses a non-empty target unless a flag authorizes it (exit 3, naming the flag). A target with no `wp-config.php` takes its database from the archive's config only when you confirm it with `--archive-database USER@HOST[:PORT]/NAME`.
 
 `wp-config.php` is read for your database credentials. It is looked for in the WordPress directory, then its parent; pass `--wp-config PATH` to use another.
 
@@ -123,6 +129,8 @@ $ wpbackup2 restore --help
 usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files,db,all}]
                          [--cleanfirst] [--drop-database] [--force] [--wp-config PATH]
                          [--overwrite-wp-config] [--no-safety-snapshot] [--snapshot-dir PATH]
+                         [--archive-database USER@HOST[:PORT]/NAME]
+                         [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
                          [--resolve-interrupted-run RUN_ID] [--admin-username ADMIN_USERNAME]
                          [--admin-password ADMIN_PASSWORD]
                          [--admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID]
@@ -159,6 +167,14 @@ restore options:
   --snapshot-dir PATH   Directory to write the Safety Snapshot to (default: the per-user state
                         directory). Refused inside the Site Root or the wp-config.php directory; a
                         directory a web server serves from elsewhere is not detected
+  --archive-database USER@HOST[:PORT]/NAME
+                        When the target has no wp-config.php: confirm the database the archive's
+                        config names (user, host, port and name must all match), or the restore is
+                        refused
+  --admin-tls {required,verify-ca,verify-identity}
+                        Raise the TLS the database connections use (default: verified TLS to any
+                        host but localhost, 127.0.0.1 and ::1; never lowered)
+  --admin-tls-ca FILE   CA bundle that verifies the database server (default: the system store)
   --resolve-interrupted-run RUN_ID
                         Resolve the journal left by the interrupted Run with this ID
   --admin-username ADMIN_USERNAME

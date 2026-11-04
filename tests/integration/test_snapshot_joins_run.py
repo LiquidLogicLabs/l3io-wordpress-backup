@@ -1,8 +1,10 @@
 """FR-8, AD-16, AD-19 — the Safety Snapshot joins the restore's Run: no deadlock.
 
 Unmarked: the ``files-clean`` restore needs no database (the ``files`` scope
-contacts none). The destructive ``all`` variant over the CI database, with
-``load_staged`` as the slot, is BL-E003-047 (E003-S02-006). A subprocess
+contacts none). The destructive ``all-clean`` variant over the CI database
+(BL-E003-047, E003-S02-006) is ``python -m wpbackup2 restore`` itself, with
+the root's ``load_staged`` slot and real ``take_snapshot``; it is marked
+``integration`` and skips without ``DB_HOST``. A subprocess
 runs ``execute_restore`` inside a Run opened by ``open_run`` with the
 **real** ``FcntlSiteLock`` and a ``take_snapshot`` that joins E002's
 ``backup(..., ctx=ctx)`` (:func:`tests.restore_harness.joined_snapshot`),
@@ -37,6 +39,13 @@ from l3io.wp.backup.domain.archive_format import Integrity
 from l3io.wp.backup.domain.errors import SiteLockedError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.lock import LockHolder
+from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
+from tests.integration.live_cli import (
+    CliSite,
+    admin_account,  # noqa: F401 - a fixture
+    authorizing_flags,
+    cli_site,  # noqa: F401 - a fixture
+)
 
 pytest.importorskip("l3io.wp.database")
 
@@ -182,3 +191,56 @@ def test_the_lock_is_held_across_the_snapshot(tmp_path: Path) -> None:
             child.kill()
             child.communicate()
     assert child.returncode == ExitCode.OK, err[-3000:]
+
+
+# --------------------------------------------------------------------------
+# BL-E003-047: the database half, through the real root over the CI database
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    "DB_HOST" not in os.environ, reason="needs the CI database (DB_HOST unset)"
+)
+def test_a_destructive_all_clean_restore_joins_one_run(
+    cli_site: CliSite,  # noqa: F811
+) -> None:
+    """``all-clean`` with ``load_staged``: one Run, snapshot and load, no deadlock."""
+    site = cli_site
+    original = site.site.database
+    argv = [
+        sys.executable,
+        "-m",
+        "wpbackup2",
+        *site.argv(site.archive(), *authorizing_flags(RestoreMode.ALL_CLEAN)),
+    ]
+    done = subprocess.run(  # noqa: S603 - a fixed module under this interpreter
+        argv,
+        env={**os.environ, "PYTHONPATH": str(_ROOT)},
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=_TIMEOUT,
+        check=False,
+    )
+    assert done.returncode == ExitCode.OK, done.stderr[-3000:]
+    records = _records(done.stderr)
+    events = [r["event"] for r in records]
+    assert events.count("run_started") == 1
+    assert events.count("run_finished") == 1
+    assert events.count("site_lock_acquired") == 1
+    assert len({r["run_id"] for r in records if "run_id" in r}) == 1
+    phases = {str(r["phase"]) for r in records if r["event"] == "phase_completed"}
+    assert {
+        RestorePhase.SNAPSHOT.value,
+        RestorePhase.LOAD_DUMP.value,
+        BackupStep.WRITE_ARCHIVE.value,
+    } <= phases
+    (written,) = [r for r in records if r["event"] == "safety_snapshot_written"]
+    snapshot = Path(written["path"])
+    assert not snapshot.resolve().is_relative_to(site.root.resolve())
+    assert verify_archive(snapshot).integrity is Integrity.VERIFIED
+    # The load cut over and the previous database was dropped (all-clean).
+    assert original not in site.site.databases()
+    with FcntlSiteLock().acquire(site.root, _holder()):
+        pass

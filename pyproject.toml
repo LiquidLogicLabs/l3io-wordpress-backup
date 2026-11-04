@@ -79,7 +79,7 @@ dependencies = [
 # (ADR-0023's OVERWRITE path). 0.1.3 is the same code with LiquidLogicLabs URLs,
 # and is the first config release on TestPyPI. Nothing below 0.1.3 may be resolved.
 database = [
-  "l3io-wordpress-database>=0.2.1,<0.3",
+  "l3io-wordpress-database>=0.3.0,<0.4",
   "l3io-wordpress-config>=0.1.3,<0.2",
 ]
 

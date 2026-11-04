@@ -71,6 +71,7 @@ __all__ = [
     "SiteLockReleaseError",
     "SiteLockedError",
     "UnboundAdapterError",
+    "UnreadableSiteRootError",
     "UnrecognisedArchiveError",
     "UnsafeCleanTargetError",
     "UnsafeMemberPathError",
@@ -319,6 +320,23 @@ class UnsafeCleanTargetError(RefusedError):
         super().__init__(f"refusing to clean {str(site_root)!r}: {reason}")
 
 
+class UnreadableSiteRootError(RefusedError):
+    """FR-7: the Site Root exists and cannot be listed or read (BL-E003-034).
+
+    A refusal, not a failure: a target the guard cannot see is never treated
+    as empty. Names the path and the ``OSError`` class only, never contents.
+    A missing Site Root keeps :class:`InvalidSiteDescriptorError`.
+    """
+
+    def __init__(self, site_root: PurePath, error: str) -> None:
+        self.site_root = site_root
+        self.error = error
+        super().__init__(
+            f"the site root {str(site_root)!r} exists but cannot be read ({error}); "
+            "nothing was changed"
+        )
+
+
 class CleanFailedError(BackupError):
     """``clean`` stopped at ``entry``; the entries after it were left in place."""
 
@@ -536,7 +554,10 @@ class ArchiveHasNoDumpError(RefusedError):
         self.archive = archive
         self.backup_scope = backup_scope
         scope = "a v0 archive" if backup_scope is None else f"scope {backup_scope!r}"
-        super().__init__(f"archive {archive!r} holds no database dump ({scope})")
+        super().__init__(
+            f"archive {archive!r} holds no database dump ({scope}); "
+            "restore its files with --mode files"
+        )
 
 
 class ExtractionRefusedError(RefusedError):

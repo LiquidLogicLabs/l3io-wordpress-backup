@@ -65,17 +65,14 @@ RESTORE_OPTIONS_GROUP = "restore options"
 #: The administrator's password from the environment, not the command line.
 ADMIN_PASSWORD_VARIABLE = "L3IO_WP_BACKUP_ADMIN_PASSWORD"  # noqa: S105 - a name
 
-_RESTORE_BINDER = "delivered by E003-S02-006"
 _RELOCATION_BINDER = "delivered by Epic 7 (relocation)"
 _ROOT_BINDER = "delivered by E008-S01-001"
 
 #: Each subcommand (``"restore"``) or subcommand flag (``"restore --force"``)
 #: that is accepted but not yet bound, and the story that binds it. Using one
-#: exits ``USAGE`` naming both; the binding story removes its entries. The
-#: restore subcommand's own entry covers every restore flag not listed here.
+#: exits ``USAGE`` naming both; the binding story removes its entries.
 NOT_YET_IMPLEMENTED: Final[Mapping[str, str]] = MappingProxyType(
     {
-        RESTORE_COMMAND: _RESTORE_BINDER,
         "restore --wp-config": _RELOCATION_BINDER,
         "restore --new-site-url": _RELOCATION_BINDER,
         "restore --new-site-home-url": _RELOCATION_BINDER,
@@ -324,6 +321,31 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
             "directory; a directory a web server serves from elsewhere is not "
             "detected"
         ),
+    )
+    options.add_argument(
+        "--archive-database",
+        metavar="USER@HOST[:PORT]/NAME",
+        default=None,
+        help=(
+            "When the target has no wp-config.php: confirm the database the "
+            "archive's config names (user, host, port and name must all match), "
+            "or the restore is refused"
+        ),
+    )
+    options.add_argument(
+        "--admin-tls",
+        choices=["required", "verify-ca", "verify-identity"],
+        default=None,
+        help=(
+            "Raise the TLS the database connections use (default: verified TLS "
+            "to any host but localhost, 127.0.0.1 and ::1; never lowered)"
+        ),
+    )
+    options.add_argument(
+        "--admin-tls-ca",
+        metavar="FILE",
+        default=None,
+        help="CA bundle that verifies the database server (default: the system store)",
     )
     options.add_argument(
         "--resolve-interrupted-run",

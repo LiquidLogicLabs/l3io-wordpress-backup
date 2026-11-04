@@ -237,11 +237,24 @@ def test_overwrite_reads_the_archives_config_into_the_workspace(
     h = _harness(
         tmp_path, archive, mode=RestoreMode.FILES, config_policy=ConfigPolicy.OVERWRITE
     )
+    seen: list[tuple[str, int]] = []
+    real_replace = h.config.replace_file
+
+    def replace_file(config_file: Path, source: Path, *, keep: object) -> object:
+        seen.append((source.read_text(encoding="utf-8"), source.stat().st_mode))
+        return real_replace(config_file, source, keep=keep)  # type: ignore[arg-type]
+
+    h.config.replace_file = replace_file  # type: ignore[method-assign]
+    stale = h.workspace / "archive-wp-config.php"
+    stale.write_text("stale", encoding="utf-8")
+    stale.chmod(0o644)
     with capture_logs() as logs:
         h.run()
-    copied = h.workspace / "archive-wp-config.php"
-    assert ARCHIVE_DB["DB_NAME"] in copied.read_text(encoding="utf-8")
-    assert copied.stat().st_mode & 0o777 == 0o600
+    ((text, mode),) = seen
+    assert ARCHIVE_DB["DB_NAME"] in text
+    assert mode & 0o777 == 0o600
+    # ADV-11: the credential-bearing copy is gone once the replace is done.
+    assert not stale.exists()
     warning = next(e for e in logs if e["event"] == "wp_config_overwritten")
     assert warning["log_level"] == "warning"
 
@@ -965,3 +978,60 @@ def test_a_damaged_snapshot_fails_and_is_left_in_place(tmp_path: Path) -> None:
         )
     assert caught.value.path == str(path)
     assert path.exists()
+
+
+# --------------------------------------------------------------------------
+# BL-E003-038: config handling (ADV-7, ADV-8)
+# --------------------------------------------------------------------------
+
+
+def test_an_oversized_archive_config_is_refused_before_clean(
+    tmp_path: Path, archive: Path
+) -> None:
+    """ADV-7: the 1 MiB limit is checked in PREFLIGHT, not inside REWRITE_CONFIG."""
+    from l3io.wp.backup.adapters.restore_runner import CONFIG_MAX_BYTES, config_member
+    from l3io.wp.backup.adapters.tar import verify_archive_view
+    from l3io.wp.backup.domain.errors import MemberReadRefusedError
+
+    view, _ = verify_archive_view(archive)
+    assert view is not None
+    member = config_member(view)
+    assert member is not None
+    big = dataclasses.replace(
+        view,
+        members=tuple(
+            dataclasses.replace(m, size=CONFIG_MAX_BYTES + 1) if m == member else m
+            for m in view.members
+        ),
+    )
+    h = _harness(
+        tmp_path,
+        archive,
+        mode=RestoreMode.FILES_CLEAN,
+        config_policy=ConfigPolicy.OVERWRITE,
+        view_override=big,
+    )
+    with pytest.raises(MemberReadRefusedError, match=str(CONFIG_MAX_BYTES)):
+        h.run()
+    assert not FILE_CALLS & set(h.log.methods())
+
+
+def test_the_existence_probe_is_the_file_the_rewrite_acts_on(
+    tmp_path: Path, archive: Path
+) -> None:
+    """ADV-8: a relocated config that does not exist is refused in PREFLIGHT."""
+    from l3io.wp.backup.adapters.restore_runner import TargetConfigMissingError
+
+    moved = tmp_path / "moved" / "wp-config.php"
+    relocation = dataclasses.replace(
+        NO_RELOCATION,
+        config_file=PurePosixPath(moved),
+        rewrite_values=(("WP_HOME", "https://example.invalid"),),
+        undo=((P.REWRITE_CONFIG, "restore WP_HOME by hand"),),
+    )
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES, relocation=relocation)
+    assert h.config_path.exists()
+    with pytest.raises(TargetConfigMissingError) as caught:
+        h.run()
+    assert str(moved) in str(caught.value)
+    assert not FILE_CALLS & set(h.log.methods())
