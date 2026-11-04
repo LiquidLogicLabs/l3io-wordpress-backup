@@ -226,3 +226,17 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-04T03:48:24Z'
   ref: E003-S01-001
+- key: BL-E003-046
+  epic: '003'
+  sprint: '02'
+  title: Story E003-S02-005 undo table and ADR-0020 still show LOAD_DUMP 'live site untouched' rows; code now names replaced files (fix R1) — update spec/ADR
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R1 follow-up)
+  resolution: fixed
+  resolved_at: '2026-11-04T05:49:23Z'
+  ref: ebff354
+  note: story undo table and ADR-0020 amendment aligned with R1
