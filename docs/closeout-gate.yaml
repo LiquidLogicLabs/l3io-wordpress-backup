@@ -1,0 +1,27 @@
+# Items that must be CLOSED before the project closes out.
+#
+# Shawn, 2026-11-03: the E002 epic closure deferred four MEDIUM red-team findings
+# instead of fixing them, because each needs code a later epic builds. The deferral
+# was accepted on one condition: every one of them is closed before the overall
+# close-out.
+#
+# This list is the owner's decision record, so it is kept by hand on purpose: the
+# set is "what the owner made a condition", which no other file states.
+# tests/contracts/test_closeout_gate.py enforces it:
+#   - while work remains, every open item must be named, by key, in the document of
+#     a story that is not yet done, so each one always has an owner;
+#   - once every planned story is done, every item must be resolved.
+# Add an item here only on an owner's decision, with the reason and the date.
+items:
+  - key: BL-E002-114
+    finding: "red team RT-1: a restore with no target wp-config.php trusts the Archive's DB host/name/user"
+    owner_story: E003-S02-006
+  - key: BL-E002-115
+    finding: "red team RT-2: verify --authenticate does not bind the Manifest to the payload"
+    owner_story: E004-S01-003
+  - key: BL-E002-116
+    finding: "red team RT-3: extraction has no size or free-space bound, and CLEAN precedes EXTRACT"
+    owner_story: E003-S01-001
+  - key: BL-E002-117
+    finding: "red team RT-4: the passphrase stays in os.environ, inherited by child processes"
+    owner_story: E007-S01-003
