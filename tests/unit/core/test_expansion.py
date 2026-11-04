@@ -7,10 +7,13 @@ import pytest
 from l3io.wp.backup.core.restore import (
     FREE_SPACE_MARGIN,
     MAX_EXPANSION_RATIO,
+    SNAPSHOT_FILESYSTEM,
     TARGET_FILESYSTEM,
     WORKSPACE_FILESYSTEM,
     ExpansionRatioError,
     InsufficientSpaceError,
+    SpaceClaim,
+    check_claims,
     check_expansion,
     space_need,
 )
@@ -86,3 +89,44 @@ def test_the_dump_never_lands_on_the_target() -> None:
     )
     assert need.target == 100
     assert need.workspace == 1000
+
+
+# --------------------------------------------------------------------------
+# ADV-6 — claims summed per filesystem (E003-S02-003)
+# --------------------------------------------------------------------------
+
+
+def _claims(*devices: int, need: int) -> list[SpaceClaim]:
+    names = (TARGET_FILESYSTEM, WORKSPACE_FILESYSTEM, SNAPSHOT_FILESYSTEM)
+    return [
+        SpaceClaim(name, device, need, FREE)
+        for name, device in zip(names, devices, strict=True)
+    ]
+
+
+def test_claims_on_one_filesystem_are_summed() -> None:
+    half = USABLE // 2 + 1
+    claims = _claims(1, 1, 1, need=0)
+    claims[0] = SpaceClaim(TARGET_FILESYSTEM, 1, half, FREE)
+    claims[2] = SpaceClaim(SNAPSHOT_FILESYSTEM, 1, half, FREE)
+    with pytest.raises(InsufficientSpaceError) as caught:
+        check_claims(claims)
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert caught.value.needed == 2 * half
+    assert caught.value.filesystem == f"{TARGET_FILESYSTEM} and {SNAPSHOT_FILESYSTEM}"
+
+
+def test_claims_on_different_filesystems_are_not_summed() -> None:
+    half = USABLE // 2 + 1
+    check_claims(
+        [
+            SpaceClaim(TARGET_FILESYSTEM, 1, half, FREE),
+            SpaceClaim(SNAPSHOT_FILESYSTEM, 2, half, FREE),
+        ]
+    )
+
+
+def test_a_claim_that_fits_exactly_passes() -> None:
+    check_claims([SpaceClaim(SNAPSHOT_FILESYSTEM, 1, USABLE, FREE)])
+    with pytest.raises(InsufficientSpaceError, match="Safety Snapshot"):
+        check_claims([SpaceClaim(SNAPSHOT_FILESYSTEM, 1, USABLE + 1, FREE)])

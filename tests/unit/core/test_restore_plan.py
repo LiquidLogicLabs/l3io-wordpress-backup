@@ -96,6 +96,7 @@ def test_two_swapped_phases_are_refused() -> None:
             phases=swapped,
             snapshot=built.snapshot,
             snapshot_scope=built.snapshot_scope,
+            overrides=built.overrides,
             required_tools=(),
             actions=(),
         )

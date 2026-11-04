@@ -47,6 +47,10 @@ class SiteFilesQuery(Protocol):
         """PHP ``file_exists`` semantics: symlinks are followed."""
         ...
 
+    def tree_bytes(self, site_root: Path) -> int:
+        """The bytes of the files under ``site_root`` (ADV-6's snapshot need)."""
+        ...
+
 
 @runtime_checkable
 class SiteFilesCommand(Protocol):

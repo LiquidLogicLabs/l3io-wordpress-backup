@@ -67,6 +67,35 @@ needed and the bytes free. For a v1 Archive the sizes come from its Manifest;
 for a v0 Archive they are read from its tar headers. During extraction a member
 whose header states more bytes than its Manifest entry is refused.
 
+When the Run takes a Safety Snapshot of the files, the Site Root's current file
+bytes are charged to the snapshot directory's filesystem. Destinations on the
+same filesystem (the target, the workspace and the snapshot directory) are
+summed against its one free space. The database part of a snapshot is not
+sized in advance: its Dump size is not known before the dump.
+
+## Safety Snapshot
+
+Before the first destructive phase the Run writes a Safety Snapshot: an
+Archive of every part the Mode may destroy that is not empty (`files`,
+`database` or both), written by the backup path inside the restore's own Run
+(one Run ID, one Site Lock). It is verified again after it is published; a
+snapshot that cannot be written and verified stops the restore with
+`REFUSED` before anything is destroyed, and a written-but-unverified file is
+left in place. Its log record is `safety_snapshot_written`, with its path.
+
+`--no-safety-snapshot` skips it and logs the WARNING `safety_snapshot_skipped`.
+When every part the Mode touches is empty, no snapshot is taken and the Run
+logs `safety_snapshot_not_needed`. `--snapshot-dir` is refused inside the Site
+Root or the `wp-config.php` directory; a directory a web server serves from
+elsewhere is not detected. In a Dry Run nothing is written and the snapshot is
+reported as "would verify".
+
+Immediately before the first destructive phase the target is surveyed again.
+If a part that was empty at planning now holds content the snapshot does not
+cover, or the non-empty guard now refuses, the restore stops with `REFUSED`
+before anything is destroyed. That Run's journal stays open (nothing was
+changed), so the next restore names it until it is resolved.
+
 ## `wp-config.php`
 
 By default the target's `wp-config.php` is **kept**: the Archive's copy is

@@ -318,7 +318,12 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         "--snapshot-dir",
         metavar="PATH",
         default=None,
-        help="Directory to write the Safety Snapshot to",
+        help=(
+            "Directory to write the Safety Snapshot to (default: the per-user "
+            "state directory). Refused inside the Site Root or the wp-config.php "
+            "directory; a directory a web server serves from elsewhere is not "
+            "detected"
+        ),
     )
     options.add_argument(
         "--resolve-interrupted-run",

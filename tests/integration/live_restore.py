@@ -394,19 +394,23 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
     adapters, _journal = adapters_for(spec, secrets, wrap)
     files = LocalSiteFiles()
     location = site.database_location()
-    survey = adapters.restore_database_query.survey_target(
-        location, table_prefix=site.table_prefix, wordpress_user=None
-    )
-    target = TargetState(
-        site_root_empty=files.is_empty(root),
-        database=survey,
-        config_exists=config_path.exists(),
-        site_root=site.site_root,
-        site_root_entries=files.entry_count(root),
-        database_location=location,
-        load_target=None,
-        load_location=spec.relocation.load_location,
-    )
+
+    def survey_target() -> TargetState:
+        survey = adapters.restore_database_query.survey_target(
+            location, table_prefix=site.table_prefix, wordpress_user=None
+        )
+        return TargetState(
+            site_root_empty=files.is_empty(root),
+            database=survey,
+            config_exists=config_path.exists(),
+            site_root=site.site_root,
+            site_root_entries=files.entry_count(root),
+            database_location=location,
+            load_target=None,
+            load_location=spec.relocation.load_location,
+        )
+
+    target = survey_target()
     plan = build_restore_plan(
         site,
         spec.mode,
@@ -468,6 +472,8 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
         functools.partial(load_staged, ports=ports, workspace=workspace),
         adapters.journal_command,
         None,
+        survey_target=survey_target,
+        opted_out_by="test: SnapshotPolicy.SKIP",
     )
 
 

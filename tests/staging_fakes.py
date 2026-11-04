@@ -260,6 +260,7 @@ class StagedHarness(Harness):
             mode=self.mode,
             archive=str(self.archive_path),
             config_path=str(self.relocation.config_file or self.config_path),
+            snapshot_path=str(self.snapshot_file),
         )
 
     def run_staged(
@@ -277,6 +278,8 @@ class StagedHarness(Harness):
             functools.partial(load_staged, ports=ports, workspace=self.workspace),
             journal or self.journal,
             self.cipher,
+            survey_target=self.target,
+            opted_out_by=self.opted_out_by,
         )
 
 

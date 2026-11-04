@@ -10,21 +10,42 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from pathlib import Path
+from collections.abc import Callable
+from pathlib import Path, PurePosixPath
 
 import pytest
 from structlog.testing import capture_logs
 
-from l3io.wp.backup.adapters.restore_runner import ArchiveChangedError, _same_dir
+from l3io.wp.backup.adapters import noop, restore_runner
+from l3io.wp.backup.adapters.restore_runner import (
+    _CHECK_PHASES,
+    _DESTROYING,
+    _DESTROYING_HALVES,
+    ArchiveChangedError,
+    _device,
+    _same_dir,
+    snapshot_result,
+)
+from l3io.wp.backup.adapters.site_files import LocalSiteFiles
+from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
+    FREE_SPACE_MARGIN,
     NO_RELOCATION,
+    SNAPSHOT_FILESYSTEM,
     ExpansionRatioError,
     InsufficientSpaceError,
+    NonEmptyTargetError,
     RestoreRelocation,
+    SnapshotFailedError,
+    SnapshotResult,
+    TargetChangedError,
+    TargetState,
 )
 from l3io.wp.backup.domain.archive_format import Integrity, MemberRole
+from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.errors import (
+    ArchiveNotFoundError,
     DatabaseRefusedError,
     ExitCode,
     ExtractionRefusedError,
@@ -34,6 +55,7 @@ from l3io.wp.backup.domain.errors import (
 )
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
+    OverrideSet,
     RestoreMode,
     RestorePhase,
     SnapshotPolicy,
@@ -42,6 +64,7 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
+from l3io.wp.backup.ports.adapter_set import AdapterSet
 from tests.restore_builders import RELOCATIONS
 from tests.restore_harness import (
     ARCHIVE_DB,
@@ -53,6 +76,7 @@ from tests.restore_harness import (
     write_v0,
     write_v1,
 )
+from tests.staging_fakes import StagedHarness
 
 P = RestorePhase
 #: Which command calls belong to which part of the Site.
@@ -548,3 +572,396 @@ def test_an_orderly_load_failure_after_extract_is_not_orderly(
     with pytest.raises(RuntimeError):
         h.run()
     assert "finish_run" not in h.journal.names()
+
+
+# --------------------------------------------------------------------------
+# FR-8 — the Safety Snapshot phase (E003-S02-003)
+# --------------------------------------------------------------------------
+
+
+def _snapshot_of(
+    h: Harness, **fields: object
+) -> Callable[[BackupScope], SnapshotResult]:
+    """A ``take_snapshot`` returning the harness's result with ``fields`` changed."""
+
+    def take(scope: BackupScope) -> SnapshotResult:
+        h.snapshots.append(scope)
+        good = SnapshotResult(
+            path=PurePosixPath(h.snapshot_file),
+            scope=scope,
+            encrypted=False,
+            bytes=1,
+            integrity=Integrity.VERIFIED,
+            performed=True,
+        )
+        return dataclasses.replace(good, **fields)  # type: ignore[arg-type]
+
+    return take
+
+
+def _destroyed(h: Harness) -> list[str]:
+    return [m for m in h.log.methods() if m in FILE_CALLS | DATABASE_CALLS]
+
+
+@pytest.mark.parametrize("mode", list(RestoreMode))
+def test_a_failing_snapshot_refuses_with_nothing_destroyed(
+    tmp_path: Path, archive: Path, mode: RestoreMode
+) -> None:
+    h = _harness(tmp_path, archive, mode=mode)
+    disk_full = OSError(28, "No space left on device")
+
+    def take(scope: BackupScope) -> SnapshotResult:
+        raise disk_full
+
+    h.take_snapshot = take  # type: ignore[method-assign]
+    with pytest.raises(SnapshotFailedError) as caught:
+        h.run()
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert caught.value.cause is disk_full
+    assert caught.value.path == str(h.snapshot_file)
+    assert _destroyed(h) == []
+
+
+@pytest.mark.parametrize(
+    ("fields", "match"),
+    [
+        ({"performed": False, "integrity": None, "bytes": 0}, "not performed"),
+        ({"integrity": Integrity.STRUCTURAL_ONLY}, "STRUCTURAL_ONLY"),
+        ({"integrity": None}, "integrity None"),
+        ({"bytes": 0}, "0 bytes"),
+        ({"path": PurePosixPath("/elsewhere/s.tar.gz")}, "not the planned path"),
+        ({"scope": BackupScope.DATABASE}, "covers 'database'"),
+    ],
+)
+def test_a_result_that_proves_no_verified_snapshot_is_refused_before_clean(
+    tmp_path: Path, archive: Path, fields: dict[str, object], match: str
+) -> None:
+    """ADV-5: performed, VERIFIED, non-empty, at the planned path, of the scope."""
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    h.take_snapshot = _snapshot_of(h, **fields)  # type: ignore[method-assign]
+    with pytest.raises(SnapshotFailedError, match=match):
+        h.run()
+    assert _destroyed(h) == []
+
+
+def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
+    tmp_path: Path, archive: Path
+) -> None:
+    """The Dry Run's no-op halves: SNAPSHOT completes and reports "would verify"."""
+    h = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL_CLEAN)
+    h.take_snapshot = _snapshot_of(  # type: ignore[method-assign]
+        h, performed=False, integrity=None, bytes=0
+    )
+    with capture_logs() as logs:
+        report = h.run(adapters=dry_run_adapters(h.adapters()))
+    assert report.snapshot is not None
+    assert report.snapshot.performed is False
+    planned = [e for e in logs if e["event"] == "safety_snapshot_planned"]
+    assert [e["integrity"] for e in planned] == ["would verify"]
+    done = [e for e in logs if e["event"] == "phase_completed"]
+    assert "snapshot" in [e["phase"] for e in done]
+
+
+@pytest.mark.parametrize("half", sorted(_DESTROYING_HALVES))
+def test_one_real_destroying_half_refuses_a_not_performed_snapshot(
+    tmp_path: Path, archive: Path, half: str
+) -> None:
+    """One real half among no-ops is enough to refuse a not-performed snapshot.
+
+    The list itself is checked against ``dry_run_adapters`` below.
+    """
+    h = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL_CLEAN)
+    real = h.adapters()
+    mixed = dataclasses.replace(dry_run_adapters(real), **{half: getattr(real, half)})
+    h.take_snapshot = _snapshot_of(  # type: ignore[method-assign]
+        h, performed=False, integrity=None, bytes=0
+    )
+    with pytest.raises(SnapshotFailedError, match="not performed"):
+        h.run(adapters=mixed)
+
+
+#: Command halves no destroying phase reaches: the backup path's own (the
+#: joined snapshot writes through them) and the Run Journal's.
+_NOT_DESTROYING = frozenset(
+    {"archive_store_command", "archive_writer", "database_command", "journal_command"}
+)
+
+
+def test_every_command_half_a_destroying_phase_reaches_is_checked(
+    tmp_path: Path, archive: Path
+) -> None:
+    """The halves list is ``dry_run_adapters``' no-op fields, less the exclusions.
+
+    A command half added to ``AdapterSet`` fails here until it is classified.
+    """
+    real = StagedHarness(work=tmp_path, archive_path=archive).adapters()
+    dry = dry_run_adapters(real)
+    commands = {
+        f.name
+        for f in dataclasses.fields(AdapterSet)
+        if type(getattr(dry, f.name)).__module__ == noop.__name__ and f.name != "tracer"
+    }
+    assert commands >= _NOT_DESTROYING
+    assert set(_DESTROYING_HALVES) == commands - _NOT_DESTROYING
+
+
+def test_every_phase_is_a_check_the_snapshot_or_destroying() -> None:
+    """The re-survey's trigger set covers every phase AD-17 orders after SNAPSHOT."""
+    classes = (_CHECK_PHASES, frozenset({P.SNAPSHOT}), _DESTROYING)
+    for step in RestorePhase:
+        assert sum(step in c for c in classes) == 1, step
+    assert P.CLEAN in _DESTROYING
+    assert P.LOAD_DUMP in _DESTROYING
+
+
+def test_the_written_snapshot_is_logged_with_its_facts(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.ALL_CLEAN)
+    with capture_logs() as logs:
+        h.run()
+    written = [e for e in logs if e["event"] == "safety_snapshot_written"]
+    assert len(written) == 1
+    assert written[0]["path"] == str(h.snapshot_file)
+    assert written[0]["scope"] == "all"
+    assert written[0]["integrity"] == "VERIFIED"
+    assert written[0]["restore_mode"] == "all-clean"
+    assert {"bytes", "encrypted"} <= written[0].keys()
+
+
+def test_skip_logs_the_opt_out_and_takes_no_snapshot(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.ALL_CLEAN, snapshot=SnapshotPolicy.SKIP
+    )
+    with capture_logs() as logs:
+        report = h.run()
+    assert h.snapshots == []
+    assert P.SNAPSHOT not in report.phases
+    assert all(a.phase is not P.SNAPSHOT for a in h.plan().actions)
+    skipped = [e for e in logs if e["event"] == "safety_snapshot_skipped"]
+    assert [(e["log_level"], e["opted_out_by"]) for e in skipped] == [
+        ("warning", "--no-safety-snapshot")
+    ]
+
+
+def test_an_empty_target_logs_that_no_snapshot_is_needed(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES)
+    for entry in h.site_root.iterdir():
+        entry.unlink()
+    with capture_logs() as logs:
+        report = h.run()
+    assert P.SNAPSHOT not in report.phases
+    needed = [e for e in logs if e["event"] == "safety_snapshot_not_needed"]
+    assert [(e["log_level"], e["empty"]) for e in needed] == [("info", ["files"])]
+
+
+def test_a_planned_snapshot_with_no_header_path_is_a_programming_error(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    header = dataclasses.replace(h.header(), snapshot_path=None)
+    h.header = lambda: header  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="snapshot_path"):
+        h.run()
+    assert h.log.calls == []
+
+
+# --------------------------------------------------------------------------
+# RT-003 / ADV-4 — the target is surveyed again before the first destroying phase
+# --------------------------------------------------------------------------
+
+
+def _emptied(h: Harness) -> None:
+    for entry in h.site_root.iterdir():
+        entry.unlink()
+
+
+def test_content_that_appears_after_planning_is_refused_before_clean(
+    tmp_path: Path, archive: Path
+) -> None:
+    """Empty at plan time (no SNAPSHOT planned), populated before CLEAN."""
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    _emptied(h)
+    plan = h.plan()
+    assert P.SNAPSHOT not in plan.phases
+    (h.site_root / "deployed.php").write_bytes(b"<?php // new\n")
+    with pytest.raises(TargetChangedError) as caught:
+        h.run(plan=plan)
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert caught.value.found is BackupScope.FILES
+    assert _destroyed(h) == []
+    assert (h.site_root / "deployed.php").exists()
+
+
+def test_a_newly_non_empty_target_is_refused_by_fr7_without_force(
+    tmp_path: Path, archive: Path
+) -> None:
+    """The plan's own waivers are re-applied: no ``--force``, so FR-7 refuses."""
+    h = _harness(
+        tmp_path,
+        archive,
+        mode=RestoreMode.FILES_CLEAN,
+        snapshot=SnapshotPolicy.SKIP,
+        overrides=OverrideSet(waived=frozenset()),
+    )
+    _emptied(h)
+    plan = h.plan()
+    (h.site_root / "deployed.php").write_bytes(b"<?php // new\n")
+    with pytest.raises(NonEmptyTargetError):
+        h.run(plan=plan)
+    assert _destroyed(h) == []
+
+
+def test_the_resurvey_runs_once_after_the_snapshot_and_before_clean(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.ALL_CLEAN)
+    order: list[str] = []
+    survey = h.target
+
+    def counted() -> TargetState:
+        order.append(f"survey after {h.log.methods()}")
+        return survey()
+
+    h.target = counted  # type: ignore[method-assign]
+    plan = h.plan()
+    order.clear()
+    h.run(plan=plan)
+    assert order == ["survey after ['snapshot.take']"]
+
+
+# --------------------------------------------------------------------------
+# ADV-6 — the snapshot directory's free space, summed per filesystem
+# --------------------------------------------------------------------------
+
+
+def _shared_free(h: Harness) -> tuple[int, int, int]:
+    """Free bytes each need fits alone but their sum on one filesystem does not."""
+    target = sum(m.size or 0 for m in h.view.members if m.role is MemberRole.SITE_ROOT)
+    snapshot = LocalSiteFiles().tree_bytes(h.site_root)
+    free = int((target + snapshot - 1) / (1 - FREE_SPACE_MARGIN))
+    assert max(target, snapshot) <= free * (1 - FREE_SPACE_MARGIN)
+    return target, snapshot, free
+
+
+def test_the_snapshot_need_is_summed_with_the_target_on_one_filesystem(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    (h.site_root / "uploads.bin").write_bytes(b"\0" * 50_000)
+    target, snapshot, h.free = _shared_free(h)
+    with pytest.raises(InsufficientSpaceError) as caught:
+        h.run()
+    assert caught.value.needed == target + snapshot
+    assert SNAPSHOT_FILESYSTEM in caught.value.filesystem
+    assert h.snapshots == []
+    assert h.log.calls == []
+
+
+def test_a_snapshot_directory_on_another_filesystem_is_not_summed(
+    tmp_path: Path, archive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The planted scope attack: devices differ, so the same free space fits."""
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    (h.site_root / "uploads.bin").write_bytes(b"\0" * 50_000)
+    _, _, h.free = _shared_free(h)
+    snapshots = h.snapshot_file.parent
+    snapshots.mkdir()
+    monkeypatch.setattr(
+        restore_runner,
+        "_device",
+        lambda path: -1 if path == snapshots else _device(path),
+    )
+    h.run()
+    assert h.snapshots == [BackupScope.FILES]
+
+
+def test_skip_claims_no_snapshot_space(tmp_path: Path, archive: Path) -> None:
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.FILES_CLEAN, snapshot=SnapshotPolicy.SKIP
+    )
+    (h.site_root / "uploads.bin").write_bytes(b"\0" * 50_000)
+    _, _, h.free = _shared_free(h)
+    h.run()
+
+
+# --------------------------------------------------------------------------
+# snapshot_result — the post-publish check (AD-12, ADR-0022)
+# --------------------------------------------------------------------------
+
+
+def test_a_not_performed_result_reads_nothing_and_would_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(path: Path) -> object:
+        raise AssertionError(path)
+
+    monkeypatch.setattr(restore_runner, "verify_archive", refuse)
+    result = snapshot_result(
+        PurePosixPath(tmp_path / "absent.tar.gz"),
+        scope=BackupScope.ALL,
+        encrypted=False,
+        bytes=0,
+        performed=False,
+    )
+    assert result.performed is False
+    assert result.integrity is None
+
+
+def test_a_performed_result_is_verified_again(tmp_path: Path) -> None:
+    path = write_v1(tmp_path)
+    result = snapshot_result(
+        PurePosixPath(path),
+        scope=BackupScope.ALL,
+        encrypted=False,
+        bytes=path.stat().st_size,
+        performed=True,
+    )
+    assert result.integrity is Integrity.VERIFIED
+    assert result.performed is True
+
+
+def test_a_performed_result_for_a_missing_file_fails(tmp_path: Path) -> None:
+    missing = tmp_path / "gone.tar.gz"
+    with pytest.raises(SnapshotFailedError) as caught:
+        snapshot_result(
+            PurePosixPath(missing),
+            scope=BackupScope.FILES,
+            encrypted=False,
+            bytes=1,
+            performed=True,
+        )
+    assert isinstance(caught.value.cause, ArchiveNotFoundError)
+
+
+def test_a_structural_only_snapshot_fails_and_is_left_in_place(tmp_path: Path) -> None:
+    path = write_v0(tmp_path)
+    with pytest.raises(SnapshotFailedError, match="STRUCTURAL_ONLY"):
+        snapshot_result(
+            PurePosixPath(path),
+            scope=BackupScope.ALL,
+            encrypted=False,
+            bytes=1,
+            performed=True,
+        )
+    assert path.exists()
+
+
+def test_a_damaged_snapshot_fails_and_is_left_in_place(tmp_path: Path) -> None:
+    path = write_v1(tmp_path)
+    body = path.read_bytes()
+    path.write_bytes(body[: len(body) // 2])
+    with pytest.raises(SnapshotFailedError, match="snapshot") as caught:
+        snapshot_result(
+            PurePosixPath(path),
+            scope=BackupScope.ALL,
+            encrypted=False,
+            bytes=1,
+            performed=True,
+        )
+    assert caught.value.path == str(path)
+    assert path.exists()

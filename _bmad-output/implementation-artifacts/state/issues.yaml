@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 47
+  '003': 52
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1777,14 +1777,6 @@ backlog:
   severity: Medium
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md RT-001, RT-002. Copy the verified payload into the workspace (or hash while extracting) before the CLI wires restore; decide refusal/waiver of STRUCTURAL_ONLY archives.
-- key: BL-E003-037
-  epic: '003'
-  sprint: '01'
-  title: Re-survey the target immediately before CLEAN and verify the snapshot was performed (RT-003, ADV-4, ADV-5, ADV-6). Owner E003-S02-003
-  source: closure-redteam
-  severity: Medium
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md RT-003 and _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-4/5/6: snapshot scope and the FR-7 decision come from a pre-run survey; no free-space check on the snapshot directory.'
 - key: BL-E003-038
   epic: '003'
   sprint: '01'
@@ -1859,3 +1851,53 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R10)
+- key: BL-E003-047
+  epic: '003'
+  sprint: '02'
+  title: 'E003-S02-003 database half of the snapshot tests deferred: no-deadlock all-clean child with load_staged, and reversibility via CHECKSUM TABLE, against the CI database (review F3). Owner E003-S02-006'
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F3). The files halves are tests/integration/test_snapshot_joins_run.py and test_snapshot_reversible.py; the database cases need the root's real take_snapshot binding over a live server.
+- key: BL-E003-048
+  epic: '003'
+  sprint: '02'
+  title: 'ADV-6 partial: the database part of a Safety Snapshot is charged 0 bytes in the free-space claim (no live-database size query) (review F4)'
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F4)
+- key: BL-E003-049
+  epic: '003'
+  sprint: '02'
+  title: ADV-5 check inspects run.ports.adapters only; a load_database slot bound to other (real) ports is not seen (review F5). E003-S02-006 root must bind the slot over run.ports
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F5)
+- key: BL-E003-050
+  epic: '003'
+  sprint: '02'
+  title: execute_restore accepts opted_out_by=None under SnapshotPolicy.SKIP and logs 'unspecified' (review F6)
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F6)
+- key: BL-E003-051
+  epic: '003'
+  sprint: '02'
+  title: ADV-5 snapshot path check compares strings, not normalised paths; E003-S02-006 must put an absolute normalised snapshot_path in the header (review F7)
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F7)

@@ -14,6 +14,18 @@
 * ``VERIFY`` verifies the Archive (a failure raises before any command),
   refuses a view that changed since the root's probe, and decrypts an
   encrypted payload into the Run workspace.
+* ``SNAPSHOT`` (FR-8, AD-12) calls the root's ``take_snapshot`` slot, which
+  joins E002's ``backup(..., ctx=ctx)`` and builds its result with
+  :func:`snapshot_result`. Any failure becomes
+  :class:`~l3io.wp.backup.core.restore.SnapshotFailedError`, and a result
+  that does not prove a verified snapshot at the planned path is refused
+  (ADV-5): a not-performed snapshot is accepted only when every command
+  half a destroying phase uses is a no-op, so nothing can be destroyed
+  without a copy.
+* Immediately before the first destroying phase the target is surveyed again
+  through the root's ``survey_target`` slot and
+  :func:`~l3io.wp.backup.core.restore.recheck_target` refuses a target that
+  outgrew the plan (RT-003, ADV-4).
 * The Run Journal begins immediately before the first phase after
   ``VERIFY``. It finishes only after the last phase succeeds, or after a
   failure :func:`~l3io.wp.backup.core.restore.is_orderly_failure` accepts for
@@ -39,27 +51,37 @@ from typing import ClassVar, Final, assert_never
 
 import structlog
 
+from l3io.wp.backup.adapters import noop
 from l3io.wp.backup.adapters.phase import PhaseRecord, phase
 from l3io.wp.backup.adapters.tar import (
     decrypt_payload,
     require_patched_tarfile,
+    verify_archive,
     verify_archive_view,
 )
 from l3io.wp.backup.core.restore import (
     CONFIG_FILE_NAME,
     CUTOVER_KEYS,
+    SNAPSHOT_FILESYSTEM,
     STEP_CONFIG,
     STEP_CONFIG_REPLACED,
     STEP_CONFIG_SAVED,
     STEP_CONFIG_STARTED,
+    TARGET_FILESYSTEM,
+    WORKSPACE_FILESYSTEM,
     ArchiveHasNoConfigError,
     DatabaseRestoreReport,
     ExecutionReport,
     RestoreInputs,
     RestorePlan,
+    SnapshotFailedError,
     SnapshotResult,
+    SpaceClaim,
+    TargetState,
+    check_claims,
     check_expansion,
     is_orderly_failure,
+    recheck_target,
     space_need,
 )
 from l3io.wp.backup.domain.archive_format import (
@@ -85,16 +107,25 @@ from l3io.wp.backup.domain.errors import (
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.journal import JournalEntry, JournalEvent, JournalHeader
 from l3io.wp.backup.domain.restore import (
+    RESTORE_PHASE_ORDER,
     ConfigPolicy,
     RestorePhase,
+    SnapshotPolicy,
+    restores_database,
     restores_files,
 )
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport
+from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
 
-__all__ = ["ArchiveChangedError", "TargetConfigMissingError", "execute_restore"]
+__all__ = [
+    "ArchiveChangedError",
+    "TargetConfigMissingError",
+    "execute_restore",
+    "snapshot_result",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -108,6 +139,19 @@ _ARCHIVE_CONFIG_DIR: Final = "archive-config"
 _CONFIG_MODE: Final = 0o600
 #: The relative path ``CLEAN`` keeps and ``EXTRACT`` excludes under ``KEEP``.
 _KEPT_CONFIG: Final = frozenset({PurePosixPath(CONFIG_FILE_NAME)})
+#: The phases that change the Site — every phase AD-17 orders after
+#: ``SNAPSHOT``, derived so a new phase is never missed; the target is
+#: re-surveyed before the first of them.
+_DESTROYING: Final = frozenset(
+    RESTORE_PHASE_ORDER[RESTORE_PHASE_ORDER.index(RestorePhase.SNAPSHOT) + 1 :]
+)
+#: The ``AdapterSet`` command halves the destroying phases reach.
+_DESTROYING_HALVES: Final = (
+    "site_files_command",
+    "config_command",
+    "restore_database_command",
+    "search_replace",
+)
 
 
 class ArchiveChangedError(BackupError):
@@ -189,9 +233,11 @@ class _Run:
     take_snapshot: Callable[[BackupScope], SnapshotResult]
     check_database: Callable[[RestoreInputs], None]
     load_database: Callable[[RestoreInputs, RunJournalCommand], DatabaseRestoreReport]
+    survey_target: Callable[[], TargetState]
     integrity: Integrity
     config_existed: bool = False
     begun: bool = False
+    rechecked: bool = False
     snapshot: SnapshotResult | None = None
     database: DatabaseRestoreReport | None = None
     search_replace: SearchReplaceReport | None = None
@@ -237,13 +283,22 @@ def execute_restore(
     load_database: Callable[[RestoreInputs, RunJournalCommand], DatabaseRestoreReport],
     journal: RunJournalCommand,
     cipher: PayloadCipher | None,
+    *,
+    survey_target: Callable[[], TargetState],
+    opted_out_by: str | None,
 ) -> ExecutionReport:
     """Run ``plan``'s phases, in order, and report what they did.
 
     Any phase's exception propagates unchanged (no catch-and-continue); the
     journal is then finished only when the failure was orderly (ADR-0021).
-    A journal header naming another Mode than the plan is a programming error
-    (``ValueError``), raised before ``PREFLIGHT``: the Mode is carried once.
+    A journal header naming another Mode than the plan, or a planned
+    ``SNAPSHOT`` whose header names no snapshot path, is a programming error
+    (``ValueError``), raised before ``PREFLIGHT``: each is carried once.
+
+    ``survey_target`` is the root's survey (query ports only), called once,
+    immediately before the first destroying phase (RT-003). ``opted_out_by``
+    names what chose :attr:`SnapshotPolicy.SKIP` (``--no-safety-snapshot``,
+    or the API argument) for the ``safety_snapshot_skipped`` WARNING.
     """
     if inputs.header.restore_mode is not plan.mode:
         msg = (
@@ -251,6 +306,10 @@ def execute_restore(
             f"the plan's {plan.mode.value!r}"
         )
         raise ValueError(msg)
+    if RestorePhase.SNAPSHOT in plan.phases and inputs.header.snapshot_path is None:
+        msg = "a planned SNAPSHOT needs the journal header's snapshot_path"
+        raise ValueError(msg)
+    _log_snapshot_decision(plan, opted_out_by)
     run = _Run(
         plan=plan,
         inputs=inputs,
@@ -260,6 +319,7 @@ def execute_restore(
         take_snapshot=take_snapshot,
         check_database=check_database,
         load_database=load_database,
+        survey_target=survey_target,
         integrity=inputs.view.integrity,
     )
     try:
@@ -267,6 +327,8 @@ def execute_restore(
             if step not in _CHECK_PHASES and not run.begun:
                 run.journal.begin_run(inputs.header)
                 run.begun = True
+            if step in _DESTROYING and not run.rechecked:
+                _recheck(run)
             with phase(step.value) as record:
                 _dispatch(run, step, record)
     except BaseException:
@@ -283,6 +345,43 @@ def execute_restore(
         integrity=run.integrity,
         skipped_links=tuple(run.skipped),
         wp_config_kept=run.wp_config_kept,
+    )
+
+
+def _log_snapshot_decision(plan: RestorePlan, opted_out_by: str | None) -> None:
+    """``safety_snapshot_skipped`` or ``safety_snapshot_not_needed`` (FR-8)."""
+    if plan.snapshot is SnapshotPolicy.SKIP:
+        _log.warning(
+            "safety_snapshot_skipped",
+            opted_out_by=opted_out_by or "unspecified",
+            restore_mode=plan.mode.value,
+        )
+    elif RestorePhase.SNAPSHOT not in plan.phases:
+        empty = [
+            part
+            for part, touched in (
+                ("files", restores_files(plan.mode)),
+                ("database", restores_database(plan.mode)),
+            )
+            if touched
+        ]
+        _log.info(
+            "safety_snapshot_not_needed",
+            empty=empty,
+            reason="every part the restore mode may destroy is empty",
+            restore_mode=plan.mode.value,
+        )
+
+
+def _recheck(run: _Run) -> None:
+    """RT-003: survey the target again and refuse what outgrew the plan."""
+    run.rechecked = True
+    fresh = run.survey_target()
+    recheck_target(run.plan, fresh)
+    _log.info(
+        "target_resurveyed",
+        site_root_empty=fresh.site_root_empty,
+        restore_mode=run.plan.mode.value,
     )
 
 
@@ -391,13 +490,57 @@ def _check_space(run: _Run) -> None:
         else 0,
         payload=payload,
     )
+    workspace = Path(run.inputs.workspace)
+    target_free = run.ports.free_bytes(run.site_root)
+    workspace_free = run.ports.free_bytes(workspace)
     check_expansion(
         target_need=need.target,
         workspace_need=need.workspace,
         expanded=need.expanded,
         compressed=compressed,
-        target_free=run.ports.free_bytes(run.site_root),
-        workspace_free=run.ports.free_bytes(Path(run.inputs.workspace)),
+        target_free=target_free,
+        workspace_free=workspace_free,
+    )
+    claims = [
+        SpaceClaim(TARGET_FILESYSTEM, _device(run.site_root), need.target, target_free),
+        SpaceClaim(
+            WORKSPACE_FILESYSTEM, _device(workspace), need.workspace, workspace_free
+        ),
+    ]
+    snapshot = _snapshot_claim(run)
+    if snapshot is not None:
+        claims.append(snapshot)
+    check_claims(claims)
+
+
+def _existing(path: Path) -> Path:
+    """``path``, or its nearest ancestor that exists (the root creates it later)."""
+    for candidate in (path, *path.parents):
+        if candidate.exists():
+            return candidate
+    return path
+
+
+def _device(path: Path) -> int:
+    return _existing(path).stat().st_dev
+
+
+def _snapshot_claim(run: _Run) -> SpaceClaim | None:
+    """ADV-6: what the Safety Snapshot will write to its directory.
+
+    The Site Root's current file bytes when the scope holds ``files``: an
+    uncompressed upper bound for the Archive. The live database's dump size
+    is not knowable before the dump, so a database-only scope claims ``0``.
+    """
+    scope, path = run.plan.snapshot_scope, run.inputs.header.snapshot_path
+    if RestorePhase.SNAPSHOT not in run.plan.phases or scope is None or path is None:
+        return None
+    files = scope in {BackupScope.FILES, BackupScope.ALL}
+    query = run.ports.adapters.site_files_query
+    need = query.tree_bytes(run.site_root) if files else 0
+    directory = _existing(Path(path).parent)
+    return SpaceClaim(
+        SNAPSHOT_FILESYSTEM, _device(directory), need, run.ports.free_bytes(directory)
     )
 
 
@@ -439,10 +582,114 @@ def _snapshot(run: _Run, record: PhaseRecord) -> None:
     if scope is None:  # pragma: no cover - the plan omits SNAPSHOT then
         msg = "a planned SNAPSHOT needs a snapshot scope"
         raise ValueError(msg)
+    planned = run.inputs.header.snapshot_path
     run.journal.phase_started(RestorePhase.SNAPSHOT, scope.value)
-    run.snapshot = run.take_snapshot(scope)
-    record.bytes = run.snapshot.bytes
+    try:
+        result = run.take_snapshot(scope)
+    except SnapshotFailedError:
+        raise
+    except Exception as exc:
+        raise SnapshotFailedError(planned, exc) from exc
+    _require_snapshot(run, result, scope)
+    run.snapshot = result
+    record.bytes = result.bytes
+    record.fields.update(path=str(result.path), performed=result.performed)
+    if result.performed:
+        _log.info(
+            "safety_snapshot_written",
+            path=str(result.path),
+            scope=result.scope.value,
+            bytes=result.bytes,
+            encrypted=result.encrypted,
+            integrity=None if result.integrity is None else result.integrity.value,
+            restore_mode=run.plan.mode.value,
+        )
+    else:
+        _log.info(
+            "safety_snapshot_planned",
+            path=str(result.path),
+            scope=result.scope.value,
+            integrity="would verify",
+            restore_mode=run.plan.mode.value,
+        )
     run.journal.phase_completed(RestorePhase.SNAPSHOT)
+
+
+def _destroys(adapters: AdapterSet) -> bool:
+    """Whether any command half a destroying phase reaches performs effects."""
+    return any(
+        type(getattr(adapters, name)).__module__ != noop.__name__
+        for name in _DESTROYING_HALVES
+    )
+
+
+def _require_snapshot(run: _Run, result: SnapshotResult, scope: BackupScope) -> None:
+    """ADV-5: refuse a result that does not prove the planned, verified snapshot."""
+    planned = run.inputs.header.snapshot_path
+    if str(result.path) != planned:
+        reason = (
+            f"the snapshot was written to {str(result.path)!r}, not the planned path"
+        )
+        raise SnapshotFailedError(planned, reason)
+    if result.scope is not scope:
+        reason = f"the snapshot covers {result.scope.value!r}, not {scope.value!r}"
+        raise SnapshotFailedError(planned, reason)
+    if not result.performed:
+        if _destroys(run.ports.adapters):
+            reason = "the snapshot was not performed, and the restore would destroy"
+            raise SnapshotFailedError(planned, reason)
+        return
+    if result.integrity is not Integrity.VERIFIED or result.bytes <= 0:
+        integrity = None if result.integrity is None else result.integrity.value
+        reason = f"integrity {integrity}, {result.bytes} bytes"
+        raise SnapshotFailedError(planned, reason)
+
+
+def snapshot_result(
+    path: PurePosixPath,
+    *,
+    scope: BackupScope,
+    encrypted: bool,
+    bytes: int,  # noqa: A002 - the BackupResult field it carries
+    performed: bool,
+) -> SnapshotResult:
+    """The :class:`SnapshotResult` of a joined backup, verified after publish.
+
+    E003-S02-006's ``take_snapshot`` passes the returned ``BackupResult``'s
+    fields. When ``performed``, :func:`~l3io.wp.backup.adapters.tar.verify_archive`
+    reads the published file again and anything but a passing ``VERIFIED``
+    result raises :class:`SnapshotFailedError` naming it; the file is left in
+    place, since it may hold the only copy. When not ``performed`` (a Dry
+    Run's no-op store) nothing is read and the result reports "would verify"
+    (``integrity=None``).
+    """
+    if not performed:
+        return SnapshotResult(
+            path=path,
+            scope=scope,
+            encrypted=encrypted,
+            bytes=0,
+            integrity=None,
+            performed=False,
+        )
+    try:
+        verified = verify_archive(Path(path))
+    except BackupError as exc:
+        raise SnapshotFailedError(str(path), exc) from exc
+    if not verified.passed or verified.integrity is not Integrity.VERIFIED:
+        reason = f"post-publish verification gave {verified.integrity.value}"
+        if not verified.passed:
+            first = verified.failures[0].reason if verified.failures else "unknown"
+            reason = f"post-publish verification failed: {first}"
+        raise SnapshotFailedError(str(path), reason)
+    return SnapshotResult(
+        path=path,
+        scope=scope,
+        encrypted=encrypted,
+        bytes=bytes,
+        integrity=Integrity.VERIFIED,
+        performed=True,
+    )
 
 
 def _clean(run: _Run, record: PhaseRecord) -> None:

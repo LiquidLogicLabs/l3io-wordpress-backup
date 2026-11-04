@@ -156,7 +156,9 @@ restore options:
                         Replace the target's existing wp-config.php with the archive's (only with
                         a mode that restores files)
   --no-safety-snapshot  Do not take the Safety Snapshot before changing anything
-  --snapshot-dir PATH   Directory to write the Safety Snapshot to
+  --snapshot-dir PATH   Directory to write the Safety Snapshot to (default: the per-user state
+                        directory). Refused inside the Site Root or the wp-config.php directory; a
+                        directory a web server serves from elsewhere is not detected
   --resolve-interrupted-run RUN_ID
                         Resolve the journal left by the interrupted Run with this ID
   --admin-username ADMIN_USERNAME

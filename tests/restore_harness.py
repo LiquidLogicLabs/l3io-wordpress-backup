@@ -17,8 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
 
+from l3io.wp.backup.adapters.database import (
+    locate_wp_config,
+    site_descriptor_from_wp_config,
+)
 from l3io.wp.backup.adapters.noop import NoopTracer
-from l3io.wp.backup.adapters.restore_runner import execute_restore
+from l3io.wp.backup.adapters.restore_runner import execute_restore, snapshot_result
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import (
     TarArchiveProbe,
@@ -27,6 +31,8 @@ from l3io.wp.backup.adapters.tar import (
     verify_archive_view,
     write_archive,
 )
+from l3io.wp.backup.cli import backup as backup_cli
+from l3io.wp.backup.cli.context import RunContext
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
@@ -54,9 +60,11 @@ from l3io.wp.backup.domain.archive_format import (
     Integrity,
     Manifest,
     ManifestMember,
+    ManifestOrigin,
     ManifestPayload,
     MemberDigest,
     MemberRole,
+    OriginKind,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.config import ConfigWriteResult
@@ -470,7 +478,7 @@ class Harness:
             site_root=PurePosixPath(self.site_root),
             restore_mode=self.mode,
             archive=str(self.archive_path),
-            snapshot_path=None,
+            snapshot_path=str(self.snapshot_file),
             live_database_before="target_db",
             staging_database="target_db_staging",
             wp_config_path=str(self.config_path),
@@ -496,11 +504,20 @@ class Harness:
             workspace=self.workspace,
         )
 
+    @property
+    def snapshot_file(self) -> Path:
+        """The Safety Snapshot path the header plans and the fake reports."""
+        return self.work / "snapshots" / "s.tar.gz"
+
+    @property
+    def opted_out_by(self) -> str | None:
+        return "--no-safety-snapshot" if self.snapshot is SnapshotPolicy.SKIP else None
+
     def take_snapshot(self, scope: BackupScope) -> SnapshotResult:
         self.snapshots.append(scope)
         self.log.add("snapshot", "take", scope)
         return SnapshotResult(
-            path=PurePosixPath(self.work / "snapshots" / "s.tar.gz"),
+            path=PurePosixPath(self.snapshot_file),
             scope=scope,
             encrypted=False,
             bytes=1,
@@ -565,6 +582,8 @@ class Harness:
             self.load_database,
             journal or self.journal,
             self.cipher,
+            survey_target=self.target,
+            opted_out_by=self.opted_out_by,
         )
 
 
@@ -580,6 +599,41 @@ __all__ = [
     "CommandLog",
     "Harness",
     "IdentityCipher",
+    "joined_snapshot",
     "write_v0",
     "write_v1",
 ]
+
+
+def joined_snapshot(
+    harness: Harness, ctx: RunContext
+) -> Callable[[BackupScope], SnapshotResult]:
+    """``take_snapshot`` as the root binds it: join ``backup``, then check it."""
+    root = harness.site_root.resolve()
+    config = locate_wp_config(root, stated=None)
+    site, _ = site_descriptor_from_wp_config(root, config_file=config.path)
+
+    def take(scope: BackupScope) -> SnapshotResult:
+        result = backup_cli.backup(
+            site,
+            scope,
+            backup_cli.storage_target_from_cli(str(harness.snapshot_file)),
+            ctx=ctx,
+            config=config,
+            cipher=None,
+            exclusion=INCLUDE_EVERYTHING,
+            origin=ManifestOrigin(
+                kind=OriginKind.SAFETY_SNAPSHOT,
+                restore_mode=harness.mode.value,
+                run_id=ctx.run_id,
+            ),
+        )
+        return snapshot_result(
+            PurePosixPath(result.path),
+            scope=result.scope,
+            encrypted=result.encrypted,
+            bytes=result.bytes,
+            performed=result.performed,
+        )
+
+    return take

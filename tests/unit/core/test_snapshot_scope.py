@@ -6,15 +6,23 @@ import dataclasses
 
 import pytest
 
-from l3io.wp.backup.core.restore import NoConfigForCutoverError, snapshot_scope
+from l3io.wp.backup.core.restore import (
+    NoConfigForCutoverError,
+    NonEmptyTargetError,
+    TargetChangedError,
+    recheck_target,
+    snapshot_scope,
+)
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.restore import (
+    OverrideSet,
     RestoreMode,
     RestorePhase,
+    SnapshotPolicy,
     restores_database,
     restores_files,
 )
-from tests.restore_builders import EMPTY_DB, POPULATED, plan
+from tests.restore_builders import EMPTY_DB, POPULATED, WAIVED, plan
 
 TARGETS = {
     "full": POPULATED,
@@ -79,3 +87,54 @@ def test_none_only_when_every_touched_part_is_empty(mode: RestoreMode) -> None:
         (False, True): BackupScope.DATABASE,
     }[(restores_files(mode), restores_database(mode))]
     assert snapshot_scope(mode, TARGETS["full"]) is expected
+
+
+# --------------------------------------------------------------------------
+# RT-003 / ADV-4 — recheck_target against a fresh survey (E003-S02-003)
+# --------------------------------------------------------------------------
+
+
+def _buildable(mode: RestoreMode, target_name: str) -> bool:
+    target = TARGETS[target_name]
+    return target.config_exists or restores_files(mode)
+
+
+@pytest.mark.parametrize("mode", list(RestoreMode))
+@pytest.mark.parametrize("planned", sorted(TARGETS))
+@pytest.mark.parametrize("fresh", sorted(TARGETS))
+def test_a_fresh_survey_is_refused_exactly_when_it_outgrew_the_snapshot(
+    mode: RestoreMode, planned: str, fresh: str
+) -> None:
+    if not _buildable(mode, planned):
+        return
+    built = plan(mode, target=TARGETS[planned])
+    grown = _covers(snapshot_scope(mode, TARGETS[fresh])) - _covers(
+        built.snapshot_scope
+    )
+    if grown:
+        with pytest.raises(TargetChangedError) as caught:
+            recheck_target(built, TARGETS[fresh])
+        assert caught.value.found.value in grown
+    else:
+        recheck_target(built, TARGETS[fresh])
+
+
+@pytest.mark.parametrize("mode", list(RestoreMode))
+def test_under_skip_only_fr7_is_rechecked(mode: RestoreMode) -> None:
+    if not _buildable(mode, "empty"):
+        return
+    empty = TARGETS["empty"]
+    recheck_target(plan(mode, target=empty, snapshot=SnapshotPolicy.SKIP), POPULATED)
+    unwaived = plan(
+        mode,
+        target=empty,
+        snapshot=SnapshotPolicy.SKIP,
+        overrides=OverrideSet(waived=frozenset()),
+    )
+    with pytest.raises(NonEmptyTargetError):
+        recheck_target(unwaived, POPULATED)
+
+
+def test_the_plan_carries_its_waivers() -> None:
+    built = plan(RestoreMode.ALL_CLEAN, overrides=WAIVED)
+    assert built.overrides == WAIVED

@@ -1,8 +1,8 @@
 """FR-7/FR-9 — the Site Root's restore operations: emptiness, clearing, extraction.
 
 :class:`LocalSiteFiles` implements ``SiteFilesQuery`` and ``SiteFilesCommand``
-over the stdlib: ``os.scandir`` counts, ``shutil.rmtree`` / ``os.unlink``
-clear. ``extract`` delegates to :func:`adapters.tar.extract_archive`
+over the stdlib: ``os.scandir`` counts, ``os.walk`` sizes, ``shutil.rmtree`` /
+``os.unlink`` clear. ``extract`` delegates to :func:`adapters.tar.extract_archive`
 unchanged — the one AD-11 extraction function; nothing here reads a tar.
 """
 
@@ -65,6 +65,22 @@ class LocalSiteFiles:
     def file_exists(self, path: Path) -> bool:
         """PHP ``file_exists``: symlinks followed, so a dangling one is ``False``."""
         return os.path.exists(path)  # noqa: PTH110 - False on EACCES, as PHP
+
+    def tree_bytes(self, site_root: Path) -> int:
+        """The bytes of every regular file under ``site_root`` (``lstat``).
+
+        Symlinks are counted as themselves and never followed; an entry that
+        cannot be read is not counted, so the total is a lower bound.
+        """
+        total = 0
+        for directory, _dirs, files in os.walk(site_root):
+            for name in files:
+                try:
+                    entry = os.path.join(directory, name)  # noqa: PTH118
+                    total += os.lstat(entry).st_size
+                except OSError:
+                    continue
+        return total
 
     def clean(self, site_root: Path, *, keep: frozenset[PurePosixPath]) -> int:
         """Remove every top-level entry of ``site_root`` not in ``keep``.

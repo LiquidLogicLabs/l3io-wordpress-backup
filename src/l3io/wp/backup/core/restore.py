@@ -11,10 +11,13 @@ module adds no second mode table.
 
 Also declared here, once, for the stories that produce or consume them:
 :func:`snapshot_scope`, :func:`snapshot_location`, :class:`SnapshotResult`,
+:class:`SnapshotFailedError`, :func:`recheck_target` (RT-003),
 :class:`DatabaseRestoreReport`, the journal step names (ADR-0020),
 :func:`is_orderly_failure` (ADR-0021), :class:`RestoreRelocation` (Epic 7's
 seam), :class:`RestoreInputs`, :class:`ExecutionReport`, and the BL-E002-116
-size and free-space rule :func:`check_expansion`.
+size and free-space rule :func:`check_expansion`, with
+:func:`check_claims` summing the destinations that share a filesystem
+(ADV-6).
 
 FR-7's guard is :func:`check_target`, which :func:`build_restore_plan` calls
 before any phase is planned: a part the Mode restores whose target is not
@@ -81,6 +84,7 @@ __all__ = [
     "MAX_DATABASE_NAME",
     "MAX_EXPANSION_RATIO",
     "NO_RELOCATION",
+    "SNAPSHOT_FILESYSTEM",
     "STAGING_INFIX",
     "STEP_CHECK_FAILED",
     "STEP_CONFIG",
@@ -107,11 +111,15 @@ __all__ = [
     "RestoreInputs",
     "RestorePlan",
     "RestoreRelocation",
+    "SnapshotFailedError",
     "SnapshotResult",
+    "SpaceClaim",
     "SpaceNeed",
+    "TargetChangedError",
     "TargetState",
     "UnsafeSnapshotLocationError",
     "build_restore_plan",
+    "check_claims",
     "check_expansion",
     "check_target",
     "cutover_progress",
@@ -123,6 +131,7 @@ __all__ = [
     "planned_cutover_keys",
     "planned_cutover_targets",
     "planned_skipped_links",
+    "recheck_target",
     "render_flags",
     "replaced_files",
     "snapshot_location",
@@ -147,6 +156,7 @@ MAX_EXPANSION_RATIO: Final = 200
 #: How :class:`InsufficientSpaceError` names the filesystem that is short.
 TARGET_FILESYSTEM: Final = "restore target (Site Root filesystem)"
 WORKSPACE_FILESYSTEM: Final = "Run workspace filesystem"
+SNAPSHOT_FILESYSTEM: Final = "Safety Snapshot directory filesystem"
 
 # The named journal steps of ADR-0020. Every story that journals or reads a
 # step uses these constants.
@@ -180,6 +190,40 @@ class UnsafeSnapshotLocationError(RefusedError):
             f"the snapshot directory {str(requested)!r} is inside "
             f"{str(inside)!r}, which may be web-served; choose a directory "
             "outside the Site Root and its wp-config.php directory"
+        )
+
+
+class SnapshotFailedError(RefusedError):
+    """FR-8: the Safety Snapshot was not written and verified; nothing destroyed.
+
+    ``cause`` is what failed (a write, the publish, the post-publish verify,
+    a result that does not prove a snapshot); ``path`` is the snapshot's
+    planned path, where a written-but-unverified file is left in place, since
+    it may hold the only copy.
+    """
+
+    def __init__(self, path: str | None, cause: BaseException | str) -> None:
+        self.path = path
+        self.cause = cause
+        reason = cause if isinstance(cause, str) else f"{type(cause).__name__}: {cause}"
+        where = "" if path is None else f" {path!r}"
+        super().__init__(
+            f"the safety snapshot{where} was not written and verified ({reason}); "
+            "the restore stopped before anything was destroyed"
+        )
+
+
+class TargetChangedError(RefusedError):
+    """RT-003: the target gained content the plan's snapshot does not cover."""
+
+    def __init__(self, planned: BackupScope | None, found: BackupScope) -> None:
+        self.planned = planned
+        self.found = found
+        covered = "nothing" if planned is None else repr(planned.value)
+        super().__init__(
+            f"the target changed after planning: the safety snapshot covers "
+            f"{covered}, and {found.value!r} now holds content; "
+            "the restore stopped before anything was destroyed"
         )
 
 
@@ -380,6 +424,9 @@ class RestorePlan:
     phases: tuple[RestorePhase, ...]
     snapshot: SnapshotPolicy
     snapshot_scope: BackupScope | None
+    #: The FR-7 waivers the plan was checked under; :func:`recheck_target`
+    #: re-applies them to the executor's fresh survey (RT-003).
+    overrides: OverrideSet
     required_tools: tuple[ToolRequirement, ...]
     actions: tuple[PlannedRestoreAction, ...]
 
@@ -398,13 +445,17 @@ class RestorePlan:
 
 @dataclass(frozen=True, slots=True)
 class SnapshotResult:
-    """What the Safety Snapshot wrote; E003-S02-003's ``snapshot_result`` builds it."""
+    """What the Safety Snapshot wrote; ``restore_runner.snapshot_result`` builds it.
+
+    ``integrity`` is what the post-publish verification proved, and ``None``
+    when ``performed`` is false: a Dry Run verifies nothing ("would verify").
+    """
 
     path: PurePosixPath
     scope: BackupScope
     encrypted: bool
     bytes: int
-    integrity: Integrity
+    integrity: Integrity | None
     performed: bool
 
 
@@ -504,6 +555,11 @@ def snapshot_location(
     ``site_root``, or inside ``config_dir`` when that differs from
     ``site_root`` (FR-29's one-level-up ``wp-config.php``). ``requested`` is
     canonicalised by the caller.
+
+    **What "web-served" covers.** Only those two directories: this rule
+    cannot know a web server's document roots, so a ``requested`` directory
+    served from elsewhere is not detected. The root's default, the per-user
+    state directory, is never a document root by convention.
     """
     for root in (site_root, config_dir):
         if requested == root or requested.is_relative_to(root):
@@ -566,6 +622,38 @@ def check_target(
         findings=tuple(findings),
         authorizing=authorizing_combination(mode, parts[0]),
     )
+
+
+def _covers(planned: BackupScope | None, found: BackupScope) -> bool:
+    if planned is None:
+        return False
+    return planned is BackupScope.ALL or planned is found
+
+
+def recheck_target(plan: RestorePlan, target: TargetState) -> None:
+    """RT-003/ADV-4: refuse when ``target``, surveyed again, outgrew ``plan``.
+
+    The executor calls this immediately before the first destroying phase,
+    with a fresh :class:`TargetState`. :func:`check_target` runs again under
+    the plan's waivers (:class:`NonEmptyTargetError`), and when the plan takes
+    the Safety Snapshot, every part that now holds content must be one the
+    snapshot covered (:class:`TargetChangedError`). Under
+    :attr:`SnapshotPolicy.SKIP` the operator opted out, so only FR-7 applies.
+    """
+    check_target(plan.mode, plan.overrides, target)
+    if plan.snapshot is not SnapshotPolicy.TAKE:
+        return
+    found = snapshot_scope(plan.mode, target)
+    if found is None:
+        return
+    parts = (
+        (BackupScope.FILES, BackupScope.DATABASE)
+        if found is BackupScope.ALL
+        else (found,)
+    )
+    for part in parts:
+        if not _covers(plan.snapshot_scope, part):
+            raise TargetChangedError(plan.snapshot_scope, part)
 
 
 # --------------------------------------------------------------------------
@@ -992,6 +1080,38 @@ def check_expansion(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class SpaceClaim:
+    """What one destination must hold: its filesystem's name, device and free bytes."""
+
+    filesystem: str
+    device: int
+    need: int
+    free: int
+
+
+def check_claims(claims: Iterable[SpaceClaim]) -> None:
+    """ADV-6: refuse when the claims on one filesystem exceed its free space.
+
+    Claims are grouped by ``device`` (``st_dev``) and summed, so a Safety
+    Snapshot directory on the Site Root's filesystem is charged against the
+    same free space as the extraction. :class:`InsufficientSpaceError` names
+    every destination on the short filesystem; the margin is
+    :data:`FREE_SPACE_MARGIN`, as in :func:`check_expansion`.
+    """
+    grouped: dict[int, list[SpaceClaim]] = {}
+    for claim in claims:
+        grouped.setdefault(claim.device, []).append(claim)
+    usable = 1 - FREE_SPACE_MARGIN
+    for members in grouped.values():
+        need = sum(c.need for c in members)
+        free = min(c.free for c in members)
+        if need > free * usable:
+            short = [c for c in members if c.need > 0] or members
+            names = " and ".join(dict.fromkeys(c.filesystem for c in short))
+            raise InsufficientSpaceError(names, needed=need, free=free)
+
+
 # --------------------------------------------------------------------------
 # The links a real Run would skip (computed from the view, a query)
 # --------------------------------------------------------------------------
@@ -1262,6 +1382,7 @@ def build_restore_plan(
         phases=phases,
         snapshot=snapshot,
         snapshot_scope=scope,
+        overrides=overrides,
         required_tools=merge_requirements(own, relocation.required_tools, extra_tools),
         actions=tuple(actions),
     )
