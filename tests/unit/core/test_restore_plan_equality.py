@@ -19,7 +19,6 @@ from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.core.restore import TargetState, build_restore_plan
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
 from l3io.wp.backup.domain.restore import (
-    OverrideSet,
     RestoreMode,
     clears_site_root,
     restores_files,
@@ -50,6 +49,11 @@ def _target(adapters: AdapterSet, h: Harness) -> TargetState:
             location, table_prefix="wp_", wordpress_user=None
         ),
         config_exists=site_files.file_exists(h.config_path),
+        site_root=h.site.site_root,
+        site_root_entries=site_files.entry_count(h.site_root),
+        database_location=location,
+        load_target=None,
+        load_location=None,
     )
 
 
@@ -57,7 +61,7 @@ def _rendered(h: Harness, adapters: AdapterSet) -> tuple[object, list[str]]:
     plan = build_restore_plan(
         h.site,
         h.mode,
-        OverrideSet.none(),
+        h.overrides,
         h.view,
         _target(adapters, h),
         archive=h.archive,

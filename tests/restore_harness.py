@@ -65,6 +65,7 @@ from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 from l3io.wp.backup.domain.journal import JournalHeader
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
+    Override,
     OverrideSet,
     RestoreMode,
     RestorePhase,
@@ -369,6 +370,10 @@ class Harness:
     snapshots: list[BackupScope] = field(default_factory=list)
     slot_calls: int = 0
     view_override: ArchiveView | None = None
+    #: The FR-7 waivers: ``--force`` by default, since the target is populated.
+    overrides: OverrideSet = field(
+        default_factory=lambda: OverrideSet(waived=frozenset(Override))
+    )
 
     def __post_init__(self) -> None:
         self.site_root = self.work / "target"
@@ -431,17 +436,23 @@ class Harness:
         )
 
     def target(self) -> TargetState:
+        entries = len(list(self.site_root.iterdir()))
         return TargetState(
-            site_root_empty=False,
+            site_root_empty=entries == 0,
             database=DatabaseTargetState(True, 12, True, "57155", True),
             config_exists=self.config_path.exists(),
+            site_root=self.site.site_root,
+            site_root_entries=entries,
+            database_location=self.site.database_location(),
+            load_target=None,
+            load_location=self.relocation.load_location,
         )
 
     def plan(self) -> RestorePlan:
         return build_restore_plan(
             self.site,
             self.mode,
-            OverrideSet.none(),
+            self.overrides,
             self.view,
             self.target(),
             archive=self.archive,

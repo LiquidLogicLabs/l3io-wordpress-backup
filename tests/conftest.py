@@ -422,3 +422,39 @@ def backdoor_plain_payload(payload: bytes) -> bytes:
                 info.size = len(body)
             out.addfile(info, None if body is None else io.BytesIO(body))
     return rebuilt.getvalue()
+
+
+@pytest.fixture
+def live_account(credential_sentinel: CredentialSentinel) -> Iterator[str]:
+    """A throwaway CI-database account whose password is the sentinel.
+
+    Shared by the live credential-hygiene tier and the live FR-7 refusal test;
+    needs ``DB_HOST`` (the caller skips without it). The sentinel's
+    ``wp-config.php`` is rewritten to log in as this account.
+
+    CI's own account is not used: its password is in the job environment and
+    is not unique, so it could not be told apart from a leak. The CI root
+    connection only creates and drops the account.
+    """
+    pymysql = pytest.importorskip("pymysql")
+    user = f"wpb_{uuid.uuid4().hex[:12]}"
+    root = pymysql.connect(
+        host=os.environ["DB_HOST"],
+        user=os.environ.get("DB_USER", "root"),
+        password=os.environ["DB_PASSWORD"],
+        autocommit=True,
+    )
+    with root.cursor() as cursor:
+        cursor.execute(
+            "CREATE USER %s@'%%' IDENTIFIED BY %s", (user, credential_sentinel.password)
+        )
+        cursor.execute("GRANT ALL PRIVILEGES ON *.* TO %s@'%%'", (user,))
+    write_wp_config(
+        credential_sentinel.config, password=credential_sentinel.password, user=user
+    )
+    try:
+        yield user
+    finally:
+        with root.cursor() as cursor:
+            cursor.execute("DROP USER IF EXISTS %s@'%%'", (user,))
+        root.close()

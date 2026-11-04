@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
-from l3io.wp.backup.core.restore import TargetState, snapshot_scope
+from l3io.wp.backup.core.restore import snapshot_scope
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.restore import (
     RestoreMode,
@@ -12,20 +14,22 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
-from tests.restore_builders import EMPTY_DB, FULL_DB, plan
+from tests.restore_builders import EMPTY_DB, POPULATED, plan
 
 TARGETS = {
-    "full": TargetState(site_root_empty=False, database=FULL_DB, config_exists=True),
-    "no-files": TargetState(
-        site_root_empty=True, database=FULL_DB, config_exists=False
+    "full": POPULATED,
+    "no-files": dataclasses.replace(
+        POPULATED, site_root_empty=True, site_root_entries=0, config_exists=False
     ),
-    "no-tables": TargetState(
-        site_root_empty=False, database=EMPTY_DB, config_exists=True
+    "no-tables": dataclasses.replace(POPULATED, database=EMPTY_DB),
+    "no-database": dataclasses.replace(POPULATED, database=None),
+    "empty": dataclasses.replace(
+        POPULATED,
+        site_root_empty=True,
+        site_root_entries=0,
+        database=None,
+        config_exists=False,
     ),
-    "no-database": TargetState(
-        site_root_empty=False, database=None, config_exists=True
-    ),
-    "empty": TargetState(site_root_empty=True, database=None, config_exists=False),
 }
 
 FILE_PHASES = {RestorePhase.CLEAN, RestorePhase.EXTRACT}

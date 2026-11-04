@@ -1,4 +1,4 @@
-"""AD-1, AD-5, AD-12, AD-17 — the restore plan, and the pure values its Run carries.
+"""AD-1, AD-5, AD-12, AD-17, AD-25 — the restore plan, and the values its Run carries.
 
 :func:`build_restore_plan` turns a resolved Restore Mode and what is known
 about the target into a :class:`RestorePlan`: the phases to run, as a
@@ -15,6 +15,15 @@ Also declared here, once, for the stories that produce or consume them:
 :func:`is_orderly_failure` (ADR-0021), :class:`RestoreRelocation` (Epic 7's
 seam), :class:`RestoreInputs`, :class:`ExecutionReport`, and the BL-E002-116
 size and free-space rule :func:`check_expansion`.
+
+FR-7's guard is :func:`check_target`, which :func:`build_restore_plan` calls
+before any phase is planned: a part the Mode restores whose target is not
+empty refuses (:class:`NonEmptyTargetError`) unless the Run's
+:class:`~l3io.wp.backup.domain.restore.OverrideSet` waives that part. The
+authorizing flags come from AD-25's table
+(:func:`~l3io.wp.backup.domain.flag_map.authorizing_combination`) and are
+rendered here in the domain spelling (:func:`render_flags`); the CLI's own
+spelling is ``cli/restore.py``'s.
 
 Pure: no filesystem, clock or server is read here (``tools/check_purity.py``).
 Paths are ``PurePath`` values; the caller resolves them.
@@ -44,6 +53,7 @@ from l3io.wp.backup.domain.database import (
     EnsureOutcome,
 )
 from l3io.wp.backup.domain.errors import ArchiveHasNoDumpError, RefusedError
+from l3io.wp.backup.domain.flag_map import FlagCombination, authorizing_combination
 from l3io.wp.backup.domain.journal import JournalEntry, JournalHeader
 from l3io.wp.backup.domain.preflight import ToolRequirement, merge_requirements
 from l3io.wp.backup.domain.restore import (
@@ -51,6 +61,7 @@ from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
     OverrideSet,
     RestoreMode,
+    RestorePart,
     RestorePhase,
     SnapshotPolicy,
     clears_site_root,
@@ -87,6 +98,7 @@ __all__ = [
     "ExecutionReport",
     "ExpansionRatioError",
     "InsufficientSpaceError",
+    "NonEmptyTargetError",
     "PlannedRestoreAction",
     "RestoreInputs",
     "RestorePlan",
@@ -97,8 +109,10 @@ __all__ = [
     "UnsafeSnapshotLocationError",
     "build_restore_plan",
     "check_expansion",
+    "check_target",
     "is_orderly_failure",
     "planned_skipped_links",
+    "render_flags",
     "snapshot_location",
     "snapshot_scope",
     "space_need",
@@ -191,6 +205,52 @@ class ExpansionRatioError(RefusedError):
         )
 
 
+def render_flags(flags: FlagCombination) -> str:
+    """``flags`` in the domain spelling: ``mode=database force``.
+
+    Valued flags first (``dest=value``), then each set boolean flag by its
+    ``dest``; a false boolean is omitted. ``cli/restore.py`` renders the CLI
+    spelling; ``core/`` cannot import ``cli/``.
+    """
+    valued = [f"{dest}={value}" for dest, value in flags if not isinstance(value, bool)]
+    switches = [dest for dest, value in flags if value is True]
+    return " ".join(valued + switches)
+
+
+class NonEmptyTargetError(RefusedError):
+    """FR-7: a part the Mode restores is not empty, and its refusal is not waived.
+
+    ``parts`` names every unauthorized part in one refusal. ``findings``
+    pairs each non-empty target with what is in it — ``("'/srv/www'",
+    "3 entries")``, ``("db:3306/wp", "12 tables")`` — in ``parts`` order, for
+    a structured log; ``found`` and ``detail`` are the same, ``"; "``-joined.
+    ``authorizing`` is the table's combination that selects ``mode`` and
+    waives every one of ``parts``. Names paths and ``host:port/name`` only,
+    never a credential.
+    """
+
+    def __init__(
+        self,
+        mode: RestoreMode,
+        *,
+        parts: tuple[RestorePart, ...],
+        findings: tuple[tuple[str, str], ...],
+        authorizing: FlagCombination,
+    ) -> None:
+        self.mode = mode
+        self.parts = parts
+        self.findings = findings
+        self.found = "; ".join(where for where, _ in findings)
+        self.detail = "; ".join(what for _, what in findings)
+        self.authorizing = authorizing
+        named = "; ".join(f"{where} ({what})" for where, what in findings)
+        super().__init__(
+            f"refusing to restore {mode.value!r} over a non-empty target "
+            f"({' and '.join(parts)}): found {named}; nothing was changed. "
+            f"{render_flags(authorizing)} would authorize it"
+        )
+
+
 # --------------------------------------------------------------------------
 # The target, the relocation seam and the plan
 # --------------------------------------------------------------------------
@@ -198,11 +258,23 @@ class ExpansionRatioError(RefusedError):
 
 @dataclass(frozen=True, slots=True)
 class TargetState:
-    """What the restore root learned about the target, from query ports only."""
+    """What the restore root learned about the target, from query ports only.
+
+    ``database`` is the survey of the **live** database; ``load_target`` the
+    same survey of the operator-named load database (``--new-db-name``), else
+    ``None``. ``site_root``, ``site_root_entries`` and the two locations are
+    the facts an FR-7 refusal names, so :func:`check_target` reads nothing
+    else.
+    """
 
     site_root_empty: bool
     database: DatabaseTargetState | None
     config_exists: bool
+    site_root: PurePosixPath
+    site_root_entries: int
+    database_location: DatabaseLocation | None
+    load_target: DatabaseTargetState | None
+    load_location: DatabaseLocation | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,9 +426,13 @@ class ExecutionReport:
 # --------------------------------------------------------------------------
 
 
-def _database_empty(target: TargetState) -> bool:
-    db = target.database
+def _survey_empty(db: DatabaseTargetState | None) -> bool:
+    """Absent, or present with no table: empty for FR-7 and the snapshot."""
     return db is None or not db.database_exists or db.table_count == 0
+
+
+def _database_empty(target: TargetState) -> bool:
+    return _survey_empty(target.database)
 
 
 def snapshot_scope(mode: RestoreMode, target: TargetState) -> BackupScope | None:
@@ -403,6 +479,63 @@ def snapshot_location(
         if requested == root or requested.is_relative_to(root):
             raise UnsafeSnapshotLocationError(requested, root)
     return requested
+
+
+# --------------------------------------------------------------------------
+# FR-7 — the non-empty-target guard (AD-25's waivers)
+# --------------------------------------------------------------------------
+
+
+def _where(location: DatabaseLocation | None, fallback: str) -> str:
+    if location is None:
+        return fallback
+    return f"{location.host}:{location.port}/{location.name}"
+
+
+def _count(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+def check_target(
+    mode: RestoreMode, overrides: OverrideSet, target: TargetState
+) -> None:
+    """Refuse ``mode`` over a non-empty part of ``target`` that is not waived.
+
+    Each part ``mode`` restores is checked against its own ``overrides``
+    member, so waiving ``files`` never waives ``database``. The ``database``
+    part is non-empty when the live database or the operator-named load
+    database exists with a table. Every unauthorized part is named in one
+    :class:`NonEmptyTargetError`; nothing is read beyond ``target``.
+    """
+    parts: list[RestorePart] = []
+    findings: list[tuple[str, str]] = []
+    if (
+        restores_files(mode)
+        and not target.site_root_empty
+        and not overrides.waives("files")
+    ):
+        parts.append("files")
+        entries = _count(target.site_root_entries, "entry", "entries")
+        findings.append((repr(str(target.site_root)), entries))
+    occupied = [
+        (_where(location, name), _count(db.table_count, "table", "tables"))
+        for db, location, name in (
+            (target.database, target.database_location, "the live database"),
+            (target.load_target, target.load_location, "the load database"),
+        )
+        if db is not None and not _survey_empty(db)
+    ]
+    if restores_database(mode) and occupied and not overrides.waives("database"):
+        parts.append("database")
+        findings += occupied
+    if not parts:
+        return
+    raise NonEmptyTargetError(
+        mode,
+        parts=tuple(parts),
+        findings=tuple(findings),
+        authorizing=authorizing_combination(mode, parts[0]),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -699,12 +832,14 @@ def build_restore_plan(
     names the database and the Archive has no Dump;
     :class:`ArchiveHasNoConfigError` under ``OVERWRITE`` with no config in the
     Archive; :class:`UnsafeSnapshotLocationError` when ``snapshot`` is
-    ``TAKE`` and ``snapshot_dir`` may be web-served. A relocation action or
-    undo naming an omitted phase, or a planned relocation phase without undo
-    text, raises ``ValueError``. ``overrides`` (the FR-7 waivers) is carried
-    for E003-S02-001's refusals and changes no phase.
+    ``TAKE`` and ``snapshot_dir`` may be web-served. First of all,
+    :func:`check_target` refuses (:class:`NonEmptyTargetError`) a non-empty
+    part of ``target`` that ``overrides`` (the FR-7 waivers) does not waive;
+    ``overrides`` changes no phase. A relocation action or undo naming an
+    omitted phase, or a planned relocation phase without undo text, raises
+    ``ValueError``.
     """
-    del overrides  # FR-7's refusals are E003-S02-001's; no phase depends on them.
+    check_target(mode, overrides, target)
     if restores_database(mode) and not view.dump_present:
         raise ArchiveHasNoDumpError(
             archive=str(archive.path), backup_scope=view.backup_scope

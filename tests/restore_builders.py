@@ -25,6 +25,7 @@ from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
+    Override,
     OverrideSet,
     RestoreMode,
     RestorePhase,
@@ -59,7 +60,28 @@ FULL_DB = DatabaseTargetState(
 EMPTY_DB = dataclasses.replace(FULL_DB, table_count=0, is_wordpress=False)
 
 #: A populated target: files, a database with tables and a config.
-POPULATED = TargetState(site_root_empty=False, database=FULL_DB, config_exists=True)
+POPULATED = TargetState(
+    site_root_empty=False,
+    database=FULL_DB,
+    config_exists=True,
+    site_root=SITE_ROOT,
+    site_root_entries=3,
+    database_location=SITE.database_location(),
+    load_target=None,
+    load_location=None,
+)
+#: An empty target: no Site Root entry, no database.
+EMPTY = dataclasses.replace(
+    POPULATED,
+    site_root_empty=True,
+    site_root_entries=0,
+    database=None,
+    config_exists=False,
+)
+
+#: Every FR-7 refusal waived (``--force``): the plan-shape tests build plans
+#: over :data:`POPULATED`, which the guard would otherwise refuse.
+WAIVED = OverrideSet(waived=frozenset(Override))
 
 
 def member(path: str, role: MemberRole, size: int | None = 10) -> ViewMember:
@@ -139,11 +161,12 @@ def plan(
     config_policy: ConfigPolicy = ConfigPolicy.KEEP,
     snapshot_dir: PurePosixPath = SNAPSHOTS,
     config_dir: PurePosixPath = SITE_ROOT,
+    overrides: OverrideSet = WAIVED,
 ) -> RestorePlan:
     return build_restore_plan(
         SITE,
         mode,
-        OverrideSet.none(),
+        overrides,
         archive_view or view(),
         target,
         archive=ARCHIVE,

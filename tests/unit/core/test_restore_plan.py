@@ -22,7 +22,6 @@ from l3io.wp.backup.domain.errors import ArchiveHasNoDumpError, ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
-    OverrideSet,
     RestoreMode,
     RestorePhase,
     SnapshotPolicy,
@@ -35,6 +34,7 @@ from tests.restore_builders import (
     SITE,
     SNAPSHOTS,
     URL_ONLY,
+    WAIVED,
     plan,
     view,
 )
@@ -186,7 +186,7 @@ def test_relocation_tools_reach_the_plan_after_its_own() -> None:
     merged = build_restore_plan(
         SITE,
         RestoreMode.ALL,
-        OverrideSet.none(),
+        WAIVED,
         view(),
         POPULATED,
         archive=ARCHIVE,

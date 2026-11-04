@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 34
+  '003': 35
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1751,3 +1751,13 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md (Recorded risk section)
+- key: BL-E003-034
+  epic: '003'
+  sprint: '01'
+  title: Unreadable Site Root exits FAILED (InvalidSiteDescriptorError), not REFUSED as E003-S01-002's AC says; needs a distinct error or an AC amendment
+  source: code-review (E003-S01-002) — review M-1, part 2; the safety property (never empty) holds
+  source_phase: code-review
+  source_ref: E003-S01-002
+  severity: Medium
+  status: backlog
+  description: "adapters/site_files.py::_listing raises InvalidSiteDescriptorError for any OSError, the same class as a missing root, so E003-S02-006's root cannot map it to REFUSED by type. Decide: a RefusedError subclass for a listing failure in E002's adapter, or amend the AC to FAILED. See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-002.md"

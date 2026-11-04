@@ -32,8 +32,6 @@ import os
 import stat
 import sys
 import tarfile
-import uuid
-from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -755,38 +753,6 @@ def test_the_database_admin_and_load_paths_emit_no_credential(
 live = pytest.mark.skipif(
     "DB_HOST" not in os.environ, reason="needs the CI database (DB_HOST unset)"
 )
-
-
-@pytest.fixture
-def live_account(credential_sentinel: CredentialSentinel) -> Iterator[str]:
-    """A throwaway account whose password is the sentinel.
-
-    CI's own account is not used: its password is in the job environment and
-    is not unique, so it could not be told apart from a leak. The CI root
-    connection only creates and drops the account.
-    """
-    pymysql = pytest.importorskip("pymysql")
-    user = f"wpb_{uuid.uuid4().hex[:12]}"
-    root = pymysql.connect(
-        host=os.environ["DB_HOST"],
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ["DB_PASSWORD"],
-        autocommit=True,
-    )
-    with root.cursor() as cursor:
-        cursor.execute(
-            "CREATE USER %s@'%%' IDENTIFIED BY %s", (user, credential_sentinel.password)
-        )
-        cursor.execute("GRANT ALL PRIVILEGES ON *.* TO %s@'%%'", (user,))
-    write_wp_config(
-        credential_sentinel.config, password=credential_sentinel.password, user=user
-    )
-    try:
-        yield user
-    finally:
-        with root.cursor() as cursor:
-            cursor.execute("DROP USER IF EXISTS %s@'%%'", (user,))
-        root.close()
 
 
 @pytest.mark.integration
