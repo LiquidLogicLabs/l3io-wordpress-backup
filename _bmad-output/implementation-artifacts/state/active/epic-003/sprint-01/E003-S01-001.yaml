@@ -3,8 +3,8 @@ epic: 'E003'
 sprint: 'S01'
 title: Restore files and database from an archive
 classification: standard
-status: backlog
-updated_at: '2026-10-27T22:15:30Z'
+status: ready-for-dev
+updated_at: '2026-11-04T03:14:00Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44

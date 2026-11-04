@@ -3,8 +3,8 @@ epic: 'E003'
 sprint: 'S01'
 title: Refuse to overwrite a non-empty target
 classification: complex
-status: backlog
-updated_at: '2026-10-28T17:41:16Z'
+status: ready-for-dev
+updated_at: '2026-11-04T03:14:00Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
