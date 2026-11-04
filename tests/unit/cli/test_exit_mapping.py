@@ -93,6 +93,8 @@ DECLARED = {
     # verify --authenticate (BL-E002-060): the payload could not be authenticated.
     "PassphraseRejectedError": ExitCode.VERIFICATION_FAILED,
     "PayloadDamagedError": ExitCode.VERIFICATION_FAILED,
+    # E003-S01-001 (red team RT-8): the Archive changed between probe and VERIFY.
+    "ArchiveChangedError": ExitCode.VERIFICATION_FAILED,
     "SiteLockedError": ExitCode.LOCKED,
     # E002-S02-008: an unusable lock directory; the Run does not proceed unlocked.
     "SiteLockLocationError": ExitCode.NOT_READY,

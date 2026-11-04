@@ -98,6 +98,8 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_payload_body",
             "_reason",
             "_stream_outer",
+            # E003-S01-001: an interpreter capability check; moves no bytes.
+            "require_patched_tarfile",
             "_tar_type",
             "_walk",
             "decrypt_payload",

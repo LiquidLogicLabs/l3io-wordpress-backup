@@ -1,0 +1,562 @@
+"""AD-4, AD-11, AD-17, AD-18, ADR-0021, ADR-0022 — the restore executor.
+
+:func:`execute_restore` walks ``plan.phases`` in order — every phase,
+``PREFLIGHT`` and ``VERIFY`` included — inside ``adapters/phase.py``'s
+:func:`~l3io.wp.backup.adapters.phase.phase`, so each emits one
+``phase_completed`` record. Dispatch is one ``match`` over every
+:class:`~l3io.wp.backup.domain.restore.RestorePhase` ending in
+``assert_never``.
+
+* ``PREFLIGHT`` makes queries only, in this order: the tool preflight, the
+  cipher's ``check()``, :func:`~l3io.wp.backup.adapters.tar.require_patched_tarfile`,
+  the BL-E002-116 size and free-space check, and ``check_database`` when the
+  plan loads a Dump.
+* ``VERIFY`` verifies the Archive (a failure raises before any command),
+  refuses a view that changed since the root's probe, and decrypts an
+  encrypted payload into the Run workspace.
+* The Run Journal begins immediately before the first phase after
+  ``VERIFY``. It finishes only after the last phase succeeds, or after a
+  failure :func:`~l3io.wp.backup.core.restore.is_orderly_failure` accepts for
+  the entries this Run journaled, which are kept in memory as they are
+  written, so a Dry Run (whose no-op journal persists nothing) evaluates the
+  same entries. There is no ``finally: finish_run()``.
+
+A Dry Run is the composition root binding no-op command halves (AD-4); this
+module has no branch on it. ``take_snapshot``, ``check_database`` and
+``load_database`` are slots the root fills, so the executor imports neither
+the Run Context nor ``adapters/staging.py``.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
+from typing import ClassVar, Final, assert_never
+
+import structlog
+
+from l3io.wp.backup.adapters.phase import PhaseRecord, phase
+from l3io.wp.backup.adapters.tar import (
+    decrypt_payload,
+    require_patched_tarfile,
+    verify_archive_view,
+)
+from l3io.wp.backup.core.restore import (
+    CONFIG_FILE_NAME,
+    CUTOVER_KEYS,
+    STEP_CONFIG,
+    STEP_CONFIG_REPLACED,
+    STEP_CONFIG_SAVED,
+    STEP_CONFIG_STARTED,
+    ArchiveHasNoConfigError,
+    DatabaseRestoreReport,
+    ExecutionReport,
+    RestoreInputs,
+    RestorePlan,
+    SnapshotResult,
+    check_expansion,
+    is_orderly_failure,
+    space_need,
+)
+from l3io.wp.backup.domain.archive_format import (
+    ArchiveView,
+    Integrity,
+    MemberKind,
+    MemberRole,
+    SkippedLink,
+    ViewMember,
+    format_label,
+    member_path,
+    member_relative,
+)
+from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.errors import (
+    ArchiveNotFoundError,
+    ArchiveWriteError,
+    BackupError,
+    RefusedError,
+    UnsafeMemberPathError,
+    VerificationFailedError,
+)
+from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.journal import JournalEntry, JournalEvent, JournalHeader
+from l3io.wp.backup.domain.restore import (
+    ConfigPolicy,
+    RestorePhase,
+    restores_files,
+)
+from l3io.wp.backup.domain.search_replace import SearchReplaceReport
+from l3io.wp.backup.ports.crypto import PayloadCipher
+from l3io.wp.backup.ports.journal import RunJournalCommand
+from l3io.wp.backup.ports.restore import RestorePorts
+
+__all__ = ["ArchiveChangedError", "TargetConfigMissingError", "execute_restore"]
+
+_log = structlog.get_logger(__name__)
+
+#: The phases that run before the journal begins: queries and verification.
+_CHECK_PHASES: Final = frozenset({RestorePhase.PREFLIGHT, RestorePhase.VERIFY})
+#: The largest Archive ``wp-config.php`` ``--overwrite-wp-config`` reads.
+_CONFIG_MAX_BYTES: Final = 1024 * 1024
+#: Where the Archive's config is copied in the Run workspace (``0600``).
+_ARCHIVE_CONFIG: Final = "archive-wp-config.php"
+_CONFIG_MODE: Final = 0o600
+#: The relative path ``CLEAN`` keeps and ``EXTRACT`` excludes under ``KEEP``.
+_KEPT_CONFIG: Final = frozenset({PurePosixPath(CONFIG_FILE_NAME)})
+
+
+class ArchiveChangedError(BackupError):
+    """The Archive verified now is not the one the restore was planned from."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
+
+    def __init__(self, archive: str) -> None:
+        self.archive = archive
+        super().__init__(
+            f"archive {archive!r} changed between planning and verification; "
+            "nothing was changed"
+        )
+
+
+class TargetConfigMissingError(RefusedError):
+    """The plan writes the target's ``wp-config.php``, and none is there now."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__(
+            f"the plan rewrites {path!r}, which does not exist (the target changed "
+            "after planning); nothing was changed"
+        )
+
+
+class _RecordingJournal:
+    """``RunJournalCommand`` over ``inner``, keeping this Run's entries in memory."""
+
+    __slots__ = ("_inner", "entries")
+
+    def __init__(self, inner: RunJournalCommand) -> None:
+        self._inner = inner
+        self.entries: list[JournalEntry] = []
+
+    def _keep(
+        self,
+        event: JournalEvent,
+        phase_: RestorePhase,
+        target: str | None,
+        step: str | None,
+    ) -> None:
+        at = datetime.now(UTC).isoformat()
+        self.entries.append(
+            JournalEntry(event=event, phase=phase_, at=at, target=target, step=step)
+        )
+
+    def begin_run(self, header: JournalHeader) -> None:
+        self._inner.begin_run(header)
+
+    def phase_started(self, phase: RestorePhase, target: str) -> None:
+        self._inner.phase_started(phase, target)
+        self._keep("phase_started", phase, target, None)
+
+    def step_completed(self, phase: RestorePhase, step: str) -> None:
+        self._inner.step_completed(phase, step)
+        self._keep("step_completed", phase, None, step)
+
+    def phase_completed(self, phase: RestorePhase) -> None:
+        self._inner.phase_completed(phase)
+        self._keep("phase_completed", phase, None, None)
+
+    def finish_run(self) -> None:
+        self._inner.finish_run()
+
+    def resolve(self, run_id: str, resolved_by: str) -> None:
+        self._inner.resolve(run_id, resolved_by)
+
+
+@dataclass(slots=True)
+class _Run:
+    """One execution: its inputs, its slots and what the phases produced."""
+
+    plan: RestorePlan
+    inputs: RestoreInputs
+    ports: RestorePorts
+    journal: _RecordingJournal
+    cipher: PayloadCipher | None
+    take_snapshot: Callable[[BackupScope], SnapshotResult]
+    check_database: Callable[[RestoreInputs], None]
+    load_database: Callable[[RestoreInputs, RunJournalCommand], DatabaseRestoreReport]
+    integrity: Integrity
+    config_existed: bool = False
+    begun: bool = False
+    snapshot: SnapshotResult | None = None
+    database: DatabaseRestoreReport | None = None
+    search_replace: SearchReplaceReport | None = None
+    skipped: list[SkippedLink] = field(default_factory=list)
+    wp_config_kept: bool = False
+
+    @property
+    def site_root(self) -> Path:
+        return Path(self.inputs.site.site_root)
+
+    @property
+    def config_file(self) -> Path:
+        located = self.inputs.relocation.config_file
+        return Path(located) if located is not None else Path(self.inputs.config_path)
+
+    @property
+    def payload(self) -> Path | None:
+        payload = self.inputs.payload
+        return None if payload is None else Path(payload)
+
+    @property
+    def overwrites_config(self) -> bool:
+        """``--overwrite-wp-config`` as planned: ``REWRITE_CONFIG``, ``OVERWRITE``."""
+        return (
+            self.inputs.config_policy is ConfigPolicy.OVERWRITE
+            and RestorePhase.REWRITE_CONFIG in self.plan.phases
+        )
+
+    @property
+    def lays_down_by_role(self) -> bool:
+        """A lay-down from the Archive's ``config``-role member (else the tree's)."""
+        return self.inputs.relocation.lay_down_config and any(
+            m.role is MemberRole.CONFIG for m in self.inputs.view.members
+        )
+
+
+def execute_restore(
+    plan: RestorePlan,
+    inputs: RestoreInputs,
+    ports: RestorePorts,
+    take_snapshot: Callable[[BackupScope], SnapshotResult],
+    check_database: Callable[[RestoreInputs], None],
+    load_database: Callable[[RestoreInputs, RunJournalCommand], DatabaseRestoreReport],
+    journal: RunJournalCommand,
+    cipher: PayloadCipher | None,
+) -> ExecutionReport:
+    """Run ``plan``'s phases, in order, and report what they did.
+
+    Any phase's exception propagates unchanged (no catch-and-continue); the
+    journal is then finished only when the failure was orderly (ADR-0021).
+    A journal header naming another Mode than the plan is a programming error
+    (``ValueError``), raised before ``PREFLIGHT``: the Mode is carried once.
+    """
+    if inputs.header.restore_mode is not plan.mode:
+        msg = (
+            f"the journal header's mode {inputs.header.restore_mode.value!r} is not "
+            f"the plan's {plan.mode.value!r}"
+        )
+        raise ValueError(msg)
+    run = _Run(
+        plan=plan,
+        inputs=inputs,
+        ports=ports,
+        journal=_RecordingJournal(journal),
+        cipher=cipher,
+        take_snapshot=take_snapshot,
+        check_database=check_database,
+        load_database=load_database,
+        integrity=inputs.view.integrity,
+    )
+    try:
+        for step in plan.phases:
+            if step not in _CHECK_PHASES and not run.begun:
+                run.journal.begin_run(inputs.header)
+                run.begun = True
+            with phase(step.value) as record:
+                _dispatch(run, step, record)
+    except BaseException:
+        if run.begun and is_orderly_failure(tuple(run.journal.entries)):
+            run.journal.finish_run()
+        raise
+    if run.begun:
+        run.journal.finish_run()
+    return ExecutionReport(
+        phases=plan.phases,
+        snapshot=run.snapshot,
+        database=run.database,
+        search_replace=run.search_replace,
+        integrity=run.integrity,
+        skipped_links=tuple(run.skipped),
+        wp_config_kept=run.wp_config_kept,
+    )
+
+
+def _dispatch(run: _Run, step: RestorePhase, record: PhaseRecord) -> None:
+    match step:
+        case RestorePhase.PREFLIGHT:
+            _preflight(run)
+        case RestorePhase.VERIFY:
+            _verify(run, record)
+        case RestorePhase.SNAPSHOT:
+            _snapshot(run, record)
+        case RestorePhase.CLEAN:
+            _clean(run, record)
+        case RestorePhase.EXTRACT:
+            _extract(run, record)
+        case RestorePhase.REWRITE_CONFIG:
+            _rewrite_config(run)
+        case RestorePhase.LOAD_DUMP:
+            _load_dump(run, record)
+        case RestorePhase.SEARCH_REPLACE:
+            _search_replace(run)
+        case _:
+            assert_never(step)
+
+
+# --------------------------------------------------------------------------
+# PREFLIGHT — queries only
+# --------------------------------------------------------------------------
+
+
+def _preflight(run: _Run) -> None:
+    run.ports.preflight(run.plan.required_tools)
+    if run.cipher is not None:
+        run.cipher.check()
+    require_patched_tarfile()
+    run.config_existed = run.ports.adapters.site_files_query.file_exists(
+        Path(run.inputs.config_path)
+    )
+    _check_config(run)
+    _check_space(run)
+    if RestorePhase.LOAD_DUMP in run.plan.phases:
+        run.check_database(run.inputs)
+
+
+def _check_config(run: _Run) -> None:
+    """Refuse, before any effect, a config step the target or Archive cannot take."""
+    inputs, relocation = run.inputs, run.inputs.relocation
+    if relocation.lay_down_config and not run.lays_down_by_role:
+        # The Archive's config is in its tree: it can be laid down only into
+        # the Site Root, and only by a Mode that extracts the tree.
+        in_root = run.config_file.parent == run.site_root
+        member = _config_member(inputs.view)
+        if member is None or not in_root or not restores_files(run.plan.mode):
+            raise ArchiveHasNoConfigError(str(inputs.archive.path))
+    writes = RestorePhase.REWRITE_CONFIG in run.plan.phases
+    if writes and not run.config_existed and not relocation.lay_down_config:
+        raise TargetConfigMissingError(str(run.config_file))
+
+
+def _config_member(view: ArchiveView) -> ViewMember | None:
+    """The Archive's config: the ``config``-role file, else the one it names."""
+    for member in view.members:
+        if member.role is MemberRole.CONFIG and member.kind is MemberKind.FILE:
+            return member
+    if view.config_path is None:
+        return None
+    names = {view.config_path}
+    with contextlib.suppress(UnsafeMemberPathError):
+        names.add(member_path(MemberRole.SITE_ROOT, view.config_path))
+    return next(
+        (m for m in view.members if m.path in names and m.kind is MemberKind.FILE),
+        None,
+    )
+
+
+def _check_space(run: _Run) -> None:
+    """BL-E002-116: refuse before ``CLEAN`` what the destinations cannot hold."""
+    view, phases = run.inputs.view, run.plan.phases
+    extracts = RestorePhase.EXTRACT in phases
+    config = _config_member(view) if run.overwrites_config else None
+    sizes: dict[str, tuple[MemberRole, int]] = {}
+    if all(m.size is not None for m in view.members) and view.payload is not None:
+        sizes.update((m.path, (m.role, m.size or 0)) for m in view.members)
+        compressed = view.payload.size
+        payload = view.payload.size if view.encrypted else 0
+    else:
+        # An unindexed (v0) view: the tar headers' sizes, read by the probe.
+        digests = run.ports.adapters.archive_probe.member_digests(run.inputs.archive)
+        for name, digest in digests.items():
+            located = member_relative(view, name)
+            if located is not None:
+                sizes[name] = (located[0], digest.size)
+        archive = Path(run.inputs.archive.path)
+        try:
+            compressed = archive.stat().st_size
+        except OSError as exc:
+            raise ArchiveNotFoundError(archive) from exc
+        payload = 0
+    need = space_need(
+        sizes.values(),
+        files=extracts and restores_files(run.plan.mode),
+        config=extracts and run.inputs.relocation.lay_down_config,
+        dump=RestorePhase.LOAD_DUMP in phases,
+        config_copy=sizes[config.path][1]
+        if config is not None and config.path in sizes
+        else 0,
+        payload=payload,
+    )
+    check_expansion(
+        target_need=need.target,
+        workspace_need=need.workspace,
+        expanded=need.expanded,
+        compressed=compressed,
+        target_free=run.ports.free_bytes(run.site_root),
+        workspace_free=run.ports.free_bytes(Path(run.inputs.workspace)),
+    )
+
+
+# --------------------------------------------------------------------------
+# VERIFY — before the first destructive step
+# --------------------------------------------------------------------------
+
+
+def _verify(run: _Run, record: PhaseRecord) -> None:
+    inputs = run.inputs
+    view, result = verify_archive_view(
+        Path(inputs.archive.path), phase_name=RestorePhase.VERIFY.value
+    )
+    record.fields.update(
+        integrity=result.integrity.value,
+        format_version=format_label(result.format_version),
+    )
+    if not result.passed:
+        raise VerificationFailedError(result)
+    if view != inputs.view:
+        raise ArchiveChangedError(str(inputs.archive.path))
+    run.integrity = result.integrity
+    if inputs.view.encrypted:
+        if run.cipher is None or run.payload is None:
+            msg = "an encrypted Archive needs a cipher and a payload path"
+            raise ValueError(msg)
+        decrypt_payload(
+            inputs.archive, inputs.view, cipher=run.cipher, destination=run.payload
+        )
+
+
+# --------------------------------------------------------------------------
+# The destructive phases
+# --------------------------------------------------------------------------
+
+
+def _snapshot(run: _Run, record: PhaseRecord) -> None:
+    scope = run.plan.snapshot_scope
+    if scope is None:  # pragma: no cover - the plan omits SNAPSHOT then
+        msg = "a planned SNAPSHOT needs a snapshot scope"
+        raise ValueError(msg)
+    run.journal.phase_started(RestorePhase.SNAPSHOT, scope.value)
+    run.snapshot = run.take_snapshot(scope)
+    record.bytes = run.snapshot.bytes
+    run.journal.phase_completed(RestorePhase.SNAPSHOT)
+
+
+def _clean(run: _Run, record: PhaseRecord) -> None:
+    in_root = Path(run.inputs.config_path).parent == run.site_root
+    keep = _KEPT_CONFIG if in_root else frozenset()
+    run.journal.phase_started(RestorePhase.CLEAN, str(run.site_root))
+    removed = run.ports.adapters.site_files_command.clean(run.site_root, keep=keep)
+    record.fields["removed"] = removed
+    run.journal.phase_completed(RestorePhase.CLEAN)
+
+
+def _extract(run: _Run, record: PhaseRecord) -> None:
+    inputs, adapters = run.inputs, run.ports.adapters
+    lay_down = inputs.relocation.lay_down_config
+    by_role = run.lays_down_by_role
+    config_file = run.config_file
+    if lay_down:
+        run.journal.phase_started(RestorePhase.EXTRACT, f"config:{config_file}")
+        run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG_STARTED)
+    if by_role:
+        laid = adapters.site_files_command.extract(
+            inputs.archive,
+            config_file.parent,
+            inputs.view,
+            roles=frozenset({MemberRole.CONFIG}),
+            payload=run.payload,
+        )
+        record.bytes += laid.bytes
+        run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG)
+    if restores_files(run.plan.mode):
+        # The tree's copy is excluded when the target keeps its own, or when
+        # the config-role lay-down placed one in the Site Root; a lay-down from
+        # the tree is this very extraction (``_check_config``).
+        laid_in_root = by_role and config_file.parent == run.site_root
+        keeps = run.config_existed or laid_in_root
+        run.journal.phase_started(RestorePhase.EXTRACT, str(run.site_root))
+        result = adapters.site_files_command.extract(
+            inputs.archive,
+            run.site_root,
+            inputs.view,
+            roles=frozenset({MemberRole.SITE_ROOT}),
+            exclude=_KEPT_CONFIG if keeps else frozenset(),
+            payload=run.payload,
+        )
+        record.bytes += result.bytes
+        run.skipped.extend(result.skipped_links)
+        if run.config_existed and inputs.config_policy is ConfigPolicy.KEEP:
+            run.wp_config_kept = True
+            _log.info("wp_config_kept", path=str(inputs.config_path))
+    if lay_down and not by_role:
+        run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG)
+    run.journal.phase_completed(RestorePhase.EXTRACT)
+
+
+def _archive_config(run: _Run) -> Path:
+    """The Archive's config, read into the Run workspace at mode ``0600``."""
+    inputs = run.inputs
+    member = _config_member(inputs.view)
+    if member is None:
+        raise ArchiveHasNoConfigError(str(inputs.archive.path))
+    body = run.ports.adapters.archive_probe.read_member(
+        inputs.archive,
+        inputs.view,
+        member.path,
+        max_bytes=_CONFIG_MAX_BYTES,
+        payload=run.payload,
+    )
+    path = Path(inputs.workspace) / _ARCHIVE_CONFIG
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, _CONFIG_MODE)
+        with os.fdopen(fd, "wb") as out:
+            out.write(body)
+    except OSError as exc:
+        raise ArchiveWriteError(path, exc.strerror or type(exc).__name__) from exc
+    return path
+
+
+def _rewrite_config(run: _Run) -> None:
+    adapters, inputs = run.ports.adapters, run.inputs
+    config_file = run.config_file
+    run.journal.phase_started(RestorePhase.REWRITE_CONFIG, str(config_file))
+    if run.overwrites_config:
+        saved = inputs.header.saved_config
+        if saved is None:
+            msg = "--overwrite-wp-config needs the journal header's saved_config"
+            raise ValueError(msg)
+        adapters.config_command.save_copy(config_file, Path(saved))
+        run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_SAVED)
+        prior = adapters.config_query.read_constants(config_file, CUTOVER_KEYS)
+        source = _archive_config(run)
+        adapters.config_command.replace_file(config_file, source, keep=dict(prior))
+        run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_REPLACED)
+        _log.warning("wp_config_overwritten", path=str(config_file), saved=saved)
+    rewrite = inputs.relocation.rewrite_values
+    if rewrite:
+        adapters.config_command.set_constants(config_file, dict(rewrite))
+    run.journal.phase_completed(RestorePhase.REWRITE_CONFIG)
+
+
+def _load_dump(run: _Run, record: PhaseRecord) -> None:
+    inputs = run.inputs
+    target = inputs.relocation.load_database or inputs.site.db_name
+    run.journal.phase_started(RestorePhase.LOAD_DUMP, target)
+    run.database = run.load_database(inputs, run.journal)
+    record.bytes = run.database.loaded_bytes
+    run.journal.phase_completed(RestorePhase.LOAD_DUMP)
+
+
+def _search_replace(run: _Run) -> None:
+    urls = run.inputs.relocation.search_replace
+    if urls is None:  # pragma: no cover - the plan omits SEARCH_REPLACE then
+        msg = "a planned SEARCH_REPLACE needs the relocation's URLs"
+        raise ValueError(msg)
+    run.journal.phase_started(RestorePhase.SEARCH_REPLACE, str(run.site_root))
+    command = run.ports.adapters.search_replace
+    run.search_replace = command.relocate_content(run.site_root, urls)
+    run.journal.phase_completed(RestorePhase.SEARCH_REPLACE)

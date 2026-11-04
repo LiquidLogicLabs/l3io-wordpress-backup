@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 30
+  '003': 34
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1661,16 +1661,6 @@ backlog:
   severity: Medium
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-2). Within the 2026-11-03 owner decision on verify; owner to decide whether to extend.
-- key: BL-E002-116
-  epic: '002'
-  sprint: ''
-  title: Extraction has no size/member-count/free-space limit and CLEAN precedes EXTRACT. Precondition for Epic 3.
-  source: epic-redteam (RT-3)
-  source_phase: epic-redteam
-  source_ref: RT-3
-  severity: Medium
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-3). Deferred: executor not built.'
 - key: BL-E002-117
   epic: '002'
   sprint: ''
@@ -1721,3 +1711,43 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-8). Precondition for Epic 3.
+- key: BL-E003-030
+  epic: '003'
+  sprint: '01'
+  title: "E003-S01-001 review F-9: the Dry Run restore test's snapshot and journal directory assertions cannot fail (nothing writes there in the harness)"
+  source: code-review (E003-S01-001)
+  source_phase: code-review
+  source_ref: E003-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md
+- key: BL-E003-031
+  epic: '003'
+  sprint: '01'
+  title: "E003-S01-001 review F-10: the per-Mode 'drops nothing' assertion checks the fake load_database slot, not the executor; the real slot's test (E003-S02-005) must assert it"
+  source: code-review (E003-S01-001)
+  source_phase: code-review
+  source_ref: E003-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md
+- key: BL-E003-032
+  epic: '003'
+  sprint: '01'
+  title: 'E003-S01-001 review F-11: test_restore_execute_is_credential_clean puts no secret on the database or cutover-credentials side; E003-S02-005/006 cases must'
+  source: code-review (E003-S01-001)
+  source_phase: code-review
+  source_ref: E003-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md
+- key: BL-E003-033
+  epic: '003'
+  sprint: '01'
+  title: 'E003-S02-003 risk: snapshot_location refuses any directory under a one-level-up config dir, so ~/public_html with ~/wp-config.php refuses a $HOME-based snapshot default'
+  source: code-review (E003-S01-001)
+  source_phase: code-review
+  source_ref: E003-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md (Recorded risk section)

@@ -597,6 +597,55 @@ def test_a_restore_driver_has_a_hygiene_case() -> None:
 
 
 # --------------------------------------------------------------------------
+# The restore executor (E003-S01-001)
+# --------------------------------------------------------------------------
+
+
+def test_restore_execute_is_credential_clean(
+    credential_sentinel: CredentialSentinel, tmp_path: Path
+) -> None:
+    """``all-clean`` under ``OVERWRITE``, over the real config writer.
+
+    The target's ``wp-config.php`` holds the sentinel password; the executor
+    saves it, reads its ``DB_*`` values, replaces the file keeping them, and
+    the fake slot cuts over through the same writer. No log record, report,
+    ``repr`` or planned-action line may carry the password.
+    """
+    from l3io.wp.backup.adapters.config_writer import WpConfigWriter
+    from l3io.wp.backup.adapters.redaction import SecretRegistry
+    from l3io.wp.backup.domain.restore import ConfigPolicy, RestoreMode
+    from tests.restore_harness import Harness, write_v1
+
+    s = credential_sentinel
+    work = tmp_path / "restore"
+    work.mkdir()
+    h = Harness(
+        work=work,
+        archive_path=write_v1(work),
+        mode=RestoreMode.ALL_CLEAN,
+        config_policy=ConfigPolicy.OVERWRITE,
+        real_files=True,
+    )
+    write_wp_config(h.config_path, password=s.password)
+    writer = WpConfigWriter(SecretRegistry())
+    h.config = writer  # type: ignore[assignment]
+    plan = h.plan()
+    report = h.run(plan=plan)
+    for surface, value in (
+        ("plan", plan),
+        ("inputs", h.inputs()),
+        ("ports", h.ports()),
+        ("report", report),
+        ("journal", h.journal.events),
+        ("actions", [a.text for a in plan.actions]),
+    ):
+        s.add_repr(surface, value)
+    kept = writer.read_constants(h.config_path, ["DB_PASSWORD"])["DB_PASSWORD"]
+    assert kept == s.password  # the target's own password survived the overwrite
+    s.assert_clean()
+
+
+# --------------------------------------------------------------------------
 # The E002-S02-009 adapters: the config writer and the database's other half
 # --------------------------------------------------------------------------
 

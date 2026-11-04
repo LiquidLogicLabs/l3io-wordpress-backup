@@ -34,6 +34,7 @@ import hashlib
 import io
 import os
 import tarfile
+import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -54,6 +55,8 @@ from l3io.wp.backup.domain.archive_format import (
 )
 from l3io.wp.backup.domain.errors import ExtractionRefusedError
 from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.ports.adapter_set import AdapterSet
+from l3io.wp.backup.ports.site_files import SiteFilesCommand
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "adapters"
@@ -84,9 +87,29 @@ def _function_lines(tree: ast.Module, name: str) -> set[int]:
     }
 
 
+def _site_files_fields() -> frozenset[str]:
+    """The ``AdapterSet`` fields typed ``SiteFilesCommand``, from its type hints.
+
+    A call made directly on one (``adapters.site_files_command.extract(...)``)
+    is the port, whose real implementation delegates to :data:`EXTRACTOR`
+    unchanged (``ports/site_files.py``); it is not a second extraction. Only
+    that spelling is exempt: an alias (``c = adapters.site_files_command;
+    c.extract(...)``) is still reported, so the exemption cannot hide a tar.
+    """
+    hints = typing.get_type_hints(AdapterSet)
+    fields = frozenset(
+        f.name
+        for f in dataclasses.fields(AdapterSet)
+        if hints[f.name] is SiteFilesCommand
+    )
+    assert fields, "AdapterSet holds no SiteFilesCommand field"
+    return fields
+
+
 def _extracts(module: Path, allowed: str | None) -> list[str]:
     tree = ast.parse(module.read_text(encoding="utf-8"))
     allowed_lines = set() if allowed is None else _function_lines(tree, allowed)
+    ports = _site_files_fields()
     return [
         f"{module}:{node.lineno}"
         for node in ast.walk(tree)
@@ -94,6 +117,11 @@ def _extracts(module: Path, allowed: str | None) -> list[str]:
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in FILESYSTEM_EXTRACT_CALLS
         and node.lineno not in allowed_lines
+        and not (
+            node.func.attr == "extract"
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr in ports
+        )
     ]
 
 
@@ -130,6 +158,10 @@ def test_only_the_extractor_extracts() -> None:
         ("nested/tar.py", "def extract_archive(a):\n    a.extractall('d')\n"),
         ("tar.py", "def other(a):\n    a.extract('m')\n"),
         ("tar.py", "class R:\n    def f(self, a):\n        a.extractall('d')\n"),
+        # The port exemption is the direct ``.extract`` spelling only.
+        ("runner.py", "def f(a):\n    c = a.site_files_command\n    c.extract('m')\n"),
+        ("runner.py", "def f(a):\n    a.site_files_command.extractall('d')\n"),
+        ("runner.py", "def f(a):\n    a.site_files.extract('m')\n"),
     ],
 )
 def test_the_guard_sees_extraction_anywhere_else(
@@ -149,6 +181,13 @@ def test_the_guard_sees_extraction_anywhere_else(
     hits = _extractors(adapters)
     assert hits, body
     assert all(f"{relative}:" in hit for hit in hits), hits
+
+
+def test_the_guard_allows_the_site_files_port(tmp_path: Path) -> None:
+    (tmp_path / "runner.py").write_text(
+        "def f(a):\n    a.site_files_command.extract('m')\n", encoding="utf-8"
+    )
+    assert _extractors(tmp_path) == []
 
 
 def test_the_guard_ignores_stream_reads(tmp_path: Path) -> None:
@@ -227,6 +266,7 @@ def _v1(tmp_path: Path, entries: list[Entry]) -> tuple[StorageTarget, ArchiveVie
                 role=_role(e.info.name),
                 kind=_view_kind(e.info),
                 link_target=e.info.linkname if e.info.issym() else None,
+                size=e.info.size if e.info.isreg() else 0,
             )
             for e in entries
         ),
@@ -239,6 +279,7 @@ def _v1(tmp_path: Path, entries: list[Entry]) -> tuple[StorageTarget, ArchiveVie
             size=len(payload),
             sha256=hashlib.sha256(payload).hexdigest(),
         ),
+        backup_scope="files",
     )
     return StorageTarget(scheme="file", path=PurePosixPath(path)), view
 

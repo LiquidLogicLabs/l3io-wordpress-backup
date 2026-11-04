@@ -120,6 +120,7 @@ __all__ = [
     "decrypt_payload",
     "extract_archive",
     "file_member",
+    "require_patched_tarfile",
     "verify_archive",
     "verify_archive_view",
     "verify_or_raise",
@@ -846,13 +847,17 @@ def verify_archive(path: Path) -> VerificationResult:
     return verify_archive_view(path)[1]
 
 
-def verify_archive_view(path: Path) -> tuple[ArchiveView | None, VerificationResult]:
+def verify_archive_view(
+    path: Path, *, phase_name: str = BackupStep.VERIFY.value
+) -> tuple[ArchiveView | None, VerificationResult]:
     """:func:`verify_archive`, also returning the classified view (``None`` if none).
 
-    For a caller that acts on the verified Archive (``verify --authenticate``)
-    without streaming it a second time to classify it.
+    For a caller that acts on the verified Archive (``verify --authenticate``,
+    the restore's ``VERIFY``) without streaming it a second time to classify
+    it. ``phase_name`` is the open phase it annotates (the restore's is
+    ``RestorePhase.VERIFY.value``), so a Run emits one record for it.
     """
-    with join_phase(BackupStep.VERIFY.value) as record:
+    with join_phase(phase_name) as record:
         scan = _stream_outer(path)
         view, result = verify_probe(scan.index(), scan.digests)
         record.bytes = scan.bytes_read
@@ -946,6 +951,12 @@ class _ExtractFilter:
     destination: Path
     kinds: Mapping[str, MemberKind]
     check_kinds: bool
+    #: Indexed sizes (``ViewMember.size``), ``None`` for a v0 member, whose
+    #: header's own size is what tarfile writes (BL-E002-116).
+    sizes: Mapping[str, int | None] = field(default_factory=dict)
+    #: The sum of the indexed sizes of the roles being extracted, or ``None``
+    #: when any of them is unindexed (v0).
+    cap: int | None = None
     members: int = 0
     bytes: int = 0
     skipped: list[SkippedLink] = field(default_factory=list)
@@ -1011,6 +1022,10 @@ class _ExtractFilter:
         if self.check_kinds and _header_kind(member) is not indexed:
             reason = f"its header is not the indexed {indexed.value}"
             raise ExtractionRefusedError(name, reason)
+        declared = self.sizes.get(name)
+        if member.isfile() and declared is not None and member.size > declared:
+            reason = f"its header size {member.size} exceeds the indexed {declared}"
+            raise ExtractionRefusedError(name, reason)
         if PurePosixPath(relative) in self.exclude:
             return None
         root = self.destination.resolve()
@@ -1023,8 +1038,12 @@ class _ExtractFilter:
             self.links.add(PurePosixPath(relative))
         elif target in {(root / entry).resolve() for entry in self.exclude}:
             raise ExtractionRefusedError(name, "resolves onto an excluded path")
+        written = filtered.size if filtered.isfile() else 0
+        if self.cap is not None and self.bytes + written > self.cap:
+            reason = f"the running total passes the indexed {self.cap} bytes"
+            raise ExtractionRefusedError(name, reason)
         self.members += 1
-        self.bytes += filtered.size if filtered.isfile() else 0
+        self.bytes += written
         return filtered
 
 
@@ -1035,6 +1054,22 @@ _UNPATCHED_TARFILE: Final = (
     "absent), so its data filter can be escaped; upgrade Python to a patched "
     "release (3.11.13+, 3.12.11+, 3.13.4+)"
 )
+
+
+def require_patched_tarfile() -> None:
+    """Refuse an interpreter whose ``tarfile`` data filter can be escaped.
+
+    The one capability check (Shawn, 2026-11-03): :func:`extract_archive`
+    calls it first, and the restore's ``PREFLIGHT`` calls it before ``CLEAN``,
+    so a refusal comes before anything is deleted. No ``tarfile.data_filter``,
+    or no ``os.path.ALLOW_MISSING`` (added by the June 2025 fixes, CVE-2025-4517,
+    -4330, -4138, CVE-2024-12718 — tested by capability, not version number),
+    raises :class:`ExtractionRefusedError`.
+    """
+    if not hasattr(tarfile, "data_filter"):
+        raise ExtractionRefusedError(None, "this Python's tarfile has no data filter")
+    if not hasattr(os.path, "ALLOW_MISSING"):
+        raise ExtractionRefusedError(None, _UNPATCHED_TARFILE)
 
 
 def _check_exclude(exclude: frozenset[PurePosixPath]) -> None:
@@ -1062,22 +1097,31 @@ def extract_archive(
     ``tarfile.data_filter``; a symlink it refuses for its target is skipped and
     reported in ``skipped_links``, any other refusal, a hard link anywhere and
     a member outside the index raise :class:`ExtractionRefusedError`. ``exclude``
-    holds role-relative paths whose bytes are never written. An interpreter
-    without ``tarfile.data_filter`` is refused before anything is read, and so
-    is one without the June 2025 tarfile fixes (CVE-2025-4517, -4330, -4138,
-    CVE-2024-12718), on which the ``data`` filter can be escaped: the fix
-    added ``os.path.ALLOW_MISSING``, so its absence is the test (by
-    capability, not version number; Shawn, 2026-11-03). Upgrade Python to a
-    patched release. Only this function is gated: ``read_member`` and
+    holds role-relative paths whose bytes are never written. A file member
+    whose header size exceeds its indexed ``ViewMember.size`` is refused, and
+    so is a running total past the sum of the extracted roles' indexed sizes
+    (BL-E002-116); a v0 member has no indexed size, and tarfile writes no more
+    than its header states. :func:`require_patched_tarfile` runs first, before
+    anything is read. Only this function is gated: ``read_member`` and
     ``decrypt_payload`` stream members and write none to a destination.
     Members written before a refusal stay written.
     """
     _check_exclude(exclude)
-    if not hasattr(tarfile, "data_filter"):
-        raise ExtractionRefusedError(None, "this Python's tarfile has no data filter")
-    if not hasattr(os.path, "ALLOW_MISSING"):
-        raise ExtractionRefusedError(None, _UNPATCHED_TARFILE)
+    require_patched_tarfile()
     archive = _archive_path(source)
+    sizes = {m.path: m.size for m in view.members}
+    extracted = [
+        m
+        for m in view.members
+        if (located := member_relative(view, m.path)) is not None
+        and located[0] in roles
+        and m.kind is MemberKind.FILE
+    ]
+    cap = (
+        None
+        if any(m.size is None for m in extracted)
+        else sum(m.size or 0 for m in extracted)
+    )
     extract = _ExtractFilter(
         view=view,
         roles=roles,
@@ -1086,6 +1130,8 @@ def extract_archive(
         kinds={m.path: m.kind for m in view.members},
         # v0 kinds are synthesized from names (no index), so only v1's are held.
         check_kinds=view.payload is not None,
+        sizes=sizes,
+        cap=cap,
     )
     try:
         with _inner(archive, view, payload) as tar:

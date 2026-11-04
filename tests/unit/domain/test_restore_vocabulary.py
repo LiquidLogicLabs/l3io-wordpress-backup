@@ -186,3 +186,32 @@ def test_a_planted_default_of_each_guarded_type_fails(
     err = capsys.readouterr().err
     assert "planted.py" in err
     assert guarded in err
+
+
+def test_the_tool_reaches_core_restore(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """E003-S01-001: a default planted in a copy of ``core/restore.py`` fails.
+
+    The copy keeps the module's own path under the package tree, so the
+    guard is proven to reach the new module, not only a planted file.
+    """
+    tool = _tool()
+    source = Path(tool.PACKAGE_ROOT) / "core" / "restore.py"
+    copy = tmp_path / "core" / "restore.py"
+    copy.parent.mkdir()
+    copy.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(tool, "PACKAGE_ROOT", tmp_path)
+    assert tool.main() == 0
+    capsys.readouterr()
+    copy.write_text(
+        copy.read_text(encoding="utf-8")
+        + "\n\ndef f(mode: RestoreMode = RestoreMode.ALL) -> None: ...\n",
+        encoding="utf-8",
+    )
+    assert tool.main() == 1
+    err = capsys.readouterr().err
+    assert "restore.py" in err
+    assert "RestoreMode" in err

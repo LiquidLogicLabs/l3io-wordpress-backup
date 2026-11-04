@@ -3,8 +3,8 @@ epic: 'E003'
 sprint: 'S01'
 title: Restore files and database from an archive
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-04T03:14:00Z'
+status: done
+updated_at: '2026-11-04T03:49:31Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -35,3 +35,51 @@ depends_on:
 - 'E002-S01-010'
 - 'E002-S02-011'
 - 'E002-S02-012'
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py
+    exit_code: 0
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 23
+actual:
+  elapsed_hours: 0.6
+  man_hours: 40
+  hitl_hours: 0
+  tokens_k:
+    total: 27299.77
+    input: 0.26
+    output: 177.559
+    cache_write: 751.741
+    cache_read: 26370.207
+  cost: 22.32
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-04T03:49:31Z'

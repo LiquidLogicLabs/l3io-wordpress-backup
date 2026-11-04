@@ -578,12 +578,17 @@ class Integrity(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ViewMember:
-    """One member as a consumer sees it. No checksum, no ``encrypted`` flag."""
+    """One member as a consumer sees it. No checksum, no ``encrypted`` flag.
+
+    ``size`` is the Manifest member's declared size for v1 and ``None`` for v0,
+    which has no Manifest; extraction enforces it (BL-E002-116).
+    """
 
     path: str
     role: MemberRole
     kind: MemberKind
     link_target: str | None
+    size: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -592,7 +597,8 @@ class ArchiveView:
 
     ``config_path`` is the v1 Manifest's value copied as found (Epic 7 converts
     it with ``ConfigLocation`` and refuses anything else, AD-11), or for v0
-    ``"wp-root/wp-config.php"`` when that member is present.
+    ``"wp-root/wp-config.php"`` when that member is present. ``backup_scope``
+    is the v1 Manifest's value, ``None`` for v0.
     """
 
     format_version: int | None
@@ -602,6 +608,7 @@ class ArchiveView:
     integrity: Integrity
     encrypted: bool
     payload: ManifestPayload | None
+    backup_scope: str | None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "members", tuple(self.members))
@@ -735,13 +742,15 @@ def _classify_v1(text: str | None) -> ArchiveView:
     return ArchiveView(
         format_version=manifest.format_version,
         members=tuple(
-            ViewMember(m.path, m.role, m.kind, m.link_target) for m in manifest.members
+            ViewMember(m.path, m.role, m.kind, m.link_target, m.size)
+            for m in manifest.members
         ),
         dump_present=manifest.dump_present,
         config_path=manifest.config_path,
         integrity=Integrity.VERIFIED,
         encrypted=manifest.encrypted,
         payload=manifest.payload,
+        backup_scope=manifest.backup_scope,
     )
 
 
@@ -757,6 +766,7 @@ def _classify_v0(names: tuple[str, ...]) -> ArchiveView:
             role=cast("MemberRole", role),
             kind=MemberKind.DIR if name == V0_SITE_ROOT else MemberKind.FILE,
             link_target=None,
+            size=None,
         )
         for name, role in roles
     )
@@ -768,6 +778,7 @@ def _classify_v0(names: tuple[str, ...]) -> ArchiveView:
         integrity=Integrity.STRUCTURAL_ONLY,
         encrypted=False,
         payload=None,
+        backup_scope=None,
     )
 
 
