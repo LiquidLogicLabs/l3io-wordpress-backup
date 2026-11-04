@@ -3,8 +3,8 @@ epic: 'E003'
 sprint: 'S02'
 title: Survive being killed mid-restore
 classification: complex
-status: backlog
-updated_at: '2026-11-04T04:40:46Z'
+status: ready-for-dev
+updated_at: '2026-11-04T04:41:44Z'
 estimate:
   man_hours: 17.51
   hitl_hours: 0.0
