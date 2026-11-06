@@ -3,8 +3,8 @@ epic: 'E007'
 sprint: 'S01'
 title: Rewrite content URLs without corrupting serialized data
 classification: complex
-status: backlog
-updated_at: '2026-10-27T22:15:35Z'
+status: ready-for-dev
+updated_at: '2026-11-06T15:21:00Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81

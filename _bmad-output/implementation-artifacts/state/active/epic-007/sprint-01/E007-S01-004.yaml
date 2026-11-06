@@ -1,10 +1,10 @@
-key: 'E007-S01-001'
+key: 'E007-S01-004'
 epic: 'E007'
 sprint: 'S01'
-title: Point a restored site at a new host and database
+title: Fail before touching anything when WP-CLI is missing
 classification: standard
-status: backlog
-updated_at: '2026-10-27T22:15:34Z'
+status: ready-for-dev
+updated_at: '2026-11-06T15:21:00Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -25,12 +25,7 @@ estimate:
     cache_write: 53
     cache_read: 88
 depends_on:
-- 'E002-S01-001'
-- 'E002-S01-004'
-- 'E002-S01-006'
-- 'E002-S02-009'
-- 'E003-S01-001'
+- 'E002-S02-007'
 - E003-S02-006
-- 'E003-S02-005'
-- 'E002-S01-010'
-resolves: [BL-E003-057]
+- 'E005-S01-002'
+- 'E002-S02-012'
