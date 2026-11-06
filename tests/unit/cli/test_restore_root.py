@@ -230,6 +230,26 @@ def test_the_header_snapshot_path_is_absolute_and_normalised(
     assert str(target.path) == planned
 
 
+def test_the_header_names_no_snapshot_path_when_none_is_planned(rig: Rig) -> None:
+    """ADV-S02-01: the undo text must not point at a file never written."""
+    rig.drive(snapshot=SnapshotPolicy.SKIP)
+    assert rig.inputs.header.snapshot_path is None
+
+
+def test_the_archive_copy_is_refused_before_it_fills_the_workspace(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADV-S02-02: BL-E002-116 holds for the Archive copy too."""
+    from collections import namedtuple
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(
+        restore_mod.shutil, "disk_usage", lambda _path: usage(10, 10, 1)
+    )
+    with pytest.raises(restore_mod.InsufficientSpaceError, match="workspace"):
+        rig.drive(mode=RestoreMode.FILES, snapshot=SnapshotPolicy.SKIP)
+
+
 @pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
 def test_the_root_creates_no_snapshot_directory_itself(rig: Rig, dry_run: bool) -> None:
     """M-4 (AD-4): the store that stages the snapshot creates its directory.
@@ -688,7 +708,9 @@ def test_an_unencrypted_archive_is_restored_with_the_warning_logged_first(
     (record,) = [e for e in logs if e["event"] == "archive_unauthenticated"]
     assert record["log_level"] == "warning"
     assert record["integrity"] == Integrity.VERIFIED.value
-    assert "STRUCTURAL_ONLY" not in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err.count(restore_mod.UNAUTHENTICATED_WARNING) == 1  # UX-S02-01
+    assert "STRUCTURAL_ONLY" not in err
 
 
 def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(
@@ -706,3 +728,4 @@ def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(
         assert main(_argv(rig)) != int(ExitCode.OK)
     err = capsys.readouterr().err
     assert err.count(restore_mod.STRUCTURAL_ONLY_WARNING) == 1
+    assert restore_mod.UNAUTHENTICATED_WARNING not in err

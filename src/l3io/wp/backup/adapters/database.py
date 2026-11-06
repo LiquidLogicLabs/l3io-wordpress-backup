@@ -117,6 +117,10 @@ ADMIN_FLAGS: Final = ("--admin-username", "--admin-password")
 ADMIN_SOURCE: Final = "administrator"
 #: Every restore operation names the WordPress account at any host.
 _ANY_HOST: Final = "%"
+#: The Dump is untrusted Archive content. Without ``--binary-mode`` the mysql
+#: client executes client commands in it (a backslash-bang line runs a shell
+#: command as the operator), so every load passes it (RT-S02-001).
+_LOAD_OPTIONS: Final = ("--binary-mode",)
 _NS_PER_MS: Final = 1_000_000
 
 
@@ -893,7 +897,12 @@ class WpDatabase:
         connection = self._connection(location)
         started = time.monotonic_ns()
         with self._mapped(location, self._credentials.source, LoadFailedError):
-            result = wpdb.load(connection, self._credentials, source)
+            result = wpdb.load(
+                connection,
+                self._credentials,
+                source,
+                options=_LOAD_OPTIONS,
+            )
         _completed("dump_loaded", location, started, bytes=result.bytes)
         return LoadResult(
             bytes=result.bytes, duration_ms=result.duration_ms, performed=True

@@ -114,9 +114,10 @@ a file replaced at the Storage Target after verification is never restored.
 
 **Trust.** Verification of an unencrypted Archive proves its checksums are
 consistent with its Manifest, not that it is authentic: whoever can write the
-Archive can rewrite both. The restore proceeds and logs the WARNING
-`archive_unauthenticated`; an Archive with no checksums at all (a v0 Archive,
-`STRUCTURAL_ONLY`) is also named on stderr. Restore only Archives from a source
+Archive can rewrite both. The restore proceeds: before it changes anything it
+logs the WARNING `archive_unauthenticated` and writes a warning to stderr,
+which names an Archive with no checksums at all (a v0 Archive,
+`STRUCTURAL_ONLY`) as such. Restore only Archives from a source
 you trust, or encrypted ones, whose payload `age` authenticates.
 
 1. **Preflight** — the required tools, the passphrase backend when the Archive

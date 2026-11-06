@@ -107,15 +107,18 @@ closure:
       - 0.0714
       - 0.2101
       - 0.0278
+      - 1.485
     man_hours:
       samples:
       - 1.619
       - 0.8347
+      - 4.1602
     tokens_k:
       samples:
       - 60.0112
       - 2.7619
       - 16.1088
+      - 1.5311
   epic:
     elapsed_hours:
       samples:

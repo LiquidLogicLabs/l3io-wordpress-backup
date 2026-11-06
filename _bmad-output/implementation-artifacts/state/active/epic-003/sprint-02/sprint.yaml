@@ -1,8 +1,8 @@
 key: 'S02'
 epic: 'E003'
 title: Sprint 02
-status: backlog
-updated_at: '2026-11-04T04:40:46Z'
+status: done
+updated_at: '2026-11-06T09:10:58Z'
 origin: inferred
 origin_note: derived from the story artifacts in this sprint directory
 estimate:
@@ -29,3 +29,22 @@ estimate:
   model: claude-opus-5
   confidence: medium
 next: 7
+actual:
+  elapsed_hours: 3.81
+  man_hours: 150
+  hitl_hours: 0
+  tokens_k:
+    total: 146065.08
+    input: 1.826
+    output: 891.825
+    cache_write: 3993.433
+    cache_read: 141177.998
+  cost: 70.71
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-06T09:10:45Z'
+closed:
+  date: '2026-11-06'
+retrospective:
+  summary: Restore made real; closure fixed a critical Dump command-execution hole, the admin-password channel, journal/space guidance and a dry-run introspection drift; 39 findings deferred, security mediums await owner decisions.
+  velocity: '4'
+  carry_over: '0'

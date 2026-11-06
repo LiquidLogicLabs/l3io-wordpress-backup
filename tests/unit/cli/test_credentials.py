@@ -176,3 +176,26 @@ def test_a_source_bound_to_another_registry_is_rewrapped(wp_config: object) -> N
     database._credentials.resolve()  # noqa: SLF001 - what dump would call
     assert first.redact(WP_PASSWORD) == REDACTED
     assert second.redact(WP_PASSWORD) == REDACTED
+
+
+def test_the_admin_password_variable_supplies_the_password_not_argv() -> None:
+    # RT-S02-002: the help promises L3IO_WP_BACKUP_ADMIN_PASSWORD; it must be read.
+    spec = admin_spec(
+        username="admin",
+        password=None,
+        aws_secret_id=None,
+        aws_region=None,
+        environ={"L3IO_WP_BACKUP_ADMIN_PASSWORD": PASSWORD},
+    )
+    assert spec == ExplicitCredentialSpec(username="admin", password=PASSWORD)
+
+
+def test_the_admin_flag_wins_over_the_variable() -> None:
+    spec = admin_spec(
+        username="admin",
+        password=PASSWORD,
+        aws_secret_id=None,
+        aws_region=None,
+        environ={"L3IO_WP_BACKUP_ADMIN_PASSWORD": "not-" + PASSWORD},
+    )
+    assert spec == ExplicitCredentialSpec(username="admin", password=PASSWORD)

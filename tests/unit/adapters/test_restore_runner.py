@@ -16,11 +16,10 @@ from pathlib import Path, PurePosixPath
 import pytest
 from structlog.testing import capture_logs
 
-from l3io.wp.backup.adapters import noop, restore_runner
+from l3io.wp.backup.adapters import restore_runner
 from l3io.wp.backup.adapters.restore_runner import (
     _CHECK_PHASES,
     _DESTROYING,
-    _DESTROYING_HALVES,
     ArchiveChangedError,
     _device,
     _same_dir,
@@ -64,7 +63,6 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
-from l3io.wp.backup.ports.adapter_set import AdapterSet
 from tests.restore_builders import RELOCATIONS
 from tests.restore_harness import (
     ARCHIVE_DB,
@@ -666,7 +664,7 @@ def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
         h, performed=False, integrity=None, bytes=0
     )
     with capture_logs() as logs:
-        report = h.run(adapters=dry_run_adapters(h.adapters()))
+        report = h.run(adapters=dry_run_adapters(h.adapters()), performs_effects=False)
     assert report.snapshot is not None
     assert report.snapshot.performed is False
     planned = [e for e in logs if e["event"] == "safety_snapshot_planned"]
@@ -675,47 +673,21 @@ def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
     assert "snapshot" in [e["phase"] for e in done]
 
 
-@pytest.mark.parametrize("half", sorted(_DESTROYING_HALVES))
-def test_one_real_destroying_half_refuses_a_not_performed_snapshot(
-    tmp_path: Path, archive: Path, half: str
+def test_a_not_performed_snapshot_is_refused_when_the_ports_perform_effects(
+    tmp_path: Path, archive: Path
 ) -> None:
-    """One real half among no-ops is enough to refuse a not-performed snapshot.
+    """SD-02-1: the verdict follows ``performs_effects``, never an adapter's module.
 
-    The list itself is checked against ``dry_run_adapters`` below.
+    A no-op-named adapter set bound with ``performs_effects=True`` is refused,
+    and real adapters bound with ``False`` are accepted: the input decides.
     """
     h = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL_CLEAN)
-    real = h.adapters()
-    mixed = dataclasses.replace(dry_run_adapters(real), **{half: getattr(real, half)})
     h.take_snapshot = _snapshot_of(  # type: ignore[method-assign]
         h, performed=False, integrity=None, bytes=0
     )
     with pytest.raises(SnapshotFailedError, match="not performed"):
-        h.run(adapters=mixed)
-
-
-#: Command halves no destroying phase reaches: the backup path's own (the
-#: joined snapshot writes through them) and the Run Journal's.
-_NOT_DESTROYING = frozenset(
-    {"archive_store_command", "archive_writer", "database_command", "journal_command"}
-)
-
-
-def test_every_command_half_a_destroying_phase_reaches_is_checked(
-    tmp_path: Path, archive: Path
-) -> None:
-    """The halves list is ``dry_run_adapters``' no-op fields, less the exclusions.
-
-    A command half added to ``AdapterSet`` fails here until it is classified.
-    """
-    real = StagedHarness(work=tmp_path, archive_path=archive).adapters()
-    dry = dry_run_adapters(real)
-    commands = {
-        f.name
-        for f in dataclasses.fields(AdapterSet)
-        if type(getattr(dry, f.name)).__module__ == noop.__name__ and f.name != "tracer"
-    }
-    assert commands >= _NOT_DESTROYING
-    assert set(_DESTROYING_HALVES) == commands - _NOT_DESTROYING
+        h.run(adapters=dry_run_adapters(h.adapters()), performs_effects=True)
+    h.run(adapters=h.adapters(), performs_effects=False)
 
 
 def test_every_phase_is_a_check_the_snapshot_or_destroying() -> None:

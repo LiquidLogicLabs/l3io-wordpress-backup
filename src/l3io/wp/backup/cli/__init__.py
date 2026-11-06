@@ -96,6 +96,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 admin_aws_region=args.admin_credentials_aws_region,
                 db_aws_secret_id=args.db_credentials_aws_secret_id,
                 db_aws_region=args.db_credentials_aws_region,
+                environ=os.environ,
             )
         elif args.action == BACKUP_COMMAND:
             from l3io.wp.backup.cli.credentials import wordpress_spec

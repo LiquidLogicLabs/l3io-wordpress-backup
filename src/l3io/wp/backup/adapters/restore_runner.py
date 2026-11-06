@@ -51,7 +51,6 @@ from typing import ClassVar, Final, assert_never
 
 import structlog
 
-from l3io.wp.backup.adapters import noop
 from l3io.wp.backup.adapters.phase import PhaseRecord, phase
 from l3io.wp.backup.adapters.tar import (
     decrypt_payload,
@@ -116,7 +115,6 @@ from l3io.wp.backup.domain.restore import (
     restores_files,
 )
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport
-from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
@@ -147,13 +145,6 @@ _KEPT_CONFIG: Final = frozenset({PurePosixPath(CONFIG_FILE_NAME)})
 #: re-surveyed before the first of them.
 _DESTROYING: Final = frozenset(
     RESTORE_PHASE_ORDER[RESTORE_PHASE_ORDER.index(RestorePhase.SNAPSHOT) + 1 :]
-)
-#: The ``AdapterSet`` command halves the destroying phases reach.
-_DESTROYING_HALVES: Final = (
-    "site_files_command",
-    "config_command",
-    "restore_database_command",
-    "search_replace",
 )
 
 
@@ -626,14 +617,6 @@ def _snapshot(run: _Run, record: PhaseRecord) -> None:
     run.journal.phase_completed(RestorePhase.SNAPSHOT)
 
 
-def _destroys(adapters: AdapterSet) -> bool:
-    """Whether any command half a destroying phase reaches performs effects."""
-    return any(
-        type(getattr(adapters, name)).__module__ != noop.__name__
-        for name in _DESTROYING_HALVES
-    )
-
-
 def _require_snapshot(run: _Run, result: SnapshotResult, scope: BackupScope) -> None:
     """ADV-5: refuse a result that does not prove the planned, verified snapshot."""
     planned = run.inputs.header.snapshot_path
@@ -646,7 +629,7 @@ def _require_snapshot(run: _Run, result: SnapshotResult, scope: BackupScope) -> 
         reason = f"the snapshot covers {result.scope.value!r}, not {scope.value!r}"
         raise SnapshotFailedError(planned, reason)
     if not result.performed:
-        if _destroys(run.ports.adapters):
+        if run.ports.performs_effects:
             reason = "the snapshot was not performed, and the restore would destroy"
             raise SnapshotFailedError(planned, reason)
         return

@@ -650,3 +650,55 @@
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-060", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T08:43:16Z"}
 {"epic": "E003", "event": "status", "from": "blocked", "key": "E003-S02-006", "node": "story", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "to": "done", "ts": "2026-11-06T08:43:16Z"}
 {"duration_hours": 48.253, "event": "block_close", "resolution": "Owner ratified RT-002 option A (2026-11-06); ADR-0016/0022 amended; BL-E003-036 resolved", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "story": "E003-S02-006", "ts": "2026-11-06T08:43:16Z"}
+{"agent": "l3io-pm-closure", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T08:49:44Z"}
+{"agent": "adversarial", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T08:50:26Z"}
+{"agent": "redteam", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T08:50:26Z"}
+{"agent": "ux-review", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T08:50:26Z"}
+{"agent": "arch-drift", "epic": "E003", "event": "dispatch_open", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T08:50:27Z"}
+{"agent": "adversarial", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T09:02:21Z"}
+{"agent": "redteam", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T09:02:21Z"}
+{"agent": "ux-review", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T09:02:21Z"}
+{"agent": "arch-drift", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T09:02:21Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-069", "session": null, "severity": "High", "ts": "2026-11-06T09:09:18Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-070", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:19Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-071", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:20Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-072", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:21Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-073", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:22Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-074", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:23Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-075", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:24Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-076", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:25Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-077", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:26Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-078", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:27Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-079", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:28Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-080", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:29Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-081", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:30Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-082", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:31Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-083", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:32Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-084", "session": null, "severity": "Medium", "ts": "2026-11-06T09:09:33Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-085", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:34Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-086", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:35Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-087", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:36Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-088", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:37Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-089", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:38Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-090", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:39Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-091", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:40Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-092", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:41Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-093", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:42Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-094", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:43Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-095", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:44Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-096", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:45Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-097", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:46Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-098", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:47Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-099", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:48Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-100", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:49Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-101", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:50Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-102", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:51Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-103", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:53Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-104", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:54Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-105", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:55Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-106", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:56Z"}
+{"cause": "cli", "epic": "003", "event": "issue_opened", "key": "BL-E003-107", "session": null, "severity": "Low", "ts": "2026-11-06T09:09:57Z"}
+{"epic": "E003", "event": "actual", "from": null, "key": "S02", "node": "sprint", "session": null, "sprint": "S02", "to": null, "ts": "2026-11-06T09:10:45Z"}
+{"epic": "E003", "event": "status", "from": "backlog", "key": "S02", "node": "sprint", "session": null, "sprint": "S02", "to": "done", "ts": "2026-11-06T09:10:58Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-080", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T09:14:33Z"}
+{"agent": "l3io-pm-closure", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S02", "ts": "2026-11-06T09:23:05Z"}

@@ -435,7 +435,9 @@ class Harness:
             journal_command=self.journal,
         )
 
-    def ports(self, adapters: AdapterSet | None = None) -> RestorePorts:
+    def ports(
+        self, adapters: AdapterSet | None = None, *, performs_effects: bool = True
+    ) -> RestorePorts:
         def preflight(tools: tuple[Any, ...]) -> None:
             self.preflights.append(tools)
 
@@ -444,6 +446,7 @@ class Harness:
             preflight=preflight,
             free_bytes=lambda _path: self.free,
             cutover_credentials=None,
+            performs_effects=performs_effects,
         )
 
     def target(self) -> TargetState:
@@ -576,11 +579,12 @@ class Harness:
         plan: RestorePlan | None = None,
         adapters: AdapterSet | None = None,
         journal: RunJournalCommand | None = None,
+        performs_effects: bool = True,
     ) -> ExecutionReport:
         return execute_restore(
             plan or self.plan(),
             self.inputs(),
-            self.ports(adapters),
+            self.ports(adapters, performs_effects=performs_effects),
             self.take_snapshot,
             self.check_database,
             self.load_database,

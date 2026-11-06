@@ -242,10 +242,12 @@ class StagedHarness(Harness):
             restore_database_command=self.database,
         )
 
-    def ports(self, adapters: AdapterSet | None = None) -> RestorePorts:
+    def ports(
+        self, adapters: AdapterSet | None = None, *, performs_effects: bool = True
+    ) -> RestorePorts:
         import dataclasses
 
-        ports = super().ports(adapters)
+        ports = super().ports(adapters, performs_effects=performs_effects)
         if self.password is None:
             return ports
         password = self.password

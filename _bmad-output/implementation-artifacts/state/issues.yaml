@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 69
+  '003': 108
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -1955,3 +1955,383 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+- key: BL-E003-069
+  epic: '003'
+  sprint: '02'
+  title: Archive-database confirmation is copy-paste; admin login can reach a server named by a forged Archive (owner decision pending; see redteam-report.md)
+  source: redteam (RT-S02-003)
+  source_phase: redteam
+  source_ref: RT-S02-003
+  severity: High
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-070
+  epic: '003'
+  sprint: '02'
+  title: ensure resets the password of an existing account named by the Archive config; created accounts are @'%'
+  source: redteam (RT-S02-004)
+  source_phase: redteam
+  source_ref: RT-S02-004
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-071
+  epic: '003'
+  sprint: '02'
+  title: Dump load not confined to the load database (USE / cross-db statements while WordPress account holds ALL on live DB)
+  source: redteam (RT-S02-005)
+  source_phase: redteam
+  source_ref: RT-S02-005
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-072
+  epic: '003'
+  sprint: '02'
+  title: 'Staging cutover: only ConfigWriteFailedError on first key handled cleanly; other write errors leave ambiguous journal state'
+  source: adversarial (ADV-S02-04)
+  source_phase: adversarial
+  source_ref: ADV-S02-04
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-073
+  epic: '003'
+  sprint: '02'
+  title: complete_cutover does not re-check the staging database still exists and is WordPress; bare cutover_targets[key] lookup
+  source: adversarial (ADV-S02-05)
+  source_phase: adversarial
+  source_ref: ADV-S02-05
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-074
+  epic: '003'
+  sprint: '02'
+  title: Snapshot path carried only on BackupError; other exceptions lose it
+  source: adversarial (ADV-S02-06)
+  source_phase: adversarial
+  source_ref: ADV-S02-06
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-075
+  epic: '003'
+  sprint: '02'
+  title: Passphrase prompt runs on every restore including unencrypted Archives, before the Archive is probed
+  source: adversarial (ADV-S02-07)
+  source_phase: adversarial
+  source_ref: ADV-S02-07
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-076
+  epic: '003'
+  sprint: '02'
+  title: Safety Snapshot at rest unencrypted without passphrase, no documented retention, file mode unverified; --new-db-password on argv
+  source: adversarial (ADV-S02-08)
+  source_phase: adversarial
+  source_ref: ADV-S02-08
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-077
+  epic: '003'
+  sprint: '02'
+  title: Run journal per-user keyed by Site Root; second OS user does not see open journal; begin_run exists-then-write; dirs use umask
+  source: adversarial (ADV-S02-09)
+  source_phase: adversarial
+  source_ref: ADV-S02-09
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-078
+  epic: '003'
+  sprint: '02'
+  title: After same-server restore the site runs on the _l3s_ staging database name permanently; docs/restore.md silent
+  source: adversarial (ADV-S02-10)
+  source_phase: adversarial
+  source_ref: ADV-S02-10
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-079
+  epic: '003'
+  sprint: '02'
+  title: TLS mandatory to non-loopback hosts with no opt-out; UsageError forwards dependency message
+  source: adversarial (ADV-S02-11)
+  source_phase: adversarial
+  source_ref: ADV-S02-11
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-081
+  epic: '003'
+  sprint: '02'
+  title: restore --whatIf rejected after the subcommand; docs say it works
+  source: ux-review (UX-S02-02)
+  source_phase: ux-review
+  source_ref: UX-S02-02
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-082
+  epic: '003'
+  sprint: '02'
+  title: Not-yet-working flags (--wp-config, --new-*) shown live in restore --help; internal names leak
+  source: ux-review (UX-S02-03)
+  source_phase: ux-review
+  source_ref: UX-S02-03
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-083
+  epic: '003'
+  sprint: '02'
+  title: Under --log-format json stdout mixes JSON and plain text; files-only success prints no completion line
+  source: ux-review (UX-S02-04)
+  source_phase: ux-review
+  source_ref: UX-S02-04
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-084
+  epic: '003'
+  sprint: '02'
+  title: docs/restore.md maps no mode names to flags and has no worked output examples
+  source: ux-review (UX-S02-05)
+  source_phase: ux-review
+  source_ref: UX-S02-05
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-085
+  epic: '003'
+  sprint: '02'
+  title: snapshot-location web-served guard skipped with --no-safety-snapshot though saved_config is still written there
+  source: redteam (RT-S02-006)
+  source_phase: redteam
+  source_ref: RT-S02-006
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-086
+  epic: '003'
+  sprint: '02'
+  title: Plaintext residue in TMPDIR after SIGKILL
+  source: redteam (RT-S02-007)
+  source_phase: redteam
+  source_ref: RT-S02-007
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-087
+  epic: '003'
+  sprint: '02'
+  title: Unencrypted Safety Snapshots and saved configs accumulate with no retention
+  source: redteam (RT-S02-008)
+  source_phase: redteam
+  source_ref: RT-S02-008
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-088
+  epic: '003'
+  sprint: '02'
+  title: Skipped-role members decompressed without a size bound
+  source: redteam (RT-S02-009)
+  source_phase: redteam
+  source_ref: RT-S02-009
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-089
+  epic: '003'
+  sprint: '02'
+  title: Hostile Archive can park a Site behind a blocking journal
+  source: redteam (RT-S02-010)
+  source_phase: redteam
+  source_ref: RT-S02-010
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-090
+  epic: '003'
+  sprint: '02'
+  title: tree_bytes is a lower bound but the snapshot claim comment says upper bound
+  source: adversarial (ADV-S02-12)
+  source_phase: adversarial
+  source_ref: ADV-S02-12
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-091
+  epic: '003'
+  sprint: '02'
+  title: undo_for can print "copy None back"; load undo may name a staging DB that does not exist
+  source: adversarial (ADV-S02-13)
+  source_phase: adversarial
+  source_ref: ADV-S02-13
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-092
+  epic: '003'
+  sprint: '02'
+  title: _archive_config redundant unlink before O_EXCL masks a pre-existing file
+  source: adversarial (ADV-S02-14)
+  source_phase: adversarial
+  source_ref: ADV-S02-14
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-093
+  epic: '003'
+  sprint: '02'
+  title: drive_restore documented as never printing but prints warnings to stderr
+  source: adversarial (ADV-S02-15)
+  source_phase: adversarial
+  source_ref: ADV-S02-15
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-094
+  epic: '003'
+  sprint: '02'
+  title: Epic 7 scaffolding unreachable; new_db_password registered twice; require_database_restored called (outcome, outcome)
+  source: adversarial (CR-S02-01)
+  source_phase: adversarial
+  source_ref: CR-S02-01
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-095
+  epic: '003'
+  sprint: '02'
+  title: docs/restore.md says table or view; code also counts routines and events
+  source: adversarial (CR-S02-02)
+  source_phase: adversarial
+  source_ref: CR-S02-02
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-096
+  epic: '003'
+  sprint: '02'
+  title: snapshot_result bytes parameter shadows builtin
+  source: adversarial (CR-S02-03)
+  source_phase: adversarial
+  source_ref: CR-S02-03
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-097
+  epic: '003'
+  sprint: '02'
+  title: Shared restore driver lives in cli/restore.py; add api-must-not-import-cli contract and ADR
+  source: arch-drift (SD-02-2)
+  source_phase: arch-drift
+  source_ref: SD-02-2
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-098
+  epic: '003'
+  sprint: '02'
+  title: adapters/staging.py imports l3io.wp.database directly outside adapters/database.py
+  source: arch-drift (SD-02-4)
+  source_phase: arch-drift
+  source_ref: SD-02-4
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-099
+  epic: '003'
+  sprint: '02'
+  title: RestoreRequest carries adapters-layer AdminTls; mutable global RESTORE_EXTENSION
+  source: arch-drift (SD-02-5)
+  source_phase: arch-drift
+  source_ref: SD-02-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-100
+  epic: '003'
+  sprint: '02'
+  title: staging.py reads time.monotonic_ns directly instead of the Clock port
+  source: arch-drift (SD-02-6)
+  source_phase: arch-drift
+  source_ref: SD-02-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-101
+  epic: '003'
+  sprint: '02'
+  title: Restore usage errors print top-level usage
+  source: ux-review (UX-S02-06)
+  source_phase: ux-review
+  source_ref: UX-S02-06
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-102
+  epic: '003'
+  sprint: '02'
+  title: --archive is required but shown optional in usage
+  source: ux-review (UX-S02-07)
+  source_phase: ux-review
+  source_ref: UX-S02-07
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-103
+  epic: '003'
+  sprint: '02'
+  title: docs exit-code table omits 7 NOT_READY
+  source: ux-review (UX-S02-08)
+  source_phase: ux-review
+  source_ref: UX-S02-08
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-104
+  epic: '003'
+  sprint: '02'
+  title: STRUCTURAL_ONLY plain-text line between JSON log lines on stderr
+  source: ux-review (UX-S02-09)
+  source_phase: ux-review
+  source_ref: UX-S02-09
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-105
+  epic: '003'
+  sprint: '02'
+  title: On failure the snapshot path goes to stdout while the error goes to stderr
+  source: ux-review (UX-S02-10)
+  source_phase: ux-review
+  source_ref: UX-S02-10
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-106
+  epic: '003'
+  sprint: '02'
+  title: Database report shows raw bytes and puts provisioning detail before outcome
+  source: ux-review (UX-S02-11)
+  source_phase: ux-review
+  source_ref: UX-S02-11
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-107
+  epic: '003'
+  sprint: '02'
+  title: --resolve-interrupted-run help does not say the command stops after resolving
+  source: ux-review (UX-S02-13)
+  source_phase: ux-review
+  source_ref: UX-S02-13
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/

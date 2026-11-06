@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from l3io.wp.backup.adapters import database as _database
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.cli.parser import ADMIN_PASSWORD_VARIABLE
 from l3io.wp.backup.domain.credentials import (
     AwsSecretCredentialSpec,
     CredentialSpec,
@@ -56,12 +57,17 @@ def admin_spec(
     password: str | None,
     aws_secret_id: str | None,
     aws_region: str | None,
+    environ: Mapping[str, str] | None = None,
 ) -> CredentialSpec | None:
     """The administrator's spec, or ``None`` when none was given.
 
     Both halves of an explicit pair or neither; an explicit pair or an AWS
-    secret, not both.
+    secret, not both. ``--admin-password`` wins; without it the password comes
+    from ``L3IO_WP_BACKUP_ADMIN_PASSWORD`` in ``environ`` (RT-S02-002), which
+    keeps it out of the process list.
     """
+    if password is None and environ:
+        password = environ.get(ADMIN_PASSWORD_VARIABLE) or None
     if (username is None) != (password is None):
         missing = "--admin-password" if password is None else "--admin-username"
         msg = f"{missing} is required with its partner: give both halves or neither"

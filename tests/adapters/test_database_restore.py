@@ -185,6 +185,30 @@ def test_load_into_an_empty_database_then_a_second_load_is_refused(
 
 @pytest.mark.integration
 @live
+def test_a_dump_cannot_run_a_client_shell_command(
+    target: Target, tmp_path: Path
+) -> None:
+    """RT-S02-001: the real mysql client, given a ``\\!`` line, runs nothing.
+
+    The Dump is untrusted Archive content. Without ``--binary-mode`` the
+    client runs the line as a shell command as the operator; with it the
+    load stops at that line and fails, and the marker is never created.
+    """
+    target.database.ensure_database(target.location)
+    marker = tmp_path / "client-shell-ran"
+    dump = tmp_path / "hostile.sql"
+    dump.write_bytes(
+        b"CREATE TABLE wp_probe (a int);\n"
+        + f"\\! touch {marker}\n".encode()
+        + b"INSERT INTO wp_probe VALUES (1);\n"
+    )
+    with pytest.raises(LoadFailedError):
+        target.database.load_dump(target.location, dump)
+    assert not marker.exists(), "the Dump ran a shell command through the client"
+
+
+@pytest.mark.integration
+@live
 def test_revoke_then_drop(target: Target) -> None:
     target.database.ensure_database(target.location)
     where, user = target.location, target.user
@@ -363,7 +387,12 @@ def test_load_is_never_handed_replace_or_a_decryption_argument(
     monkeypatch.setattr(wpdb, "load", load)
     result = admin_database.load_dump(WHERE, Path("/dev/null"))
     assert result == LoadResult(bytes=7, duration_ms=1.5, performed=True)
-    assert seen == {"source": Path("/dev/null"), "database": "wptest"}
+    assert seen == {
+        "source": Path("/dev/null"),
+        "database": "wptest",
+        # RT-S02-001: the Dump is untrusted, so the client may not run its commands.
+        "options": ("--binary-mode",),
+    }
 
 
 def test_load_needs_no_administrator(monkeypatch: pytest.MonkeyPatch) -> None:

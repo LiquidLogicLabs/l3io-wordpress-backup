@@ -1,0 +1,10 @@
+review: _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/arch-drift-review.md
+findings:
+  SD-02-1:
+    severity: MAJOR
+    title: "`_destroys` returns `type(getattr(adapters, name)).__module__ != noop.__name__`. Behaviour then depends on whether the bound adapters are the no-op set. That is `if dry_run` by another spelling, inside `adapters/`. The AD-4 grep gate (`\\bdry_run\\b`/`what_if`) cannot see it, and `getattr` on string names is not type-checked. ADR-0022 option D says checks take the effect's result (`performed`), not a condition. `_require_snapshot` already has `result.performed`; the `_destroys` branch decides whether `performed=False` is acceptable."
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:

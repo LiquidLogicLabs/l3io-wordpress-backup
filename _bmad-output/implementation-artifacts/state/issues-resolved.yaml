@@ -403,3 +403,16 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-06T08:43:16Z'
   ref: E003-S02-006
+- key: BL-E003-080
+  epic: '003'
+  sprint: '02'
+  title: Unauthenticated-Archive warning is only a structured log record for ordinary unencrypted Archives; needs a stderr sentence
+  source: ux-review (UX-S02-01)
+  source_phase: ux-review
+  source_ref: UX-S02-01
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T09:14:33Z'
+  ref: E003-S02-006

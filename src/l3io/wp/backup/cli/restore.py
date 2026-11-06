@@ -56,7 +56,7 @@ import json
 import os
 import shutil
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC
 from pathlib import Path, PurePosixPath
@@ -112,7 +112,9 @@ from l3io.wp.backup.cli.passphrase import resolve_passphrase, terminal_prompt
 from l3io.wp.backup.cli.preflight import DumpReadinessPreflight, require_tools
 from l3io.wp.backup.cli.scope import CLI_MODE_TO_SCOPE, backup_scope_from_cli
 from l3io.wp.backup.core.restore import (
+    FREE_SPACE_MARGIN,
     DatabaseRestoreReport,
+    InsufficientSpaceError,
     NonEmptyTargetError,
     PlannedRestoreAction,
     RestoreInputs,
@@ -215,6 +217,12 @@ STRUCTURAL_ONLY_WARNING: Final = (
     "WARNING: the archive carries no checksums (STRUCTURAL_ONLY); restore "
     "only an archive from a source you trust"
 )
+#: Written to stderr before any effect for every other unencrypted Archive
+#: (UX-S02-01; AD-26: a safety warning is never only a log record).
+UNAUTHENTICATED_WARNING: Final = (
+    "WARNING: the archive is not encrypted, so it cannot be authenticated; "
+    "restore only an archive from a source you trust"
+)
 
 #: What opts out of the Safety Snapshot on the command line (BL-E003-050).
 NO_SNAPSHOT_FLAG: Final = "--no-safety-snapshot"
@@ -222,6 +230,7 @@ NO_SNAPSHOT_FLAG: Final = "--no-safety-snapshot"
 _RESOLVED_BY: Final = "cli"
 #: The verified copy of the Archive, and the files the root writes, in the workspace.
 _ARCHIVE_DIR: Final = "archive"
+_WORKSPACE: Final = "workspace"
 _DESCRIPTOR_DIR: Final = "descriptor"
 _CONFIG_NAME: Final = "wp-config.php"
 _PAYLOAD: Final = "decrypted-payload"
@@ -293,6 +302,7 @@ def check_restore_arguments(
     admin_aws_region: str | None,
     db_aws_secret_id: str | None,
     db_aws_region: str | None,
+    environ: Mapping[str, str] | None = None,
 ) -> None:
     """Raise ``UsageError`` for restore arguments no Run could act on.
 
@@ -307,6 +317,7 @@ def check_restore_arguments(
         password=admin_password,
         aws_secret_id=admin_aws_secret_id,
         aws_region=admin_aws_region,
+        environ=environ,
     )
     wordpress_spec(aws_secret_id=db_aws_secret_id, aws_region=db_aws_region)
 
@@ -808,6 +819,18 @@ def _bind_archive(archive: StorageTarget, workspace: Path) -> StorageTarget:
     except OSError as exc:
         raise ArchiveNotFoundError(source) from exc
     try:
+        # ADV-S02-02: refuse before the copy what the workspace cannot hold.
+        need = os.fstat(reader.fileno()).st_size
+        free = shutil.disk_usage(destination.parent).free
+        if need > free * (1 - FREE_SPACE_MARGIN):
+            reader.close()
+            raise InsufficientSpaceError(_WORKSPACE, needed=need, free=free)
+    except OSError as exc:
+        reader.close()
+        raise ArchiveWriteError(
+            destination, exc.strerror or type(exc).__name__
+        ) from exc
+    try:
         with reader, os.fdopen(os.open(destination, flags, _FILE_MODE), "wb") as out:
             shutil.copyfileobj(reader, out)
     except OSError as exc:
@@ -933,6 +956,8 @@ def _ports(
     run: RunContext,
     site: SiteDescriptor,
     cutover: Callable[[], str] | None,
+    *,
+    performs_effects: bool,
 ) -> RestorePorts:
     """The one call of ``restore_ports``; preflight exactly as ``cli/backup.py``."""
     return restore_ports(
@@ -947,6 +972,7 @@ def _ports(
         ),
         free_bytes=lambda path: shutil.disk_usage(path).free,
         cutover_credentials=cutover,
+        performs_effects=performs_effects,
     )
 
 
@@ -1149,7 +1175,7 @@ def drive_restore(
         elif request.archive_database is not None:
             _log.info("archive_database_unused", reason="the target has wp-config.php")
         cutover = None if relocated is None else password_at_call_time(relocated)
-        ports = _ports(run, site, cutover)
+        ports = _ports(run, site, cutover, performs_effects=not request.dry_run)
         # Step 4: resolution only — resolving and restoring are never one command.
         if resolving is not None:
             record = resolving
@@ -1183,8 +1209,12 @@ def drive_restore(
                 integrity=view.integrity.value,
                 archive=str(request.archive.path),
             )
-            if view.integrity is Integrity.STRUCTURAL_ONLY:
-                print(STRUCTURAL_ONLY_WARNING, file=sys.stderr)
+            print(
+                STRUCTURAL_ONLY_WARNING
+                if view.integrity is Integrity.STRUCTURAL_ONLY
+                else UNAUTHENTICATED_WARNING,
+                file=sys.stderr,
+            )
         # Step 6: the plan, FR-7's guard included.
         _require_cipher(view, request.cipher)
         relocation = ext.resolve(
@@ -1238,7 +1268,11 @@ def drive_restore(
             site_root=PurePosixPath(site_root),
             restore_mode=request.mode,
             archive=str(request.archive.path),
-            snapshot_path=str(snapshot_path),
+            # ADV-S02-01: a path only when the plan takes the snapshot, so the
+            # undo text never points at a file that was never written.
+            snapshot_path=(
+                str(snapshot_path) if RestorePhase.SNAPSHOT in plan.phases else None
+            ),
             live_database_before=site.db_name,
             staging_database=staging,
             wp_config_path=str(target_config),
@@ -1419,6 +1453,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
             password=args.admin_password,
             aws_secret_id=args.admin_credentials_aws_secret_id,
             aws_region=args.admin_credentials_aws_region,
+            environ=os.environ,
         ),
         cipher=None if resolved is None else PassphraseCipher(resolved.value),
         archive_database=args.archive_database,

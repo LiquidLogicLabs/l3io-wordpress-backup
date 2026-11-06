@@ -139,8 +139,10 @@ Red team RT-002 (BL-E003-036, BL-E003-054) showed the sentence above claims too 
   not authenticity. Whoever can write the Archive can rewrite a member and its checksum
   together, and that forgery passes `VERIFY` and is restored.
 
-**Decided: restore it, with a warning; do not refuse.** The restore logs WARNING
-`archive_unauthenticated`, and names a STRUCTURAL_ONLY Archive on stderr. `docs/restore.md`
+**Decided: restore it, with a warning; do not refuse.** Before any effect, the restore logs
+WARNING `archive_unauthenticated` and writes a warning to stderr, which names a
+STRUCTURAL_ONLY Archive as such (AD-26: a safety warning is never only a log record; UX-S02-01).
+`docs/restore.md`
 states the trust model: for an unencrypted Archive, whoever controls where it is stored is
 trusted, and encryption is how an operator gets authenticity.
 
