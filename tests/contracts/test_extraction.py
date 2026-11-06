@@ -407,7 +407,7 @@ def test_a_member_outside_the_index_is_refused(
         tmp_path, [_file("site-root/a", b"a"), _file("site-root/b", b"b")]
     )
     view = dataclasses.replace(view, members=view.members[:1])
-    with pytest.raises(ExtractionRefusedError, match="member index"):
+    with pytest.raises(ExtractionRefusedError, match="members the archive lists"):
         extract_archive(source, destination, view, roles=frozenset({SITE}))
 
 
@@ -652,7 +652,7 @@ def test_a_header_kind_other_than_the_index_is_refused(
         view.members[0], kind=MemberKind.FILE, link_target=None
     )
     view = dataclasses.replace(view, members=(as_file,))
-    with pytest.raises(ExtractionRefusedError, match="indexed file"):
+    with pytest.raises(ExtractionRefusedError, match="the file the archive lists"):
         extract_archive(source, destination, view, roles=frozenset({SITE}))
     assert _tree(destination) == {}
 

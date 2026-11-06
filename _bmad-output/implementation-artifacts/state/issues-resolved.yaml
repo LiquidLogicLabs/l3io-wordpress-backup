@@ -568,3 +568,125 @@ resolved:
   resolved_at: '2026-11-06T11:58:21Z'
   ref: E003-S02-006
   note: 'Owner decision 2026-11-06 (option C): residual risk accepted and documented in ADR-0022 amendment and docs/restore.md'
+- key: BL-E003-082
+  epic: '003'
+  sprint: '02'
+  title: Not-yet-working flags (--wp-config, --new-*) shown live in restore --help; internal names leak
+  source: ux-review (UX-S02-03)
+  source_phase: ux-review
+  source_ref: UX-S02-03
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T12:14:03Z'
+  ref: E003-S02-006
+  note: "Every NOT_YET_IMPLEMENTED entry's --help ends '(not available in this build)', applied from the mapping (cli/parser.py _noted/_note_unavailable_flags); reasons are operator-facing (no Epic/story keys/chesney), incl. cli/restore.py's relocation refusal (RELOCATION_UNAVAILABLE). README regenerated. Tests: tests/contracts/test_not_yet_implemented.py::test_every_unbound_feature_says_so_in_its_help, test_no_bound_feature_is_marked_unavailable, test_no_operator_text_names_a_planning_artefact, test_a_planted_internal_name_is_caught."
+- key: BL-E003-075
+  epic: '003'
+  sprint: '02'
+  title: Passphrase prompt runs on every restore including unencrypted Archives, before the Archive is probed
+  source: adversarial (ADV-S02-07)
+  source_phase: adversarial
+  source_ref: ADV-S02-07
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T12:14:04Z'
+  ref: E003-S02-006
+  note: "Decided by design: prompting on every interactive restore and resolving before the probe are E003-S02-006's decision of 2026-10-27 (AD-26, ADR-0024: one passphrase decrypts the Archive and encrypts the Safety Snapshot; registered before the Run opens). Fixed the defect left: the restore prompt (cli/restore.py RESTORE_PROMPT) states both uses and that empty means none, and stderr says when the snapshot is encrypted with the given passphrase. docs/restore.md updated. Tests: tests/unit/cli/test_restore_root.py::test_the_restore_prompt_says_both_uses_and_that_empty_means_none, test_an_encrypted_snapshot_says_so_without_the_passphrase."
+- key: BL-E003-076
+  epic: '003'
+  sprint: '02'
+  title: Safety Snapshot at rest unencrypted without passphrase, no documented retention, file mode unverified; --new-db-password on argv
+  source: adversarial (ADV-S02-08)
+  source_phase: adversarial
+  source_ref: ADV-S02-08
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T12:14:05Z'
+  ref: E003-S02-006
+  note: 'File mode: snapshot_result refuses a published Safety Snapshot with any group/other bit (SnapshotFailedError, before anything is destroyed; tests/unit/adapters/test_restore_runner.py::test_a_snapshot_readable_by_others_fails_and_is_left_in_place, test_an_owner_only_snapshot_passes). Retention and mode documented in docs/restore.md (nothing removes snapshots or saved wp-config copies). Settled by design, unchanged: unencrypted without a passphrase (AD-26, decided 2026-10-20, warned on stderr); --new-db-password on argv (AD-22 frozen flag, refused in this build, help says it is visible in the process list; E007-S01-001 Non-goals exclude another source).'
+- key: BL-E003-058
+  epic: '003'
+  sprint: '02'
+  title: 'UX-4: core/restore refusal messages still use domain spelling in places; needs a story granted core/restore.py messages (remaining part of BL-E003-039)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md UX-4.
+  resolution: fixed
+  resolved_at: '2026-11-06T12:14:07Z'
+  ref: E003-S02-006
+  note: 'InsufficientSpaceError names the destination paths, sizes in MiB with exact bytes, the shortfall and the remedy (TMPDIR / --snapshot-dir); ExpansionRatioError says the limit has no override. SpaceClaim/check_expansion carry paths. Tests: tests/unit/core/test_expansion.py::test_a_space_refusal_names_the_path_readable_sizes_and_a_remedy, test_summed_claims_name_every_short_destination, test_the_expansion_refusal_says_there_is_no_override.'
+- key: BL-E003-059
+  epic: '003'
+  sprint: '02'
+  title: 'UX-7: adapters/tar.py error wording not operator-facing; needs a story granted adapters/tar.py (remaining part of BL-E003-039)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md UX-7.
+  resolution: fixed
+  resolved_at: '2026-11-06T12:14:08Z'
+  ref: E003-S02-006
+  note: "Per-member ExtractionRefusedError says the archive may be damaged or tampered with and to run wpbackup2 verify --archive; tar.py reasons no longer use 'indexed'. Tests: tests/unit/adapters/test_tar.py::test_a_member_refusal_says_the_archive_may_be_bad_and_how_to_check, test_no_extraction_refusal_uses_manifest_vocabulary (+ planted-violation test)."
+- key: BL-E003-039
+  epic: '003'
+  sprint: '01'
+  title: Refusal text uses domain spelling (mode=files force, 'files-clean') not CLI flags; docs/restore.md omits the FR-7 refusal and REFUSED exit number (UX-1..UX-7). Owner E003-S02-006
+  source: closure-ux
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md. S02-006 renders the CLI spelling (render_flags).
+  resolution: fixed
+  resolved_at: '2026-11-06T12:14:09Z'
+  ref: E003-S02-006
+  note: 'All parts closed: UX-1, UX-2, UX-3, UX-5, UX-6 fixed in E003-S02-006; UX-4 (BL-E003-058) and UX-7 (BL-E003-059) fixed 2026-11-06.'
+- key: BL-E003-055
+  epic: '003'
+  sprint: '02'
+  title: "ADV-9: journal stays open after a failure before any destructive phase (e.g. failed SNAPSHOT); closing it needs an owner amendment of ADR-0021's 'only when' clause plus a phase-sequence guard (remaining part of BL-E003-038)"
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md M-1. The story's ADV-9 change was reverted to keep ADR-0021. Owner decision first; then a guard that every post-SNAPSHOT phase journals its start before its first effect.
+  resolution: wontfix
+  resolved_at: '2026-11-06T12:24:46Z'
+  ref: E003-S02-006
+  note: 'Settled by ADR-0021 Consequences (accepted): a failure the predicate does not recognise blocks the next Run even when nothing changed - the safe direction (NFR-1); resolved with --resolve-interrupted-run. The closing fix was reverted once for contradicting ADR-0021 (E003-S02-006 review M-1).'
+- key: BL-E003-077
+  epic: '003'
+  sprint: '02'
+  title: Run journal per-user keyed by Site Root; second OS user does not see open journal; begin_run exists-then-write; dirs use umask
+  source: adversarial (ADV-S02-09)
+  source_phase: adversarial
+  source_ref: ADV-S02-09
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T12:24:47Z'
+  ref: E003-S02-006
+  note: begin_run publishes with link(2), never replacing; every created directory 0700 (private_directories, guarded by test_private_directories.py). Per-OS-user journal and lock are ADR-0021 option A / AD-19 (owner's decision), now documented in docs/restore.md; revisit with ADR-0021's shared-lock trigger.
+- key: BL-E003-038
+  epic: '003'
+  sprint: '01'
+  title: 'Config handling gaps: size limit late (ADV-7), relocated-config probe mismatch (ADV-8), journal left open after failed SNAPSHOT (ADV-9), overwrite outside guard/snapshot scope (ADV-10), workspace config copy not removed (ADV-11), tree-member config still written by a raw os.open (SD-01-1 remainder). Owner E003-S02-006'
+  source: closure-adversarial
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md and _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1.
+  resolution: fixed
+  resolved_at: '2026-11-06T12:24:48Z'
+  ref: E003-S02-006
+  note: ADV-7, ADV-8, ADV-11 and ADV-10's overwrite half fixed in E003-S02-006; ADV-9 (BL-E003-055) settled by ADR-0021; ADV-10 lay-down half re-homed as BL-E003-056 to E007-S01-002 and SD-01-1 as BL-E003-057 to E007-S01-001, each named in that story's ACs.

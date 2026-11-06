@@ -138,6 +138,8 @@ CONFIG_MAX_BYTES: Final = 1024 * 1024
 _ARCHIVE_CONFIG: Final = "archive-wp-config.php"
 _ARCHIVE_CONFIG_DIR: Final = "archive-config"
 _CONFIG_MODE: Final = 0o600
+#: BL-E003-076: a published Safety Snapshot is readable by its owner only.
+_SNAPSHOT_MODE: Final = 0o600
 #: The relative path ``CLEAN`` keeps and ``EXTRACT`` excludes under ``KEEP``.
 _KEPT_CONFIG: Final = frozenset({PurePosixPath(CONFIG_FILE_NAME)})
 #: The phases that change the Site — every phase AD-17 orders after
@@ -502,11 +504,23 @@ def _check_space(run: _Run) -> None:
         compressed=compressed,
         target_free=target_free,
         workspace_free=workspace_free,
+        target_path=str(run.site_root),
+        workspace_path=str(workspace),
     )
     claims = [
-        SpaceClaim(TARGET_FILESYSTEM, _device(run.site_root), need.target, target_free),
         SpaceClaim(
-            WORKSPACE_FILESYSTEM, _device(workspace), need.workspace, workspace_free
+            TARGET_FILESYSTEM,
+            _device(run.site_root),
+            need.target,
+            target_free,
+            str(run.site_root),
+        ),
+        SpaceClaim(
+            WORKSPACE_FILESYSTEM,
+            _device(workspace),
+            need.workspace,
+            workspace_free,
+            str(workspace),
         ),
     ]
     snapshot = _snapshot_claim(run)
@@ -542,7 +556,11 @@ def _snapshot_claim(run: _Run) -> SpaceClaim | None:
     need = query.tree_bytes(run.site_root) if files else 0
     directory = _existing(Path(path).parent)
     return SpaceClaim(
-        SNAPSHOT_FILESYSTEM, _device(directory), need, run.ports.free_bytes(directory)
+        SNAPSHOT_FILESYSTEM,
+        _device(directory),
+        need,
+        run.ports.free_bytes(directory),
+        str(Path(path).parent),
     )
 
 
@@ -656,6 +674,12 @@ def snapshot_result(
     place, since it may hold the only copy. When not ``performed`` (a Dry
     Run's no-op store) nothing is read and the result reports "would verify"
     (``integrity=None``).
+
+    BL-E003-076: the published file must also be owner-only. The store
+    creates it ``0600`` (``tempfile.mkstemp``) and the rename keeps that, so
+    any group or other permission bit means something else wrote or changed
+    it: :class:`SnapshotFailedError`, before anything is destroyed, naming
+    the mode; the file is left in place.
     """
     if not performed:
         return SnapshotResult(
@@ -675,6 +699,16 @@ def snapshot_result(
         if not verified.passed:
             first = verified.failures[0].reason if verified.failures else "unknown"
             reason = f"post-publish verification failed: {first}"
+        raise SnapshotFailedError(str(path), reason)
+    try:
+        mode = Path(path).stat().st_mode & 0o777
+    except OSError as exc:
+        raise SnapshotFailedError(str(path), exc) from exc
+    if mode & ~_SNAPSHOT_MODE:
+        reason = (
+            f"the published file's mode is {mode:04o}, "
+            f"not owner-only {_SNAPSHOT_MODE:04o}"
+        )
         raise SnapshotFailedError(str(path), reason)
     return SnapshotResult(
         path=path,

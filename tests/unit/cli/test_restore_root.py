@@ -26,6 +26,7 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import main
 from l3io.wp.backup.cli import restore as restore_mod
 from l3io.wp.backup.cli.context import open_run
+from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
 from l3io.wp.backup.cli.restore import (
     ArchiveIdentityUnconfirmedError,
     DatabaseNotRestoredError,
@@ -710,6 +711,56 @@ def _performed_snapshots(rig: Rig) -> None:
         return dataclasses.replace(result, performed=True, integrity=Integrity.VERIFIED)
 
     rig.monkeypatch.setattr(restore_mod, "snapshot_result", performed)
+
+
+# --------------------------------------------------------------------------
+# BL-E003-075 (ADV-S02-07): the one passphrase, asked before the probe
+# --------------------------------------------------------------------------
+
+
+def test_the_restore_prompt_says_both_uses_and_that_empty_means_none(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Asked before the Archive is probed, so it cannot say "Archive" alone."""
+    monkeypatch.delenv(PASSPHRASE_ENV, raising=False)
+    shown: list[str] = []
+
+    def prompt(label: str) -> str:
+        shown.append(label)
+        return ""
+
+    monkeypatch.setattr(restore_mod, "terminal_prompt", lambda: prompt)
+    assert main(_argv(rig)) == int(ExitCode.OK)
+    assert shown == [restore_mod.RESTORE_PROMPT]
+    assert "Safety Snapshot" in shown[0]
+    assert "empty for none" in shown[0]
+    assert rig.executions[-1]["cipher"] is None
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
+def test_an_encrypted_snapshot_says_so_without_the_passphrase(
+    rig: Rig,
+    credential_sentinel: CredentialSentinel,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A passphrase given for an unencrypted Archive still encrypts the snapshot."""
+
+    def fail_after_snapshot(*args: object, **kwargs: object) -> object:
+        rig.take_snapshot(BackupScope.ALL)
+        reason = "exit 1"
+        raise LoadFailedError(reason)
+
+    rig.execute = fail_after_snapshot
+    _performed_snapshots(rig)
+    assert main(_argv(rig)) == int(LoadFailedError.exit_code)
+    err = capsys.readouterr().err
+    planned = rig.inputs.header.snapshot_path
+    assert "safety snapshot is encrypted with the passphrase" in err
+    assert str(planned) in err
+    assert "NOT encrypted" not in err
+    assert credential_sentinel.passphrase is not None
+    assert credential_sentinel.passphrase not in err
 
 
 @pytest.mark.parametrize(

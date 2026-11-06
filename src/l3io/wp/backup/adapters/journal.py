@@ -38,6 +38,7 @@ import platformdirs
 import structlog
 
 from l3io.wp.backup.adapters.lock import APP_NAME
+from l3io.wp.backup.adapters.workspace import private_directories
 from l3io.wp.backup.core.restore import IncompleteRunError, incomplete_run_error
 from l3io.wp.backup.domain.errors import BackupError, RefusedError
 from l3io.wp.backup.domain.journal import (
@@ -234,8 +235,15 @@ def _fsync_directory(directory: Path) -> None:
         os.close(fd)
 
 
-def _write_atomically(directory: Path, name: str, text: str) -> Path:
-    """``text`` to ``directory/name``: temp at ``0600``, fsync, replace, fsync dir."""
+def _write_atomically(
+    directory: Path, name: str, text: str, *, exclusive: bool = False
+) -> Path:
+    """``text`` to ``directory/name``: temp at ``0600``, fsync, replace, fsync dir.
+
+    With ``exclusive`` the temp file is published by ``os.link``, which fails
+    with ``FileExistsError`` when ``name`` exists, so an existing record is
+    never replaced: the check and the write are one system call (BL-E003-077).
+    """
     final = directory / name
     tmp = directory / f"{name}.tmp" if name != CURRENT else directory / _TMP
     data = text.encode("utf-8")
@@ -250,13 +258,19 @@ def _write_atomically(directory: Path, name: str, text: str) -> Path:
         os.fsync(fd)
     finally:
         os.close(fd)
-    tmp.replace(final)  # os.replace(2): atomic within the directory
+    if exclusive:
+        try:
+            os.link(tmp, final)  # link(2): EEXIST rather than replace
+        finally:
+            tmp.unlink()
+    else:
+        tmp.replace(final)  # os.replace(2): atomic within the directory
     _fsync_directory(directory)
     return final
 
 
 def _ensure_dir(path: Path) -> None:
-    path.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
+    private_directories(path)
     path.chmod(_DIR_MODE)
 
 
@@ -320,10 +334,17 @@ class FileRunJournal:
     # RunJournalCommand
     # ------------------------------------------------------------------
 
-    def _write(self, record: JournalRecord, entry: JournalEntry | None) -> None:
+    def _write(
+        self, record: JournalRecord, entry: JournalEntry | None, *, first: bool = False
+    ) -> None:
+        text = record_to_json(record)
         try:
             _ensure_dir(self._directory)
-            _write_atomically(self._directory, CURRENT, record_to_json(record))
+            _write_atomically(self._directory, CURRENT, text, exclusive=first)
+        except FileExistsError as exc:
+            raise JournalWriteError(
+                self.journal_path, "an unresolved journal is already present"
+            ) from exc
         except OSError as exc:
             raise JournalWriteError(
                 self.journal_path, exc.strerror or type(exc).__name__
@@ -366,12 +387,12 @@ class FileRunJournal:
         )
 
     def begin_run(self, header: JournalHeader) -> None:
-        """Write ``header`` with no entries; an existing record is never replaced."""
-        if self.journal_path.exists():
-            raise JournalWriteError(
-                self.journal_path, "an unresolved journal is already present"
-            )
-        self._write(JournalRecord(header=header, entries=()), None)
+        """Write ``header`` with no entries; an existing record is never replaced.
+
+        Exclusive by ``link(2)``, not by a check before the write, so it holds
+        even without the Site Lock (BL-E003-077).
+        """
+        self._write(JournalRecord(header=header, entries=()), None, first=True)
 
     def phase_started(self, phase: RestorePhase, target: str) -> None:
         self._append("phase_started", phase, target=target)

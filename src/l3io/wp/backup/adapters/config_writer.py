@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Final
 import structlog
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.workspace import private_directories
 from l3io.wp.backup.domain.config import ConfigWriteResult, ConstantValue
 from l3io.wp.backup.domain.errors import (
     ConfigWriteFailedError,
@@ -54,7 +55,6 @@ _PASSWORD_KEY: Final = "DB_PASSWORD"  # noqa: S105 - a constant name
 #: The ``key`` of a ``ConfigWriteFailedError`` about the file, not one constant.
 WHOLE_FILE: Final = "(whole file)"
 _TMP_SUFFIX: Final = ".l3io-tmp"
-_DIR_MODE: Final = 0o700
 #: The text ``l3io-wordpress-config`` raises with when the owner cannot be kept.
 _OWNER_MARKER: Final = "cannot keep the file's owner"
 _OWNER_REASON: Final = (
@@ -238,7 +238,7 @@ class WpConfigWriter:
         started = time.monotonic_ns()
         directory = destination.parent
         try:
-            directory.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
+            private_directories(directory)
             fd, name = tempfile.mkstemp(
                 dir=directory, prefix=f".{destination.name}.", suffix=_TMP_SUFFIX
             )

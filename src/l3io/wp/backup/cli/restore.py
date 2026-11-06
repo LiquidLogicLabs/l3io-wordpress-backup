@@ -112,11 +112,13 @@ from l3io.wp.backup.cli.credentials import (
 )
 from l3io.wp.backup.cli.logging import configured_format
 from l3io.wp.backup.cli.output import emit_result
+from l3io.wp.backup.cli.parser import RELOCATION_UNAVAILABLE
 from l3io.wp.backup.cli.passphrase import resolve_passphrase, terminal_prompt
 from l3io.wp.backup.cli.preflight import DumpReadinessPreflight, require_tools
 from l3io.wp.backup.cli.scope import CLI_MODE_TO_SCOPE, backup_scope_from_cli
 from l3io.wp.backup.core.restore import (
     FREE_SPACE_MARGIN,
+    WORKSPACE_FILESYSTEM,
     DatabaseRestoreReport,
     InsufficientSpaceError,
     NonEmptyTargetError,
@@ -191,6 +193,7 @@ from l3io.wp.backup.ports.tracing import Tracer
 __all__ = [
     "NO_SNAPSHOT_FLAG",
     "RESTORE_EXTENSION",
+    "RESTORE_PROMPT",
     "ArchiveIdentityUnconfirmedError",
     "DatabaseNotRestoredError",
     "NonEmptyTargetRefusal",
@@ -236,7 +239,6 @@ NO_SNAPSHOT_FLAG: Final = "--no-safety-snapshot"
 _RESOLVED_BY: Final = "cli"
 #: The verified copy of the Archive, and the files the root writes, in the workspace.
 _ARCHIVE_DIR: Final = "archive"
-_WORKSPACE: Final = "workspace"
 _DESCRIPTOR_DIR: Final = "descriptor"
 _CONFIG_NAME: Final = "wp-config.php"
 _PAYLOAD: Final = "decrypted-payload"
@@ -244,8 +246,13 @@ _CONFIG_PAYLOAD: Final = "decrypted-config-payload"
 _DIR_MODE: Final = 0o700
 _FILE_MODE: Final = 0o600
 _STAMP: Final = "%Y%m%dT%H%M%SZ"
-_EPIC_7: Final = "Epic 7 (relocation)"
 _SCOPE_TO_CLI: Final = {scope: text for text, scope in CLI_MODE_TO_SCOPE.items()}
+#: BL-E003-075: the prompt runs before the Archive is probed (decided
+#: 2026-10-27, E003-S02-006), so it says both uses and that empty means none.
+RESTORE_PROMPT: Final = (
+    "Passphrase (decrypts an encrypted archive and encrypts the Safety "
+    "Snapshot; leave empty for none): "
+)
 
 #: How a database warning code reads in the report; others print as the code.
 _WARNING_TEXT = {
@@ -867,7 +874,12 @@ def _bind_archive(archive: StorageTarget, workspace: Path) -> StorageTarget:
         free = shutil.disk_usage(destination.parent).free
         if need > free * (1 - FREE_SPACE_MARGIN):
             reader.close()
-            raise InsufficientSpaceError(_WORKSPACE, needed=need, free=free)
+            raise InsufficientSpaceError(
+                WORKSPACE_FILESYSTEM,
+                needed=need,
+                free=free,
+                paths=(str(destination.parent),),
+            )
     except OSError as exc:
         reader.close()
         raise ArchiveWriteError(
@@ -1142,7 +1154,9 @@ def drive_restore(
     factory = RESTORE_EXTENSION
     if factory is None and not request.relocation.is_empty:
         named = ", ".join(request.relocation.given)
-        msg = f"relocation ({named}) is not available in this build: {_EPIC_7}"
+        msg = f"relocation ({named}) is not available in this build: " + (
+            RELOCATION_UNAVAILABLE
+        )
         raise UsageError(msg)
     if request.archive_database is not None:
         parse_archive_database(request.archive_database)
@@ -1405,6 +1419,13 @@ def drive_restore(
                     f"safety snapshot is NOT encrypted: {result.path}", file=sys.stderr
                 )
                 _log.warning("safety_snapshot_unencrypted", path=str(result.path))
+            elif taken[-1].performed:
+                # BL-E003-075: restoring it needs this Run's passphrase.
+                print(
+                    "safety snapshot is encrypted with the passphrase this restore "
+                    f"was given: {result.path}",
+                    file=sys.stderr,
+                )
             return taken[-1]
 
         # Step 8: the executor runs every phase.
@@ -1619,7 +1640,11 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         force=args.force,
     )
     resolved = resolve_passphrase(
-        explicit=None, environ=os.environ, prompt=terminal_prompt(), secrets=secrets
+        explicit=None,
+        environ=os.environ,
+        prompt=terminal_prompt(),
+        secrets=secrets,
+        label=RESTORE_PROMPT,
     )
     request = RestoreRequest(
         site_root=Path(args.wp_dir),

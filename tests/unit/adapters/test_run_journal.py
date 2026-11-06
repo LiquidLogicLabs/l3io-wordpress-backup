@@ -118,6 +118,11 @@ def test_the_write_sequence_is_temp_fsync_replace_fsync(
 ) -> None:
     calls: list[str] = []
     real_fsync, real_replace, real_open = os.fsync, Path.replace, os.open
+    real_link = os.link
+
+    def link(source: object, target: object) -> None:
+        calls.append(f"link:{Path(str(source)).name}->{Path(str(target)).name}")
+        real_link(source, target)  # type: ignore[arg-type]
 
     def fsync(fd: int) -> None:
         kind = "dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"
@@ -137,13 +142,62 @@ def test_the_write_sequence_is_temp_fsync_replace_fsync(
     monkeypatch.setattr(os, "fsync", fsync)
     monkeypatch.setattr(Path, "replace", replace)
     monkeypatch.setattr(journal_module.os, "open", opened)
-    _begun(tmp_path)
+    monkeypatch.setattr(journal_module.os, "link", link)
+    journal = _begun(tmp_path)
+    # BL-E003-077: the first record is published by link(2), never replacing.
+    assert calls == [
+        "open:current.json.tmp:600",
+        "fsync:file",
+        f"link:current.json.tmp->{CURRENT}",
+        "fsync:dir",
+    ]
+    calls.clear()
+    journal.phase_started(RestorePhase.SNAPSHOT, "files")
     assert calls == [
         "open:current.json.tmp:600",
         "fsync:file",
         f"replace:current.json.tmp->{CURRENT}",
         "fsync:dir",
     ]
+    assert not (tmp_path / "journal" / "current.json.tmp").exists()
+
+
+def test_begin_never_replaces_a_record_that_appears_after_any_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E003-077: a check-then-write would replace another Run's record."""
+    other = _begun(tmp_path, run_id="run-other")
+    before = other.journal_path.read_bytes()
+    real_exists = Path.exists
+
+    def unseen(self: Path, *args: object, **kwargs: object) -> bool:
+        # The record arrives between any existence check and the write.
+        return False if self.name == CURRENT else real_exists(self)
+
+    monkeypatch.setattr(Path, "exists", unseen)
+    second = FileRunJournal(tmp_path / "journal")
+    with pytest.raises(JournalWriteError, match="already present"):
+        second.begin_run(_header("run-2"))  # type: ignore[arg-type]
+    assert other.journal_path.read_bytes() == before
+    assert not (tmp_path / "journal" / "current.json.tmp").exists()
+
+
+def test_begin_creates_every_missing_directory_owner_only(tmp_path: Path) -> None:
+    """BL-E003-077: the state directory's ancestors are ``0700``, not the umask's."""
+    existing = stat.S_IMODE(tmp_path.stat().st_mode)
+    previous = os.umask(0o022)
+    try:
+        journal = FileRunJournal(tmp_path / "state" / "snapshots" / "digest")
+        journal.begin_run(_header())  # type: ignore[arg-type]
+    finally:
+        os.umask(previous)
+    for directory in (
+        tmp_path / "state",
+        tmp_path / "state" / "snapshots",
+        tmp_path / "state" / "snapshots" / "digest",
+    ):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700, directory
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == existing
 
 
 def test_a_corrupt_journal_refuses_and_is_never_absent(tmp_path: Path) -> None:

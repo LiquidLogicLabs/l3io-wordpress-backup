@@ -713,3 +713,14 @@
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-069", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T11:31:14Z"}
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-070", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T11:45:11Z"}
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-071", "ref": "E003-S02-006", "resolution": "wontfix", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T11:58:22Z"}
+{"cause": "cli", "epic": "003", "event": "issue_scheduled", "key": "BL-E003-056", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "story": "E007-S01-002", "ts": "2026-11-06T12:13:20Z", "via": "schedule"}
+{"cause": "cli", "epic": "003", "event": "issue_scheduled", "key": "BL-E003-057", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "story": "E007-S01-001", "ts": "2026-11-06T12:13:22Z", "via": "schedule"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-082", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:14:03Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-075", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:14:04Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-076", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:14:06Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-058", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:14:07Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-059", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:14:08Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-039", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:14:10Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-055", "ref": "E003-S02-006", "resolution": "wontfix", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:24:46Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-077", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:24:47Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-038", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:24:49Z"}

@@ -999,7 +999,9 @@ class _ExtractFilter:
         self.seen.add(name)
         indexed = self.kinds.get(name)
         if indexed is None:
-            raise ExtractionRefusedError(name, "not in the member index")
+            raise ExtractionRefusedError(
+                name, "not among the members the archive lists"
+            )
         located = member_relative(self.view, name)
         if located is None:
             raise ExtractionRefusedError(name, "escapes its role prefix")
@@ -1024,11 +1026,14 @@ class _ExtractFilter:
         except tarfile.FilterError as exc:
             raise ExtractionRefusedError(name, type(exc).__name__) from exc
         if self.check_kinds and _header_kind(member) is not indexed:
-            reason = f"its header is not the indexed {indexed.value}"
+            reason = f"its type is not the {indexed.value} the archive lists for it"
             raise ExtractionRefusedError(name, reason)
         declared = self.sizes.get(name)
         if member.isfile() and declared is not None and member.size > declared:
-            reason = f"its header size {member.size} exceeds the indexed {declared}"
+            reason = (
+                f"its size, {member.size} bytes, exceeds the {declared} bytes "
+                "the archive lists for it"
+            )
             raise ExtractionRefusedError(name, reason)
         if PurePosixPath(relative) in self.exclude:
             return None
@@ -1044,7 +1049,7 @@ class _ExtractFilter:
             raise ExtractionRefusedError(name, "resolves onto an excluded path")
         written = filtered.size if filtered.isfile() else 0
         if self.cap is not None and self.bytes + written > self.cap:
-            reason = f"the running total passes the indexed {self.cap} bytes"
+            reason = f"the running total passes the {self.cap} bytes the archive lists"
             raise ExtractionRefusedError(name, reason)
         self.members += 1
         self.bytes += written

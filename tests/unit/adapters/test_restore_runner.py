@@ -899,6 +899,7 @@ def test_a_not_performed_result_reads_nothing_and_would_verify(
 
 def test_a_performed_result_is_verified_again(tmp_path: Path) -> None:
     path = write_v1(tmp_path)
+    path.chmod(0o600)
     result = snapshot_result(
         PurePosixPath(path),
         scope=BackupScope.ALL,
@@ -908,6 +909,39 @@ def test_a_performed_result_is_verified_again(tmp_path: Path) -> None:
     )
     assert result.integrity is Integrity.VERIFIED
     assert result.performed is True
+
+
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o660])
+def test_a_snapshot_readable_by_others_fails_and_is_left_in_place(
+    tmp_path: Path, mode: int
+) -> None:
+    """BL-E003-076: the published file holds the Site's secrets; owner-only."""
+    path = write_v1(tmp_path)
+    path.chmod(mode)
+    with pytest.raises(SnapshotFailedError, match=f"{mode:04o}") as caught:
+        snapshot_result(
+            PurePosixPath(path),
+            scope=BackupScope.ALL,
+            encrypted=False,
+            bytes=path.stat().st_size,
+            performed=True,
+        )
+    assert caught.value.path == str(path)
+    assert path.exists()
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o400])
+def test_an_owner_only_snapshot_passes(tmp_path: Path, mode: int) -> None:
+    path = write_v1(tmp_path)
+    path.chmod(mode)
+    result = snapshot_result(
+        PurePosixPath(path),
+        scope=BackupScope.ALL,
+        encrypted=False,
+        bytes=path.stat().st_size,
+        performed=True,
+    )
+    assert result.integrity is Integrity.VERIFIED
 
 
 def test_a_performed_result_for_a_missing_file_fails(tmp_path: Path) -> None:

@@ -41,6 +41,7 @@ from typing import Final, Self
 import platformdirs
 import structlog
 
+from l3io.wp.backup.adapters.workspace import private_directories
 from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     SiteLockedError,
@@ -236,7 +237,7 @@ class FcntlSiteLock:
             if _inside(directory.resolve(), site_root):
                 reason = f"it is inside the site root {str(site_root)!r}"
                 raise SiteLockLocationError(directory, reason)
-            directory.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
+            private_directories(directory)
             # A symlink placed after the check above is caught here.
             directory = directory.resolve(strict=True)
             if _inside(directory, site_root):

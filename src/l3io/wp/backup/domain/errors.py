@@ -561,13 +561,24 @@ class ArchiveHasNoDumpError(RefusedError):
 
 
 class ExtractionRefusedError(RefusedError):
-    """Extraction refused the Archive: an unsafe member, or no ``data`` filter."""
+    """Extraction refused the Archive: an unsafe member, or no ``data`` filter.
+
+    A refusal at a member means the Archive is not what it claims, so the
+    message says so and how to check it (UX-7); one with no member is about
+    this interpreter and says what to do in its ``reason``.
+    """
 
     def __init__(self, member: str | None, reason: str) -> None:
         self.member = member
         self.reason = reason
-        where = "" if member is None else f" at member {member!r}"
-        super().__init__(f"extraction refused{where}: {reason}")
+        if member is None:
+            super().__init__(f"extraction refused: {reason}")
+            return
+        super().__init__(
+            f"extraction refused at member {member!r}: {reason}; the archive may "
+            "be damaged or tampered with, so check it with "
+            "`wpbackup2 verify --archive <archive>`"
+        )
 
 
 class MemberReadRefusedError(RefusedError):

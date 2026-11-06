@@ -1721,22 +1721,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md (Recorded risk section)
-- key: BL-E003-038
-  epic: '003'
-  sprint: '01'
-  title: 'Config handling gaps: size limit late (ADV-7), relocated-config probe mismatch (ADV-8), journal left open after failed SNAPSHOT (ADV-9), overwrite outside guard/snapshot scope (ADV-10), workspace config copy not removed (ADV-11), tree-member config still written by a raw os.open (SD-01-1 remainder). Owner E003-S02-006'
-  source: closure-adversarial
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md and _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1.
-- key: BL-E003-039
-  epic: '003'
-  sprint: '01'
-  title: Refusal text uses domain spelling (mode=files force, 'files-clean') not CLI flags; docs/restore.md omits the FR-7 refusal and REFUSED exit number (UX-1..UX-7). Owner E003-S02-006
-  source: closure-ux
-  severity: High
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md. S02-006 renders the CLI spelling (render_flags).
 - key: BL-E003-040
   epic: '003'
   sprint: '01'
@@ -1825,16 +1809,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-004.md
-- key: BL-E003-055
-  epic: '003'
-  sprint: '02'
-  title: "ADV-9: journal stays open after a failure before any destructive phase (e.g. failed SNAPSHOT); closing it needs an owner amendment of ADR-0021's 'only when' clause plus a phase-sequence guard (remaining part of BL-E003-038)"
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md M-1. The story's ADV-9 change was reverted to keep ADR-0021. Owner decision first; then a guard that every post-SNAPSHOT phase journals its start before its first effect.
 - key: BL-E003-056
   epic: '003'
   sprint: '02'
@@ -1843,8 +1817,10 @@ backlog:
   source_phase: code-review
   source_ref: E003-S02-006
   severity: Low
-  status: backlog
+  status: scheduled
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-10. The --overwrite-wp-config half is fixed in E003-S02-006.
+  story: E007-S01-002
+  scheduled_at: '2026-11-06T12:13:20Z'
 - key: BL-E003-057
   epic: '003'
   sprint: '02'
@@ -1853,28 +1829,10 @@ backlog:
   source_phase: code-review
   source_ref: E003-S02-006
   severity: Low
-  status: backlog
+  status: scheduled
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1. Needs a story granted ports/config.py and adapters/tar.py.
-- key: BL-E003-058
-  epic: '003'
-  sprint: '02'
-  title: 'UX-4: core/restore refusal messages still use domain spelling in places; needs a story granted core/restore.py messages (remaining part of BL-E003-039)'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md UX-4.
-- key: BL-E003-059
-  epic: '003'
-  sprint: '02'
-  title: 'UX-7: adapters/tar.py error wording not operator-facing; needs a story granted adapters/tar.py (remaining part of BL-E003-039)'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md UX-7.
+  story: E007-S01-001
+  scheduled_at: '2026-11-06T12:13:21Z'
 - key: BL-E003-061
   epic: '003'
   sprint: '02'
@@ -1955,46 +1913,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
-- key: BL-E003-075
-  epic: '003'
-  sprint: '02'
-  title: Passphrase prompt runs on every restore including unencrypted Archives, before the Archive is probed
-  source: adversarial (ADV-S02-07)
-  source_phase: adversarial
-  source_ref: ADV-S02-07
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-076
-  epic: '003'
-  sprint: '02'
-  title: Safety Snapshot at rest unencrypted without passphrase, no documented retention, file mode unverified; --new-db-password on argv
-  source: adversarial (ADV-S02-08)
-  source_phase: adversarial
-  source_ref: ADV-S02-08
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-077
-  epic: '003'
-  sprint: '02'
-  title: Run journal per-user keyed by Site Root; second OS user does not see open journal; begin_run exists-then-write; dirs use umask
-  source: adversarial (ADV-S02-09)
-  source_phase: adversarial
-  source_ref: ADV-S02-09
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-082
-  epic: '003'
-  sprint: '02'
-  title: Not-yet-working flags (--wp-config, --new-*) shown live in restore --help; internal names leak
-  source: ux-review (UX-S02-03)
-  source_phase: ux-review
-  source_ref: UX-S02-03
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-085
   epic: '003'
   sprint: '02'

@@ -96,7 +96,9 @@ def test_a_member_larger_than_its_index_entry_is_refused(
 ) -> None:
     short = {"site-root/a.php": len(BODY), "site-root/b.php": len(BODY) - 1}
     source, view = _crafted(tmp_path, short)
-    with pytest.raises(ExtractionRefusedError, match="exceeds the indexed") as caught:
+    with pytest.raises(
+        ExtractionRefusedError, match="the archive lists for it"
+    ) as caught:
         extract_archive(source, destination, view, roles=SITE)
     assert caught.value.member == "site-root/b.php"
     assert not (destination / "b.php").exists()
@@ -279,3 +281,76 @@ def test_a_repeated_member_name_is_sized_by_its_largest_copy(tmp_path: Path) -> 
         StorageTarget(scheme="file", path=PurePosixPath(path))
     )
     assert digests["wp-root/dup.bin"].size == 5000
+
+
+# --------------------------------------------------------------------------
+# UX-7 (BL-E003-059): extraction refusals in the operator's terms
+# --------------------------------------------------------------------------
+
+
+def test_a_member_refusal_says_the_archive_may_be_bad_and_how_to_check(
+    tmp_path: Path, destination: Path
+) -> None:
+    short = {"site-root/a.php": len(BODY), "site-root/b.php": len(BODY) - 1}
+    source, view = _crafted(tmp_path, short)
+    with pytest.raises(ExtractionRefusedError) as caught:
+        extract_archive(source, destination, view, roles=SITE)
+    text = str(caught.value)
+    assert "damaged or tampered with" in text
+    assert "wpbackup2 verify --archive" in text
+    assert "index" not in text
+
+
+def test_an_interpreter_refusal_does_not_blame_the_archive() -> None:
+    text = str(ExtractionRefusedError(None, "this Python's tarfile has no data filter"))
+    assert "tampered" not in text
+    assert "verify" not in text
+
+
+def _refusal_texts(source: str) -> list[str]:
+    """The literal text of every ``ExtractionRefusedError(...)`` reason in ``source``.
+
+    Reasons built first (``reason = f"..."``) are included: every string
+    constant in the module that is assigned to ``reason`` or passed as the
+    second argument.
+    """
+    texts: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        value: ast.expr | None = None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "ExtractionRefusedError"
+            and len(node.args) == 2
+        ):
+            value = node.args[1]
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "reason" for t in node.targets
+        ):
+            value = node.value
+        if value is not None:
+            texts += [
+                part.value
+                for part in ast.walk(value)
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            ]
+    return texts
+
+
+def test_no_extraction_refusal_uses_manifest_vocabulary() -> None:
+    texts = _refusal_texts(Path(tar_module.__file__).read_text(encoding="utf-8"))
+    assert len(texts) > 10
+    assert [t for t in texts if "index" in t] == []
+
+
+def test_a_planted_index_word_is_caught() -> None:
+    planted = (
+        'raise ExtractionRefusedError(name, "not in the member index")\n'
+        'reason = f"exceeds the indexed {n}"\n'
+        'raise ExtractionRefusedError(name, "a hard link")\n'
+    )
+    texts = _refusal_texts(planted)
+    assert sorted(t for t in texts if "index" in t) == [
+        "exceeds the indexed ",
+        "not in the member index",
+    ]

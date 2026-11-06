@@ -1,8 +1,9 @@
 """E003-S02-006 — Epic 7's seam: ``RESTORE_EXTENSION``, absent and present.
 
 Absent: each ``RelocationFlags`` field set alone (scope from
-``dataclasses.fields``) is ``USAGE`` naming Epic 7, before the lock; none set
-plans ``NO_RELOCATION``. Present: one assertion per seam the factory fills.
+``dataclasses.fields``) is ``USAGE`` saying relocation is unsupported, before
+the lock; none set plans ``NO_RELOCATION``. Present: one assertion per seam
+the factory fills.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import restore as restore_mod
+from l3io.wp.backup.cli.parser import RELOCATION_UNAVAILABLE
 from l3io.wp.backup.cli.restore import RelocationFlags
 from l3io.wp.backup.core.restore import NO_RELOCATION, RestoreRelocation
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
@@ -48,7 +50,7 @@ def test_without_epic_7_each_relocation_flag_is_usage_before_the_lock(
     monkeypatch.setattr(restore_mod, "RESTORE_EXTENSION", None)
     value: object = Path("/x/wp-config.php") if name == "wp_config" else "value-e003"
     lock = RecordingSiteLock()
-    with pytest.raises(UsageError, match="Epic 7") as caught:
+    with pytest.raises(UsageError, match=RELOCATION_UNAVAILABLE) as caught:
         restore_mod.drive_restore(
             rig.request(relocation=_flags(**{name: value})), ctx=None, site_lock=lock
         )

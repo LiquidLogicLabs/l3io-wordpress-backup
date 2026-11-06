@@ -130,3 +130,48 @@ def test_a_claim_that_fits_exactly_passes() -> None:
     check_claims([SpaceClaim(SNAPSHOT_FILESYSTEM, 1, USABLE, FREE)])
     with pytest.raises(InsufficientSpaceError, match="Safety Snapshot"):
         check_claims([SpaceClaim(SNAPSHOT_FILESYSTEM, 1, USABLE + 1, FREE)])
+
+
+# --------------------------------------------------------------------------
+# UX-4 (BL-E003-058): a refusal the operator can act on
+# --------------------------------------------------------------------------
+
+GIB = 1024**3
+
+
+def test_a_space_refusal_names_the_path_readable_sizes_and_a_remedy() -> None:
+    with pytest.raises(InsufficientSpaceError) as caught:
+        check_expansion(
+            **{**OK, "target_need": GIB, "target_free": GIB // 2},
+            target_path="/srv/www/example",
+        )
+    text = str(caught.value)
+    assert "'/srv/www/example'" in text
+    assert "1024.0 MiB" in text
+    assert "512.0 MiB" in text
+    assert "free " in text
+    assert "another filesystem" in text
+    assert "nothing was changed" in text
+    assert caught.value.paths == ("/srv/www/example",)
+    assert (caught.value.needed, caught.value.free) == (GIB, GIB // 2)
+
+
+def test_summed_claims_name_every_short_destination() -> None:
+    half = USABLE // 2 + 1
+    claims = [
+        SpaceClaim(TARGET_FILESYSTEM, 1, half, FREE, "/srv/www/example"),
+        SpaceClaim(WORKSPACE_FILESYSTEM, 1, 0, FREE, "/var/work/run"),
+        SpaceClaim(SNAPSHOT_FILESYSTEM, 1, half, FREE, "/var/snapshots"),
+    ]
+    with pytest.raises(InsufficientSpaceError) as caught:
+        check_claims(claims)
+    assert caught.value.paths == ("/srv/www/example", "/var/snapshots")
+    assert "'/var/snapshots'" in str(caught.value)
+
+
+def test_the_expansion_refusal_says_there_is_no_override() -> None:
+    with pytest.raises(ExpansionRatioError) as caught:
+        check_expansion(**{**OK, "expanded": (MAX_EXPANSION_RATIO + 1) * 100})
+    text = str(caught.value)
+    assert "no override" in text
+    assert "nothing was changed" in text

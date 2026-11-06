@@ -13,7 +13,9 @@ the Run's ``SecretRegistry`` before it is returned, so it is redactable before
 :func:`resolve_passphrase` from here; there is no second chain.
 
 A backup root calls the chain only when passphrase encryption is requested; a
-restore root calls it on every restore (ADR-0024).
+restore root calls it on every restore (ADR-0024), with its own ``label``
+saying the passphrase also encrypts the Safety Snapshot and may be left empty
+(BL-E003-075).
 """
 
 from __future__ import annotations
@@ -60,9 +62,9 @@ def terminal_prompt() -> Callable[[str], str] | None:
     return getpass.getpass if sys.stdin.isatty() else None
 
 
-def _prompted(prompt: Callable[[str], str]) -> str:
+def _prompted(prompt: Callable[[str], str], label: str) -> str:
     try:
-        return prompt(_PROMPT)
+        return prompt(label)
     except (EOFError, KeyboardInterrupt):
         raise PassphraseUnavailableError(
             PASSPHRASE_ENV, reason="the prompt was closed before a passphrase was given"
@@ -75,8 +77,11 @@ def resolve_passphrase(
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
     secrets: SecretRegistry,
+    label: str = _PROMPT,
 ) -> ResolvedPassphrase | None:
     """The AD-26 chain. ``None`` when no step supplies a passphrase.
+
+    ``label`` is the text ``prompt`` shows.
 
     Raises ``PassphraseUnavailableError`` when the prompt is closed (EOF or
     interrupt) or the value is shorter than the registry can redact.
@@ -87,7 +92,7 @@ def resolve_passphrase(
     elif environ.get(PASSPHRASE_ENV):
         resolved = ResolvedPassphrase(environ[PASSPHRASE_ENV], "environment")
     elif prompt is not None:
-        value = _prompted(prompt)
+        value = _prompted(prompt, label)
         if value:
             resolved = ResolvedPassphrase(value, "prompt")
     if resolved is None:

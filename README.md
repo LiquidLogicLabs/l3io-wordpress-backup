@@ -69,7 +69,8 @@ positional arguments:
     backup              Perform a WordPress backup
     restore             Perform a WordPress restore
     verify              Check an archive without touching a site
-    doctor              Report whether this host is ready to back up and restore
+    doctor              Report whether this host is ready to back up and restore (not available in
+                        this build)
 
 options:
   -h, --help            show this help message and exit
@@ -110,18 +111,23 @@ options:
                         What to back up: files, db, or all (default: all)
   --encrypt-with-passphrase
                         Encrypt the archive with a passphrase. The passphrase comes from
-                        L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line
-  --exclude PATTERN     Leave matching paths out of the archive (repeatable)
+                        L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line (not
+                        available in this build)
+  --exclude PATTERN     Leave matching paths out of the archive (repeatable) (not available in
+                        this build)
   --no-default-excludes
-                        Do not apply the default exclusion set
+                        Do not apply the default exclusion set (not available in this build)
   --list-default-excludes
-                        Print the default exclusion set and exit without backing up
+                        Print the default exclusion set and exit without backing up (not available
+                        in this build)
 
 database credentials:
   --db-credentials-aws-secret-id ID
                         Read the WordPress database account from this AWS Secrets Manager secret
+                        (not available in this build)
   --db-credentials-aws-region REGION
-                        AWS region of --db-credentials-aws-secret-id (needs the secret id)
+                        AWS region of --db-credentials-aws-secret-id (needs the secret id) (not
+                        available in this build)
 ```
 
 ```text
@@ -161,7 +167,8 @@ restore mode:
 restore options:
   --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
                         change nothing (also accepted before `restore`)
-  --wp-config PATH      use this wp-config.php instead of searching for it
+  --wp-config PATH      use this wp-config.php instead of searching for it (not available in this
+                        build)
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
                         a mode that restores files)
@@ -188,29 +195,34 @@ restore options:
                         Database administrator password. The value is visible in the process list;
                         prefer L3IO_WP_BACKUP_ADMIN_PASSWORD
   --admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID
-                        Read the database administrator from this AWS Secrets Manager secret
+                        Read the database administrator from this AWS Secrets Manager secret (not
+                        available in this build)
   --admin-credentials-aws-region ADMIN_CREDENTIALS_AWS_REGION
-                        AWS region of --admin-credentials-aws-secret-id (needs the secret id)
+                        AWS region of --admin-credentials-aws-secret-id (needs the secret id) (not
+                        available in this build)
   --only-appointed-in-asg
-                        Removed with chesney; accepted only to explain that
+                        Removed; accepted only to say so (not available in this build)
   --new-site-url NEW_SITE_URL
-                        Relocate the Site to this URL
+                        Relocate the Site to this URL (not available in this build)
   --new-site-home-url NEW_SITE_HOME_URL
-                        Relocate the Site's home URL
+                        Relocate the Site's home URL (not available in this build)
   --new-db-host NEW_DB_HOST
-                        Relocate to this database host
+                        Relocate to this database host (not available in this build)
   --new-db-name NEW_DB_NAME
-                        Relocate to this database name
+                        Relocate to this database name (not available in this build)
   --new-db-user NEW_DB_USER
-                        Relocate to this database user
+                        Relocate to this database user (not available in this build)
   --new-db-password NEW_DB_PASSWORD
-                        Password of --new-db-user. The value is visible in the process list
+                        Password of --new-db-user. The value is visible in the process list (not
+                        available in this build)
 
 database credentials:
   --db-credentials-aws-secret-id ID
                         Read the WordPress database account from this AWS Secrets Manager secret
+                        (not available in this build)
   --db-credentials-aws-region REGION
-                        AWS region of --db-credentials-aws-secret-id (needs the secret id)
+                        AWS region of --db-credentials-aws-secret-id (needs the secret id) (not
+                        available in this build)
 ```
 
 ```text

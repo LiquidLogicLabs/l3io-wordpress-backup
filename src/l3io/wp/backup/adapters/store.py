@@ -25,6 +25,7 @@ from typing import IO, Final, cast
 import structlog
 
 from l3io.wp.backup.adapters.phase import phase
+from l3io.wp.backup.adapters.workspace import private_directories
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.domain.errors import ArchiveExistsError, ArchiveWriteError
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -34,7 +35,6 @@ __all__ = ["LocalArchiveStore"]
 _log = structlog.get_logger(__name__)
 
 _STAGED_SUFFIX: Final = ".partial"
-_DIR_MODE: Final = 0o700
 
 
 def _final_path(target: StorageTarget) -> Path:
@@ -177,7 +177,7 @@ class LocalArchiveStore:
         directory = final.parent
         try:
             if self._create_directory:
-                directory.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
+                private_directories(directory)
             fd, staged = tempfile.mkstemp(
                 prefix=f".{final.name}.", suffix=_STAGED_SUFFIX, dir=directory
             )

@@ -17,8 +17,11 @@ too.
 
 **Accepted and explained (AD-22).** A flag or subcommand whose behaviour has
 not landed is registered anyway and listed in :data:`NOT_YET_IMPLEMENTED`
-with the story that binds it; :func:`not_yet_implemented` names it, and the
-root exits ``USAGE`` rather than ignoring it.
+with an operator-facing reason; :func:`not_yet_implemented` names it, and the
+root exits ``USAGE`` rather than ignoring it. Its ``--help`` line ends with
+:data:`NOT_AVAILABLE_NOTE`, applied from the same mapping (UX-S02-03). The
+story that binds each entry is named in a comment beside its reason, never
+in text an operator reads.
 
 **Secret values.** No flag takes a passphrase; passphrases come only from
 AD-26's chain. ``--admin-password`` and ``--new-db-password`` are the two
@@ -42,7 +45,9 @@ __all__ = [
     "DEFAULT_LOG_LEVEL",
     "DOCTOR_COMMAND",
     "LOG_FORMATS",
+    "NOT_AVAILABLE_NOTE",
     "NOT_YET_IMPLEMENTED",
+    "RELOCATION_UNAVAILABLE",
     "RESTORE_COMMAND",
     "RESTORE_MODE_GROUP",
     "RESTORE_OPTIONS_GROUP",
@@ -65,35 +70,44 @@ RESTORE_OPTIONS_GROUP = "restore options"
 #: The administrator's password from the environment, not the command line.
 ADMIN_PASSWORD_VARIABLE = "L3IO_WP_BACKUP_ADMIN_PASSWORD"  # noqa: S105 - a name
 
-_RELOCATION_BINDER = "delivered by Epic 7 (relocation)"
-_ROOT_BINDER = "delivered by E008-S01-001"
+#: Why a relocation flag is refused. Bound by Epic 7 (E007-S01-001, E007-S01-002).
+RELOCATION_UNAVAILABLE: Final = (
+    "restoring to a new URL, database or wp-config.php location is not supported yet"
+)
+# Bound by E008-S01-001 (the composition roots take Epics 4 and 5's providers).
+_AWS_UNAVAILABLE = "reading credentials from AWS Secrets Manager is not supported yet"
+_ENCRYPTION_UNAVAILABLE = "encrypting a backup is not supported yet"
+_EXCLUDES_UNAVAILABLE = "excluding paths from a backup is not supported yet"
+_DOCTOR_UNAVAILABLE = "the host readiness report is not supported yet"
+# Never bound: the legacy option had no meaning without its removed dependency.
+_REMOVED = "this option was removed and will not return"
+#: Ends the ``--help`` line of every :data:`NOT_YET_IMPLEMENTED` entry.
+NOT_AVAILABLE_NOTE: Final = "(not available in this build)"
 
 #: Each subcommand (``"restore"``) or subcommand flag (``"restore --force"``)
-#: that is accepted but not yet bound, and the story that binds it. Using one
-#: exits ``USAGE`` naming both; the binding story removes its entries.
+#: that is accepted but not yet bound, and why, in the operator's terms. Using
+#: one exits ``USAGE`` naming both; the binding story removes its entries.
 NOT_YET_IMPLEMENTED: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "restore --wp-config": _RELOCATION_BINDER,
-        "restore --new-site-url": _RELOCATION_BINDER,
-        "restore --new-site-home-url": _RELOCATION_BINDER,
-        "restore --new-db-host": _RELOCATION_BINDER,
-        "restore --new-db-name": _RELOCATION_BINDER,
-        "restore --new-db-user": _RELOCATION_BINDER,
-        "restore --new-db-password": _RELOCATION_BINDER,
-        "restore --admin-credentials-aws-secret-id": _ROOT_BINDER,
-        "restore --admin-credentials-aws-region": _ROOT_BINDER,
-        "restore --db-credentials-aws-secret-id": _ROOT_BINDER,
-        "restore --db-credentials-aws-region": _ROOT_BINDER,
-        "restore --only-appointed-in-asg": (
-            "removed with `chesney`; it will not be implemented"
-        ),
-        "backup --encrypt-with-passphrase": _ROOT_BINDER,
-        "backup --exclude": _ROOT_BINDER,
-        "backup --no-default-excludes": _ROOT_BINDER,
-        "backup --list-default-excludes": _ROOT_BINDER,
-        "backup --db-credentials-aws-secret-id": _ROOT_BINDER,
-        "backup --db-credentials-aws-region": _ROOT_BINDER,
-        DOCTOR_COMMAND: _ROOT_BINDER,
+        "restore --wp-config": RELOCATION_UNAVAILABLE,
+        "restore --new-site-url": RELOCATION_UNAVAILABLE,
+        "restore --new-site-home-url": RELOCATION_UNAVAILABLE,
+        "restore --new-db-host": RELOCATION_UNAVAILABLE,
+        "restore --new-db-name": RELOCATION_UNAVAILABLE,
+        "restore --new-db-user": RELOCATION_UNAVAILABLE,
+        "restore --new-db-password": RELOCATION_UNAVAILABLE,
+        "restore --admin-credentials-aws-secret-id": _AWS_UNAVAILABLE,
+        "restore --admin-credentials-aws-region": _AWS_UNAVAILABLE,
+        "restore --db-credentials-aws-secret-id": _AWS_UNAVAILABLE,
+        "restore --db-credentials-aws-region": _AWS_UNAVAILABLE,
+        "restore --only-appointed-in-asg": _REMOVED,
+        "backup --encrypt-with-passphrase": _ENCRYPTION_UNAVAILABLE,
+        "backup --exclude": _EXCLUDES_UNAVAILABLE,
+        "backup --no-default-excludes": _EXCLUDES_UNAVAILABLE,
+        "backup --list-default-excludes": _EXCLUDES_UNAVAILABLE,
+        "backup --db-credentials-aws-secret-id": _AWS_UNAVAILABLE,
+        "backup --db-credentials-aws-region": _AWS_UNAVAILABLE,
+        DOCTOR_COMMAND: _DOCTOR_UNAVAILABLE,
     }
 )
 #: Triage E-14: ``INFO``, not v0.2.21's ``CRITICAL`` (a behaviour fix AD-22 permits).
@@ -156,23 +170,49 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="action", help="Action being requested")
     _add_backup(
-        subparsers.add_parser(BACKUP_COMMAND, help="Perform a WordPress backup")
+        subparsers.add_parser(
+            BACKUP_COMMAND, help=_noted(BACKUP_COMMAND, "Perform a WordPress backup")
+        )
     )
     _add_restore(
-        subparsers.add_parser(RESTORE_COMMAND, help="Perform a WordPress restore")
+        subparsers.add_parser(
+            RESTORE_COMMAND, help=_noted(RESTORE_COMMAND, "Perform a WordPress restore")
+        )
     )
     _add_verify(
         subparsers.add_parser(
-            VERIFY_COMMAND, help="Check an archive without touching a site"
+            VERIFY_COMMAND,
+            help=_noted(VERIFY_COMMAND, "Check an archive without touching a site"),
         )
     )
     _add_doctor(
         subparsers.add_parser(
             DOCTOR_COMMAND,
-            help="Report whether this host is ready to back up and restore",
+            help=_noted(
+                DOCTOR_COMMAND,
+                "Report whether this host is ready to back up and restore",
+            ),
         )
     )
+    for command, command_parser in subparsers.choices.items():
+        _note_unavailable_flags(command, command_parser)
     return parser
+
+
+def _noted(key: str, text: str) -> str:
+    """``text``, ending with :data:`NOT_AVAILABLE_NOTE` when ``key`` is unbound."""
+    return f"{text} {NOT_AVAILABLE_NOTE}" if key in NOT_YET_IMPLEMENTED else text
+
+
+def _note_unavailable_flags(
+    command: str, command_parser: argparse.ArgumentParser
+) -> None:
+    """UX-S02-03: mark each unbound flag's help, derived from the mapping."""
+    for action in command_parser._actions:  # noqa: SLF001 - argparse has no public API
+        for flag in action.option_strings:
+            if f"{command} {flag}" in NOT_YET_IMPLEMENTED and action.help:
+                action.help = _noted(f"{command} {flag}", action.help)
+                break
 
 
 def _add_db_credentials(parser: argparse.ArgumentParser) -> None:
@@ -402,7 +442,7 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     options.add_argument(
         "--only-appointed-in-asg",
         action="store_true",
-        help="Removed with chesney; accepted only to explain that",
+        help="Removed; accepted only to say so",
     )
     options.add_argument(
         "--new-site-url", default=None, help="Relocate the Site to this URL"

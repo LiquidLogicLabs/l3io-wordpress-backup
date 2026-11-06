@@ -164,6 +164,11 @@ the plugin and the server (RT-S02-003; `l3io-wordpress-database` 0.3.2).
 
 ## Interrupted Runs
 
+The Run Journal and the Site Lock live in the per-user state directory of the
+OS user running the restore. A restore of the same Site by another OS user
+neither sees that journal nor waits for that lock, so run every restore of a
+Site as the same user.
+
 A Run killed part-way leaves its journal open. The next restore of the Site is
 refused (exit 3), naming the interrupted Run, its phase, how to undo it and the
 journal's path. `--resolve-interrupted-run RUN_ID` acknowledges it (completing
@@ -228,10 +233,15 @@ Two limits, each changed only by a recorded decision:
 - **Expansion ratio: 200.** An Archive whose members expand to more than 200
   times its compressed size is refused as a decompression bomb.
 
-Both refusals exit `REFUSED`, naming the filesystem that is short, the bytes
-needed and the bytes free. For a v1 Archive the sizes come from its Manifest;
+Both refusals exit `REFUSED` and change nothing. A space refusal names the
+filesystem that is short and the paths on it, the space needed, free and
+short (in MiB, with the exact bytes), and the remedy: free that much, or use a
+location on another filesystem (the Run workspace follows `TMPDIR`, the Safety
+Snapshot `--snapshot-dir`). The expansion limit has no override. For a v1 Archive the sizes come from its Manifest;
 for a v0 Archive they are read from its tar headers. During extraction a member
-whose header states more bytes than its Manifest entry is refused.
+whose header states more bytes than its Manifest entry is refused. Every
+refusal at a member says the Archive may be damaged or tampered with and to
+check it with `wpbackup2 verify --archive <archive>`.
 
 When the Run takes a Safety Snapshot of the files, the Site Root's current file
 bytes are charged to the snapshot directory's filesystem. Destinations on the
@@ -262,9 +272,24 @@ cover, or the non-empty guard now refuses, the restore stops with `REFUSED`
 before anything is destroyed. That Run's journal stays open (nothing was
 changed), so the next restore names it until it is resolved.
 
-Without a passphrase the snapshot is written unencrypted and the Run says so on
-stderr (`safety snapshot is NOT encrypted: <path>`). When a later phase fails,
-the snapshot's path is printed with the failure.
+The passphrase comes from `L3IO_WP_BACKUP_PASSPHRASE` or, on a terminal, a
+prompt that runs before the Archive is read. The one passphrase decrypts an
+encrypted Archive and encrypts the snapshot, so the prompt asks for it on every
+interactive restore and says both uses; leave it empty for none. With a
+passphrase, stderr says `safety snapshot is encrypted with the passphrase this
+restore was given: <path>`, and restoring that snapshot needs it. Without one
+the snapshot is written unencrypted and the Run says so on stderr (`safety
+snapshot is NOT encrypted: <path>`). When a later phase fails, the snapshot's
+path is printed with the failure.
+
+The published snapshot file is mode `0600`, and every directory the Run
+creates for it is `0700` (an existing directory is left as it is); a published
+file readable by anyone else stops the Run with `REFUSED` before anything is
+destroyed. An unencrypted
+snapshot holds the Site's `wp-config.php` (with its database password) and a
+Dump of its database. **Nothing removes snapshots, or the `wp-config.php`
+copies `--overwrite-wp-config` saves beside them:** each stays in its directory
+until you delete it, so delete those you no longer need.
 
 ## `wp-config.php`
 
