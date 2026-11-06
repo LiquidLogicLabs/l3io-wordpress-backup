@@ -563,6 +563,29 @@ class ArchiveIdentityUnconfirmedError(RefusedError):
         )
 
 
+class ExistingDatabaseUserError(RefusedError):
+    """The Archive's config names a database account that already exists.
+
+    RT-S02-004 (owner decision, 2026-11-06, option A): with no target
+    ``wp-config.php`` the WordPress account and its password come from the
+    Archive, and provisioning would reset an existing account's password to
+    the Archive's value. That is refused unless the operator passes
+    ``--reset-existing-db-user``. A missing account is still created. Raised
+    after the administrator's survey and before any effect; never a password.
+    """
+
+    def __init__(self, *, user: str, location: DatabaseLocation) -> None:
+        self.user = user
+        self.location = location
+        super().__init__(
+            f"the archive's config names the database account {user}, which "
+            f"already exists on {location.host}:{location.port}; restoring "
+            "would reset its password to the archive's. Pass "
+            "--reset-existing-db-user if that account belongs to this site. "
+            "Nothing was changed"
+        )
+
+
 def parse_archive_database(text: str) -> tuple[str, DatabaseLocation]:
     """``USER@HOST[:PORT]/NAME`` → ``(user, location)``; ``UsageError`` otherwise.
 
@@ -751,6 +774,7 @@ class RestoreRequest:
     archive_database: str | None
     admin_tls: AdminTls
     relocation: RelocationFlags
+    reset_existing_db_user: bool
     dry_run: bool
     extra_tools: tuple[ToolRequirement, ...] = ()
     opted_out_by: str = NO_SNAPSHOT_FLAG
@@ -1066,6 +1090,27 @@ def _prior_constants(run: RunContext, config_file: Path) -> dict[str, str | None
     return {k: None if read.get(k) is None else str(read.get(k)) for k in keys}
 
 
+def _require_reset_consent(
+    request: RestoreRequest,
+    target: TargetState,
+    *,
+    config_from_archive: bool,
+    user: str,
+    location: DatabaseLocation,
+) -> None:
+    """RT-S02-004: refuse resetting an existing account's password from the
+    Archive without ``--reset-existing-db-user``; existence is the
+    administrator's survey (AD-29)."""
+    if (
+        config_from_archive
+        and restores_database(request.mode)
+        and target.database is not None
+        and target.database.user_exists is True
+        and not request.reset_existing_db_user
+    ):
+        raise ExistingDatabaseUserError(user=user, location=location)
+
+
 def drive_restore(
     request: RestoreRequest,
     *,
@@ -1140,6 +1185,7 @@ def drive_restore(
         # Step 3: the Site Descriptor, the credential sources, the one bind.
         archive = _Archive(request.archive, run.workspace)
         located = _locate(site_root, request.relocation.wp_config)
+        config_from_archive = located is None
         if located is not None:
             site, wp_config = site_descriptor_from_wp_config(
                 site_root, config_file=located.path
@@ -1260,6 +1306,13 @@ def drive_restore(
         snapshot_dir = _snapshot_dir(request, site_root)
         try:
             target = survey()
+            _require_reset_consent(
+                request,
+                target,
+                config_from_archive=config_from_archive and relocated_spec is None,
+                user=db_user,
+                location=site.database_location(),
+            )
             plan = build_restore_plan(
                 site,
                 request.mode,
@@ -1593,6 +1646,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
             ca_file=None if args.admin_tls_ca is None else Path(args.admin_tls_ca),
         ),
         relocation=relocation,
+        reset_existing_db_user=bool(args.reset_existing_db_user),
         dry_run=bool(args.what_if),
     )
     try:

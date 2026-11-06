@@ -248,6 +248,7 @@ class Rig:
             "archive_database": None,
             "admin_tls": AdminTls(mode=None, ca_file=None),
             "relocation": restore_mod.RelocationFlags.none(),
+            "reset_existing_db_user": False,
             "dry_run": False,
         }
         values.update(changes)

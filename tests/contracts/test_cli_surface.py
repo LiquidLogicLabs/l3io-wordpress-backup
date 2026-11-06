@@ -222,6 +222,7 @@ ADDITIONS = [
     (RESTORE_COMMAND, "--snapshot-dir"),
     (RESTORE_COMMAND, "--resolve-interrupted-run"),
     (RESTORE_COMMAND, "--overwrite-wp-config"),
+    (RESTORE_COMMAND, "--reset-existing-db-user"),
     (RESTORE_COMMAND, "--archive-database"),
     (RESTORE_COMMAND, "--admin-tls"),
     (RESTORE_COMMAND, "--admin-tls-ca"),

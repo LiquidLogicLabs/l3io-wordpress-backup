@@ -59,6 +59,7 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
+from tests.conftest import CredentialSentinel
 from tests.restore_harness import ARCHIVE_DB
 from tests.restore_root_rig import ALL_WAIVED, Rig, report_for
 from tests.unit.cli.conftest import RecordingSiteLock
@@ -272,6 +273,7 @@ def test_backup_receives_the_config_the_run_uses(rig: Rig, has_config: bool) -> 
         changes["archive_database"] = (
             f"{ARCHIVE_DB['DB_USER']}@{ARCHIVE_DB['DB_HOST']}/{ARCHIVE_DB['DB_NAME']}"
         )
+        changes["reset_existing_db_user"] = True  # the rig's account exists
     modes: list[int] = []
 
     def snapshot_then_report(*args: object, **kwargs: object) -> object:
@@ -484,9 +486,59 @@ def test_an_unconfirmed_archive_identity_is_refused_before_any_connection(
 def test_a_matching_archive_identity_proceeds(rig: Rig) -> None:
     _no_config(rig)
     spelled = _ARCHIVE_ID.replace(ARCHIVE_DB["DB_HOST"], ARCHIVE_DB["DB_HOST"].upper())
-    rig.drive(archive_database=spelled)
+    rig.drive(archive_database=spelled, reset_existing_db_user=True)
     assert rig.executions
     assert rig.inputs.site.db_name == ARCHIVE_DB["DB_NAME"]
+
+
+# --- RT-S02-004 (owner decision, 2026-11-06, A) ----------------------------------
+
+
+def test_an_existing_account_named_by_the_archive_is_refused_before_any_effect(
+    rig: Rig, credential_sentinel: CredentialSentinel
+) -> None:
+    """No target config, the account exists, no flag: REFUSED, nothing run."""
+    _no_config(rig)
+    assert rig.survey.user_exists is True
+    with pytest.raises(restore_mod.ExistingDatabaseUserError) as caught:
+        rig.drive(archive_database=_ARCHIVE_ID)
+    assert caught.value.exit_code is ExitCode.REFUSED
+    text = str(caught.value)
+    assert ARCHIVE_DB["DB_USER"] in text
+    assert "--reset-existing-db-user" in text
+    assert ARCHIVE_DB["DB_PASSWORD"] not in text
+    assert not rig.executions
+    calls = [e[0] for e in rig.events if isinstance(e, tuple)]
+    assert set(calls) <= {"survey"}, f"only the administrator's survey ran: {calls}"
+    credential_sentinel.add_exception("existing account", caught.value)
+    credential_sentinel.assert_clean()
+
+
+def test_a_dry_run_refuses_an_existing_account_the_same_way(rig: Rig) -> None:
+    _no_config(rig)
+    with pytest.raises(restore_mod.ExistingDatabaseUserError):
+        rig.drive(archive_database=_ARCHIVE_ID, dry_run=True)
+
+
+@pytest.mark.parametrize(
+    "case", ["flag-given", "account-absent", "target-has-config", "files-only"]
+)
+def test_an_existing_account_is_accepted_when_the_rule_does_not_apply(
+    rig: Rig, case: str
+) -> None:
+    changes: dict[str, object] = {"archive_database": _ARCHIVE_ID}
+    if case != "target-has-config":
+        _no_config(rig)
+    else:
+        changes = {}
+    if case == "flag-given":
+        changes["reset_existing_db_user"] = True
+    if case == "account-absent":
+        rig.survey = dataclasses.replace(rig.survey, user_exists=False)
+    if case == "files-only":
+        changes["mode"] = RestoreMode.FILES
+    rig.drive(**changes)
+    assert rig.executions
 
 
 def test_a_malformed_archive_database_is_usage_before_the_lock(rig: Rig) -> None:

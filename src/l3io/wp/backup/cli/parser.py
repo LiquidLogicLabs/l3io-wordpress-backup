@@ -321,6 +321,15 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         ),
     )
     options.add_argument(
+        "--reset-existing-db-user",
+        action="store_true",
+        help=(
+            "When the target has no wp-config.php and the archive's database "
+            "account already exists: reset its password to the archive's "
+            "(refused otherwise)"
+        ),
+    )
+    options.add_argument(
         "--no-safety-snapshot",
         action="store_true",
         help="Do not take the Safety Snapshot before changing anything",

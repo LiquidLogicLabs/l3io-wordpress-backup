@@ -541,3 +541,16 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-06T11:31:14Z'
   ref: E003-S02-006
+- key: BL-E003-070
+  epic: '003'
+  sprint: '02'
+  title: ensure resets the password of an existing account named by the Archive config; created accounts are @'%'
+  source: redteam (RT-S02-004)
+  source_phase: redteam
+  source_ref: RT-S02-004
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T11:45:11Z'
+  ref: E003-S02-006

@@ -222,16 +222,19 @@ def test_an_empty_target_takes_its_descriptor_from_the_archive(
     assert not any(empty.iterdir())
     # The Archive's database is the fixture's live one (non-empty), so FR-7
     # needs the table's authorizing flags; the empty directory is the point.
-    ran = run_cli(
-        site.argv(
-            archive,
-            *authorizing_flags(RestoreMode.ALL),
-            "--archive-database",
-            site.identity(),
-            root=empty,
-        ),
-        capsys,
+    confirmed = (
+        archive,
+        *authorizing_flags(RestoreMode.ALL),
+        "--archive-database",
+        site.identity(),
     )
+    # RT-S02-004: the Archive's account already exists on the server, so
+    # resetting its password needs the operator's explicit flag.
+    ran = run_cli(site.argv(*confirmed, root=empty), capsys)
+    assert ran.code == int(ExitCode.REFUSED), ran.err[-3000:]
+    assert "ExistingDatabaseUserError" in ran.err
+    assert not any(empty.iterdir())
+    ran = run_cli(site.argv(*confirmed, "--reset-existing-db-user", root=empty), capsys)
     assert ran.code == int(ExitCode.OK), ran.err[-3000:]
     assert (empty / "index.php").read_bytes() == INDEX
     assert "wp_restored" in site.site.checksums(_live_database_at(empty))

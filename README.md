@@ -128,8 +128,8 @@ database credentials:
 $ wpbackup2 restore --help
 usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files,db,all}]
                          [--cleanfirst] [--drop-database] [--force] [--whatIf] [--wp-config PATH]
-                         [--overwrite-wp-config] [--no-safety-snapshot] [--snapshot-dir PATH]
-                         [--archive-database USER@HOST[:PORT]/NAME]
+                         [--overwrite-wp-config] [--reset-existing-db-user] [--no-safety-snapshot]
+                         [--snapshot-dir PATH] [--archive-database USER@HOST[:PORT]/NAME]
                          [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
                          [--resolve-interrupted-run RUN_ID] [--admin-username ADMIN_USERNAME]
                          [--admin-password ADMIN_PASSWORD]
@@ -165,6 +165,9 @@ restore options:
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
                         a mode that restores files)
+  --reset-existing-db-user
+                        When the target has no wp-config.php and the archive's database account
+                        already exists: reset its password to the archive's (refused otherwise)
   --no-safety-snapshot  Do not take the Safety Snapshot before changing anything
   --snapshot-dir PATH   Directory to write the Safety Snapshot to (default: the per-user state
                         directory). Refused inside the Site Root or the wp-config.php directory; a

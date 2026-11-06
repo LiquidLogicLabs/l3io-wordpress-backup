@@ -126,6 +126,15 @@ The refusal never echoes what you typed. A user part holding `:` (as in `USER:PA
 is refused as a usage error (exit 2) without being shown. With a target `wp-config.php` the flag is not
 needed and is ignored (logged `archive_database_unused`).
 
+The WordPress database account and its password then also come from the
+Archive. If the administrator's survey finds that account already exists, the
+restore is refused (exit 3, `ExistingDatabaseUserError`) before anything is
+changed, because restoring would reset that account's password to the
+Archive's, and it may belong to another application. Pass
+`--reset-existing-db-user` when the account belongs to this site. A missing
+account is created as before, as `USER@'%'`, so WordPress can reach it from
+another host, such as a separate web server or container (RT-S02-004).
+
 ## TLS to the database
 
 A restore's database connections use verified TLS (`verify-identity`, against
