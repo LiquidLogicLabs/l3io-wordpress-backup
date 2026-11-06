@@ -562,6 +562,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "opentelemetry-api" },
+    { name = "packaging" },
     { name = "pathspec" },
     { name = "platformdirs" },
     { name = "structlog" },
@@ -612,6 +613,7 @@ requires-dist = [
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
+    { name = "packaging", specifier = ">=25,<27" },
     { name = "pathspec", specifier = ">=1.1,<2" },
     { name = "platformdirs", specifier = ">=4.3,<5" },
     { name = "structlog", specifier = ">=26.1,<27" },
