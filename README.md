@@ -54,7 +54,7 @@ To check an archive without touching a site:
 wpbackup2 verify --archive ~/backup.tar.gz
 ```
 
-Without a key, `verify` proves the archive's checksums are **consistent** with its manifest, not that the archive is **authentic**: the manifest is unprotected, so anyone who can rewrite the archive can rewrite its checksums too. It says so (`authenticity not checked (no key)`). For an encrypted archive, `--authenticate` decrypts the whole payload with its passphrase — taken from `L3IO_WP_BACKUP_PASSPHRASE` or a terminal prompt, never from the command line — and `age` authenticates every chunk. A wrong passphrase or a tampered payload exits 8; a plain archive is refused, since there is nothing to authenticate.
+Without a key, `verify` proves the archive's checksums are **consistent** with its manifest, not that the archive is **authentic**: the manifest is unprotected, so anyone who can rewrite the archive can rewrite its checksums too. It says so (`authenticity not checked (no key)`). For an encrypted archive, `--authenticate` decrypts the whole payload with its passphrase — taken from `L3IO_WP_BACKUP_PASSPHRASE` or a terminal prompt, never from the command line — and `age` authenticates every chunk. A wrong passphrase or a tampered payload exits 8; a plain archive is refused, since there is nothing to authenticate. **Encryption protects file contents only.** The manifest stays readable in clear in an encrypted archive: the site path, the database name, every file path and size, and the exclusions are visible to anyone who can read the archive, without the passphrase. To refuse a plain archive where an encrypted one is expected (for example one substituted by someone who can write the storage target), restore with `--require-encrypted`; without it a plain archive is restored with a warning, since plain archives are not authenticated.
 
 To restore (see [docs/restore.md](docs/restore.md) for every mode, the refusals and their exit codes):
 
@@ -167,7 +167,8 @@ $ wpbackup2 restore --help
 usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files,db,all}]
                          [--cleanfirst] [--drop-database] [--force] [--whatIf] [--wp-config PATH]
                          [--overwrite-wp-config] [--reset-existing-db-user] [--no-safety-snapshot]
-                         [--snapshot-dir PATH] [--archive-database USER@HOST[:PORT]/NAME]
+                         [--require-encrypted] [--snapshot-dir PATH]
+                         [--archive-database USER@HOST[:PORT]/NAME]
                          [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
                          [--resolve-interrupted-run RUN_ID] [--admin-username ADMIN_USERNAME]
                          [--admin-password ADMIN_PASSWORD]
@@ -208,6 +209,9 @@ restore options:
                         When the target has no wp-config.php and the archive's database account
                         already exists: reset its password to the archive's (refused otherwise)
   --no-safety-snapshot  Do not take the Safety Snapshot before changing anything
+  --require-encrypted   Refuse an archive that is not encrypted, before anything changes (guards
+                        against a plain archive substituted for an encrypted one; without it a
+                        plain archive is restored with a warning)
   --snapshot-dir PATH   Directory to write the Safety Snapshot to (default: the per-user state
                         directory). Refused inside the Site Root or the wp-config.php directory; a
                         directory a web server serves from elsewhere is not detected

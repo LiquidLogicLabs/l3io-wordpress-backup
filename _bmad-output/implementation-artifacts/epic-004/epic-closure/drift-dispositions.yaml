@@ -1,0 +1,27 @@
+review: _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: "FR-5 is met only through an injected policy (`tests/integration/test_backup_exclusions.py`). A shipped backup excludes nothing, so caches, `upgrade/` scratch and `debug.log` all go into every Archive. The wiring is E008-S01-001's, by story text. Nothing mechanical forces it: `test_secret_registry_order.py:102,128` compare `request.exclusion == default_exclusion_policy()`, which stays true while the default is `INCLUDE_EVERYTHING`. `docs/exclusions.md` L16 states the deferral honestly, so this is reach, not overstatement. Same shape as E005 AD-1."
+    disposition: spec-proposal
+    spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands
+    adr:
+    commit:
+    issue: BL-E004-069
+    proposal: _bmad-output/implementation-artifacts/epic-004/epic-closure/spec-proposals/AD-1.md
+  AD-3:
+    severity: MINOR
+    title: Docstring says `adapters/crypto.AgePayloadCipher` implements the port and "until then every composition root binds `None`". The class is `PassphraseCipher`, and restore and `verify --authenticate` now bind a real cipher.
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:
+  AD-4:
+    severity: MINOR
+    title: "\"A cipher is built only through the factory\" is claimed by the story and by ADR-0024's follow-ups, but E004 ships no check for it. `PassphraseCipher(` is constructed in `src/` only inside the factory today, and the guard is deferred to E006 (`api/` only) and E008 (`cli/` only). E008-S01-001 L229 still opens with an AST scan for `AgePayloadCipher(`, a class that does not exist (a scan for it passes vacuously); the story's corrected values follow, but the first clause remains."
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:

@@ -1,7 +1,7 @@
 next:
   '002': 122
   '003': 117
-  '004': 52
+  '004': 70
   '005': 14
 backlog:
 - key: BL-E002-004
@@ -2426,3 +2426,183 @@ backlog:
   severity: Low
   status: backlog
   description: Stale prose; the one PayloadCipher is adapters/crypto.PassphraseCipher, built by build_payload_cipher.
+- key: BL-E004-052
+  epic: '004'
+  sprint: ''
+  title: 'RT-5: encryption passphrase floor is the redaction minimum (4 chars) and backup prompts once; set an encryption floor and confirm-on-entry when --encrypt-with-passphrase ships (E008-S01-001)'
+  source: epic-redteam (RT-5)
+  source_phase: epic-redteam
+  source_ref: RT-5
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+- key: BL-E004-053
+  epic: '004'
+  sprint: ''
+  title: 'RT-3: writer can emit an Archive whose Manifest exceeds MANIFEST_MAX_BYTES (~92k members), failing the backup at the final verify; refuse early with a named error or raise the cap (owner decision)'
+  source: epic-redteam (RT-3)
+  source_phase: epic-redteam
+  source_ref: RT-3
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+- key: BL-E004-054
+  epic: '004'
+  sprint: ''
+  title: 'RT-6: restore prints symlink path and target raw to stderr; control characters pass member_path (use repr)'
+  source: epic-redteam (RT-6)
+  source_phase: epic-redteam
+  source_ref: RT-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+- key: BL-E004-055
+  epic: '004'
+  sprint: ''
+  title: "RT-7/AR-3 residual: database's cli age backend passes the whole environment to the age child and resolves age with an unfiltered PATH; file upstream, E007 minimal-environment (BL-E002-117) covers the child env"
+  source: epic-redteam (RT-7)
+  source_phase: epic-redteam
+  source_ref: RT-7
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+- key: BL-E004-056
+  epic: '004'
+  sprint: ''
+  title: 'RT-8: plaintext workspace survives SIGKILL and nothing sweeps stale l3io-wp-backup-* dirs; document TMPDIR on tmpfs'
+  source: epic-redteam (RT-8)
+  source_phase: epic-redteam
+  source_ref: RT-8
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+- key: BL-E004-057
+  epic: '004'
+  sprint: ''
+  title: 'AR-2: database extra depends on l3io-age-passphrase and sibling packages not published on PyPI; open release gate before any tag'
+  source: epic-adversarial (AR-2)
+  source_phase: epic-adversarial
+  source_ref: AR-2
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-058
+  epic: '004'
+  sprint: ''
+  title: 'AR-4: cryptography is a core dependency nothing imports; remove from pyproject (needs the pyproject owner)'
+  source: epic-adversarial (AR-4)
+  source_phase: epic-adversarial
+  source_ref: AR-4
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-059
+  epic: '004'
+  sprint: ''
+  title: 'AR-5: restore reads wp-config.php out of the decrypted payload before the inner-Manifest check and decrypts twice'
+  source: epic-adversarial (AR-5)
+  source_phase: epic-adversarial
+  source_ref: AR-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-060
+  epic: '004'
+  sprint: ''
+  title: 'AR-6: extract_archive/decrypt_payload do not require read_inner_manifest; add an AST contract pairing the call sites (E006 api root)'
+  source: epic-adversarial (AR-6)
+  source_phase: epic-adversarial
+  source_ref: AR-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-061
+  epic: '004'
+  sprint: ''
+  title: 'AR-8: restore of a plain Archive is gated on the encryption backend when a passphrase is set; require cipher tools only when view.encrypted'
+  source: epic-adversarial (AR-8)
+  source_phase: epic-adversarial
+  source_ref: AR-8
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-062
+  epic: '004'
+  sprint: ''
+  title: 'AR-9: docs/exclusions.md says GENERATED but no generator exists; rename markers or add one'
+  source: epic-adversarial (AR-9)
+  source_phase: epic-adversarial
+  source_ref: AR-9
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-063
+  epic: '004'
+  sprint: ''
+  title: 'AR-10: wp-config.php protection is case-sensitive (documented, Linux-only assumption)'
+  source: epic-adversarial (AR-10)
+  source_phase: epic-adversarial
+  source_ref: AR-10
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-064
+  epic: '004'
+  sprint: ''
+  title: 'AR-11: tests/data/wp-config.php carries DB_PASSWORD pass@word1, not a unique sentinel, baked into v0 fixtures'
+  source: epic-adversarial (AR-11)
+  source_phase: epic-adversarial
+  source_ref: AR-11
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-065
+  epic: '004'
+  sprint: ''
+  title: 'AR-12: unreachable manifest_text-is-None branches under pragma no cover in restore_runner and verify'
+  source: epic-adversarial (AR-12)
+  source_phase: epic-adversarial
+  source_ref: AR-12
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+- key: BL-E004-066
+  epic: '004'
+  sprint: ''
+  title: 'AD-2: README tool table says age has no plan in this build; register passphrase_backend_requirements in DOCUMENTED_REQUIREMENT_SOURCES'
+  source: epic-arch-review (AD-2)
+  source_phase: epic-arch-review
+  source_ref: AD-2
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
+- key: BL-E004-067
+  epic: '004'
+  sprint: ''
+  title: 'AD-5: no-direct-crypto guard forbids a hand-kept list of libraries'
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
+- key: BL-E004-068
+  epic: '004'
+  sprint: ''
+  title: 'AD-6: README says restore restores 0.2.21 Archives but no restore Run covers the released fixture; add a restore integration case or reword'
+  source: epic-arch-review (AD-6)
+  source_phase: epic-arch-review
+  source_ref: AD-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
+- key: BL-E004-069
+  epic: '004'
+  sprint: ''
+  title: "Spec proposal: FR-5 is met only through an injected policy (`tests/integration/test_backup_exclusions.py`). A shipped backup excludes nothing, so caches, `upgrade/` scratch and `debug.log` all go into every Archive. The wiring is E008-S01-001's, by story text. Nothing mechanical forces it: `test_secret_registry_order.py:102,128` compare `request.exclusion == default_exclusion_policy()`, which stays true while the default is `INCLUDE_EVERYTHING`. `docs/exclusions.md` L16 states the deferral honestly, so this is reach, not overstatement. Same shape as E005 AD-1."
+  source: spec-sync (AD-1)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-004/epic-closure/spec-proposals/AD-1.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md.'

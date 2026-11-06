@@ -43,6 +43,7 @@ from l3io.wp.backup.domain.archive_format import Integrity
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.database import DatabaseTargetState
 from l3io.wp.backup.domain.errors import (
+    ArchiveNotEncryptedError,
     LoadFailedError,
     PreflightFailedError,
     UnreadableSiteRootError,
@@ -935,6 +936,25 @@ def test_an_unencrypted_archive_is_restored_with_the_warning_logged_first(
     err = capsys.readouterr().err
     assert err.count(restore_mod.UNAUTHENTICATED_WARNING) == 1  # UX-S02-01
     assert "STRUCTURAL_ONLY" not in err
+
+
+def test_require_encrypted_refuses_a_plain_archive_before_any_effect(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """RT-1: ``--require-encrypted`` turns the plain-archive warning into a refusal.
+
+    The refusal is ``ArchiveNotEncryptedError`` (a ``UsageError``, exit 2): the
+    one ``verify --authenticate`` raises for the same archive.
+    """
+    executed: list[object] = []
+    rig.execute = lambda *a, **k: executed.append(a)  # type: ignore[misc, assignment]
+    with pytest.raises(ArchiveNotEncryptedError):
+        rig.drive(require_encrypted=True)
+    assert executed == []
+    assert ArchiveNotEncryptedError.exit_code is ExitCode.USAGE
+    assert main(_argv(rig, "--require-encrypted")) == int(ExitCode.USAGE)
+    assert executed == []
+    assert restore_mod.UNAUTHENTICATED_WARNING not in capsys.readouterr().err
 
 
 def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(

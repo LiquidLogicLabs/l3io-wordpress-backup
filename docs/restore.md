@@ -216,6 +216,22 @@ place of a newer one, is genuine, so it passes. Detecting that needs a record
 kept outside the Archive, such as the name or checksum of the latest backup,
 which this package does not keep.
 
+**Encryption protects file contents only.** `manifest.json` is never
+encrypted: the Site Root path, the database name, every file path and size and
+the exclusions stay readable in clear in an encrypted Archive, to anyone who
+can read it, without the passphrase.
+
+**Downgrade by substitution: `--require-encrypted`.** Authentication binds only
+Archives that are encrypted. Someone who can write the Storage Target can
+replace an encrypted Archive with a forged plain one, and a restore that
+finds no encryption does not know one was expected. By default it restores the
+plain Archive with the warning above (plain Archives are not authenticated,
+ADR-0016 amendment). `restore --require-encrypted` refuses any Archive that is
+not encrypted, before anything changes, with `ArchiveNotEncryptedError` (a usage
+error, exit 2, the same refusal `verify --authenticate` gives a plain Archive).
+Use it in cron and disaster-recovery runs that only ever restore encrypted
+Archives.
+
 **Quiesce the Site first.** A restore does not stop the web server, put the
 Site into maintenance or lock its database. Whatever is written to the Site
 Root or the live database after the Safety Snapshot is taken and before the

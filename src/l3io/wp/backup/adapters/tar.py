@@ -149,6 +149,38 @@ _MAX_TRAILER: Final = tarfile.RECORDSIZE + _END_OF_ARCHIVE
 _ASCII_PRINTABLE: Final = range(0x20, 0x7F)
 #: Errors meaning the stream itself broke: tar framing, gzip, zlib, I/O.
 _STREAM_ERRORS: Final = (tarfile.TarError, EOFError, zlib.error, OSError)
+#: The most a GNU long-name/long-link or pax header body may declare (RT-2).
+#: tarfile reads such a body whole into memory; a real one is a path or a few
+#: pax records, never near this.
+_MAX_EXTENDED_HEADER: Final = 1024 * 1024
+_EXTENDED_HEADER_TYPES: Final = frozenset(
+    {
+        tarfile.GNUTYPE_LONGNAME,
+        tarfile.GNUTYPE_LONGLINK,
+        tarfile.XHDTYPE,
+        tarfile.XGLTYPE,
+        b"X",  # a Solaris extended header, parsed as pax
+    }
+)
+
+
+class _BoundedTarInfo(tarfile.TarInfo):
+    """A ``TarInfo`` that refuses an oversized extended header before reading it.
+
+    ``frombuf`` parses one 512-byte header block, before ``tarfile`` reads any
+    body, so the refusal costs no memory however large the declared size.
+    Every reader of an Archive's tar uses it (``tarinfo=_BoundedTarInfo``).
+    """
+
+    @classmethod
+    def frombuf(
+        cls, buf: bytes | bytearray, encoding: str, errors: str
+    ) -> _BoundedTarInfo:
+        info = super().frombuf(buf, encoding, errors)
+        if info.type in _EXTENDED_HEADER_TYPES and info.size > _MAX_EXTENDED_HEADER:
+            msg = f"a tar extended header declares over {_MAX_EXTENDED_HEADER} bytes"
+            raise tarfile.ReadError(msg)
+        return info
 
 
 @dataclass(frozen=True, slots=True)
@@ -800,7 +832,9 @@ def _stream_outer(path: Path) -> _Scan:
             else raw
         )
         try:
-            with tarfile.open(fileobj=cast("IO[bytes]", logical), mode="r|") as tar:
+            with tarfile.open(
+                fileobj=cast("IO[bytes]", logical), mode="r|", tarinfo=_BoundedTarInfo
+            ) as tar:
                 _walk(tar, scan)
             if scan.complete and not scan.gzip:
                 scan.complete = _clean_trailer(handle, scan.end)
@@ -968,18 +1002,26 @@ def _inner(
 ) -> Iterator[tarfile.TarFile]:
     """The tar holding ``view``'s members: v0's Archive, else the plain payload."""
     if view.payload is None:
-        with _open(archive) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
+        with (
+            _open(archive) as handle,
+            tarfile.open(fileobj=handle, mode="r|*", tarinfo=_BoundedTarInfo) as tar,
+        ):
             yield tar
     elif payload is not None:
-        with tarfile.open(payload, mode="r:gz") as tar:
+        with tarfile.open(payload, mode="r:gz", tarinfo=_BoundedTarInfo) as tar:
             yield tar
     elif view.encrypted:
         msg = "an encrypted archive needs payload= (the file decrypt_payload wrote)"
         raise ValueError(msg)
     else:
-        with _open(archive) as handle, tarfile.open(fileobj=handle, mode="r|") as outer:
+        with (
+            _open(archive) as handle,
+            tarfile.open(fileobj=handle, mode="r|", tarinfo=_BoundedTarInfo) as outer,
+        ):
             body = _payload_body(outer, view.payload.name, archive)
-            with tarfile.open(fileobj=body, mode="r|gz") as tar:
+            with tarfile.open(
+                fileobj=body, mode="r|gz", tarinfo=_BoundedTarInfo
+            ) as tar:
                 yield tar
 
 
@@ -1265,7 +1307,7 @@ def decrypt_payload(
         with (
             os.fdopen(fd, "wb") as writer,
             _open(archive) as handle,
-            tarfile.open(fileobj=handle, mode="r|") as outer,
+            tarfile.open(fileobj=handle, mode="r|", tarinfo=_BoundedTarInfo) as outer,
         ):
             os.fchmod(writer.fileno(), _STAGED_MODE)
             cipher.decrypt(_payload_body(outer, view.payload.name, archive), writer)
@@ -1310,7 +1352,7 @@ def read_inner_manifest(
         last = False
         text = b""
         try:
-            with tarfile.open(payload, mode="r|gz") as tar:
+            with tarfile.open(payload, mode="r|gz", tarinfo=_BoundedTarInfo) as tar:
                 for info in tar:
                     last = info.name == INNER_MANIFEST_MEMBER
                     if not last:

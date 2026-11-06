@@ -143,6 +143,7 @@ closure:
       - 0.0278
       - 1.485
       - 0.0734
+      - 0.1264
     man_hours:
       samples:
       - 1.619
@@ -160,16 +161,22 @@ closure:
       - 0.0599
       - 0.1047
       - 0.5161
+      - 0.4669
     man_hours:
       samples:
       - 5.8003
       - 4.3545
       - 0.432
+      - 0.5188
     tokens_k:
       samples:
       - 1.021
       - 0.2643
       - 60.1428
+      - 127.5146
+    hitl_hours:
+      samples:
+      - 0.8511
 fix:
   simple:
     reworked:
@@ -189,26 +196,38 @@ orchestration:
       samples:
       - 0.006
       - 0.0249
+      - 0.0243
     man_hours:
       samples:
+      - 0.0
       - 0.0
       - 0.0
     tokens_k:
       samples:
       - 0.0
+      - 0.0
+      - 0.0049
+    hitl_hours:
+      samples:
       - 0.0
   epic:
     elapsed_hours:
       samples:
       - 0.0085
       - 0.0041
+      - 0.0203
     man_hours:
       samples:
+      - 0.0
       - 0.0
       - 0.0
     tokens_k:
       samples:
       - 0.0
+      - 0.0
+      - 0.0046
+    hitl_hours:
+      samples:
       - 0.0
 metrics_migrated_at: '2026-11-03T02:42:08Z'
 token_basis_migrated_at: '2026-11-03T02:42:08Z'

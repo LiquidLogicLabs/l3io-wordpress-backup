@@ -169,6 +169,34 @@ def test_the_cli_backend_without_age_on_path_is_a_config_error(
     assert passphrase not in str(caught.value)
 
 
+@pytest.mark.parametrize("relative", ["", ".", "bin"], ids=["empty", "dot", "named"])
+@pytest.mark.parametrize("backend", ["cli", "auto"])
+def test_the_cli_backend_with_a_relative_path_entry_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    passphrase: str,
+    backend: str,
+    relative: str,
+) -> None:
+    """AR-3/RT-7: database resolves ``age`` through PATH, relative entries included."""
+    monkeypatch.setenv(BACKEND_ENV, backend)
+    if backend == "auto":  # auto resolves to cli only without the binder
+        monkeypatch.setattr(importlib.util, "find_spec", lambda *_a, **_k: None)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path), relative]))
+    with pytest.raises(EncryptionConfigError) as caught:
+        PassphraseCipher(passphrase).check()
+    assert "relative" in str(caught.value)
+    assert passphrase not in str(caught.value)
+
+
+def test_a_relative_path_entry_does_not_matter_to_the_binder_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, passphrase: str
+) -> None:
+    monkeypatch.setenv(BACKEND_ENV, "binder")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path), ""]))
+    PassphraseCipher(passphrase).check()
+
+
 def _hide_the_binder(monkeypatch: pytest.MonkeyPatch) -> None:
     import builtins
 

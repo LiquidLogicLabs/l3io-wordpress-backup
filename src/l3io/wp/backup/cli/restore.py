@@ -148,6 +148,7 @@ from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
 from l3io.wp.backup.domain.errors import (
+    ArchiveNotEncryptedError,
     ArchiveNotFoundError,
     ArchiveWriteError,
     BackupError,
@@ -786,6 +787,7 @@ class RestoreRequest:
     dry_run: bool
     extra_tools: tuple[ToolRequirement, ...] = ()
     opted_out_by: str = NO_SNAPSHOT_FLAG
+    require_encrypted: bool = False
 
     def __post_init__(self) -> None:
         if not self.opted_out_by:
@@ -1287,6 +1289,10 @@ def drive_restore(
             )
         # Step 5: the probe (reused when step 3 already probed).
         view = archive.view()
+        if not view.encrypted and request.require_encrypted:
+            # RT-1: the operator said an encrypted Archive was expected; a
+            # plain one may be a substitution. Refused before any effect.
+            raise ArchiveNotEncryptedError(str(request.archive.path), required=True)
         if not view.encrypted:
             # RT-002 waiver (ADR-0016 amendment, 2026-11-06): restore, warning
             # before any effect, so the warning is seen even if the Run fails.
@@ -1687,6 +1693,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         relocation=relocation,
         reset_existing_db_user=bool(args.reset_existing_db_user),
         dry_run=bool(args.what_if),
+        require_encrypted=bool(args.require_encrypted),
     )
     try:
         outcome = drive_restore(request, ctx=None, secrets=secrets)

@@ -25,6 +25,7 @@ import os
 from collections.abc import Mapping
 from typing import IO, Final, overload
 
+from l3io.wp.backup.adapters.preflight import has_relative_path_entry
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.errors import (
     MissingExtraError,
@@ -39,6 +40,7 @@ __all__ = [
     "PassphraseCipher",
     "build_payload_cipher",
     "passphrase_backend_requirements",
+    "selected_backend",
 ]
 
 _EXTRA = "database"
@@ -60,7 +62,15 @@ class EncryptionConfigError(UsageError):
     message never carries database's text, which could echo the input.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, relative_path: bool = False) -> None:
+        if relative_path:
+            super().__init__(
+                "encryption cannot run: the age command-line backend would be "
+                "looked up through a PATH with an empty or relative entry, so a "
+                "planted age could receive the passphrase; remove those entries "
+                "or use the in-process backend"
+            )
+            return
         super().__init__(
             "encryption cannot run: the passphrase is empty, or "
             f"{_BACKEND_ENV} names a backend that is unknown or not installed"
@@ -80,16 +90,24 @@ def passphrase_backend_requirements(
     needs nothing here: ``check()`` refuses it, in one place. Reads only
     ``environ``. Replace with a call if database exports a backend query.
     """
-    requested = environ.get(_BACKEND_ENV, "auto").strip().lower() or "auto"
-    cli = (
-        ToolRequirement("age", _AGE_MINIMUM, needed_for),
-        ToolRequirement("age-plugin-batchpass", None, needed_for),
-    )
-    if requested == "cli":
-        return cli
-    if requested == "auto" and importlib.util.find_spec(_BINDER_MODULE) is None:
-        return cli
+    if selected_backend(environ) == "cli":
+        return (
+            ToolRequirement("age", _AGE_MINIMUM, needed_for),
+            ToolRequirement("age-plugin-batchpass", None, needed_for),
+        )
     return ()
+
+
+def selected_backend(environ: Mapping[str, str]) -> str:
+    """Database's backend for ``environ``: ``cli``, ``binder`` or the raw value.
+
+    ``auto`` (or unset) resolves to ``binder`` when the binder is importable
+    and to ``cli`` when it is not; an unrecognised value is returned as given.
+    """
+    requested = environ.get(_BACKEND_ENV, "auto").strip().lower() or "auto"
+    if requested == "auto":
+        return "cli" if importlib.util.find_spec(_BINDER_MODULE) is None else "binder"
+    return requested
 
 
 class PassphraseCipher:
@@ -114,8 +132,14 @@ class PassphraseCipher:
 
         ``MissingExtraError`` when database, ``pyrage`` or a usable backend is
         missing; ``EncryptionConfigError`` for an invalid passphrase or backend
-        setting.
+        setting. Also ``EncryptionConfigError`` when the ``cli`` backend is
+        selected (explicitly, or because the binder is unavailable) and
+        ``PATH`` has an empty or relative entry: database resolves ``age``
+        through it and hands it the passphrase, while the preflight ignores
+        such entries (AR-3, RT-7).
         """
+        if selected_backend(os.environ) == "cli" and has_relative_path_entry():
+            raise EncryptionConfigError(relative_path=True)
         try:
             from l3io.wp.database import encryption
             from l3io.wp.database.errors import (

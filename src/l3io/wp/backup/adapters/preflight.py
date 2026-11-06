@@ -225,6 +225,23 @@ def _dotted(version: tuple[int, ...] | None) -> str | None:
     return None if version is None else ".".join(str(part) for part in version)
 
 
+def _absolute_entries(path: str) -> list[str]:
+    """The entries of ``path`` that are absolute: not empty, not relative."""
+    return [e for e in path.split(os.pathsep) if e and Path(e).is_absolute()]
+
+
+def has_relative_path_entry(path: str | None = None) -> bool:
+    """Whether ``path`` (default: ``PATH``) has an empty or relative entry.
+
+    The one rule :func:`_locate` applies, so a caller that cannot control how
+    a tool is resolved (database's ``age`` lookup) can refuse in the same case.
+    """
+    entries = (os.environ.get("PATH", os.defpath) if path is None else path).split(
+        os.pathsep
+    )
+    return len(_absolute_entries(os.pathsep.join(entries))) != len(entries)
+
+
 def _locate(name: str) -> str | None:
     """``shutil.which`` over the absolute ``PATH`` entries only.
 
@@ -233,9 +250,8 @@ def _locate(name: str) -> str | None:
     different file from the one a later lookup finds. Relative entries are
     dropped, so the result is always absolute.
     """
-    entries = os.environ.get("PATH", os.defpath).split(os.pathsep)
-    path = os.pathsep.join(e for e in entries if e and Path(e).is_absolute())
-    return shutil.which(name, path=path)
+    entries = os.environ.get("PATH", os.defpath)
+    return shutil.which(name, path=os.pathsep.join(_absolute_entries(entries)))
 
 
 class BinaryPreflight:

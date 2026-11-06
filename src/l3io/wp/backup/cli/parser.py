@@ -375,6 +375,15 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         help="Do not take the Safety Snapshot before changing anything",
     )
     options.add_argument(
+        "--require-encrypted",
+        action="store_true",
+        help=(
+            "Refuse an archive that is not encrypted, before anything changes "
+            "(guards against a plain archive substituted for an encrypted one; "
+            "without it a plain archive is restored with a warning)"
+        ),
+    )
+    options.add_argument(
         "--snapshot-dir",
         metavar="PATH",
         default=None,

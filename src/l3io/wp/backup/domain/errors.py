@@ -505,11 +505,20 @@ class ArchiveNotEncryptedError(UsageError):
     """``--authenticate`` was asked of an Archive with no encrypted payload.
 
     Nothing in a plain Archive can be authenticated, so passing would be the
-    false reassurance BL-E002-060 removes.
+    false reassurance BL-E002-060 removes. ``restore --require-encrypted``
+    raises it too (``required=True``) for a plain Archive.
     """
 
-    def __init__(self, archive: str) -> None:
+    def __init__(self, archive: str, *, required: bool = False) -> None:
         self.archive = archive
+        if required:
+            # ``restore --require-encrypted`` (RT-1): a plain Archive where an
+            # encrypted one was expected may be a substitution.
+            super().__init__(
+                f"archive {archive!r} is not encrypted, and --require-encrypted "
+                "was given; it may have been substituted for an encrypted one"
+            )
+            return
         super().__init__(
             f"archive {archive!r} is not encrypted, so there is nothing to "
             "authenticate; verify it without --authenticate"

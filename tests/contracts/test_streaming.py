@@ -96,7 +96,10 @@ RSS_COVERED: dict[str, frozenset[str]] = {
     "tar.py": frozenset(
         {
             "ArchiveMemberSource",
+            # RT-2: refuses an oversized extended-header body before tarfile
+            # reads it; bounded by tests/adapters/test_tar_extended_header_bound.py.
             "TarArchiveProbe",
+            "_BoundedTarInfo",
             "_Counter",
             "_ExtractFilter",
             "_Scan",

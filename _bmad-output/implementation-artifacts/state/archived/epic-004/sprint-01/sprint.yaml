@@ -1,0 +1,62 @@
+key: 'S01'
+epic: 'E004'
+title: Sprint 01
+status: done
+updated_at: '2026-11-06T19:28:56Z'
+origin: inferred
+origin_note: derived from the story artifacts in this sprint directory
+estimate:
+  man_hours_low: 20.62
+  man_hours_high: 23.44
+  hitl_hours_low: 1.24
+  hitl_hours_high: 1.41
+  elapsed_hours_low: 6.88
+  elapsed_hours_high: 7.81
+  tokens_k_min: 484
+  tokens_k_max: 550
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 1.99
+  cost_high: 2.28
+  model: claude-opus-5
+  confidence: medium
+actual:
+  elapsed_hours: 2.46
+  man_hours: 62
+  hitl_hours: 0.5
+  tokens_k:
+    total: 109904.69
+    input: 1.374
+    output: 619.744
+    cache_write: 2711.059
+    cache_read: 106572.516
+  cost: 51.44
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-06T19:28:55Z'
+orchestration:
+  elapsed_hours: 0.05
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 504.51
+    input: 0.01
+    output: 3.5
+    cache_write: 26
+    cache_read: 475
+  cost: 0.29
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-06T19:28:55Z'
+closed:
+  date: '2026-11-06'
+retrospective:
+  summary: Three stories done (exclusions, v0 fixtures, encryption with inner-Manifest binding). Epic gate found and fixed 1 HIGH and 2 MEDIUM reachable security findings with regression tests; 5 owner decisions batched.
+  velocity: '3'
+  carry_over: '0'

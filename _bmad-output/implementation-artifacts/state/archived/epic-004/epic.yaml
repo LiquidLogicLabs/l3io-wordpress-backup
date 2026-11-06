@@ -1,0 +1,63 @@
+key: 'E004'
+title: 'Archive lifecycle — exclusions, legacy reads, encryption'
+goal: 'Fills three seams the skeleton left open, each behind a port it does not share.'
+status: done
+updated_at: '2026-11-06T19:29:13Z'
+origin: epics.md
+origin_note: goal and title taken from planning-artifacts/epics.md
+estimate:
+  man_hours_low: 24.23
+  man_hours_high: 27.54
+  hitl_hours_low: 1.46
+  hitl_hours_high: 1.66
+  elapsed_hours_low: 8.08
+  elapsed_hours_high: 9.18
+  tokens_k_min: 569
+  tokens_k_max: 646
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 2.34
+  cost_high: 2.66
+  model: claude-opus-5
+  confidence: medium
+depends_on:
+- 'E002'
+actual:
+  elapsed_hours: 3.06
+  man_hours: 64
+  hitl_hours: 0.7
+  tokens_k:
+    total: 121444.76
+    input: 1.596
+    output: 703.434
+    cache_write: 3311.068
+    cache_read: 117428.663
+  cost: 58.2
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-06T19:29:07Z'
+orchestration:
+  elapsed_hours: 0.05
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 504.51
+    input: 0.01
+    output: 3.5
+    cache_write: 26
+    cache_read: 475
+  cost: 0.29
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-06T19:29:07Z'
+closed:
+  date: '2026-11-06'
+retrospective:
+  summary: All three stories shipped; the epic gate found and fixed one reachable HIGH (plain-archive substitution at restore) and two reachable MEDIUM findings (tar header-body memory bomb, relative-PATH age) with regression tests. FR-5 reach, passphrase floor and API pairing are carried into E008/E006 ACs; five owner decisions are batched.
+  learnings: Bound every stdlib parser step on untrusted Archives, not only member data; plant every spelling a guard claims to catch; downgrade needs its own control beside tamper binding; E008-S01-001 is accumulating too much and may need splitting; add a make target for integration tests against a throwaway MySQL.

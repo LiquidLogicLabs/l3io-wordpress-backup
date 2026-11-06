@@ -4,15 +4,25 @@
 ``encrypt``/``decrypt``. An AST scan of every ``*.py`` under
 ``src/l3io/wp/backup/`` (``rglob``, with a scope assertion) fails on:
 
-- any import of ``pyrage`` or ``cryptography.hazmat`` (``import x``,
-  ``import x as y``, ``from x import y``, ``from x.sub import y``);
-- a ``subprocess`` or ``os`` process call whose positional or keyword
-  argument holds a string constant naming ``age`` or ``age-plugin-batchpass``,
-  bare or as a path (a list literal's element, or the argument itself).
+- any import of ``pyrage`` or of the whole ``cryptography`` package, not only
+  ``cryptography.hazmat`` (``import x``, ``import x as y``, ``from x import
+  y`` -- so ``from cryptography import hazmat`` and ``cryptography.fernet`` --
+  and ``from x.sub import y``);
+- a process call -- ``subprocess`` ``run/Popen/call/check_call/check_output``,
+  ``os`` ``exec*/spawn*/posix_spawn*/system/popen``, ``asyncio``
+  ``create_subprocess_exec/shell`` -- matched by the called name, whatever
+  object it is called on, whose positional or keyword argument holds a string
+  constant whose first word names ``age`` or ``age-plugin-batchpass``, bare or
+  as a path (a list literal's element, the argument itself, or the program at
+  the head of a shell command line such as ``"age -d"``).
 
 Not covered: a program name assembled at runtime, or reached through a
-variable; ``importlib.import_module("pyrage")`` is caught only as a call
-argument constant, which this scan does not look for.
+variable, an f-string or a concatenation; an argument list built elsewhere
+and passed by name; ``importlib.import_module("pyrage")`` and
+``__import__("pyrage")`` (call arguments, not imports); ``ctypes`` or
+``cffi`` loading a crypto library; ``shlex``-quoted command lines whose first
+word is quoted; another process API (``pty``, ``multiprocessing``,
+``pexpect``).
 """
 
 from __future__ import annotations
@@ -22,10 +32,11 @@ from pathlib import Path, PurePosixPath
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
-FORBIDDEN = ("pyrage", "cryptography.hazmat")
+FORBIDDEN = ("pyrage", "cryptography")
 PROCESS_CALLS = frozenset(
     {"run", "Popen", "call", "check_call", "check_output", "execv", "execvp"}
     | {"execvpe", "execve", "spawnv", "spawnvp", "posix_spawn", "posix_spawnp"}
+    | {"system", "popen", "create_subprocess_exec", "create_subprocess_shell"}
 )
 AGE_PROGRAMS = frozenset({"age", "age-plugin-batchpass"})
 
@@ -38,11 +49,10 @@ def _forbidden(module: str | None) -> bool:
 
 def _names_age(node: ast.expr) -> bool:
     if isinstance(node, ast.Constant):
-        # A bare name or a path to the binary (``/usr/local/bin/age``).
-        return (
-            isinstance(node.value, str)
-            and PurePosixPath(node.value).name in AGE_PROGRAMS
-        )
+        # A bare name, a path to the binary (``/usr/local/bin/age``) or the
+        # head of a shell command line (``age -d``).
+        words = node.value.split() if isinstance(node.value, str) else []
+        return bool(words) and PurePosixPath(words[0]).name in AGE_PROGRAMS
     if isinstance(node, ast.List | ast.Tuple):
         return any(_names_age(element) for element in node.elts)
     return False
@@ -51,7 +61,8 @@ def _names_age(node: ast.expr) -> bool:
 def _offenders(root: Path) -> list[str]:
     found = []
     for path in sorted(root.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in sorted(ast.walk(tree), key=lambda n: getattr(n, "lineno", 0)):
             where = f"{path.relative_to(root)}:{getattr(node, 'lineno', 0)}"
             if isinstance(node, ast.Import):
                 found += [
@@ -103,12 +114,23 @@ def test_planted_crypto_is_found_however_deep_and_however_spelled(
         "from subprocess import Popen\n"
         "Popen(('age-plugin-batchpass',))\n"
         "subprocess.run(args=['age', '-p'])\n"
-        "subprocess.Popen(['/usr/local/bin/age', '-d'])\n",
+        "subprocess.Popen(['/usr/local/bin/age', '-d'])\n"
+        "from cryptography import hazmat\n"
+        "from cryptography.fernet import Fernet\n"
+        "import cryptography\n"
+        "import os\n"
+        "os.system('age -d')\n"
+        "os.popen('/usr/bin/age -p')\n"
+        "import asyncio\n"
+        "asyncio.create_subprocess_exec('age', '-d')\n"
+        "asyncio.create_subprocess_shell('age-plugin-batchpass')\n"
+        "from os import system\n"
+        "system('age')\n",
         encoding="utf-8",
     )
     (tmp_path / "fine.py").write_text(
-        "import cryptography\nfrom cryptography.x509 import load_pem_x509_certificate\n"
-        "import subprocess\nsubprocess.run(['mysqldump', '--age'])\n",
+        "import subprocess\nsubprocess.run(['mysqldump', '--age'])\n"
+        "import os\nos.system('mysqldump --age')\n",
         encoding="utf-8",
     )
     assert _offenders(tmp_path) == [
@@ -119,4 +141,12 @@ def test_planted_crypto_is_found_however_deep_and_however_spelled(
         "a/b/leak.py:7: runs age",
         "a/b/leak.py:8: runs age",
         "a/b/leak.py:9: runs age",
+        "a/b/leak.py:10: from cryptography",
+        "a/b/leak.py:11: from cryptography.fernet",
+        "a/b/leak.py:12: import cryptography",
+        "a/b/leak.py:14: runs age",
+        "a/b/leak.py:15: runs age",
+        "a/b/leak.py:17: runs age",
+        "a/b/leak.py:18: runs age",
+        "a/b/leak.py:20: runs age",
     ]
