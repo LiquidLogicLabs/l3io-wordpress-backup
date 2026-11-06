@@ -162,7 +162,9 @@ def test_a_dry_run_changes_nothing_and_reads_no_site_content(
     assert fake_database.calls == []
     assert len(fake_database.checks) == 1
     lines = printed.out.splitlines()
-    assert lines[0] == f"1. resolve credentials from wp-config:{site / 'wp-config.php'}"
+    assert lines[0] == (
+        f"1. resolve credentials from chain(wp-config:{site / 'wp-config.php'})"
+    )
     assert lines[1] == "2. check dump readiness (DatabaseQuery.check_dump)"
     assert lines[-1] == f"{len(lines)}. publish to file:{out / 'a'}"
     phases = [e for e in logs if e["event"] == "phase_completed"]
@@ -410,7 +412,9 @@ def test_a_refused_dry_run_still_prints_its_plan(
     printed = capsys.readouterr()
     assert code == ExitCode.REFUSED, printed.err
     lines = printed.out.splitlines()
-    assert lines[0] == f"1. resolve credentials from wp-config:{site / 'wp-config.php'}"
+    assert lines[0] == (
+        f"1. resolve credentials from chain(wp-config:{site / 'wp-config.php'})"
+    )
     assert lines[-1] == f"{len(lines)}. publish to file:{final}"
     assert final.read_bytes() == b"an archive already here"
     assert fake_database.calls == []

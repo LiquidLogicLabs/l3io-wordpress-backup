@@ -18,16 +18,19 @@ boundary is re-raised as a package error with ``raise ... from`` (AD-14).
 Credentials are passed straight from database's sources to database's
 functions and are never stored, logged or put in an exception message.
 
-This is the only module that constructs database's credential classes
-(ADR-0015 amendment): :func:`wordpress_source` and :func:`admin_source` turn a
-backup-owned ``CredentialSpec`` into a source. Every source they return
-registers each password it resolves with the Run's ``SecretRegistry``
-immediately after ``resolve()`` (ADR-0018), and an explicit spec's password is
-registered when the source is built. Usernames are not secrets.
+This module and ``adapters/credential_providers.py`` are the only ones that
+construct database's credential classes (ADR-0015 amendment):
+:func:`wordpress_source` and :func:`admin_source` turn a backup-owned
+``CredentialSpec`` into a source through that module's builders (FR-14).
+Every source they return registers each password it resolves with the Run's
+``SecretRegistry`` immediately after ``resolve()`` (ADR-0018), and an explicit
+spec's password is registered when the source is built. Usernames are not
+secrets.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -39,13 +42,16 @@ from typing import IO, TYPE_CHECKING, Final
 import structlog
 
 from l3io.wp.backup.adapters.config_writer import read_defined
+from l3io.wp.backup.adapters.credential_providers import (
+    WORDPRESS_PASSWORD_VAR,
+    WORDPRESS_USER_VAR,
+    admin_credentials,
+    unset_partner,
+    wordpress_credentials,
+)
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.archive_format import ConfigLocation
-from l3io.wp.backup.domain.credentials import (
-    AwsSecretCredentialSpec,
-    CredentialSpec,
-    ExplicitCredentialSpec,
-)
+from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.database import (
     DatabaseLocation,
     DatabaseTargetState,
@@ -108,6 +114,10 @@ __all__ = [
 _log = structlog.get_logger(__name__)
 
 _EXTRA = "database"
+#: Database's extras that this package also offers under the same name. Every
+#: other extra database names (``wpconfig``, ``encryption``) is installed by
+#: this package's ``database`` extra, so the install hint names that.
+_SHARED_EXTRAS: Final = frozenset({"aws"})
 _CONFIG_NAME = "wp-config.php"
 _SETTINGS_NAME = "wp-settings.php"
 
@@ -120,6 +130,9 @@ _MISSING_PRIVILEGE = "missing_privilege"
 ADMIN_FLAGS: Final = ("--admin-username", "--admin-password")
 #: The ``source`` label of that error: the half that was not given.
 ADMIN_SOURCE: Final = "administrator"
+#: The flag that supplies each account's AWS region, named when none is known.
+_DB_REGION_FLAG: Final = "--db-credentials-aws-region"
+_ADMIN_REGION_FLAG: Final = "--admin-credentials-aws-region"
 #: Every restore operation names the WordPress account at any host.
 _ANY_HOST: Final = "%"
 #: The Dump is untrusted Archive content. Without ``--binary-mode`` the mysql
@@ -263,6 +276,11 @@ def _tls_error(exc: BaseException, location: DatabaseLocation) -> BackupError:
     if isinstance(exc, wpdb.TlsVerificationError):
         return DatabaseTlsVerificationError(location.host, location.port)
     return DatabaseTlsHandshakeError(location.host, location.port)
+
+
+def _backup_extra(extra: str) -> str:
+    """This package's extra for database's ``extra`` (review F-2)."""
+    return extra if extra in _SHARED_EXTRAS else _EXTRA
 
 
 def _require_extra() -> None:
@@ -410,7 +428,7 @@ def _parse(
         connection = config.connection()
         table_prefix = config.table_prefix
     except wpdb.MissingDependencyError as exc:
-        raise MissingExtraError(extra=_EXTRA) from exc
+        raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
     except wpdb.ConfigUnreadableError as exc:
         raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
     except wpdb.MissingConfigValueError as exc:
@@ -473,10 +491,11 @@ def password_at_call_time(source: CredentialSource) -> Callable[[], str]:
 def require_wp_config_credentials(source: CredentialSource) -> None:
     """Resolve ``source`` once, so a half-defined pair fails before anything runs.
 
-    Called only where ``wp-config.php`` is the Credential Provider (no other
-    provider given, FR-1). The result is discarded; ``dump`` resolves again
-    from the source. Raises ``CredentialsError`` naming the source label and,
-    for a half pair, the missing key — never a value.
+    Called only where no explicit spec was given (FR-1), so ``source`` is the
+    environment-then-``wp-config.php`` chain. The result is discarded;
+    ``dump`` resolves again from the source. Raises ``CredentialsError``
+    naming the source label and, for a half pair, the missing key or
+    variable — never a value.
     """
     _require_extra()
     from l3io.wp import database as wpdb
@@ -485,16 +504,27 @@ def require_wp_config_credentials(source: CredentialSource) -> None:
     try:
         source.resolve()
     except wpdb.MissingDependencyError as exc:
-        raise MissingExtraError(extra=_EXTRA) from exc
+        raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
     except wpdb.ConfigUnreadableError as exc:
         raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
     except wpdb.CredentialsUnobtainableError as exc:
+        # A half-defined wp-config.php pair names its key; a half-set
+        # environment pair (which stops the chain before wp-config.php) names
+        # the unset variable. Names only, never a value.
         cause = exc.__cause__
-        key = cause.key if isinstance(cause, wpdb.MissingConfigValueError) else None
+        key = (
+            cause.key
+            if isinstance(cause, wpdb.MissingConfigValueError)
+            else unset_partner(os.environ, "wordpress")
+        )
         raise CredentialsError(label, missing_key=key) from exc
     except wpdb.CredentialsAbsentError as exc:
         raise CredentialsError(
-            label, reason="defines neither DB_USER nor DB_PASSWORD"
+            label,
+            reason=(
+                "defines neither DB_USER nor DB_PASSWORD, and neither "
+                f"{WORDPRESS_USER_VAR} nor {WORDPRESS_PASSWORD_VAR} is set"
+            ),
         ) from exc
 
 
@@ -513,30 +543,34 @@ def _url_constants(config_file: Path, label: str) -> tuple[str | None, str | Non
 
 
 # --------------------------------------------------------------------------
-# Credential sources — the only construction of database's credential classes
+# Credential sources — built by adapters/credential_providers.py's builders,
+# registered here; the two modules that construct database's credential classes
 # --------------------------------------------------------------------------
-
-_AWS_NOT_BOUND = (
-    "an AWS Secrets Manager credential needs Epic 5's provider, "
-    "which this build does not bind"
-)
 
 
 class _RegisteringSource:
     """A ``CredentialSource`` that registers each password it resolves.
 
     Registration happens immediately after the wrapped ``resolve()``, so a
-    password is known to the Run's registry before anything can emit it. A
-    failure that is not one of database's own credential errors is re-raised
-    as ``CredentialsError`` naming the label and the failure class; its text
-    is untrusted, so it is not chained.
+    password is known to the Run's registry before anything can emit it, and
+    the winning source's label (never its value) is logged as
+    ``credential_source_selected``. A missing extra (``boto3`` for AWS) is
+    ``MissingExtraError`` naming it, and an AWS secret with no known region is
+    ``CredentialsError`` naming ``region_flag``: database folds both into a
+    finding that keeps neither, so they are mapped here, where every source
+    resolves. A failure that is not one of database's own credential errors
+    is re-raised as ``CredentialsError`` naming the label and the failure
+    class; its text is untrusted, so it is not chained.
     """
 
-    __slots__ = ("_inner", "_secrets")
+    __slots__ = ("_inner", "_region_flag", "_secrets")
 
-    def __init__(self, inner: CredentialSource, secrets: SecretRegistry) -> None:
+    def __init__(
+        self, inner: CredentialSource, secrets: SecretRegistry, region_flag: str
+    ) -> None:
         self._inner = inner
         self._secrets = secrets
+        self._region_flag = region_flag
 
     def __repr__(self) -> str:
         return f"RegisteringSource({self.source!r})"
@@ -556,6 +590,14 @@ class _RegisteringSource:
         failure: str | None = None
         try:
             resolved = self._inner.resolve()
+        except wpdb.MissingDependencyError as exc:
+            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+        except wpdb.RegionNotKnownError as exc:
+            reason = (
+                f"no AWS region: pass {self._region_flag} "
+                "(AwsSecretCredentialSpec.region) or set AWS_DEFAULT_REGION"
+            )
+            raise CredentialsError(label, reason=reason) from exc
         except (wpdb.DatabaseError, BackupError):
             raise
         except Exception as exc:
@@ -565,62 +607,58 @@ class _RegisteringSource:
             # untrusted exception.
             raise CredentialsError(label, reason=failure)
         self._secrets.register(resolved.password, source=label)
+        _log.info("credential_source_selected", credential_source=resolved.source)
         return resolved
 
 
-def _registering(source: CredentialSource, secrets: SecretRegistry) -> CredentialSource:
-    """``source`` registering into ``secrets``; re-wrapped if bound to another."""
+def _registering(
+    source: CredentialSource, secrets: SecretRegistry, *, region_flag: str
+) -> CredentialSource:
+    """``source`` registering into ``secrets``; re-wrapped if bound to another.
+
+    A re-wrapped source keeps its own ``region_flag``: the inner wrapper maps
+    the region error before the outer one sees it.
+    """
     if isinstance(source, _RegisteringSource) and source.secrets is secrets:
         return source
-    return _RegisteringSource(source, secrets)
-
-
-def _explicit(
-    spec: ExplicitCredentialSpec, secrets: SecretRegistry
-) -> CredentialSource:
-    from l3io.wp import database as wpdb
-
-    secrets.register(spec.password, source="explicit")
-    return wpdb.Explicit(spec.username, spec.password)
+    return _RegisteringSource(source, secrets, region_flag)
 
 
 def wordpress_source(
     spec: CredentialSpec | None,
     *,
     wp_config: CredentialSource,
-    environ: Mapping[str, str],  # noqa: ARG001 - Epic 5 binds the environment step
+    environ: Mapping[str, str],
     secrets: SecretRegistry,
 ) -> CredentialSource:
     """The WordPress account's source, in ``WORDPRESS_CREDENTIAL_PRECEDENCE`` order.
 
-    ``None`` is ``wp-config.php`` alone. An explicit spec comes first, then
-    ``wp-config.php``; the environment step is skipped until Epic 5 binds its
-    provider. An AWS spec is ``UsageError`` until then.
+    The spec (explicit or AWS), then the environment, then ``wp-config.php``
+    (``credential_providers.wordpress_credentials``).
     """
     _require_extra()
-    from l3io.wp import database as wpdb
-
-    if spec is None:
-        return _registering(wp_config, secrets)
-    if isinstance(spec, AwsSecretCredentialSpec):
-        raise UsageError(_AWS_NOT_BOUND)
-    chain = wpdb.CredentialChain(_explicit(spec, secrets), wp_config)
-    return _registering(chain, secrets)
+    chain = wordpress_credentials(
+        spec, wp_config=wp_config, environ=environ, secrets=secrets
+    )
+    return _registering(chain, secrets, region_flag=_DB_REGION_FLAG)
 
 
 def admin_source(
     spec: CredentialSpec | None,
     *,
-    environ: Mapping[str, str],  # noqa: ARG001 - Epic 5 binds the environment step
+    environ: Mapping[str, str],
     secrets: SecretRegistry,
 ) -> CredentialSource | None:
-    """The administrator's source, or ``None``: never ``wp-config.php``."""
-    if spec is None:
-        return None
+    """The administrator's source, or ``None``: never ``wp-config.php``.
+
+    The spec (explicit or AWS), then the environment
+    (``credential_providers.admin_credentials``).
+    """
     _require_extra()
-    if isinstance(spec, AwsSecretCredentialSpec):
-        raise UsageError(_AWS_NOT_BOUND)
-    return _registering(_explicit(spec, secrets), secrets)
+    chain = admin_credentials(spec, environ=environ, secrets=secrets)
+    if chain is None:
+        return None
+    return _registering(chain, secrets, region_flag=_ADMIN_REGION_FLAG)
 
 
 # --------------------------------------------------------------------------
@@ -691,8 +729,14 @@ class WpDatabase:
         admin: CredentialSource | None = None,
         admin_tls: AdminTls | None = None,
     ) -> None:
-        self._credentials = _registering(credentials, secrets)
-        self._admin = None if admin is None else _registering(admin, secrets)
+        self._credentials = _registering(
+            credentials, secrets, region_flag=_DB_REGION_FLAG
+        )
+        self._admin = (
+            None
+            if admin is None
+            else _registering(admin, secrets, region_flag=_ADMIN_REGION_FLAG)
+        )
         # ``None``: every connection plaintext (the backup root). Set (the
         # restore root): every connection of this instance under the policy.
         self._admin_tls = admin_tls
@@ -728,7 +772,7 @@ class WpDatabase:
             # An authenticated account lacking a privilege mid-session.
             raise DatabaseRefusedError(findings=(_MISSING_PRIVILEGE,)) from exc
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
         except wpdb.DatabaseError as exc:
             raise DumpFailedError(type(exc).__name__) from exc
         blockers, warnings = _codes(verdict)
@@ -779,7 +823,7 @@ class WpDatabase:
         ) as exc:
             raise CredentialsError(source) from exc
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
         except wpdb.DatabaseError as exc:
             raise DumpFailedError(type(exc).__name__) from exc
         except OSError as exc:
@@ -1064,7 +1108,7 @@ class WpDatabase:
         ) as exc:
             raise CredentialsError(credential_source) from exc
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
         except wpdb.InvalidIdentifierError as exc:
             raise InvalidSiteDescriptorError(str(exc)) from exc
         except wpdb.DatabaseError as exc:

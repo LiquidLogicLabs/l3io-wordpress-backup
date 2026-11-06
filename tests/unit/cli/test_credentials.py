@@ -86,11 +86,16 @@ def test_no_admin_spec_is_no_admin_source() -> None:
     assert admin_source(None, environ={}, secrets=SecretRegistry()) is None
 
 
-def test_an_aws_spec_names_epic_5(wp_config: object) -> None:
-    with pytest.raises(UsageError, match="Epic 5"):
-        wordpress_source(AWS, wp_config=wp_config, environ={}, secrets=SecretRegistry())
-    with pytest.raises(UsageError, match="Epic 5"):
-        admin_source(AWS, environ={}, secrets=SecretRegistry())
+def test_an_aws_spec_is_the_explicit_step(wp_config: object) -> None:
+    # E005-S01-001 binds AWS Secrets Manager; Epic 2's UsageError is gone.
+    label = "aws-secrets-manager:prod/db"
+    wordpress = wordpress_source(
+        AWS, wp_config=wp_config, environ={}, secrets=SecretRegistry()
+    )
+    assert wordpress.source.startswith(f"chain({label}, ")
+    admin = admin_source(AWS, environ={}, secrets=SecretRegistry())
+    assert admin is not None
+    assert admin.source == f"chain({label})"
 
 
 @pytest.mark.parametrize(

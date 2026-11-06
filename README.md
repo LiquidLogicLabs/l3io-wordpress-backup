@@ -51,6 +51,23 @@ A restore takes a Safety Snapshot of whatever it would change first, and refuses
 
 `wp-config.php` is read for your database credentials. It is looked for in the WordPress directory, then its parent; pass `--wp-config PATH` to use another.
 
+### Credentials
+
+No credential has to be on the command line, so a cron line needs none. Each account's credentials come from the first source that has them, in a fixed order:
+
+| Account | 1. Explicit | 2. Environment | 3. `wp-config.php` |
+|---|---|---|---|
+| WordPress database (backup) | library `BackupRequest.credentials` | `L3IO_WP_BACKUP_DB_USER` and `L3IO_WP_BACKUP_DB_PASSWORD` | `DB_USER`/`DB_PASSWORD` |
+| WordPress database (restore) | none | none | `DB_USER`/`DB_PASSWORD`, the account the restored site will use |
+| Administrator (restore) | `--admin-username`/`--admin-password`, or library `RestoreRequest.admin` | `L3IO_WP_BACKUP_ADMIN_USER` and `L3IO_WP_BACKUP_ADMIN_PASSWORD` | never |
+
+- **Both variables of a pair, or neither.** Setting one without its partner is an error (exit 4), not a fall-through to `wp-config.php`. A variable set to an empty value counts as set. The one exception is `--admin-username` without `--admin-password`: the password then comes from `L3IO_WP_BACKUP_ADMIN_PASSWORD`, and an empty value there counts as unset.
+- **A source that fails stops the search.** An unreadable AWS secret, for example, never becomes the next source's account. The administrator is never taken from `wp-config.php` or from the WordPress account. A restore that needs one and has none is refused (exit 4).
+- **AWS Secrets Manager.** A secret holding the JSON `{"username": ..., "password": ...}` can supply either account as its explicit source. Install the `aws` extra: `pip install 'l3io-wordpress-backup[aws]'`. Without it, exit 7 names the extra. Without a region from the request or the AWS session, exit 4 names the region flag. In this release only the library selects it: `AwsSecretCredentialSpec(secret_id, region)` as `BackupRequest.credentials` or `RestoreRequest.admin`. The `--db-credentials-aws-*` and `--admin-credentials-aws-*` flags are accepted but not implemented yet.
+- **The log names the source, never the value.** Each resolution logs `credential_source_selected` with the source's label, for example `environment:L3IO_WP_BACKUP_DB_USER,L3IO_WP_BACKUP_DB_PASSWORD`.
+
+The environment of a process can be read by the same user and by root (`/proc/<pid>/environ`), and `--admin-password` is visible to every user in `ps`. On a shared host, prefer `wp-config.php` or AWS Secrets Manager.
+
 ### Command-line reference
 
 Generated from the parser by `tools/gen_cli_docs.py`; CI fails if it drifts.

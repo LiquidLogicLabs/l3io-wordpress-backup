@@ -82,6 +82,10 @@ database = [
   "l3io-wordpress-database>=0.3.2,<0.4",
   "l3io-wordpress-config>=0.1.3,<0.2",
 ]
+# FR-14 — AWS Secrets Manager credentials (E005-S01-001). database's own `aws`
+# extra brings boto3 (`boto3<2,>=1.34` in 0.3.2's metadata), imported inside
+# AwsSecretsManager.resolve(), so boto3 stays out of the base install.
+aws = ["l3io-wordpress-database[aws]>=0.3.2,<0.4"]
 
 # AD-8 — an optional dependency is an optional import. Nothing here may be
 # imported at module scope; `verify-install` asserts a base install pulls none

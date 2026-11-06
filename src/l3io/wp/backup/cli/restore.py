@@ -1218,8 +1218,12 @@ def drive_restore(
         # before any connection.
         check_admin_tls(request.admin_tls, site.db_host)
         admin = admin_source(request.admin, environ=os.environ, secrets=run.secrets)
+        # The restored account is wp-config.php's alone: the survey, the
+        # reset-consent check and the restored config all name its DB_USER, so
+        # L3IO_WP_BACKUP_DB_* (a backup's override) must not pick another
+        # account to provision (E005-S01-001 review F-1).
         wordpress = wordpress_source(
-            None, wp_config=wp_config, environ=os.environ, secrets=run.secrets
+            None, wp_config=wp_config, environ={}, secrets=run.secrets
         )
         relocated_spec = ext.wordpress_spec()
         relocated = (
