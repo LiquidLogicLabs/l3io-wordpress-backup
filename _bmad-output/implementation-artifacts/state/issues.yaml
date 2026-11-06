@@ -1,7 +1,7 @@
 next:
   '002': 122
   '003': 117
-  '004': 43
+  '004': 47
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -2233,3 +2233,43 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+- key: BL-E004-043
+  epic: '004'
+  sprint: '01'
+  title: Exclusions purity guard scope stops at pathspec names containing 'tree' (pathspec.util.os/pathlib reachable)
+  source: code-review (E004-S01-001)
+  source_phase: code-review
+  source_ref: E004-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-3)
+- key: BL-E004-044
+  epic: '004'
+  sprint: '01'
+  title: exclusions_applied once-flag is per LoggedExclusionPolicy instance, not per Run; E008-S01-001 must build one wrapper per Run
+  source: code-review (E004-S01-001)
+  source_phase: code-review
+  source_ref: E004-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-4)
+- key: BL-E004-045
+  epic: '004'
+  sprint: '01'
+  title: path_excluded count != Manifest excluded entries when the Archive target is inside the Site Root (_SkipStaged entry unlogged); E008-S01-001
+  source: code-review (E004-S01-001)
+  source_phase: code-review
+  source_ref: E004-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-5)
+- key: BL-E004-046
+  epic: '004'
+  sprint: '01'
+  title: docs/exclusions.md default-set table is hand-written between GENERATED markers; no generator tool (drift test guards it)
+  source: code-review (E004-S01-001)
+  source_phase: code-review
+  source_ref: E004-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-7)

@@ -42,6 +42,11 @@ dependencies = [
   # domain the global rules forbid hand-rolling; zero dependencies, MIT.
   # Accepted by Shawn 2026-10-20 (E002-S02-008). Latest at adoption: 4.14.3.
   "platformdirs>=4.3,<5",
+  # FR-5: gitignore-style exclusion patterns (`core/exclusions.py`, E004-S01-001).
+  # Glob matching is a domain the global rules forbid hand-rolling; pure Python,
+  # no dependencies of its own, ships `py.typed`, MPL-2.0. Only its string
+  # matcher is used, never its tree-walking helpers. Latest at adoption: 1.1.1.
+  "pathspec>=1.1,<2",
 ]
 
 [project.optional-dependencies]

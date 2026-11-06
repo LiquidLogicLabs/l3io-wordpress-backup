@@ -1,0 +1,69 @@
+# Backup exclusions (FR-5)
+
+A files backup (`--mode files` or `--mode all`) can leave paths under the Site
+Root out of the Archive. Exclusions only subtract: they are evaluated against
+entries the traversal already found inside the Site Root, so no pattern can add
+anything to an Archive. They apply to Site Root paths only — never to database
+tables, and never to a `wp-config.php` kept outside the Site Root.
+
+Every Archive's Manifest records the active set under `exclusions`: its
+`source` (`default`, `custom` or `none`), its `patterns` in order, and each
+excluded path with the pattern that excluded it. A directory that is excluded
+is recorded once and not descended into; its contents are not listed.
+
+## The default set
+
+Applied when no exclusion is asked for, once E008-S01-001 binds this set into
+the CLI and the library default; until then a backup that names no exclusion
+set includes everything. The source of truth is
+`DEFAULT_EXCLUSIONS` in `src/l3io/wp/backup/core/exclusions.py`;
+`tests/contracts/test_exclusions_documented.py` fails if this table and the
+constant differ in content or order. It is deliberately conservative: nothing
+under `wp-content/uploads/`, `wp-content/plugins/` or `wp-content/themes/` is
+matched.
+
+<!-- BEGIN GENERATED: default-exclusions (core/exclusions.py DEFAULT_EXCLUSIONS) -->
+| Pattern | Why it is left out |
+|---|---|
+| `wp-content/cache/` | Object and page caches; rebuilt by the Site. |
+| `wp-content/upgrade/` | Core's update scratch directory. |
+| `wp-content/upgrade-temp-backup/` | Core's rollback copies from an update. |
+| `wp-content/debug.log` | WordPress's own debug log. |
+<!-- END GENERATED: default-exclusions -->
+
+The set is enumerable at runtime (`enumerate_defaults()`) and replaceable or
+extendable: an operator's patterns follow the defaults, or replace them when
+the defaults are switched off.
+
+## `wp-config.php` is never excluded
+
+No pattern — default or custom, including `*`, `**`, `*.php` and
+`/wp-config.php` — removes `wp-config.php` from an Archive: an Archive without
+it cannot be restored to a working Site. When a pattern would have matched it,
+the backup logs a WARNING `protected_path_kept` naming the pattern and keeps the
+file. The protected paths are `PROTECTED_PATHS` in the same module; a directory
+holding a protected path is never pruned either.
+
+## Pattern syntax
+
+Patterns are [gitignore](https://git-scm.com/docs/gitignore) patterns, matched
+with `pathspec`'s `GitIgnoreSpec`, against paths relative to the Site Root:
+
+- a pattern containing a `/` other than a trailing one is anchored at the Site
+  Root (`wp-content/debug.log`); a leading `/` anchors explicitly;
+  a pattern with no `/` matches at any depth (`*.log`);
+- a trailing `/` matches directories only (`wp-content/cache/`);
+- `*` does not cross `/`; `**` does (`**/node_modules/`);
+- `!pattern` re-includes what an earlier pattern excluded — later patterns win,
+  so an operator's `!wp-content/debug.log` re-includes that default. As in git,
+  nothing inside an excluded directory can be re-included;
+- matching is case-sensitive and `/`-separated, and separators are never
+  translated. A backslash escapes the next character, as in gitignore, so a
+  Windows-style `wp-content\cache` means `wp-contentcache` and does not match
+  `wp-content/cache`; `\#private/` matches a directory named `#private`;
+- a symlink is matched by its own path, never its target.
+
+An empty or whitespace-only pattern, one spanning lines, one gitignore
+rejects (such as a lone `!`), or one that would match nothing (a `#` comment,
+a lone `/`, an unclosed `[`) fails the backup before anything is read, with
+exit code `USAGE`.
