@@ -554,3 +554,17 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-06T11:45:11Z'
   ref: E003-S02-006
+- key: BL-E003-071
+  epic: '003'
+  sprint: '02'
+  title: Dump load not confined to the load database (USE / cross-db statements while WordPress account holds ALL on live DB)
+  source: redteam (RT-S02-005)
+  source_phase: redteam
+  source_ref: RT-S02-005
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: wontfix
+  resolved_at: '2026-11-06T11:58:21Z'
+  ref: E003-S02-006
+  note: 'Owner decision 2026-11-06 (option C): residual risk accepted and documented in ADR-0022 amendment and docs/restore.md'

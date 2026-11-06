@@ -712,3 +712,4 @@
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-084", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T09:41:16Z"}
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-069", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T11:31:14Z"}
 {"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-070", "ref": "E003-S02-006", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T11:45:11Z"}
+{"cause": "cli", "epic": "003", "event": "issue_resolved", "key": "BL-E003-071", "ref": "E003-S02-006", "resolution": "wontfix", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T11:58:22Z"}

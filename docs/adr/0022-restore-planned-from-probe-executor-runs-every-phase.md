@@ -85,3 +85,37 @@ or `VERIFY` steps. AD-13 and AD-17 hold without amendment.
   a Dry Run test case for their check.
 - **Revisit when:** a check must observe the world after a no-op (for example to measure
   real free space). That would be a query run before the effect, not a re-read after it.
+
+## Amendment — 2026-11-06: the Dump runs with the WordPress account's rights (Shawn)
+
+Red team RT-S02-005 (BL-E003-071). `LOAD_DUMP` runs the Dump's SQL into the staging database
+as the WordPress account, which at that point still holds its existing grants: on the live
+database, and on any other database it was given. A tampered Dump can contain `USE` or
+database-qualified statements, so it can change those databases during the load, before the
+post-load check and the cutover.
+
+**Decided: accept, document; no confinement (option C).**
+
+The remaining exposure:
+- **The live database of the site being restored:** recoverable from the Safety Snapshot,
+  unless `--no-safety-snapshot` was given.
+- **Any other database the account can reach:** not covered.
+
+The limits on that exposure are:
+- the operator's own grants: a site account limited to its own database, the textbook
+  setup, leaves nothing else reachable;
+- the Archive's provenance: encryption (`age`, ADR-0024) authenticates it;
+- the identity confirmation, `--archive-database` (BL-E002-114, RT-S02-003);
+- `--binary-mode`, which stops client commands in the Dump (RT-S02-001) but not SQL.
+
+`docs/restore.md` tells the operator this.
+
+Rejected:
+- **(A) A temporary load account, granted only on the staging database.** It would confine
+  the load, but it needs a create-and-drop account feature in `l3io-wordpress-database`,
+  and an account to clean up after a kill.
+- **(B) Scanning the Dump for statements that reach outside it.** That is a hand-written SQL
+  parser, and easy to evade.
+
+**Revisit when:** an operator restores Archives from sources they do not control, or site
+accounts commonly hold grants beyond their own database. Option A is then the fix.

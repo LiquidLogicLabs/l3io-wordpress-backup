@@ -135,6 +135,18 @@ Archive's, and it may belong to another application. Pass
 account is created as before, as `USER@'%'`, so WordPress can reach it from
 another host, such as a separate web server or container (RT-S02-004).
 
+## What the Dump can reach
+
+The Dump is loaded into a new staging database as the site's WordPress
+database account, with whatever rights that account already holds. A normal
+Dump touches only the database it is loaded into, but a tampered one can name
+other databases, and the server allows whatever the account is allowed. The
+live database of the site being restored is covered by the Safety Snapshot;
+**other databases the account can reach are not**. Give each site's account
+rights on its own database only, and restore only Archives from a source you
+trust, or encrypted ones, whose payload `age` authenticates (ADR-0022
+amendment, 2026-11-06).
+
 ## TLS to the database
 
 A restore's database connections use verified TLS (`verify-identity`, against
