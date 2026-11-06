@@ -83,6 +83,9 @@ __all__ = [
     "ADMIN_FLAGS",
     "ADMIN_SOURCE",
     "ADMIN_TLS_MODES",
+    "INVALID_DATABASE_NAME",
+    "INVALID_DB_HOST",
+    "TLS_SETTINGS_UNUSABLE",
     "AdminTls",
     "DatabaseTlsHandshakeError",
     "DatabaseTlsVerificationError",
@@ -132,6 +135,18 @@ _NS_PER_MS: Final = 1_000_000
 #: with ``-`` for ``_``. The policy may be raised to one of them, never lowered.
 ADMIN_TLS_MODES: Final = ("required", "verify-ca", "verify-identity")
 _TLS_ORDER: Final = ("off", "required", "verify_ca", "verify_identity")
+#: ADV-S02-11: the ``UsageError`` texts that replace database's messages.
+TLS_SETTINGS_UNUSABLE: Final = (
+    "the TLS settings for the database connection could not be built from "
+    "--admin-tls and --admin-tls-ca; nothing was changed"
+)
+INVALID_DB_HOST: Final = (
+    "the database host is not HOST or HOST:PORT with a port from 1 to 65535; "
+    "nothing was changed"
+)
+INVALID_DATABASE_NAME: Final = (
+    "the database name is not a valid database name; nothing was changed"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,7 +213,8 @@ def _tls_settings(admin_tls: AdminTls, host: str) -> TlsSettings:
     try:
         return wpdb.TlsSettings(mode=mode, ca_file=admin_tls.ca_file)
     except wpdb.InvalidArgumentsError as exc:
-        raise UsageError(str(exc)) from exc
+        # ADV-S02-11: a fixed text; database's message is never forwarded.
+        raise UsageError(TLS_SETTINGS_UNUSABLE) from exc
 
 
 def check_admin_tls(admin_tls: AdminTls | None, host: str) -> None:
@@ -394,10 +410,14 @@ def database_location_from_db_host(db_host: str, name: str) -> DatabaseLocation:
     _require_extra()
     from l3io.wp import database as wpdb
 
+    # ADV-S02-11: fixed texts that echo neither database's message nor the
+    # value (an operator's --archive-database is never echoed, L-4).
     try:
         connection = wpdb.Connection.from_db_host(db_host, name)
-    except (wpdb.InvalidArgumentsError, wpdb.InvalidIdentifierError) as exc:
-        raise UsageError(str(exc)) from exc
+    except wpdb.InvalidIdentifierError as exc:
+        raise UsageError(INVALID_DATABASE_NAME) from exc
+    except wpdb.InvalidArgumentsError as exc:
+        raise UsageError(INVALID_DB_HOST) from exc
     return DatabaseLocation(
         host=connection.host, port=connection.port, name=connection.database
     )

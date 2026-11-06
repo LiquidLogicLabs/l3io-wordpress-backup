@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import inspect
+import json
 import os
 from pathlib import Path, PurePosixPath
 
@@ -32,7 +33,6 @@ from l3io.wp.backup.cli.restore import (
     RestoreOutcome,
 )
 from l3io.wp.backup.core.restore import (
-    DatabaseRestoreReport,
     IncompleteRunError,
     SnapshotResult,
     staging_name,
@@ -574,19 +574,30 @@ def _argv(rig: Rig, *extra: str) -> list[str]:
     ]
 
 
+def _summary(out: str) -> dict[str, object]:
+    """UX-S02-04: ``--log-format json`` stdout is exactly one ``restore`` object."""
+    (line,) = out.splitlines()
+    decoded = json.loads(line)
+    assert set(decoded) == {"restore"}
+    summary = decoded["restore"]
+    assert isinstance(summary, dict)
+    return summary
+
+
 def test_run_restore_prints_the_report_and_applies_the_exit_rule(
-    rig: Rig, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    rig: Rig, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    emitted: list[object] = []
-    monkeypatch.setattr(restore_mod, "emit_database_report", emitted.append)
     assert main(_argv(rig)) == int(ExitCode.OK)
-    (report,) = emitted
-    assert isinstance(report, DatabaseRestoreReport)
-    assert report.restored
+    summary = _summary(capsys.readouterr().out)
+    assert summary["status"] == "completed"
+    report = summary["database_report"]
+    assert isinstance(report, dict)
+    assert report["restored"] is True
     rig.execute = lambda *a, **k: report_for(a[0], restored=False)  # type: ignore[misc]
-    capsys.readouterr()
     assert main(_argv(rig)) == int(DatabaseNotRestoredError.exit_code)
-    assert "DatabaseNotRestoredError" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "DatabaseNotRestoredError" in captured.err
+    assert _summary(captured.out)["status"] == "failed"
 
 
 def test_a_dry_run_prints_its_plan_and_exits_ok(
@@ -624,8 +635,110 @@ def test_a_failure_after_the_snapshot_names_it(
     capsys.readouterr()
     assert main(_argv(rig)) == int(LoadFailedError.exit_code)
     captured = capsys.readouterr()
-    assert "safety snapshot: " in captured.out
+    assert _summary(captured.out) == {
+        "status": "failed",
+        "error": "LoadFailedError",
+        "snapshot_path": rig.inputs.header.snapshot_path,
+    }
     assert "safety snapshot is NOT encrypted" in captured.err
+
+
+def _performed_snapshots(rig: Rig) -> None:
+    real_result = restore_mod.snapshot_result
+
+    def performed(path: PurePosixPath, **kwargs: object) -> SnapshotResult:
+        result = real_result(path, **kwargs)  # type: ignore[arg-type]
+        return dataclasses.replace(result, performed=True, integrity=Integrity.VERIFIED)
+
+    rig.monkeypatch.setattr(restore_mod, "snapshot_result", performed)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("a defect"), OSError(5, "I/O error"), KeyboardInterrupt()],
+    ids=["defect", "os-error", "interrupt"],
+)
+def test_any_error_after_the_snapshot_names_it(
+    rig: Rig, capsys: pytest.CaptureFixture[str], error: BaseException
+) -> None:
+    """ADV-S02-06: not only a ``BackupError`` carries the Safety Snapshot path."""
+
+    def fail_after_snapshot(*args: object, **kwargs: object) -> object:
+        rig.take_snapshot(BackupScope.ALL)
+        raise error
+
+    rig.execute = fail_after_snapshot
+    _performed_snapshots(rig)
+    with pytest.raises(type(error)) as caught:
+        rig.drive()
+    planned = rig.inputs.header.snapshot_path
+    assert str(caught.value.snapshot_path) == planned  # type: ignore[union-attr]
+    if not isinstance(error, Exception):
+        return  # main() does not catch KeyboardInterrupt; drive_restore named it
+    capsys.readouterr()
+    assert main(_argv(rig)) == int(ExitCode.FAILED)
+    summary = _summary(capsys.readouterr().out)
+    assert summary == {
+        "status": "failed",
+        "error": type(error).__name__,
+        "snapshot_path": rig.inputs.header.snapshot_path,
+    }
+
+
+@pytest.mark.parametrize("spelling", ["--whatIf", "--what-if"])
+def test_what_if_after_restore_is_a_dry_run(
+    rig: Rig, capsys: pytest.CaptureFixture[str], spelling: str
+) -> None:
+    """UX-S02-02: the flag works on either side of ``restore``."""
+    rig.execute = lambda *a, **k: report_for(a[0], performed=False)  # type: ignore[misc]
+    assert main([*_argv(rig), spelling]) == int(ExitCode.OK)
+    summary = _summary(capsys.readouterr().out)
+    assert summary["status"] == "planned"
+    assert summary["dry_run"] is True
+    assert summary["actions"] == [a.text for a in rig.plans[-1].actions]
+
+
+def test_a_run_without_what_if_is_not_a_dry_run(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The subcommand's flag defaults to absent, so it never overrides the root's."""
+    assert main(_argv(rig)) == int(ExitCode.OK)
+    assert _summary(capsys.readouterr().out)["dry_run"] is False
+    assert main(["--whatIf", *_argv(rig)]) == int(ExitCode.OK)
+    assert _summary(capsys.readouterr().out)["dry_run"] is True
+
+
+def _console_argv(rig: Rig, *extra: str) -> list[str]:
+    argv = _argv(rig, *extra)
+    return ["--log-format", "console", *argv[2:]]
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+def test_a_files_only_restore_ends_with_its_completion_line(
+    rig: Rig, capsys: pytest.CaptureFixture[str], dry_run: bool
+) -> None:
+    """UX-S02-04: a Run with nothing else to report still says it finished."""
+    root = ["--whatIf"] if dry_run else []
+    argv = [*root, *_console_argv(rig, "--mode", "files", "--no-safety-snapshot")]
+    assert main(argv) == int(ExitCode.OK)
+    out = capsys.readouterr().out.splitlines()
+    what = f"Restore Mode files, archive {rig.archive_path}, site {rig.site_root}"
+    expected = (
+        f"Dry Run complete ({what}); nothing was changed"
+        if dry_run
+        else f"restore complete ({what})"
+    )
+    assert out[-1] == expected
+
+
+def test_a_failed_database_check_prints_no_completion_line(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig.execute = lambda *a, **k: report_for(a[0], restored=False)  # type: ignore[misc]
+    assert main(_console_argv(rig)) == int(DatabaseNotRestoredError.exit_code)
+    out = capsys.readouterr().out
+    assert "database: NOT restored" in out
+    assert "restore complete" not in out
 
 
 # --------------------------------------------------------------------------

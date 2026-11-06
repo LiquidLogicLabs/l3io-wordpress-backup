@@ -11,17 +11,23 @@ from __future__ import annotations
 import dataclasses
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
 from l3io.wp.backup.adapters import staging
+from l3io.wp.backup.adapters.journal import CorruptJournalError
 from l3io.wp.backup.adapters.staging import (
     ENSURE_RESOLVES,
     ConfigCutoverError,
+    CutoverTargetUnusableError,
     InvalidLoadDatabaseNameError,
     StagingCheckFailedError,
     check_staged,
+    complete_cutover,
     load_staged,
 )
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
@@ -39,15 +45,25 @@ from l3io.wp.backup.core.restore import (
     is_orderly_failure,
     staging_name,
 )
-from l3io.wp.backup.domain.database import DatabaseLocation, Readiness
+from l3io.wp.backup.domain.config import ConfigWriteResult
+from l3io.wp.backup.domain.database import (
+    DatabaseLocation,
+    DatabaseTargetState,
+    Readiness,
+)
 from l3io.wp.backup.domain.errors import CredentialsError, DatabaseRefusedError
+from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.journal import JournalEntry, JournalHeader, JournalRecord
 from l3io.wp.backup.domain.restore import (
     RestoreMode,
+    RestorePhase,
     removes_database,
     restores_database,
 )
+from l3io.wp.backup.ports.adapter_set import AdapterSet
+from l3io.wp.backup.ports.restore import RestorePorts
 from tests.conftest import CredentialSentinel
-from tests.restore_harness import write_v1
+from tests.restore_harness import TARGET_DB, CommandLog, FakeConfig, write_v1
 from tests.staging_fakes import NOT_WORDPRESS, EntryJournal, StagedHarness
 
 pytest.importorskip("l3io.wp.database")
@@ -422,3 +438,225 @@ def test_staging_imports_without_the_database_extra() -> None:
     )
     assert done.returncode == 0, done.stderr
     assert frozenset(eval(done.stdout)) == staging.ENSURE_RESOLVES  # noqa: S307 - our own repr
+
+
+# --------------------------------------------------------------------------
+# ADV-S02-04: every write error is classified; no intent for an unstarted write
+# --------------------------------------------------------------------------
+
+
+class RaisingConfig(FakeConfig):
+    """``set_constants`` of ``key`` raises ``OSError``, after landing if ``land``."""
+
+    def __init__(
+        self, log: CommandLog, *, key: str, land: bool, unreadable: bool
+    ) -> None:
+        super().__init__(log, TARGET_DB)
+        self.key, self.land, self.unreadable = key, land, unreadable
+
+    def set_constants(
+        self, config_file: Path, values: Mapping[str, str | int | bool]
+    ) -> ConfigWriteResult:
+        if self.key not in values:
+            return super().set_constants(config_file, values)
+        if self.land:
+            super().set_constants(config_file, values)
+        msg = "the directory sync failed"
+        raise OSError(msg)
+
+    def read_constants(
+        self, config_file: Path, keys: Sequence[str]
+    ) -> Mapping[str, Any]:
+        if self.unreadable:
+            msg = "unreadable"
+            raise OSError(msg)
+        return super().read_constants(config_file, keys)
+
+
+def _raising(
+    tmp_path: Path, *, land: bool, unreadable: bool = False
+) -> tuple[StagedHarness, EntryJournal]:
+    h, journal = _harness(tmp_path, mode=RestoreMode.DATABASE)
+    h.config = RaisingConfig(h.log, key="DB_NAME", land=land, unreadable=unreadable)
+    return h, journal
+
+
+def test_an_os_error_on_the_first_key_that_did_not_land_is_orderly(
+    tmp_path: Path,
+) -> None:
+    h, journal = _raising(tmp_path, land=False)
+    with pytest.raises(ConfigCutoverError) as caught:
+        h.run_staged(journal)
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.written == ()
+    assert journal.steps() == [
+        STEP_CUTOVER_STARTED + "DB_NAME",
+        STEP_CUTOVER_READBACK_FAILED,
+        STEP_STAGING_DROPPED,
+    ]
+    assert is_orderly_failure(tuple(journal.entries))
+    assert journal.finished
+    assert h.config.values["DB_NAME"] == "target_db"
+
+
+def test_an_os_error_after_the_write_landed_completes_the_cutover(
+    tmp_path: Path,
+) -> None:
+    h, journal = _raising(tmp_path, land=True)
+    report = h.run_staged(journal)
+    assert report.database is not None
+    assert report.database.restored is True
+    assert STEP_CUTOVER + "DB_NAME" in journal.steps()
+    assert journal.finished
+    assert h.config.values["DB_NAME"] == staging_name("target_db", "run-1")
+
+
+def test_an_os_error_that_cannot_be_read_back_stays_ambiguous(
+    tmp_path: Path,
+) -> None:
+    """Unknown whether it landed: the intent stays the last step; nothing dropped."""
+    h, journal = _raising(tmp_path, land=False, unreadable=True)
+    with pytest.raises(OSError, match="directory sync"):
+        h.run_staged(journal)
+    assert journal.steps()[-1] == STEP_CUTOVER_STARTED + "DB_NAME"
+    assert not journal.finished
+    assert "drop_database" not in h.database.methods()
+
+
+def test_a_value_that_cannot_be_had_journals_no_intent_for_its_key(
+    tmp_path: Path,
+    credential_sentinel: CredentialSentinel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The relocated password's source fails: its write never began."""
+    h, journal = _harness(
+        tmp_path,
+        mode=RestoreMode.DATABASE,
+        relocation=_relocated(
+            cutover_host="db.new", cutover_user="new_user", cutover_password=True
+        ),
+        password=credential_sentinel.relocated_password,
+    )
+    real_ports = h.ports
+
+    def failing_source() -> str:
+        raise CredentialsError(staging.CUTOVER_PASSWORD_SOURCE)
+
+    def ports(
+        adapters: AdapterSet | None = None, *, performs_effects: bool = True
+    ) -> RestorePorts:
+        bound = real_ports(adapters, performs_effects=performs_effects)
+        return dataclasses.replace(bound, cutover_credentials=failing_source)
+
+    monkeypatch.setattr(h, "ports", ports)
+    with pytest.raises(CredentialsError):
+        h.run_staged(journal)
+    steps = journal.steps()
+    at = CUTOVER_KEYS.index("DB_PASSWORD")
+    for key in CUTOVER_KEYS[:at]:
+        assert STEP_CUTOVER + key in steps
+    assert steps[-1] == STEP_CUTOVER + CUTOVER_KEYS[at - 1]
+    assert STEP_CUTOVER_STARTED + "DB_PASSWORD" not in steps
+    assert not journal.finished
+
+
+# --------------------------------------------------------------------------
+# ADV-S02-05: completing an interrupted cutover surveys the load database first
+# --------------------------------------------------------------------------
+
+GONE = DatabaseTargetState(False, 0, False, None, None, 0, 0)
+_AT = "2026-11-03T00:00:00+00:00"
+
+
+def _record(
+    h: StagedHarness, steps: Sequence[str], header: JournalHeader | None = None
+) -> JournalRecord:
+    phase = RestorePhase.LOAD_DUMP
+    entries = (
+        JournalEntry("phase_started", phase, _AT, "target_db", None),
+        *(JournalEntry("step_completed", phase, _AT, None, step) for step in steps),
+    )
+    return JournalRecord(header or h.header(), entries)
+
+
+def _complete(h: StagedHarness, record: JournalRecord) -> tuple[str, ...]:
+    return complete_cutover(
+        record, ports=h.ports(), table_prefix="wp_", journal_path="/j/current.json"
+    )
+
+
+def _writes(h: StagedHarness) -> list[object]:
+    return [
+        d for _, port, m, d in h.log.calls if (port, m) == ("config", "set_constants")
+    ]
+
+
+def test_a_usable_load_database_completes_the_set(tmp_path: Path) -> None:
+    h, _ = _harness(tmp_path, mode=RestoreMode.DATABASE)
+    record = _record(h, [STEP_CUTOVER_STARTED + "DB_NAME"])
+    assert _complete(h, record) == ("DB_NAME",)
+    load = staging_name("target_db", "run-1")
+    assert ("query", "survey_target", load) in h.database.calls
+    assert h.config.values["DB_NAME"] == load
+
+
+@pytest.mark.parametrize("state", [GONE, NOT_WORDPRESS], ids=["gone", "not-wordpress"])
+def test_an_unusable_load_database_is_refused_before_any_write(
+    tmp_path: Path, credential_sentinel: CredentialSentinel, state: DatabaseTargetState
+) -> None:
+    h, _ = _harness(
+        tmp_path,
+        mode=RestoreMode.DATABASE,
+        relocation=_relocated(
+            cutover_host="db.new", cutover_user="new_user", cutover_password=True
+        ),
+        password=credential_sentinel.relocated_password,
+    )
+    h.database.survey = state
+    h.config.values["DB_HOST"] = "db.new"  # the first key landed
+    first = CUTOVER_KEYS[0]
+    record = _record(
+        h,
+        [
+            STEP_CUTOVER_STARTED + first,
+            STEP_CUTOVER + first,
+            STEP_CUTOVER_STARTED + "DB_USER",
+        ],
+    )
+    with pytest.raises(CutoverTargetUnusableError) as caught:
+        _complete(h, record)
+    assert caught.value.exists is state.database_exists
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert _writes(h) == []
+    surveyed = [c for c in h.database.calls if c[1] == "survey_target"]
+    assert surveyed == [("query", "survey_target", record.header.load_database)]
+
+
+def test_a_gone_load_database_with_the_config_back_at_prior_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    """Nothing to roll forward: the set is abandoned, so resolution can proceed."""
+    h, _ = _harness(tmp_path, mode=RestoreMode.DATABASE)
+    h.database.survey = GONE
+    record = _record(h, [STEP_CUTOVER_STARTED + "DB_NAME"])
+    with capture_logs() as logs:
+        assert _complete(h, record) == ()
+    assert _writes(h) == []
+    assert h.config.values["DB_NAME"] == "target_db"
+    assert [e["event"] for e in logs if e["event"] == "cutover_abandoned"] == [
+        "cutover_abandoned"
+    ]
+
+
+def test_a_header_without_a_pending_target_is_a_corrupt_journal(
+    tmp_path: Path,
+) -> None:
+    h, _ = _harness(tmp_path, mode=RestoreMode.DATABASE)
+    header = dataclasses.replace(h.header(), cutover_targets={})
+    record = _record(h, [STEP_CUTOVER_STARTED + "DB_NAME"], header)
+    with pytest.raises(CorruptJournalError) as caught:
+        _complete(h, record)
+    assert caught.value.journal_path == "/j/current.json"
+    assert "DB_NAME" in caught.value.reason
+    assert _writes(h) == []
+    assert h.database.calls == []

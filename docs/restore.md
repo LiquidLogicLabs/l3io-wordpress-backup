@@ -1,8 +1,10 @@
 # Restore
 
 How `wpbackup2 restore` puts an Archive back onto a Site, and what it refuses.
-The command line itself (`--mode`, `--cleanfirst`, `--force`, `--whatIf`) is
-documented by `wpbackup2 restore --help`.
+Every flag, `--whatIf` included, is listed by `wpbackup2 restore --help`.
+`--whatIf` (or `--what-if`) may be given before or after `restore`:
+`wpbackup2 --whatIf restore ...` and `wpbackup2 restore --whatIf ...` are the
+same Dry Run.
 
 ## Restore Modes
 
@@ -10,14 +12,23 @@ The Mode is resolved once from the flags and governs the whole Run. A Mode that
 does not name file removal removes no files; one that does not name database
 removal drops no database.
 
-| Mode             | Clears the Site Root | Writes files | Loads the Dump | Drops the losing database |
-|------------------|----------------------|--------------|----------------|---------------------------|
-| `files`          | no                   | yes          | no             | no                        |
-| `files-clean`    | yes                  | yes          | no             | no                        |
-| `database`       | no                   | no           | yes            | no                        |
-| `database-clean` | no                   | no           | yes            | yes                       |
-| `all`            | no                   | yes          | yes            | no                        |
-| `all-clean`      | yes                  | yes          | yes            | yes                       |
+| Mode             | Flags                                    | Clears the Site Root | Writes files | Loads the Dump | Drops the losing database |
+|------------------|------------------------------------------|----------------------|--------------|----------------|---------------------------|
+| `files`          | `--mode files`                           | no                   | yes          | no             | no                        |
+| `files-clean`    | `--mode files --cleanfirst`              | yes                  | yes          | no             | no                        |
+| `database`       | `--mode db`                              | no                   | no           | yes            | no                        |
+| `database-clean` | `--mode db --drop-database`              | no                   | no           | yes            | yes                       |
+| `all`            | `--mode all`                             | no                   | yes          | yes            | no                        |
+| `all-clean`      | `--mode all --cleanfirst --drop-database` | yes                  | yes          | yes            | yes                       |
+
+`--mode all` is the default, so `--cleanfirst --drop-database` alone selects
+`all-clean`. The Mode names are what the log (`restore_mode`), refusals
+("Restore Mode files") and the completion line use; the flags are what you
+type. Note the one spelling difference: the flag value `db` is the Mode
+`database`. Adding `--force` to any row keeps its Mode and only waives the
+non-empty-target refusal for the parts that Mode restores (see below). Any
+other combination (for example `--mode db --cleanfirst`) exits 2 `USAGE` and
+names the flags that would work.
 
 The phases always run in this order, skipping the ones a Mode does not need:
 preflight, verify, safety snapshot, clean, extract, rewrite config, load the
@@ -26,6 +37,33 @@ Dump, search-replace.
 A Mode that loads the database refuses (exit 3 `REFUSED`) when the Archive
 holds no Dump, naming the Archive and its backup scope; `--mode files` restores
 its files.
+
+## The database after a restore: a new name, by design
+
+A restore never loads the Dump over the live database. It loads it into a new
+**staging database** on the same server, named
+`<live name, first 51 characters>_l3s_<first 8 characters of the Run ID>` (for
+example `example_wp_l3s_90e53fd8`), checks that it is a WordPress database, and
+only then switches `wp-config.php`'s `DB_NAME` to it (the cutover). This is
+what keeps the live site intact if the load or the check fails (ADR-0022).
+
+So after a successful `database`, `database-clean`, `all` or `all-clean`
+restore **the site permanently runs on the staging database's name**; nothing
+renames it back. The report says so on its first line:
+
+```
+database: the site now runs on 'example_wp_l3s_90e53fd8' (was 'example_wp')
+```
+
+The previous database is kept by `database` and `all`, and dropped (after its
+WordPress user's grants on it are revoked) by `database-clean` and
+`all-clean`. Either way, **update anything outside this tool that names the
+old database**: cron jobs or scripts that dump it, monitoring, other
+applications' grants, and your own backup jobs if they name the database
+rather than reading `wp-config.php`. A later restore of the same Site names
+its staging database after the database the site runs on at that time, so a
+second restore gives a name like `example_wp_l3s_90e53fd8_l3s_1a2b3c4d`; the
+live part is cut to 51 characters, so a name never exceeds MySQL's 64.
 
 ## Exit codes
 
@@ -102,6 +140,15 @@ journal's path. `--resolve-interrupted-run RUN_ID` acknowledges it (completing
 an interrupted `wp-config.php` cutover first) and stops: resolving and
 restoring are never one command. A different ID is refused, naming the
 journal's.
+
+Before completing a cutover, resolution surveys the database the interrupted
+Run was switching to. If it no longer exists or is not a WordPress database,
+nothing is written and the resolution is refused (exit 3 `REFUSED`), naming
+it: set the keys already written back to the values the journal records, or
+restore from the Safety Snapshot, then resolve again. When `wp-config.php`
+already holds its pre-Run values (no key landed, or you set them back), there
+is nothing to complete: resolution writes nothing, logs the WARNING
+`cutover_abandoned`, and acknowledges the Run.
 
 ## Before anything is changed
 
@@ -214,8 +261,86 @@ v0 Archive, which records no link targets, they are reported at extraction.
 
 ## Dry Run
 
-`--whatIf` prints the ordered actions the real Run would take and runs every
-check the real Run runs, so it refuses where the real Run would, with the same
-exit code. It changes nothing: not the Site, the database, any Storage Target,
-the snapshot directory or the journal directory. Only the Run workspace is
-written (an encrypted payload is decrypted there to check the passphrase).
+`wpbackup2 restore --whatIf ...` (or `wpbackup2 --whatIf restore ...`) prints
+the ordered actions the real Run would take and runs every check the real Run
+runs, so it refuses where the real Run would, with the same exit code. It
+changes nothing: not the Site, the database, any Storage Target, the snapshot
+directory or the journal directory. Only the Run workspace is written (an
+encrypted payload is decrypted there to check the passphrase).
+
+## What a Run prints
+
+Results go to stdout; warnings and the log go to stderr.
+
+With the default (console) log format, stdout carries the Dry Run's ordered
+actions, the database report, the search-replace count, the Safety Snapshot's
+path and whether `wp-config.php` was kept, each when there is one, and ends
+with one completion line naming the Mode, the Archive and the Site:
+`restore complete (...)`, or for a Dry Run `Dry Run complete (...); nothing was
+changed`. A Run that fails prints no completion line; if it had already taken
+a Safety Snapshot it prints `safety snapshot: <path>`.
+
+With `--log-format json`, stdout is exactly one JSON object and nothing else:
+
+```
+{"restore": {"status": "completed", "run_id": "...", "dry_run": false,
+ "restore_mode": "files", "archive": "...", "site_root": "...",
+ "resolved_run_id": null, "actions": [], "skipped_links": [],
+ "database_report": null, "search_replace": null, "snapshot_path": null,
+ "snapshot_encrypted": false, "wp_config_kept": true}}
+```
+
+(shown wrapped; it is one line). `status` is `completed`, `planned` (a Dry
+Run, whose `actions` list the plan), `resolved` or `would_resolve`
+(`--resolve-interrupted-run`), or `failed` (the database report does not call
+the database restored). `database_report` holds the same fields as the
+`database_restore_report` log record. A Run that fails after its Safety
+Snapshot prints `{"restore": {"status": "failed", "error": "<class>",
+"snapshot_path": "<path>"}}`.
+
+## Worked examples
+
+Real output of a files-only Site, with the log on stderr at WARNING
+(`--log-level WARNING`). The temporary directory prefix is replaced by
+`/srv/www/example` and `/backups`, the state directory by `<state>`, and long
+log records are cut.
+
+A refusal: the Site Root is not empty and `--force` was not given.
+
+```
+$ wpbackup2 restore --wp-dir /srv/www/example --archive /backups/example.tar.gz --mode files
+WARNING: the archive is not encrypted, so it cannot be authenticated; restore only an archive from a source you trust
+wpbackup2: error: refusing to restore with --mode files (Restore Mode files) over a non-empty target (files): found '/srv/www/example' (4 entries); nothing was changed. --mode files --force would authorize it [exit 3 REFUSED: a check found a reason not to act; nothing was done]
+$ echo $?
+3
+```
+
+A Dry Run of the authorized command:
+
+```
+$ wpbackup2 restore --whatIf --wp-dir /srv/www/example --archive /backups/example.tar.gz --mode files --force
+WARNING: the archive is not encrypted, so it cannot be authenticated; restore only an archive from a source you trust
+preflight: required tools, the interpreter's tarfile fixes, free space
+verify /backups/example.tar.gz
+safety snapshot of files to <state>/l3io-wp-backup/snapshots/3174eaae...
+extract the Archive's files into /srv/www/example
+safety snapshot: <state>/l3io-wp-backup/snapshots/3174eaae.../20261106T093634Z-89abe821-....tar.gz
+wp-config.php kept (target's); pass --overwrite-wp-config to replace it
+Dry Run complete (Restore Mode files, archive /backups/example.tar.gz, site /srv/www/example); nothing was changed
+```
+
+The real Run:
+
+```
+$ wpbackup2 restore --wp-dir /srv/www/example --archive /backups/example.tar.gz --mode files --force
+WARNING: the archive is not encrypted, so it cannot be authenticated; restore only an archive from a source you trust
+safety snapshot is NOT encrypted: <state>/l3io-wp-backup/snapshots/3174eaae.../20261106T093634Z-90e53fd8-....tar.gz
+safety snapshot: <state>/l3io-wp-backup/snapshots/3174eaae.../20261106T093634Z-90e53fd8-....tar.gz
+wp-config.php kept (target's); pass --overwrite-wp-config to replace it
+restore complete (Restore Mode files, archive /backups/example.tar.gz, site /srv/www/example)
+```
+
+A Mode that loads the database adds the database report before the Safety
+Snapshot line: the database the site now runs on and the one it ran on, what
+was created, the bytes loaded, the previous database's fate, and finally
+`database: restored`.

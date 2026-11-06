@@ -292,6 +292,20 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     )
 
     options = restore.add_argument_group(RESTORE_OPTIONS_GROUP)
+    # UX-S02-02: an addition AD-22 permits; the frozen spelling stays on the
+    # top-level parser. SUPPRESS: absent here, the top-level value stands
+    # (a subparser's default would overwrite `wpbackup2 --whatIf restore`).
+    options.add_argument(
+        "--whatIf",
+        "--what-if",
+        dest="what_if",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "Dry Run: run every check and query for real, print the ordered "
+            "plan, and change nothing (also accepted before `restore`)"
+        ),
+    )
     options.add_argument(
         "--wp-config",
         metavar="PATH",

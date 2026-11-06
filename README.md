@@ -127,7 +127,7 @@ database credentials:
 ```text
 $ wpbackup2 restore --help
 usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files,db,all}]
-                         [--cleanfirst] [--drop-database] [--force] [--wp-config PATH]
+                         [--cleanfirst] [--drop-database] [--force] [--whatIf] [--wp-config PATH]
                          [--overwrite-wp-config] [--no-safety-snapshot] [--snapshot-dir PATH]
                          [--archive-database USER@HOST[:PORT]/NAME]
                          [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
@@ -159,6 +159,8 @@ restore mode:
                         selects no mode and removes nothing
 
 restore options:
+  --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
+                        change nothing (also accepted before `restore`)
   --wp-config PATH      use this wp-config.php instead of searching for it
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with

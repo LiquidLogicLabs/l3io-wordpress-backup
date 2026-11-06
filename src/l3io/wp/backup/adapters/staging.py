@@ -34,13 +34,19 @@ inside :func:`_validate_name` (AD-8), so this module imports without the
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
 
 import structlog
 
-from l3io.wp.backup.adapters.database import ADMIN_SOURCE, blocked_dump_error
+from l3io.wp.backup.adapters.database import (
+    ADMIN_SOURCE,
+    blocked_dump_error,
+    database_location_from_db_host,
+)
+from l3io.wp.backup.adapters.journal import CorruptJournalError
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     STEP_CHECK_FAILED,
@@ -78,7 +84,11 @@ from l3io.wp.backup.domain.errors import (
     RefusedError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
-from l3io.wp.backup.domain.journal import JournalRecord
+from l3io.wp.backup.domain.journal import (
+    JOURNALED_CONSTANTS,
+    JournalHeader,
+    JournalRecord,
+)
 from l3io.wp.backup.domain.restore import RestorePhase, removes_database
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
@@ -87,6 +97,7 @@ __all__ = [
     "CUTOVER_PASSWORD_SOURCE",
     "ENSURE_RESOLVES",
     "ConfigCutoverError",
+    "CutoverTargetUnusableError",
     "InvalidLoadDatabaseNameError",
     "StagingCheckFailedError",
     "check_staged",
@@ -355,6 +366,23 @@ def _cutover_value(
     return planned_cutover_targets(load_name, inputs.relocation)[key]
 
 
+def _read_back(
+    ports: RestorePorts, config_file: Path, key: str, value: str
+) -> bool | None:
+    """Whether ``key`` now holds ``value``; ``None`` when it cannot be read.
+
+    ADV-S02-04: after a write raised something other than
+    ``ConfigWriteFailedError`` (whose contract is that the key did not land),
+    the file itself says whether the one-key atomic write landed.
+    """
+    try:
+        current = ports.adapters.config_query.read_constants(config_file, (key,))
+    except Exception as exc:  # unknown: the caller re-raises the write's error
+        _log.error("cutover_read_back_failed", key=key, error_type=type(exc).__name__)
+        return None
+    return current.get(key) == value
+
+
 def _cutover(
     inputs: RestoreInputs,
     target: _Target,
@@ -366,25 +394,44 @@ def _cutover(
 ) -> tuple[str, ...]:
     """One atomic, verified ``set_constants`` per key, each journaled (AD-18.2).
 
-    Returns the keys written, in order.
+    Returns the keys written, in order. Each key's value is resolved before
+    its ``"cutover_started:<KEY>"`` intent, so a value that cannot be had (a
+    relocated password whose source fails) leaves no intent for a write that
+    never began (ADV-S02-04). A write that raises is classified: a
+    ``ConfigWriteFailedError`` did not land; any other error is read back —
+    not at its target, it did not land, and is handled exactly as a
+    ``ConfigWriteFailedError``; at its target, it landed and the cutover goes
+    on; unreadable, the error is re-raised and the intent stays the last
+    step, because whether it landed is then unknown.
     """
     config_file = Path(inputs.relocation.config_file or inputs.config_path)
     command = ports.adapters.config_command
     started = time.monotonic_ns()
     landed: list[str] = []
     for key in keys:
-        journal.step_completed(_PHASE, STEP_CUTOVER_STARTED + key)
         value: str | None = _cutover_value(key, inputs, ports, target.load.name)
+        journal.step_completed(_PHASE, STEP_CUTOVER_STARTED + key)
         try:
             command.set_constants(config_file, {key: value or ""})
-        except ConfigWriteFailedError as exc:
-            if not landed:
-                journal.step_completed(_PHASE, STEP_CUTOVER_READBACK_FAILED)
-                _drop_staging(target, ensure, ports=ports, journal=journal)
-            pending = tuple(k for k in keys if k not in landed)
-            raise ConfigCutoverError(
-                str(config_file), key, written=tuple(landed), pending=pending
-            ) from exc
+        except Exception as exc:
+            arrived = (
+                False
+                if isinstance(exc, ConfigWriteFailedError)
+                else _read_back(ports, config_file, key, value or "")
+            )
+            if arrived is None:
+                raise
+            if not arrived:
+                if not landed:
+                    journal.step_completed(_PHASE, STEP_CUTOVER_READBACK_FAILED)
+                    _drop_staging(target, ensure, ports=ports, journal=journal)
+                pending = tuple(k for k in keys if k not in landed)
+                raise ConfigCutoverError(
+                    str(config_file), key, written=tuple(landed), pending=pending
+                ) from exc
+            _log.warning(
+                "cutover_write_error_landed", key=key, error_type=type(exc).__name__
+            )
         finally:
             value = None  # DB_PASSWORD is held for its one write only
         landed.append(key)
@@ -587,7 +634,112 @@ def _report_failure(
 # --------------------------------------------------------------------------
 
 
-def complete_cutover(record: JournalRecord, *, ports: RestorePorts) -> tuple[str, ...]:
+class CutoverTargetUnusableError(RefusedError):
+    """ADV-S02-05: the database an interrupted cutover pointed at is unusable."""
+
+    def __init__(self, database: str, *, run_id: str, exists: bool) -> None:
+        self.database = database
+        self.run_id = run_id
+        self.exists = exists
+        state = "is not a WordPress database" if exists else "no longer exists"
+        super().__init__(
+            f"the interrupted run {run_id} was switching wp-config.php to "
+            f"{database!r}, which {state}; the cutover was not completed and "
+            "nothing was written. Set the keys already written back to the "
+            "journal's prior_constants, or restore from the Safety Snapshot, "
+            f"then run --resolve-interrupted-run {run_id} again"
+        )
+
+
+def _cutover_target(header: JournalHeader, key: str, *, journal_path: str) -> str:
+    """The header's target for a non-secret ``key``; a missing one is corrupt."""
+    value = header.cutover_targets.get(key)
+    if value is None:
+        raise CorruptJournalError(
+            journal_path, f"its header records no cutover target for {key}"
+        )
+    return value
+
+
+def _load_location(
+    header: JournalHeader, current: Mapping[str, object]
+) -> DatabaseLocation | None:
+    """The server and name the interrupted cutover points ``wp-config.php`` at.
+
+    ``DB_HOST`` is the header's target when the cutover moves it, else the
+    one ``wp-config.php`` holds now; ``None`` when neither is known.
+    """
+    host = header.cutover_targets.get("DB_HOST", current.get("DB_HOST"))
+    if not isinstance(host, str) or not host:
+        return None
+    return database_location_from_db_host(host, header.load_database)
+
+
+def _back_at_prior(header: JournalHeader, current: Mapping[str, object]) -> bool:
+    """Whether every journaled cutover key holds its pre-Run value again."""
+    return all(
+        current.get(key) == header.prior_constants.get(key)
+        for key in header.cutover_keys
+        if key in JOURNALED_CONSTANTS
+    )
+
+
+def _require_load_database(
+    header: JournalHeader,
+    current: Mapping[str, object],
+    *,
+    ports: RestorePorts,
+    table_prefix: str,
+) -> bool:
+    """Survey the load database before any write; ``False``: write nothing.
+
+    A load database that still exists and passes the post-load check:
+    ``True``. Otherwise, when ``wp-config.php`` is back at its pre-Run values
+    (no key landed, or the operator set them back), there is nothing to roll
+    forward: ``False``, logged ``cutover_abandoned``. Otherwise
+    :class:`CutoverTargetUnusableError`.
+    """
+    location = _load_location(header, current)
+    state = (
+        None
+        if location is None
+        else ports.adapters.restore_database_query.survey_target(
+            location,
+            table_prefix=table_prefix,
+            wordpress_user=header.cutover_targets.get(
+                "DB_USER", header.prior_constants.get("DB_USER")
+            ),
+        )
+    )
+    usable = (
+        state is not None
+        and state.database_exists
+        and state.is_wordpress is True
+        and state.schema_version is not None
+    )
+    if usable:
+        return True
+    exists = state is not None and state.database_exists
+    if _back_at_prior(header, current):
+        _log.warning(
+            "cutover_abandoned",
+            load_database=header.load_database,
+            database_exists=exists,
+            reason="wp-config.php holds its pre-run values",
+        )
+        return False
+    raise CutoverTargetUnusableError(
+        header.load_database, run_id=header.run_id, exists=exists
+    )
+
+
+def complete_cutover(
+    record: JournalRecord,
+    *,
+    ports: RestorePorts,
+    table_prefix: str,
+    journal_path: str,
+) -> tuple[str, ...]:
     """Complete the cutover set of a Run stopped inside it; the keys written.
 
     Called by ``--resolve-interrupted-run`` (E003-S02-006) before
@@ -598,6 +750,12 @@ def complete_cutover(record: JournalRecord, *, ports: RestorePorts) -> tuple[str
     written from the header's non-secret targets; ``DB_PASSWORD`` from
     ``ports.cutover_credentials``, else ``CredentialsError`` naming it and
     nothing is written. Any other journal: nothing is written.
+
+    ADV-S02-05: before the first write the load database is surveyed
+    (``table_prefix`` is the Site's); one that is gone or not WordPress is
+    never written to (:func:`_require_load_database`). A header with no
+    target for a pending key is :class:`CorruptJournalError` naming
+    ``journal_path``, raised before any write.
     """
     header, entries = record.header, record.entries
     phase = interrupted_phase(entries)
@@ -612,15 +770,24 @@ def complete_cutover(record: JournalRecord, *, ports: RestorePorts) -> tuple[str
     credentials = ports.cutover_credentials
     if _PASSWORD in pending and credentials is None:
         raise CredentialsError(CUTOVER_PASSWORD_SOURCE, missing_key=_PASSWORD)
+    targets = {
+        key: _cutover_target(header, key, journal_path=journal_path)
+        for key in pending
+        if key != _PASSWORD
+    }
     config_file = Path(header.wp_config_path)
     adapters = ports.adapters
     current = adapters.config_query.read_constants(config_file, CUTOVER_KEYS)
+    if not _require_load_database(
+        header, current, ports=ports, table_prefix=table_prefix
+    ):
+        return ()
     written: list[str] = []
     for key in pending:
         if key == _PASSWORD and credentials is not None:
             value: str | None = credentials()
         else:
-            value = header.cutover_targets[key]
+            value = targets[key]
             if current.get(key) == value:
                 continue
         try:

@@ -47,7 +47,11 @@ import pytest
 
 pytest.importorskip("l3io.wp.database")
 
-from l3io.wp.backup.adapters.journal import refuse_incomplete
+from l3io.wp.backup.adapters.journal import (
+    CURRENT,
+    journal_directory,
+    refuse_incomplete,
+)
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.staging import complete_cutover
 from l3io.wp.backup.core.restore import (
@@ -70,6 +74,7 @@ from l3io.wp.backup.ports.database import DatabaseCommand
 from tests.conftest import CredentialSentinel
 from tests.integration.live_restore import (
     NOT_SIGNALLED,
+    PREFIX,
     SIGNALLED,
     WRAPPED,
     LiveSite,
@@ -287,7 +292,12 @@ def _check_kill(
 
         # Resolution completes an interrupted set, then acknowledges the Run.
         adapters, _ = adapters_for(spec, SecretRegistry())
-        complete_cutover(record, ports=ports_for(spec, adapters))
+        complete_cutover(
+            record,
+            ports=ports_for(spec, adapters),
+            table_prefix=PREFIX,
+            journal_path=str(journal_directory(site.site_root) / CURRENT),
+        )
         journal.resolve(spec.run_id, "kill-harness")
         s.assert_clean()
         if inside:

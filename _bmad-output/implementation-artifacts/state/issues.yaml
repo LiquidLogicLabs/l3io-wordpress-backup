@@ -1985,36 +1985,6 @@ backlog:
   severity: Medium
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-072
-  epic: '003'
-  sprint: '02'
-  title: 'Staging cutover: only ConfigWriteFailedError on first key handled cleanly; other write errors leave ambiguous journal state'
-  source: adversarial (ADV-S02-04)
-  source_phase: adversarial
-  source_ref: ADV-S02-04
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-073
-  epic: '003'
-  sprint: '02'
-  title: complete_cutover does not re-check the staging database still exists and is WordPress; bare cutover_targets[key] lookup
-  source: adversarial (ADV-S02-05)
-  source_phase: adversarial
-  source_ref: ADV-S02-05
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-074
-  epic: '003'
-  sprint: '02'
-  title: Snapshot path carried only on BackupError; other exceptions lose it
-  source: adversarial (ADV-S02-06)
-  source_phase: adversarial
-  source_ref: ADV-S02-06
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-075
   epic: '003'
   sprint: '02'
@@ -2045,36 +2015,6 @@ backlog:
   severity: Medium
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-078
-  epic: '003'
-  sprint: '02'
-  title: After same-server restore the site runs on the _l3s_ staging database name permanently; docs/restore.md silent
-  source: adversarial (ADV-S02-10)
-  source_phase: adversarial
-  source_ref: ADV-S02-10
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-079
-  epic: '003'
-  sprint: '02'
-  title: TLS mandatory to non-loopback hosts with no opt-out; UsageError forwards dependency message
-  source: adversarial (ADV-S02-11)
-  source_phase: adversarial
-  source_ref: ADV-S02-11
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-081
-  epic: '003'
-  sprint: '02'
-  title: restore --whatIf rejected after the subcommand; docs say it works
-  source: ux-review (UX-S02-02)
-  source_phase: ux-review
-  source_ref: UX-S02-02
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-082
   epic: '003'
   sprint: '02'
@@ -2082,26 +2022,6 @@ backlog:
   source: ux-review (UX-S02-03)
   source_phase: ux-review
   source_ref: UX-S02-03
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-083
-  epic: '003'
-  sprint: '02'
-  title: Under --log-format json stdout mixes JSON and plain text; files-only success prints no completion line
-  source: ux-review (UX-S02-04)
-  source_phase: ux-review
-  source_ref: UX-S02-04
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-084
-  epic: '003'
-  sprint: '02'
-  title: docs/restore.md maps no mode names to flags and has no worked output examples
-  source: ux-review (UX-S02-05)
-  source_phase: ux-review
-  source_ref: UX-S02-05
   severity: Medium
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/

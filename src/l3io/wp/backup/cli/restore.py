@@ -44,12 +44,16 @@ inverse for refusals (BL-E003-039).
 FR-9's database report (E003-S02-004) is rendered here for the root to print:
 :func:`database_report_lines` (human), :func:`database_report_json` (one JSON
 object, for ``--log-format json``), :func:`emit_database_report` choosing
-between them, and :func:`require_database_restored`, the exit rule.
+between them, and :func:`require_database_restored`, the exit rule. Under
+``--log-format json`` stdout is instead one object, :func:`restore_summary`,
+holding the report among everything else; a text-mode Run that completed ends
+with :func:`completion_line` (UX-S02-04).
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import functools
 import json
@@ -59,7 +63,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Final, Protocol, cast
 
 import structlog
@@ -196,6 +200,7 @@ __all__ = [
     "RestoreOutcome",
     "RestoreRequest",
     "check_restore_arguments",
+    "completion_line",
     "config_policy_from_cli",
     "database_report_json",
     "database_report_lines",
@@ -206,6 +211,7 @@ __all__ = [
     "render_flags",
     "require_database_restored",
     "restore_mode_from_cli",
+    "restore_summary",
     "run_restore",
     "snapshot_policy_from_cli",
 ]
@@ -1179,7 +1185,12 @@ def drive_restore(
         # Step 4: resolution only — resolving and restoring are never one command.
         if resolving is not None:
             record = resolving
-            complete_cutover(record, ports=ports)
+            complete_cutover(
+                record,
+                ports=ports,
+                table_prefix=site.table_prefix,
+                journal_path=str(journal_directory(site_root) / CURRENT),
+            )
             run.adapters.journal_command.resolve(
                 record.header.run_id, resolved_by=_RESOLVED_BY
             )
@@ -1348,7 +1359,9 @@ def drive_restore(
             refusal = _refusal(exc)
             _carry_snapshot(refusal, taken)
             raise refusal from exc
-        except BackupError as exc:
+        except BaseException as exc:
+            # ADV-S02-06: whatever escapes — a defect, an OSError, Ctrl-C —
+            # still names the copy of the Site this Run took.
             _carry_snapshot(exc, taken)
             raise
         # Step 9: the outcome.
@@ -1370,11 +1383,31 @@ def drive_restore(
         )
 
 
-def _carry_snapshot(exc: BackupError, taken: list[SnapshotResult]) -> None:
-    """AG-15: an error after a performed snapshot names it."""
-    if taken and taken[-1].performed:
-        exc.snapshot_path = taken[-1].path
-        _log.info("safety_snapshot_kept", path=str(taken[-1].path))
+#: The attribute an escaping exception carries the Safety Snapshot's path on:
+#: ``BackupError.snapshot_path``, set the same way on any other exception.
+_SNAPSHOT_ATTR: Final = "snapshot_path"
+
+
+def _carry_snapshot(exc: BaseException, taken: list[SnapshotResult]) -> None:
+    """AG-15, ADV-S02-06: an error after a performed snapshot names it.
+
+    A ``BackupError`` carries the path in ``snapshot_path``; any other
+    exception gets the same attribute, as ``cli/context.py`` leaves the Run
+    ID on one. An exception that cannot take an attribute keeps only the
+    ``safety_snapshot_kept`` record.
+    """
+    if not (taken and taken[-1].performed):
+        return
+    path = taken[-1].path
+    _log.info("safety_snapshot_kept", path=str(path))
+    with contextlib.suppress(AttributeError, TypeError):
+        setattr(exc, _SNAPSHOT_ATTR, path)
+
+
+def _kept_snapshot(exc: BaseException) -> PurePath | None:
+    """The Safety Snapshot path :func:`_carry_snapshot` left on ``exc``."""
+    path = getattr(exc, _SNAPSHOT_ATTR, None)
+    return path if isinstance(path, PurePath) else None
 
 
 # --------------------------------------------------------------------------
@@ -1382,20 +1415,90 @@ def _carry_snapshot(exc: BackupError, taken: list[SnapshotResult]) -> None:
 # --------------------------------------------------------------------------
 
 
-def _print_outcome(outcome: RestoreOutcome) -> None:
-    """Exactly what ``outcome`` carries, on stdout (stderr for warnings)."""
+def _status(outcome: RestoreOutcome, *, completed: bool) -> str:
+    if not completed:
+        return "failed"
     if outcome.resolved_run_id is not None:
-        verb = "would resolve" if outcome.dry_run else "resolved"
-        emit_result(f"{verb} {outcome.resolved_run_id}")
-        return
+        return "would_resolve" if outcome.dry_run else "resolved"
+    return "planned" if outcome.dry_run else "completed"
+
+
+def restore_summary(
+    outcome: RestoreOutcome, *, archive: str, site_root: str, completed: bool
+) -> dict[str, object]:
+    """UX-S02-04: everything a Run prints, as the one ``--log-format json`` object.
+
+    ``status`` is ``completed`` (a real Run), ``planned`` (a Dry Run),
+    ``resolved``/``would_resolve`` (``--resolve-interrupted-run``) or
+    ``failed`` (the report does not call the database restored); ``actions``
+    is the Dry Run's ordered plan, empty for a real Run.
+    """
+    database = outcome.database
+    search = outcome.search_replace
+    return {
+        "status": _status(outcome, completed=completed),
+        "run_id": outcome.run_id,
+        "dry_run": outcome.dry_run,
+        "restore_mode": outcome.mode.value,
+        "archive": archive,
+        "site_root": site_root,
+        "resolved_run_id": outcome.resolved_run_id,
+        "actions": [a.text for a in outcome.actions] if outcome.dry_run else [],
+        "skipped_links": [
+            {"path": str(link.path), "link_target": str(link.link_target)}
+            for link in outcome.skipped_links
+        ],
+        "database_report": (
+            None if database is None else database_report_fields(database)
+        ),
+        "search_replace": (
+            None if search is None else {"replacements": search.replacements}
+        ),
+        "snapshot_path": (
+            None if outcome.snapshot_path is None else str(outcome.snapshot_path)
+        ),
+        "snapshot_encrypted": outcome.snapshot_encrypted,
+        "wp_config_kept": outcome.wp_config_kept,
+    }
+
+
+def completion_line(outcome: RestoreOutcome, *, archive: str, site_root: str) -> str:
+    """UX-S02-04: the last line of a successful text-mode Run."""
+    what = f"Restore Mode {outcome.mode.value}, archive {archive}, site {site_root}"
     if outcome.dry_run:
-        emit_result("\n".join(action.text for action in outcome.actions))
+        return f"Dry Run complete ({what}); nothing was changed"
+    return f"restore complete ({what})"
+
+
+def _print_outcome(
+    outcome: RestoreOutcome, *, archive: str, site_root: str, completed: bool
+) -> None:
+    """Exactly what ``outcome`` carries, on stdout (stderr for warnings).
+
+    Under ``--log-format json`` stdout is one JSON object,
+    ``{"restore": restore_summary(...)}``, and nothing else (UX-S02-04).
+    Otherwise the human lines, ending — when ``completed`` — with
+    :func:`completion_line`, so a Run that changed nothing worth reporting
+    still says it finished.
+    """
     for link in outcome.skipped_links:
         print(
             f"WARNING: symlink {link.path} -> {link.link_target} not restored: "
             "absolute and out-of-root symlinks are not supported",
             file=sys.stderr,
         )
+    if configured_format() == "json":
+        summary = restore_summary(
+            outcome, archive=archive, site_root=site_root, completed=completed
+        )
+        emit_result(json.dumps({"restore": summary}))
+        return
+    if outcome.resolved_run_id is not None:
+        verb = "would resolve" if outcome.dry_run else "resolved"
+        emit_result(f"{verb} {outcome.resolved_run_id}")
+        return
+    if outcome.dry_run:
+        emit_result("\n".join(action.text for action in outcome.actions))
     if outcome.database is not None:
         emit_database_report(outcome.database)
     if outcome.search_replace is not None:
@@ -1406,6 +1509,21 @@ def _print_outcome(outcome: RestoreOutcome) -> None:
         emit_result(
             "wp-config.php kept (target's); pass --overwrite-wp-config to replace it"
         )
+    if completed:
+        emit_result(completion_line(outcome, archive=archive, site_root=site_root))
+
+
+def _print_kept_snapshot(path: PurePath, *, error: BaseException) -> None:
+    """A failed Run's Safety Snapshot, on stdout in the configured format."""
+    if configured_format() == "json":
+        failed = {
+            "status": "failed",
+            "error": type(error).__name__,
+            "snapshot_path": str(path),
+        }
+        emit_result(json.dumps({"restore": failed}))
+        return
+    emit_result(f"safety snapshot: {path}")
 
 
 def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
@@ -1466,10 +1584,16 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
     )
     try:
         outcome = drive_restore(request, ctx=None, secrets=secrets)
-    except BackupError as exc:
-        if exc.snapshot_path is not None:
-            emit_result(f"safety snapshot: {exc.snapshot_path}")
+    except BaseException as exc:
+        kept = _kept_snapshot(exc)
+        if kept is not None:
+            _print_kept_snapshot(kept, error=exc)
         raise
-    _print_outcome(outcome)
-    require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
+    shown = {"archive": str(request.archive.path), "site_root": str(request.site_root)}
+    try:
+        require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
+    except BackupError:
+        _print_outcome(outcome, completed=False, **shown)
+        raise
+    _print_outcome(outcome, completed=True, **shown)
     return ExitCode.OK

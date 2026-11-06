@@ -16,10 +16,15 @@ from pathlib import Path
 import pytest
 
 from l3io.wp.backup.adapters.database import (
+    INVALID_DATABASE_NAME,
+    INVALID_DB_HOST,
+    TLS_SETTINGS_UNUSABLE,
     AdminTls,
     DatabaseTlsHandshakeError,
     DatabaseTlsVerificationError,
     WpDatabase,
+    check_admin_tls,
+    database_location_from_db_host,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import real_adapters
@@ -197,3 +202,43 @@ def test_a_library_caller_cannot_drop_the_tls_policy_with_none(
         dataclasses.replace(rig.request(), admin_tls=None)
     assert rig.adapter_calls == []
     assert rig.executions == []
+
+
+# --- ADV-S02-11: a UsageError never forwards database's message -----------------
+
+
+def test_unusable_tls_settings_are_a_fixed_usage_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(**_: object) -> object:
+        raise wpdb.InvalidArgumentsError(DATABASE_TEXT)
+
+    monkeypatch.setattr(wpdb, "TlsSettings", refuse)
+    with pytest.raises(UsageError) as caught:
+        check_admin_tls(AdminTls(mode="verify-identity", ca_file=None), REMOTE)
+    assert str(caught.value) == TLS_SETTINGS_UNUSABLE
+    assert DATABASE_TEXT not in str(caught.value)
+
+
+#: A port database refuses, typed by an operator: never echoed (L-4).
+TYPED_PORT = "port-typed-e003-l4"
+
+
+@pytest.mark.parametrize(
+    ("db_host", "name", "expected"),
+    [
+        (f"db.example.invalid:{TYPED_PORT}", "wordpress", INVALID_DB_HOST),
+        ("db.example.invalid:70000", "wordpress", INVALID_DB_HOST),
+        ("", "wordpress", INVALID_DB_HOST),
+        ("db.example.invalid", f"bad`{TYPED_PORT}", INVALID_DATABASE_NAME),
+    ],
+    ids=["port-not-integer", "port-out-of-range", "empty-host", "bad-name"],
+)
+def test_an_unparseable_db_host_is_a_fixed_usage_error(
+    db_host: str, name: str, expected: str
+) -> None:
+    with pytest.raises(UsageError) as caught:
+        database_location_from_db_host(db_host, name)
+    assert str(caught.value) == expected
+    assert TYPED_PORT not in str(caught.value)
+    assert str(caught.value.__cause__) not in str(caught.value)
