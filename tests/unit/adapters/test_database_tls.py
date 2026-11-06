@@ -20,6 +20,7 @@ from l3io.wp.backup.adapters.database import (
     INVALID_DB_HOST,
     TLS_SETTINGS_UNUSABLE,
     AdminTls,
+    DatabaseAuthPluginRefusedError,
     DatabaseTlsHandshakeError,
     DatabaseTlsVerificationError,
     WpDatabase,
@@ -165,6 +166,47 @@ def test_each_tls_error_maps_to_its_own_class(
     assert DATABASE_TEXT not in str(caught.value)
     assert REMOTE in str(caught.value)
     assert type(caught.value) is mapped
+
+
+@pytest.mark.parametrize(
+    ("plugin", "shown"),
+    [
+        ("mysql_clear_password", "mysql_clear_password"),
+        ("dialog", "dialog"),
+        ("evil; rm -rf /\n\x1b[2J", "unnamed"),
+    ],
+    ids=["cleartext", "dialog", "hostile-name"],
+)
+@pytest.mark.parametrize("call", ["check_dump", "survey_target", "load_dump"])
+def test_a_refused_auth_plugin_is_refused_naming_only_the_plugin(
+    monkeypatch: pytest.MonkeyPatch, call: str, plugin: str, shown: str
+) -> None:
+    """RT-S02-003: database 0.3.2 refuses a password-exposing plugin; REFUSED."""
+
+    def fail(*args: object, **kwargs: object) -> object:
+        raise wpdb.AuthPluginRefusedError(plugin, DATABASE_TEXT)  # type: ignore[attr-defined]
+
+    target = {"check_dump": "check_dump", "survey_target": "survey"}.get(call, "load")
+    monkeypatch.setattr(wpdb, target, fail)
+    database = _database(AdminTls(mode=None, ca_file=None))
+    location = DatabaseLocation(host=REMOTE, port=3306, name="wp")
+    calls = {
+        "check_dump": lambda: database.check_dump(location),
+        "survey_target": lambda: database.survey_target(
+            location, table_prefix="wp_", wordpress_user=None
+        ),
+        "load_dump": lambda: database.load_dump(location, Path("/dev/null")),
+    }
+    with pytest.raises(DatabaseAuthPluginRefusedError) as caught:
+        calls[call]()
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert caught.value.plugin == shown
+    text = str(caught.value)
+    assert DATABASE_TEXT not in text
+    assert REMOTE in text
+    assert shown in text
+    if shown == "unnamed":
+        assert plugin not in text
 
 
 # --------------------------------------------------------------------------

@@ -136,6 +136,11 @@ any connection. `--admin-tls-ca FILE` names the CA bundle for a private CA. A
 server that cannot complete the required handshake exits 5 `UNREACHABLE`; one
 whose certificate does not verify exits 3 `REFUSED`. Backups are unchanged.
 
+On every connection, a server that asks for an authentication plugin that
+would expose the password (`mysql_clear_password`, `mysql_old_password` or
+`dialog`) is refused before any password is sent: exit 3 `REFUSED`, naming
+the plugin and the server (RT-S02-003; `l3io-wordpress-database` 0.3.2).
+
 ## Interrupted Runs
 
 A Run killed part-way leaves its journal open. The next restore of the Site is

@@ -528,3 +528,16 @@ resolved:
   resolved_at: '2026-11-06T09:41:16Z'
   ref: E003-S02-006
   note: 'docs/restore.md Modes table has a Flags column derived from FLAG_MAP; worked examples (refusal, Dry Run, real Run) captured from a real files-only Run; JSON output documented. Check: tests/contracts/test_restore_docs.py::test_the_modes_table_maps_every_mode_to_its_flags.'
+- key: BL-E003-069
+  epic: '003'
+  sprint: '02'
+  title: Archive-database confirmation is copy-paste; admin login can reach a server named by a forged Archive (owner decision pending; see redteam-report.md)
+  source: redteam (RT-S02-003)
+  source_phase: redteam
+  source_ref: RT-S02-003
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-06T11:31:14Z'
+  ref: E003-S02-006

@@ -28,6 +28,7 @@ registered when the source is built. Usernames are not secrets.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -87,6 +88,7 @@ __all__ = [
     "INVALID_DB_HOST",
     "TLS_SETTINGS_UNUSABLE",
     "AdminTls",
+    "DatabaseAuthPluginRefusedError",
     "DatabaseTlsHandshakeError",
     "DatabaseTlsVerificationError",
     "LocatedConfig",
@@ -174,6 +176,30 @@ class DatabaseTlsHandshakeError(DatabaseUnreachableError):
         )
 
 
+#: What of a server-sent plugin name may be shown: the server is untrusted.
+_PLUGIN_NAME: Final = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+class DatabaseAuthPluginRefusedError(RefusedError):
+    """The server asked for an authentication plugin that would expose the
+    password (cleartext, old-password or dialog). ``REFUSED``.
+
+    RT-S02-003: database (>= 0.3.2) refuses such a plugin before sending any
+    password. The plugin name comes from the server, so only a plain name is
+    shown; anything else is reported as ``unnamed``.
+    """
+
+    def __init__(self, host: str, port: int, plugin: str) -> None:
+        self.host = host
+        self.port = port
+        self.plugin = plugin if _PLUGIN_NAME.fullmatch(plugin) else "unnamed"
+        super().__init__(
+            f"database server {host}:{port} asked for the {self.plugin} "
+            "authentication plugin, which would expose the password; refused "
+            "before any password was sent, and nothing was changed"
+        )
+
+
 class DatabaseTlsVerificationError(RefusedError):
     """The server's TLS certificate did not verify. ``REFUSED``."""
 
@@ -224,9 +250,16 @@ def check_admin_tls(admin_tls: AdminTls | None, host: str) -> None:
 
 
 def _tls_error(exc: BaseException, location: DatabaseLocation) -> BackupError:
-    """database's TLS errors as the package's two; never database's text."""
+    """database's connection-security errors as the package's; never its text.
+
+    TLS handshake and verification, and a refused authentication plugin.
+    """
     from l3io.wp import database as wpdb
 
+    if isinstance(exc, wpdb.AuthPluginRefusedError):
+        return DatabaseAuthPluginRefusedError(
+            location.host, location.port, str(exc.plugin)
+        )
     if isinstance(exc, wpdb.TlsVerificationError):
         return DatabaseTlsVerificationError(location.host, location.port)
     return DatabaseTlsHandshakeError(location.host, location.port)
@@ -681,7 +714,11 @@ class WpDatabase:
         connection = self._connection(location)
         try:
             verdict = wpdb.check_dump(connection, self._credentials)
-        except (wpdb.TlsHandshakeError, wpdb.TlsVerificationError) as exc:
+        except (
+            wpdb.TlsHandshakeError,
+            wpdb.TlsVerificationError,
+            wpdb.AuthPluginRefusedError,
+        ) as exc:
             raise _tls_error(exc, location) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
@@ -726,7 +763,11 @@ class WpDatabase:
             code = exc.exit_code
             reason = "the dump stopped" if code is None else f"the dump exited {code}"
             raise DumpFailedError(reason) from exc
-        except (wpdb.TlsHandshakeError, wpdb.TlsVerificationError) as exc:
+        except (
+            wpdb.TlsHandshakeError,
+            wpdb.TlsVerificationError,
+            wpdb.AuthPluginRefusedError,
+        ) as exc:
             raise _tls_error(exc, location) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
@@ -1007,7 +1048,11 @@ class WpDatabase:
             ) from exc
         except (wpdb.CorruptDumpError, wpdb.DecryptionError) as exc:
             raise LoadFailedError(type(exc).__name__) from exc
-        except (wpdb.TlsHandshakeError, wpdb.TlsVerificationError) as exc:
+        except (
+            wpdb.TlsHandshakeError,
+            wpdb.TlsVerificationError,
+            wpdb.AuthPluginRefusedError,
+        ) as exc:
             raise _tls_error(exc, location) from exc
         except wpdb.DatabaseUnreachableError as exc:
             raise DatabaseUnreachableError(location.host, location.port) from exc
