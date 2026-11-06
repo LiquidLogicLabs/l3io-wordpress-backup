@@ -117,3 +117,25 @@ Applied in `e44ac5b`, with in-place edits to 21 stories.
 **Final verdict: PASSED** — 0 blocking findings after two resolution passes (the second,
 with the ADR-0024 decision, approved by Shawn 2026-10-29 → 11-03). Open MINORs:
 BL-E004-*.
+
+## Pre-build re-check — 2026-11-06 (after E002 and E003 were built)
+
+- `reviewer-l3io-arch-review-2026-11-06.md`: 2 BLOCKER, 9 MAJOR, 11 MINOR against the
+  built code. E004-S01-001 was buildable as written; E004-S01-003 needed rework.
+- **The owner's decision:** F-1 (BL-E002-115, binding the Manifest to the encrypted payload).
+  Shawn chose option A on 2026-11-06, recorded in ADR-0024's amendment: an inner Manifest is
+  the payload's last member, and `verify --authenticate` and restore's `VERIFY` compare it
+  with the outer Manifest through one shared check. Rollback stays a stated, permanent limit.
+- **Settled by built code or final decisions:** F-2 through F-11 and the MINORs, applied as
+  story edits marked *(E004/E005 pre-build re-check, 2026-11-06)*.
+- **Re-check of those edits:** 10/11 resolved, and 6 new MAJORs (N-1 to N-5, plus E005's M-1),
+  all applied as *(E004/E005 re-check 2, 2026-11-06)*. The orchestrator corrected the
+  ADR-0024 grant (file list, the shared check, the `PayloadDamagedError` `field` keyword) and
+  re-ran `check-pointers` and `check-links` (OK). The re-check-2 edits were not reviewed
+  independently a second time.
+- **Orchestrator decisions, under the owner's standing rules (the owner may overrule):**
+  - The F-4 factory signature: built code wins.
+  - CLI-backend encrypted restores fail closed (exit 7) until E008 binds `RootPreflight`.
+    The default backend is unaffected.
+
+**Verdict: PASSED** — 0 open BLOCKER or MAJOR.

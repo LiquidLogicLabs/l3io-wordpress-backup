@@ -153,3 +153,77 @@ workspace. This package adds no decryption or file-writing code.
 - **Revisit when:** a single-file restore or keyless per-file integrity becomes a product
   requirement, or key-based encryption is scheduled. Keys need only a new ADR; neither of
   the other two is possible within this layout.
+
+## Amendment — 2026-11-06: binding the Manifest to the encrypted payload (Shawn, option A)
+
+Close-out gate item BL-E002-115 (red team RT-2). `age` authenticates the encrypted payload,
+but the outer `manifest.json` is unencrypted, and nothing tied it to that payload. Someone who
+can write to the storage, without the passphrase, could change the Manifest's scope or source,
+or swap in another Archive's Manifest. Restore plans from the Manifest, while
+`verify --authenticate` would still pass. The original wording, "the Manifest's sha256 as the
+first member inside the payload", is circular: the Manifest records the encrypted payload's
+size and sha256, so neither can contain the other's hash.
+
+**Decided: an inner copy of the Manifest, compared on read.**
+
+- **The inner member.** An encrypted Archive's payload ends with one reserved member, the
+  **inner Manifest**, at a reserved name declared in `domain/archive_format.py`, the module
+  that owns member names (E002-S01-001).
+  - It is the Manifest document with the fields that describe the encrypted payload itself
+    removed: its size and sha256. Everything else is kept as written, including the member
+    index of the plain members.
+  - It is the **last** member, so the Dump stays first, as this ADR's Decision requires. It
+    is written after the inner tar's other members, when their index is final.
+  - It is not listed in the member index it carries. Extraction and `read_member` know the
+    reserved name, never extract it into the Site, and refuse any other member under it.
+- **The check.** `verify --authenticate` and restore's `VERIFY` (E003-S01-001's executor,
+  through `adapters/restore_runner.py`) decrypt the payload as they already do. They then
+  require:
+  1. The inner Manifest is present, exactly once, and last.
+  2. It equals the outer Manifest minus those two payload fields: a field-by-field
+     comparison of the parsed documents, not a byte comparison.
+
+  A missing, duplicated, misplaced or different inner Manifest is `PayloadDamagedError`
+  (exit 8, the 2026-11-03 decision), naming the first differing field and never a value
+  from the payload.
+- **Scope.**
+  - **Unencrypted Archives** are unchanged. They have no authenticity to bind (ADR-0016
+    amendment, 2026-11-06).
+  - **Keyless `verify`** still reports consistency only.
+  - **v1 encrypted Archives written before this amendment** carry no inner Manifest. Since no
+    encrypted Archive has been released, the writer and the check ship together in E004, and
+    an encrypted v1 Archive without one is refused.
+
+**What it does not cover, permanently:** replacing the whole Archive with an older, genuine
+one encrypted with the same passphrase (a rollback). Both parts are authentic and
+consistent. Detecting that needs state kept outside the Archive, such as a recorded latest
+backup, which this package does not keep. `docs/restore.md` and `verify --help` say so.
+
+Rejected:
+- **(B) Re-deriving every planning fact from the decrypted payload.** That rewrites E003's
+  probe-based plan (ADR-0022) for the same protection.
+- **(C) Accepting the gap.** The owner made closing BL-E002-115 a condition of close-out.
+
+**Owner:** E004-S01-003 builds the writer half, the check in `verify --authenticate` and in
+restore's `VERIFY`, and the tests:
+- a Manifest edited outside the payload (scope, source, member index) is refused;
+- an inner Manifest removed, moved or duplicated is refused;
+- a matching pair passes;
+- the rollback case passes, documenting the limit.
+
+It is granted the edits this needs:
+- `domain/archive_format.py`: the reserved name, plus one shared pair. The first is
+  `inner_manifest_bytes(manifest)`, the serialiser without the payload's size and sha256.
+  The second is `check_inner_manifest(outer_text, inner_bytes)`, the field-by-field
+  comparison. Both check sites call that one function; neither writes the comparison
+  itself.
+- `adapters/tar.py`: the writer appends the member; extraction and `read_member` skip it.
+- `cli/verify.py` and `adapters/restore_runner.py`: the two check sites. Each keeps the
+  outer Manifest's text it already read, so the comparison has its source.
+- `cli/parser.py`: the rollback limit in `verify --help`, with `README.md` regenerated
+  under BL-E004-006's coordination.
+- `domain/errors.py`: one optional keyword on `PayloadDamagedError`, the name of the first
+  differing field, so the refusal can say which field differs. It is never a value.
+- `docs/restore.md`.
+- Their tests, including `tests/adapters/test_tar_writer.py`. Its assertion that the
+  encrypted and plain inner members are equal becomes "equal except the inner Manifest".

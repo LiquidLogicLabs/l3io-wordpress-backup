@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Encrypt an archive at rest
 classification: standard
 status: backlog
-updated_at: '2026-10-27T22:15:32Z'
+updated_at: '2026-11-06T13:27:22Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -33,3 +33,4 @@ depends_on:
 - 'E002-S01-010'
 - 'E002-S02-011'
 - 'E002-S02-012'
+- 'E004-S01-002'
