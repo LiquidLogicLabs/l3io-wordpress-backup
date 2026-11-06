@@ -366,3 +366,40 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-04T08:53:00Z'
   ref: E003-S02-006
+- key: BL-E003-036
+  epic: '003'
+  sprint: '01'
+  title: 'Restore binds to the verified archive bytes: swap after VERIFY (RT-001) and unauthenticated manifest/STRUCTURAL_ONLY restore (RT-002). Owner E003-S02-006'
+  source: closure-redteam
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md RT-001, RT-002. Copy the verified payload into the workspace (or hash while extracting) before the CLI wires restore; decide refusal/waiver of STRUCTURAL_ONLY archives.
+  resolution: fixed
+  resolved_at: '2026-11-06T08:43:14Z'
+  ref: E003-S02-006
+- key: BL-E003-054
+  epic: '003'
+  sprint: '02'
+  title: 'Owner to ratify RT-002 policy: unencrypted and STRUCTURAL_ONLY archives restore with a warning; ADR-0016 amendment and ADR-0022 Consequences now state a tampered Archive can only abort (review M-2; remaining part of BL-E003-036)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md M-2. RT-001 (bind to verified bytes) is built. The waiver was a developer decision; the owner must ratify or choose refusal, and amend ADR-0016/ADR-0022 statements.
+  resolution: fixed
+  resolved_at: '2026-11-06T08:43:15Z'
+  ref: E003-S02-006
+- key: BL-E003-060
+  epic: '003'
+  sprint: '02'
+  title: 'L-1: STRUCTURAL_ONLY stderr warning printed only after a successful restore, not on failure'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+  resolution: fixed
+  resolved_at: '2026-11-06T08:43:16Z'
+  ref: E003-S02-006

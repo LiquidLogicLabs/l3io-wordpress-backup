@@ -124,4 +124,41 @@ Rejected: running `VERIFY` before `PREFLIGHT` (amends AD-17 for every restore, a
 missing tool only after a long verification); refusing such targets (breaks FR-29 and E003's
 criterion). Accepted cost: unverified bytes are used to *plan* before `VERIFY` confirms them.
 Nothing destructive runs before `VERIFY` (Safety Snapshot and `CLEAN` follow it), so a tampered
-config member can only produce an abort.
+config member can only produce an abort. *(Narrowed by the amendment of 2026-11-06, below: this
+holds for an Archive changed by someone who cannot also rewrite its checksums, and for every
+encrypted Archive.)*
+
+## Amendment — 2026-11-06: what `VERIFY` proves about an unauthenticated Archive (Shawn)
+
+Red team RT-002 (BL-E003-036, BL-E003-054) showed the sentence above claims too much.
+`VERIFY` compares the Archive's contents with the checksums recorded in the same Archive.
+
+- **Encrypted Archive (ADR-0024):** `age` authenticates the payload when it is decrypted, so
+  a tampered config member, or any other tampered member, aborts the Run.
+- **Unencrypted Archive, and every v0 Archive (STRUCTURAL_ONLY):** the check is consistency,
+  not authenticity. Whoever can write the Archive can rewrite a member and its checksum
+  together, and that forgery passes `VERIFY` and is restored.
+
+**Decided: restore it, with a warning; do not refuse.** The restore logs WARNING
+`archive_unauthenticated`, and names a STRUCTURAL_ONLY Archive on stderr. `docs/restore.md`
+states the trust model: for an unencrypted Archive, whoever controls where it is stored is
+trusted, and encryption is how an operator gets authenticity.
+
+What still holds without authentication:
+- The restore reads only its own `0600` copy of the Archive in the `0700` workspace, made
+  before the probe, so the Archive cannot be swapped after `VERIFY` (RT-001).
+- When the target has no `wp-config.php`, `--archive-database` must confirm the Archive's
+  database identity before any connection (BL-E002-114), so a forged config cannot redirect
+  the restore to another database.
+
+Rejected:
+- **Refusing unauthenticated Archives, or requiring a flag for them.** Encryption is optional,
+  so most Archives and every v0 Archive are unencrypted. Refusing would block the tool's main
+  job, or put a mandatory flag on most restores.
+
+This matches the decision of 2026-11-03 for `verify`: without a key it reports consistency,
+and `verify --authenticate` authenticates.
+
+**Revisit when:** an operator needs a restore that refuses an unauthenticated Archive. That
+would be an opt-in flag, for example `--require-authenticated`, added without changing the
+default.

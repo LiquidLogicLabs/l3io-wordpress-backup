@@ -210,6 +210,12 @@ __all__ = [
 
 _log = structlog.get_logger(__name__)
 
+#: Written to stderr before any effect when the Archive has no checksums (RT-002).
+STRUCTURAL_ONLY_WARNING: Final = (
+    "WARNING: the archive carries no checksums (STRUCTURAL_ONLY); restore "
+    "only an archive from a source you trust"
+)
+
 #: What opts out of the Safety Snapshot on the command line (BL-E003-050).
 NO_SNAPSHOT_FLAG: Final = "--no-safety-snapshot"
 #: Who acknowledges an interrupted Run resolved from the command line.
@@ -1170,11 +1176,15 @@ def drive_restore(
         # Step 5: the probe (reused when step 3 already probed).
         view = archive.view()
         if not view.encrypted:
+            # RT-002 waiver (ADR-0016 amendment, 2026-11-06): restore, warning
+            # before any effect, so the warning is seen even if the Run fails.
             _log.warning(
                 "archive_unauthenticated",
                 integrity=view.integrity.value,
                 archive=str(request.archive.path),
             )
+            if view.integrity is Integrity.STRUCTURAL_ONLY:
+                print(STRUCTURAL_ONLY_WARNING, file=sys.stderr)
         # Step 6: the plan, FR-7's guard included.
         _require_cipher(view, request.cipher)
         relocation = ext.resolve(
@@ -1346,12 +1356,6 @@ def _print_outcome(outcome: RestoreOutcome) -> None:
         return
     if outcome.dry_run:
         emit_result("\n".join(action.text for action in outcome.actions))
-    if outcome.integrity is Integrity.STRUCTURAL_ONLY:
-        print(
-            "WARNING: the archive carries no checksums (STRUCTURAL_ONLY); restore "
-            "only an archive from a source you trust",
-            file=sys.stderr,
-        )
     for link in outcome.skipped_links:
         print(
             f"WARNING: symlink {link.path} -> {link.link_target} not restored: "

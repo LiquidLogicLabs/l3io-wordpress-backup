@@ -71,7 +71,11 @@ or `VERIFY` steps. AD-13 and AD-17 hold without amendment.
   and never fails because a check looked for something a no-op did not make.
 - Negative / trade-off accepted: the plan is built from unverified headers. Nothing
   destructive runs before `VERIFY`, so a tampered header can only make the Run abort at
-  `VERIFY`, as under the ADR-0016 amendment.
+  `VERIFY`, as under the ADR-0016 amendment. *(Narrowed 2026-11-06 by ADR-0016's amendment of
+  that date: this holds for an encrypted Archive, which `age` authenticates. For an
+  unencrypted or v0 Archive, `VERIFY` proves consistency, not authenticity. A forger who
+  rewrites a header and its checksums together passes `VERIFY`, and the restore proceeds
+  with WARNING `archive_unauthenticated`.)*
 - Negative: the command results the checks consume carry `performed: bool`:
   `EnsureOutcome`, `LoadResult` and `ConfigWriteResult` (E002-S02-012), `BackupResult`
   (E002-S01-004; the no-op store's `publish()` reports it, E002-S02-007), and Epic 3's

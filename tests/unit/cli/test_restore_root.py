@@ -653,3 +653,56 @@ def test_a_listed_phase_is_caught() -> None:
     planted = "for p in (RestorePhase.VERIFY, RestorePhase.CLEAN): pass\n"
     assert _named_phases(planted) == [1, 1]
     assert _named_phases("x = RestorePhase.SNAPSHOT in plan.phases\n") == []
+
+
+# --- RT-002 waiver (ADR-0016 amendment, 2026-11-06) ------------------------------
+
+
+def _structural_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_view = restore_mod._Archive.view  # noqa: SLF001
+
+    def view(self: object) -> object:
+        return dataclasses.replace(
+            real_view(self),  # type: ignore[arg-type]
+            integrity=Integrity.STRUCTURAL_ONLY,
+        )
+
+    monkeypatch.setattr(restore_mod._Archive, "view", view)  # noqa: SLF001
+
+
+def test_an_unencrypted_archive_is_restored_with_the_warning_logged_first(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Restore, never refuse; the WARNING precedes every effect."""
+    seen: list[list[str]] = []
+    with capture_logs() as logs:
+
+        def execute(*args: object, **kwargs: object) -> object:
+            seen.append([str(e["event"]) for e in logs])
+            return report_for(args[0])  # type: ignore[arg-type]
+
+        rig.execute = execute
+        rig.drive()
+    (before,) = seen
+    assert "archive_unauthenticated" in before
+    (record,) = [e for e in logs if e["event"] == "archive_unauthenticated"]
+    assert record["log_level"] == "warning"
+    assert record["integrity"] == Integrity.VERIFIED.value
+    assert "STRUCTURAL_ONLY" not in capsys.readouterr().err
+
+
+def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review L-1: the stderr warning is written before the executor runs."""
+    _structural_only(monkeypatch)
+
+    def fail(*args: object, **kwargs: object) -> object:
+        reason = "exit 1"
+        raise LoadFailedError(reason)
+
+    rig.execute = fail
+    with capture_logs():
+        assert main(_argv(rig)) != int(ExitCode.OK)
+    err = capsys.readouterr().err
+    assert err.count(restore_mod.STRUCTURAL_ONLY_WARNING) == 1
