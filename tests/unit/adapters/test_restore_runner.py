@@ -41,7 +41,11 @@ from l3io.wp.backup.core.restore import (
     TargetChangedError,
     TargetState,
 )
-from l3io.wp.backup.domain.archive_format import Integrity, MemberRole
+from l3io.wp.backup.domain.archive_format import (
+    INNER_MANIFEST_MEMBER,
+    Integrity,
+    MemberRole,
+)
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
@@ -63,6 +67,7 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
+from tests.conftest import InnerMembers, forge_archive, reseal
 from tests.restore_builders import RELOCATIONS
 from tests.restore_harness import (
     ARCHIVE_DB,
@@ -541,6 +546,96 @@ def test_an_encrypted_archive_is_read_through_its_decrypted_payload(
     h.run()
     assert (h.workspace / "payload.tar.gz").is_file()
     assert (h.site_root / "index.php").read_bytes().startswith(b"<?php")
+
+
+# --------------------------------------------------------------------------
+# VERIFY: the inner Manifest (BL-E002-115, ADR-0024 amendment 2026-11-06)
+# --------------------------------------------------------------------------
+
+
+def _verify_record(logs: list[dict[str, object]]) -> dict[str, object]:
+    return next(
+        e
+        for e in logs
+        if e.get("event") == "phase_completed" and e.get("phase") == P.VERIFY.value
+    )
+
+
+def _refused_before_snapshot(
+    h: Harness,
+) -> tuple[PayloadDamagedError, dict[str, object]]:
+    with capture_logs() as logs, pytest.raises(PayloadDamagedError) as caught:
+        h.run()
+    assert h.log.calls == []
+    assert h.journal.events == []
+    assert h.snapshots == []
+    return caught.value, _verify_record([dict(e) for e in logs])
+
+
+@pytest.mark.parametrize(
+    ("edit", "field"),
+    [
+        (lambda m: m.update(backup_scope="files"), "backup_scope"),
+        (lambda m: m["source"].update(db_name="elsewhere"), "source.db_name"),
+        (lambda m: m.update(config_path=None), "config_path"),
+    ],
+    ids=["scope", "source", "config-path"],
+)
+def test_verify_refuses_an_outer_manifest_the_payload_does_not_carry(
+    tmp_path: Path, edit: Callable[[dict[str, object]], None], field: str
+) -> None:
+    sealed = write_v1(tmp_path, cipher=IdentityCipher())
+    forged = forge_archive(
+        sealed, tmp_path / "edited.tar.gz", lambda p: p, manifest_edit=edit
+    )
+    h = _harness(tmp_path, forged, cipher=IdentityCipher())
+    error, record = _refused_before_snapshot(h)
+    assert error.field == field
+    assert record["reason"] == "inner_manifest_mismatch"
+    assert record["field"] == field
+    assert record["exit_code"] == ExitCode.VERIFICATION_FAILED
+
+
+def _no_inner(members: InnerMembers) -> InnerMembers:
+    return [m for m in members if m[0].name != INNER_MANIFEST_MEMBER]
+
+
+def _inner(members: InnerMembers) -> InnerMembers:
+    return [m for m in members if m[0].name == INNER_MANIFEST_MEMBER]
+
+
+@pytest.mark.parametrize(
+    ("layout", "reason"),
+    [
+        (_no_inner, "inner_manifest_missing"),
+        (lambda m: _inner(m) + _no_inner(m), "inner_manifest_misplaced"),
+        (lambda m: _no_inner(m) + _inner(m) * 2, "inner_manifest_duplicated"),
+    ],
+    ids=["removed", "moved", "duplicated"],
+)
+def test_verify_refuses_an_inner_manifest_out_of_place(
+    tmp_path: Path, layout: Callable[[InnerMembers], InnerMembers], reason: str
+) -> None:
+    sealed = write_v1(tmp_path, cipher=IdentityCipher())
+    forged = forge_archive(
+        sealed, tmp_path / "relaid.tar.gz", reseal(IdentityCipher(), layout)
+    )
+    h = _harness(tmp_path, forged, cipher=IdentityCipher())
+    error, record = _refused_before_snapshot(h)
+    assert error.field is None
+    assert record["reason"] == reason
+
+
+def test_an_encrypted_archive_without_an_inner_manifest_is_refused(
+    tmp_path: Path,
+) -> None:
+    """An encrypted v1 Archive written before the amendment carries none."""
+    sealed = write_v1(tmp_path, cipher=IdentityCipher())
+    forged = forge_archive(
+        sealed, tmp_path / "old.tar.gz", reseal(IdentityCipher(), _no_inner)
+    )
+    with pytest.raises(PayloadDamagedError):
+        _harness(tmp_path, forged, cipher=IdentityCipher()).run()
 
 
 # --------------------------------------------------------------------------

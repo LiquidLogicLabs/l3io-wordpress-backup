@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import os
 import stat
 import sys
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 wpdb = pytest.importorskip("l3io.wp.database")
 
 import l3io.wp.backup.cli as cli_root  # noqa: E402
+from l3io.wp.backup.adapters.crypto import build_payload_cipher  # noqa: E402
 from l3io.wp.backup.adapters.redaction import REDACTED  # noqa: E402
 from l3io.wp.backup.cli import adapter_sets, main  # noqa: E402
 from l3io.wp.backup.cli import backup as backup_cli  # noqa: E402
@@ -329,7 +331,7 @@ def test_verify_emits_no_credential(
     code, archive = _backup(credential_sentinel, capsys, mode="all")
     assert code == 0
     names = watched_names(verify_cli, "run_verify", "drive_verify")
-    assert {"storage_target_from_cli", "verify_archive_view"} <= names
+    assert {"storage_target_from_cli", "verify_archive_manifest"} <= names
     for name in names:
         credential_sentinel.watch(verify_cli, name)
     root = watched_names(cli_root, *ROOT_DRIVERS)
@@ -367,9 +369,9 @@ def test_the_watched_set_is_derived_and_covers_the_credential_path() -> None:
     assert "WpDatabase" in watched_names(adapter_sets, "real_adapters")
     assert {
         "resolve_passphrase",
-        "PassphraseCipher",
+        "build_payload_cipher",
         "decrypt_payload",
-        "verify_archive_view",
+        "verify_archive_manifest",
     } <= watched_names(verify_cli, *VERIFY_DRIVERS)
 
 
@@ -418,6 +420,43 @@ def test_a_passphrase_in_the_environment_is_never_emitted(
     credential_sentinel.assert_clean()
 
 
+@pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
+def test_an_encrypted_backup_emits_no_passphrase(
+    credential_sentinel: CredentialSentinel,
+    double: DatabaseDouble,
+) -> None:
+    """E004-S01-003: an encrypted backup through the driver, the cipher from the
+    one factory; every package callable the drivers reach is spied on, and the
+    Archive's raw bytes are captured too."""
+    passphrase = credential_sentinel.passphrase
+    assert passphrase is not None
+    # A callable that takes the environment is a passphrase source by design.
+    for module, drivers in (
+        (cli_root, ROOT_DRIVERS),
+        (backup_cli, BACKUP_DRIVERS),
+        (adapter_sets, ("real_adapters",)),
+    ):
+        for name in watched_names(module, *drivers):
+            if not takes_a_passphrase(module, name):
+                credential_sentinel.watch(module, name)
+    registry = backup_cli.SecretRegistry()
+    cipher = build_payload_cipher(passphrase=passphrase, secrets=registry)
+    credential_sentinel.add_repr("cipher", cipher)
+    archive = credential_sentinel.workdir / "encrypted.tar.gz"
+    request = backup_cli.BackupRequest(
+        site_root=credential_sentinel.site,
+        scope=BackupScope.ALL,
+        target=backup_cli.storage_target_from_cli(str(archive)),
+        wp_config=None,
+        credentials=None,
+        cipher=cipher,
+    )
+    backup_cli.drive_backup(request, ctx=None, secrets=registry)
+    assert json.loads(_manifest(archive))["encrypted"] is True
+    credential_sentinel.add("archive bytes", archive.read_bytes())
+    credential_sentinel.assert_clean()
+
+
 def _tamper(payload: bytes) -> bytes:
     flipped = bytearray(payload)
     flipped[len(flipped) // 2] ^= 0x01
@@ -425,7 +464,6 @@ def _tamper(payload: bytes) -> bytes:
 
 
 @pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
-@pytest.mark.usefixtures("fake_age")
 def test_verify_authenticate_emits_no_passphrase(
     credential_sentinel: CredentialSentinel,
     capsys: pytest.CaptureFixture[str],
@@ -454,7 +492,7 @@ def test_verify_authenticate_emits_no_passphrase(
         "drive_verify",
         "_authenticate",
         "resolve_passphrase",
-        "PassphraseCipher",
+        "build_payload_cipher",
     }
     for name in names - sources:
         credential_sentinel.watch(verify_cli, name)
@@ -489,7 +527,6 @@ def test_verify_authenticate_emits_no_passphrase(
 
 
 @pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
-@pytest.mark.usefixtures("fake_age")
 @pytest.mark.parametrize("plant", ["error from the cipher", "spied argument"])
 def test_a_passphrase_leak_on_the_authenticate_path_is_caught(
     credential_sentinel: CredentialSentinel,

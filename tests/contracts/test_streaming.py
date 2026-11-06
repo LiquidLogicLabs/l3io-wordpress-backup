@@ -17,6 +17,16 @@ second child: the probe, ``decrypt_payload`` (through a chunked pass-through
 cipher), ``extract_archive`` from the decrypted payload, and ``read_member``
 reaching the last member through the outer tar's payload.
 
+**Encryption on and off (E004-S01-003, AG-13).** The same test runs over an
+``encrypted`` axis. On, the backup encrypts with the real ``PassphraseCipher``
+and the read-back decrypts with it, then streams the decrypted payload through
+``read_inner_manifest`` and checks it against the outer Manifest. ``age``'s
+passphrase recipient is scrypt, whose memory cost (hundreds of MiB inside
+database's backend) is fixed per call and independent of the stream's size.
+So the encrypted leg also runs over a 2 MiB Site, and what it asserts is the
+growth at full size minus the growth at 2 MiB, against the same bound: a
+fixed cost cancels, and anything that buffers the payload still breaches.
+
 **Reach.** The RSS test covers the byte movers in :data:`RSS_COVERED` (the
 traversal and writer, ``TarArchiveWriter`` included, the local store, and the
 Dry Run's no-op command halves in ``noop.py``, measured over the same
@@ -56,6 +66,7 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -108,7 +119,15 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "verify_archive",
             # verify_archive's body; driven through verify_or_raise below.
             "verify_archive_view",
+            # verify_archive_view's body (BL-E002-115): the same single scan.
+            "verify_archive_manifest",
             "verify_or_raise",
+            # BL-E002-115: driven on the encrypted leg's restore path below.
+            "read_inner_manifest",
+            "_inner_manifest_failure",
+            "_is_reserved",
+            # The writer's inner Manifest, on the encrypted leg's backup.
+            "_add_inner_manifest",
             "SiteRootCollection",
             "TarArchiveWriter",
             "_HashingWriter",
@@ -210,6 +229,12 @@ def peak():
 mode, *paths = sys.argv[1:]
 paths = [Path(p) for p in paths]
 extra = {}
+# The encrypted leg (E004-S01-003): the real cipher, a test-only passphrase.
+import os
+secret = os.environ.get("RSS_TEST_PASSPHRASE")
+if secret is not None:
+    from l3io.wp.backup.adapters.crypto import PassphraseCipher
+    real_cipher = PassphraseCipher(secret)
 
 if mode in ("backup", "backup-buffered", "backup-noop"):
     from datetime import UTC, datetime
@@ -254,7 +279,7 @@ if mode in ("backup", "backup-buffered", "backup-noop"):
     )
     target = StorageTarget(scheme="file", path=PurePosixPath(final))
     plan = build_backup_plan(
-        site, BackupScope.ALL, target, encrypted=False,
+        site, BackupScope.ALL, target, encrypted=secret is not None,
         exclusion_source="none", exclusion_patterns=(),
     )
     config = locate_wp_config(site_root, stated=None)
@@ -273,7 +298,8 @@ if mode in ("backup", "backup-buffered", "backup-noop"):
         result = execute_backup_plan(
             plan, site=site, config=config, workspace=workspace,
             database=database, store=store, writer=writer,
-            cipher=None, exclusion=INCLUDE_EVERYTHING, origin=None,
+            cipher=None if secret is None else real_cipher,
+            exclusion=INCLUDE_EVERYTHING, origin=None,
             now=datetime.now(UTC),
         )
     growth = peak() - before
@@ -298,9 +324,11 @@ elif mode == "restore":
     import dataclasses
     from pathlib import PurePosixPath
     from l3io.wp.backup.adapters.tar import (
-        TarArchiveProbe, decrypt_payload, extract_archive,
+        TarArchiveProbe, decrypt_payload, extract_archive, read_inner_manifest,
     )
-    from l3io.wp.backup.domain.archive_format import MemberRole, classify
+    from l3io.wp.backup.domain.archive_format import (
+        MemberRole, check_inner_manifest, classify,
+    )
     from l3io.wp.backup.domain.storage_target import StorageTarget
 
     archive, run, destination = paths
@@ -317,17 +345,28 @@ elif mode == "restore":
     probe = TarArchiveProbe()
     target = StorageTarget(scheme="file", path=PurePosixPath(archive))
     before = baseline()
-    view = classify(probe.member_index(target))
-    sealed = dataclasses.replace(view, encrypted=True)
+    index = probe.member_index(target)
+    view = classify(index)
+    if secret is None:
+        sealed = dataclasses.replace(view, encrypted=True)
+        cipher = PassThrough()
+    else:
+        sealed, cipher = view, real_cipher
     plain = decrypt_payload(
-        target, sealed, cipher=PassThrough(), destination=run / "plain.tar.gz"
+        target, sealed, cipher=cipher, destination=run / "plain.tar.gz"
     )
+    matched = False
+    if secret is not None:
+        # The inner-Manifest reader streams the whole decrypted payload.
+        inner = read_inner_manifest(plain)
+        matched = check_inner_manifest(index.manifest_text, inner) is None
     result = extract_archive(
         target, destination, view, roles=frozenset({MemberRole.SITE_ROOT}),
         payload=plain,
     )
     config = probe.read_member(
-        target, view, view.members[-1].path, max_bytes=1 << 20
+        target, view, view.members[-1].path, max_bytes=1 << 20,
+        payload=None if secret is None else plain,
     )
     growth = peak() - before
     extra = {
@@ -335,6 +374,7 @@ elif mode == "restore":
         "extracted_bytes": result.bytes,
         "read_bytes": len(config),
         "last_member": view.members[-1].path.endswith("wp-config.php"),
+        "inner_matches": matched,
     }
 elif mode == "verify-v0":
     from l3io.wp.backup.adapters.tar import verify_archive
@@ -363,14 +403,23 @@ print(json.dumps({"growth": growth, **extra}))
 """
 
 
-def _measure(mode: str, *paths: Path) -> dict[str, int]:
-    """Run ``mode`` in a fresh interpreter; its peak RSS growth and extras."""
+def _measure(mode: str, *paths: Path, passphrase: str | None = None) -> dict[str, int]:
+    """Run ``mode`` in a fresh interpreter; its peak RSS growth and extras.
+
+    ``passphrase`` selects the encrypted leg: the child encrypts with the real
+    cipher and reads back through ``read_inner_manifest``.
+    """
+    env = dict(os.environ)
+    env.pop("RSS_TEST_PASSPHRASE", None)
+    if passphrase is not None:
+        env["RSS_TEST_PASSPHRASE"] = passphrase
     completed = subprocess.run(  # noqa: S603 - this interpreter, a fixed program
         [sys.executable, "-c", _CHILD, mode, *map(str, paths)],
         capture_output=True,
         text=True,
         check=False,
         cwd=PROJECT_ROOT,
+        env=env,
     )
     assert completed.returncode == 0, completed.stderr[-4000:]
     result: dict[str, int] = json.loads(completed.stdout.strip().splitlines()[-1])
@@ -436,10 +485,37 @@ def _site(tmp_path: Path, site_bytes: int, dump_bytes: int) -> tuple[Path, ...]:
     return site_root, dump, out / "site.tar.gz"
 
 
+def _round_trip(
+    work: Path, site_bytes: int, dump_bytes: int, passphrase: str
+) -> tuple[int, int]:
+    """Peak RSS growth of an encrypted backup and its read-back of ``work``'s Site."""
+    site_root, dump, final = _site(work, site_bytes, dump_bytes)
+    backup = _measure("backup", site_root, dump, final, passphrase=passphrase)
+    run, destination = work / "run", work / "restored"
+    run.mkdir()
+    destination.mkdir()
+    restore = _measure("restore", final, run, destination, passphrase=passphrase)
+    assert restore["inner_matches"] is True
+    return backup["growth"], restore["growth"]
+
+
 @linux_proc
+@pytest.mark.parametrize("encrypted", [False, True], ids=["plain", "encrypted"])
 def test_the_real_backup_and_restore_paths_stay_under_the_bound(
-    tmp_path: Path,
+    tmp_path: Path, encrypted: bool
 ) -> None:
+    """AD-21 with encryption off and on (AG-13): one test over an ``encrypted`` axis."""
+    passphrase = f"rss-pp-{uuid.uuid4().hex}" if encrypted else None
+    # Encrypted, each leg's allowance is its own growth over a 2 MiB Site: the
+    # KDF's fixed cost (scrypt inside database's age backend, hundreds of MiB
+    # per call) is a constant of the call, not of the Archive. The assertions
+    # below are then growth(256 MiB) - growth(2 MiB) < the bound, so buffering
+    # the payload, which grows with it, still breaches. Plain, both are zero.
+    backup_base = restore_base = 0
+    if passphrase is not None:
+        small = tmp_path / "small"
+        small.mkdir()
+        backup_base, restore_base = _round_trip(small, MIB, MIB, passphrase)
     site_root, dump, final = _site(tmp_path, SITE_FILE_BYTES, DUMP_BYTES)
 
     # The Dry Run's no-op command halves (``noop.py``) over the same fixture:
@@ -450,7 +526,7 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     assert rehearsed["skipped"] >= 3
     assert rehearsed["growth"] < RSS_BOUND_BYTES
 
-    measured = _measure("backup", site_root, dump, final)
+    measured = _measure("backup", site_root, dump, final, passphrase=passphrase)
 
     # Scope: the whole fixture went in, and an Archive as large came out, so
     # the payload write, the Archive copy and the verifier each moved it.
@@ -458,9 +534,10 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     assert measured["indexed_bytes"] >= SITE_FILE_BYTES + DUMP_BYTES >= floor
     assert measured["payload_bytes"] >= floor
     assert measured["archive_bytes"] >= floor
-    assert measured["growth"] < RSS_BOUND_BYTES, (
+    grown = measured["growth"] - backup_base
+    assert grown < RSS_BOUND_BYTES, (
         f"AD-21 — backing up {measured['indexed_bytes'] // MIB} MiB grew peak RSS "
-        f"by {measured['growth'] // MIB} MiB, over the "
+        f"by {grown // MIB} MiB beyond the fixed cost, over the "
         f"{RSS_BOUND_BYTES // MIB} MiB bound."
     )
 
@@ -470,14 +547,16 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     run, destination = tmp_path / "run", tmp_path / "restored"
     run.mkdir()
     destination.mkdir()
-    restored = _measure("restore", final, run, destination)
+    restored = _measure("restore", final, run, destination, passphrase=passphrase)
+    assert restored["inner_matches"] is encrypted
     assert restored["plain_bytes"] >= floor
     assert restored["extracted_bytes"] >= SITE_FILE_BYTES
     assert restored["last_member"]
     assert restored["read_bytes"] > 0
-    assert restored["growth"] < RSS_BOUND_BYTES, (
+    grown = restored["growth"] - restore_base
+    assert grown < RSS_BOUND_BYTES, (
         f"AD-21 — reading back {restored['plain_bytes'] // MIB} MiB grew peak RSS "
-        f"by {restored['growth'] // MIB} MiB, over the "
+        f"by {grown // MIB} MiB beyond the fixed cost, over the "
         f"{RSS_BOUND_BYTES // MIB} MiB bound."
     )
 

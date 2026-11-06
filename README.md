@@ -266,7 +266,8 @@ options:
   --archive ARCHIVE  Path or file: URL of the archive to check.
   --authenticate     Decrypt the encrypted payload to prove the archive authentic; without it,
                      verify proves only that its checksums are consistent. The passphrase comes
-                     from L3IO_WP_BACKUP_PASSPHRASE or a prompt.
+                     from L3IO_WP_BACKUP_PASSPHRASE or a prompt. It does not show the archive is
+                     the latest one: an older archive under the same passphrase also passes.
 ```
 
 ```text

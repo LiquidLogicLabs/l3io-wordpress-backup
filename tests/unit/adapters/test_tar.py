@@ -9,6 +9,7 @@ the restore's ``PREFLIGHT``.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import io
 import os
@@ -18,8 +19,13 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from l3io.wp.backup.adapters import tar as tar_module
-from l3io.wp.backup.adapters.tar import extract_archive, require_patched_tarfile
+from l3io.wp.backup.adapters.tar import (
+    TarArchiveProbe,
+    extract_archive,
+    require_patched_tarfile,
+)
 from l3io.wp.backup.domain.archive_format import (
+    INNER_MANIFEST_MEMBER,
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
     ArchiveView,
@@ -29,7 +35,7 @@ from l3io.wp.backup.domain.archive_format import (
     MemberRole,
     ViewMember,
 )
-from l3io.wp.backup.domain.errors import ExtractionRefusedError
+from l3io.wp.backup.domain.errors import ExtractionRefusedError, MemberReadRefusedError
 from l3io.wp.backup.domain.storage_target import StorageTarget
 
 SITE = frozenset({MemberRole.SITE_ROOT})
@@ -120,6 +126,97 @@ def test_the_running_total_stops_at_the_indexed_sum(
     monkeypatch.setattr(tar_module, "_ExtractFilter", shrunk)
     with pytest.raises(ExtractionRefusedError, match="running total"):
         extract_archive(source, destination, view, roles=SITE)
+
+
+# --------------------------------------------------------------------------
+# The inner Manifest's reserved name (BL-E002-115, ADR-0024 amendment)
+# --------------------------------------------------------------------------
+
+INDEXED = {"site-root/a.php": len(BODY), "site-root/b.php": len(BODY)}
+
+
+def _with_extra(
+    tmp_path: Path, extra: tarfile.TarInfo, *, encrypted: bool
+) -> tuple[StorageTarget, ArchiveView, Path]:
+    """``_crafted``'s Archive, its plain payload gaining ``extra`` last.
+
+    The plain payload is handed to the reader as ``payload=``, as
+    ``decrypt_payload`` would have written it; ``encrypted`` is the view's.
+    """
+    source, view = _crafted(tmp_path, INDEXED)
+    plain = tmp_path / "plain.tar.gz"
+    with tarfile.open(plain, mode="w:gz") as inner:
+        for name in INDEXED:
+            info = tarfile.TarInfo(name)
+            info.size = len(BODY)
+            inner.addfile(info, io.BytesIO(BODY))
+        inner.addfile(extra, io.BytesIO(b"{}") if extra.isfile() else None)
+    return source, dataclasses.replace(view, encrypted=encrypted), plain
+
+
+def _file(name: str) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.size = 2
+    return info
+
+
+def _directory(name: str) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.type = tarfile.DIRTYPE
+    return info
+
+
+def test_extraction_never_writes_the_inner_manifest(
+    tmp_path: Path, destination: Path
+) -> None:
+    source, view, plain = _with_extra(
+        tmp_path, _file(INNER_MANIFEST_MEMBER), encrypted=True
+    )
+    roles = frozenset(MemberRole)
+    result = extract_archive(source, destination, view, roles=roles, payload=plain)
+    assert result.members == len(INDEXED)
+    assert sorted(p.name for p in destination.iterdir()) == ["a.php", "b.php"]
+
+
+@pytest.mark.parametrize(
+    ("extra", "encrypted"),
+    [
+        (_file(INNER_MANIFEST_MEMBER), False),
+        (_file(f"{INNER_MANIFEST_MEMBER}/below"), True),
+        (_directory(INNER_MANIFEST_MEMBER), True),
+    ],
+    ids=["in-a-plain-payload", "below-the-name", "not-a-file"],
+)
+def test_extraction_refuses_any_other_member_under_the_reserved_name(
+    tmp_path: Path, destination: Path, extra: tarfile.TarInfo, encrypted: bool
+) -> None:
+    source, view, plain = _with_extra(tmp_path, extra, encrypted=encrypted)
+    with pytest.raises(ExtractionRefusedError, match="reserved") as caught:
+        extract_archive(source, destination, view, roles=SITE, payload=plain)
+    assert caught.value.member == extra.name
+    assert not (destination / INNER_MANIFEST_MEMBER).exists()
+
+
+@pytest.mark.parametrize("name", [INNER_MANIFEST_MEMBER, f"{INNER_MANIFEST_MEMBER}/x"])
+def test_read_member_refuses_the_reserved_name(tmp_path: Path, name: str) -> None:
+    source, view, plain = _with_extra(
+        tmp_path, _file(INNER_MANIFEST_MEMBER), encrypted=True
+    )
+    listed = dataclasses.replace(
+        view,
+        members=(
+            *view.members,
+            ViewMember(name, MemberRole.SITE_ROOT, MemberKind.FILE, None, 2),
+        ),
+    )
+    with pytest.raises(MemberReadRefusedError, match="reserved"):
+        TarArchiveProbe().read_member(
+            source, listed, name, max_bytes=1024, payload=plain
+        )
+    body = TarArchiveProbe().read_member(
+        source, view, "site-root/a.php", max_bytes=1024, payload=plain
+    )
+    assert body == BODY
 
 
 def test_require_patched_tarfile_passes_on_this_interpreter() -> None:

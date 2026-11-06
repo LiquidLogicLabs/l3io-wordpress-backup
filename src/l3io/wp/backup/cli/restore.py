@@ -68,7 +68,7 @@ from typing import Final, Protocol, cast
 
 import structlog
 
-from l3io.wp.backup.adapters.crypto import PassphraseCipher
+from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     AdminTls,
     LocatedConfig,
@@ -1653,6 +1653,12 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         secrets=secrets,
         label=RESTORE_PROMPT,
     )
+    # The one factory (E004-S01-003): it re-registers the passphrase and runs
+    # the cipher's check() before the Run opens, so a backend failure is
+    # rendered by the root and changes nothing.
+    cipher = build_payload_cipher(
+        passphrase=None if resolved is None else resolved.value, secrets=secrets
+    )
     request = RestoreRequest(
         site_root=Path(args.wp_dir),
         archive=storage_target_from_cli(args.archive),
@@ -1671,7 +1677,8 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
             aws_region=args.admin_credentials_aws_region,
             environ=os.environ,
         ),
-        cipher=None if resolved is None else PassphraseCipher(resolved.value),
+        cipher=cipher,
+        extra_tools=() if cipher is None else cipher.required_tools(),
         archive_database=args.archive_database,
         admin_tls=AdminTls(
             mode=args.admin_tls,

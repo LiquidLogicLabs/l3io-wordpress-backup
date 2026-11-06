@@ -703,3 +703,27 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-06T17:15:34Z'
   ref: E004-S01-002
+- key: BL-E002-115
+  epic: '002'
+  sprint: ''
+  title: verify --authenticate authenticates payload bytes, not the Manifest (rollback/cross-site swap undetected)
+  source: epic-redteam (RT-2)
+  source_phase: epic-redteam
+  source_ref: RT-2
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-2). Within the 2026-11-03 owner decision on verify; owner to decide whether to extend.
+  resolution: fixed
+  resolved_at: '2026-11-06T18:14:50Z'
+  ref: E004-S01-003
+- key: BL-E004-042
+  epic: '004'
+  sprint: ''
+  title: "E004-S01-003 must build on adapters/crypto.py::PassphraseCipher (added by the H2 fix, 53ae80c), not add a second cipher: rename to AgePayloadCipher or have build_payload_cipher return it; and replace the tests' FakeAge (patches database's private _passphrase) with the real backend once the encryption extra is taken"
+  source: cross-epic
+  severity: Medium
+  status: resolved
+  description: adapters/crypto is Epic 4's module; the E002 H2 security fix created it first.
+  resolution: fixed
+  resolved_at: '2026-11-06T18:14:52Z'
+  ref: E004-S01-003

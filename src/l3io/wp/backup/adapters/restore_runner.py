@@ -13,7 +13,9 @@
   plan loads a Dump.
 * ``VERIFY`` verifies the Archive (a failure raises before any command),
   refuses a view that changed since the root's probe, and decrypts an
-  encrypted payload into the Run workspace.
+  encrypted payload into the Run workspace, whose inner Manifest must then
+  equal the verified outer one (ADR-0024 amendment, BL-E002-115):
+  otherwise ``PayloadDamagedError``, before ``SNAPSHOT``.
 * ``SNAPSHOT`` (FR-8, AD-12) calls the root's ``take_snapshot`` slot, which
   joins E002's ``backup(..., ctx=ctx)`` and builds its result with
   :func:`snapshot_result`. Any failure becomes
@@ -54,9 +56,10 @@ import structlog
 from l3io.wp.backup.adapters.phase import PhaseRecord, phase
 from l3io.wp.backup.adapters.tar import (
     decrypt_payload,
+    read_inner_manifest,
     require_patched_tarfile,
     verify_archive,
-    verify_archive_view,
+    verify_archive_manifest,
 )
 from l3io.wp.backup.core.restore import (
     CONFIG_FILE_NAME,
@@ -90,6 +93,7 @@ from l3io.wp.backup.domain.archive_format import (
     MemberRole,
     SkippedLink,
     ViewMember,
+    check_inner_manifest,
     format_label,
     member_path,
     member_relative,
@@ -100,6 +104,7 @@ from l3io.wp.backup.domain.errors import (
     ArchiveWriteError,
     BackupError,
     MemberReadRefusedError,
+    PayloadDamagedError,
     RefusedError,
     UnsafeMemberPathError,
     VerificationFailedError,
@@ -571,7 +576,7 @@ def _snapshot_claim(run: _Run) -> SpaceClaim | None:
 
 def _verify(run: _Run, record: PhaseRecord) -> None:
     inputs = run.inputs
-    view, result = verify_archive_view(
+    view, result, text = verify_archive_manifest(
         Path(inputs.archive.path), phase_name=RestorePhase.VERIFY.value
     )
     record.fields.update(
@@ -590,6 +595,15 @@ def _verify(run: _Run, record: PhaseRecord) -> None:
         decrypt_payload(
             inputs.archive, inputs.view, cipher=run.cipher, destination=run.payload
         )
+        if text is None:  # pragma: no cover - a passed v1 scan read its Manifest
+            raise PayloadDamagedError
+        field = check_inner_manifest(
+            text,
+            read_inner_manifest(run.payload, phase_name=RestorePhase.VERIFY.value),
+        )
+        if field is not None:
+            record.fields.update(reason="inner_manifest_mismatch", field=field)
+            raise PayloadDamagedError(field=field)
 
 
 # --------------------------------------------------------------------------

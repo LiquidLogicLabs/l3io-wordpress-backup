@@ -1,7 +1,7 @@
 next:
   '002': 122
   '003': 117
-  '004': 49
+  '004': 52
   '005': 14
 backlog:
 - key: BL-E002-004
@@ -1264,14 +1264,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/sprint-01/closure/ux-review.md
-- key: BL-E004-042
-  epic: '004'
-  sprint: ''
-  title: "E004-S01-003 must build on adapters/crypto.py::PassphraseCipher (added by the H2 fix, 53ae80c), not add a second cipher: rename to AgePayloadCipher or have build_payload_cipher return it; and replace the tests' FakeAge (patches database's private _passphrase) with the real backend once the encryption extra is taken"
-  source: cross-epic
-  severity: Medium
-  status: backlog
-  description: adapters/crypto is Epic 4's module; the E002 H2 security fix created it first.
 - key: BL-E002-076
   epic: '002'
   sprint: '02'
@@ -1622,16 +1614,6 @@ backlog:
   severity: Low
   status: backlog
   description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-4). '
-- key: BL-E002-115
-  epic: '002'
-  sprint: ''
-  title: verify --authenticate authenticates payload bytes, not the Manifest (rollback/cross-site swap undetected)
-  source: epic-redteam (RT-2)
-  source_phase: epic-redteam
-  source_ref: RT-2
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-2). Within the 2026-11-03 owner decision on verify; owner to decide whether to extend.
 - key: BL-E002-117
   epic: '002'
   sprint: ''
@@ -2414,3 +2396,33 @@ backlog:
   kind: spec-proposal
   ref: _bmad-output/implementation-artifacts/epic-005/epic-closure/spec-proposals/AD-1.md
   description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-005/epic-closure/arch-drift-review.md.'
+- key: BL-E004-049
+  epic: '004'
+  sprint: '01'
+  title: 'E004-S01-003 L-5: the right-passphrase drive_restore case runs FILES only; a Dump-loading mode through the rig is not asserted'
+  source: code-review (E004-S01-003)
+  source_phase: code-review
+  source_ref: E004-S01-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-003.md
+- key: BL-E004-050
+  epic: '004'
+  sprint: '01'
+  title: "E004-S01-003 L-6: tests/adapters/test_crypto.py hides the binder by patching database's private _passphrase.binder_available"
+  source: code-review (E004-S01-003)
+  source_phase: code-review
+  source_ref: E004-S01-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-003.md
+- key: BL-E004-051
+  epic: '004'
+  sprint: '01'
+  title: ports/crypto.py docstring still names AgePayloadCipher and says every root binds None (port not edited by E004-S01-003)
+  source: code-review (E004-S01-003)
+  source_phase: code-review
+  source_ref: E004-S01-003
+  severity: Low
+  status: backlog
+  description: Stale prose; the one PayloadCipher is adapters/crypto.PassphraseCipher, built by build_payload_cipher.

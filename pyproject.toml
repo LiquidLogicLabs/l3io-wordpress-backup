@@ -71,8 +71,9 @@ dependencies = [
 # (2026-10-20); passphrase= arrived in v0.2.0 (ADR-0014). v0.2.1 (2026-11-03) is
 # the same source as v0.2.0 (`git diff v0.2.0 v0.2.1 -- src/` is empty) and the
 # first database release on TestPyPI; its published metadata names config and the
-# binder by version range, not by git. Its `encryption` extra is NOT taken yet:
-# story E004-S01-003 adds it, and the binder then comes from TestPyPI too.
+# binder by version range, not by git. Its `encryption` extra is taken
+# (E004-S01-003, ADR-0024): it brings pyrage and the l3io-age-passphrase binder,
+# which also comes from TestPyPI (named directly in the extra, with a source).
 #
 # STILL AN EXTRA, and the revert condition above is NOT met. TestPyPI is where the
 # family resolves anonymously for development and CI (Shawn, 2026-11-02), but it
@@ -91,8 +92,14 @@ dependencies = [
 # (ADR-0023's OVERWRITE path). 0.1.3 is the same code with LiquidLogicLabs URLs,
 # and is the first config release on TestPyPI. Nothing below 0.1.3 may be resolved.
 database = [
-  "l3io-wordpress-database>=0.3.2,<0.4",
+  "l3io-wordpress-database[encryption]>=0.3.2,<0.4",
   "l3io-wordpress-config>=0.1.3,<0.2",
+  # Named directly although database's `encryption` extra already requires it
+  # (`<0.2,>=0.1.1` in 0.3.2's metadata): uv applies [tool.uv.sources] to
+  # direct dependencies only -- in the lock, in `uv pip install -r
+  # pyproject.toml` and in `uv run --with-editable` -- so without this line the
+  # binder resolves from PyPI, where it is not published (E004-S01-003).
+  "l3io-age-passphrase>=0.1.1,<0.2",
 ]
 # FR-14 — AWS Secrets Manager credentials (E005-S01-001). database's own `aws`
 # extra brings boto3 (`boto3<2,>=1.34` in 0.3.2's metadata), imported inside
@@ -127,6 +134,10 @@ wpbackup2 = "l3io.wp.backup.cli:run_from_cli"
 l3io-wordpress-database = { index = "testpypi" }
 # v0.1.3 (2026-11-03): src identical to v0.1.2 (e975ca6).
 l3io-wordpress-config = { index = "testpypi" }
+# The passphrase binder, required by database's `encryption` extra. uv applies
+# [tool.uv.sources] to direct dependencies only, so the `database` extra names
+# it (E004-S01-003).
+l3io-age-passphrase = { index = "testpypi" }
 
 # `explicit = true`: TestPyPI holds name-squatted and junk packages, so ONLY the
 # packages named in [tool.uv.sources] are taken from it; everything else is PyPI.
@@ -137,6 +148,10 @@ explicit = true
 
 [tool.uv]
 required-version = "==0.11.6"
+# No `override-dependencies` for the passphrase binder (E004-S01-003): the
+# `database` extra names it directly instead, the equivalent the story allows.
+# An override also breaks CI's `uv pip install -r pyproject.toml --all-extras`
+# check, which then resolves the binder from PyPI, where it is not published.
 
 # PEP 735. `uv sync --dev` installs `dev`, which includes `test`.
 #

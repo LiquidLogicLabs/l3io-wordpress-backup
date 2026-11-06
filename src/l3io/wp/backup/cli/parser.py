@@ -477,7 +477,9 @@ def _add_verify(verify: argparse.ArgumentParser) -> None:
         help=(
             "Decrypt the encrypted payload to prove the archive authentic; "
             "without it, verify proves only that its checksums are consistent. "
-            "The passphrase comes from L3IO_WP_BACKUP_PASSPHRASE or a prompt."
+            "The passphrase comes from L3IO_WP_BACKUP_PASSPHRASE or a prompt. "
+            "It does not show the archive is the latest one: an older archive "
+            "under the same passphrase also passes."
         ),
     )
 

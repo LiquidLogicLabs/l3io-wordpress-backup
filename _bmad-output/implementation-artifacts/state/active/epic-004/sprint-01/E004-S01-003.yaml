@@ -3,8 +3,8 @@ epic: 'E004'
 sprint: 'S01'
 title: Encrypt an archive at rest
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-06T13:48:40Z'
+status: done
+updated_at: '2026-11-06T18:15:26Z'
 estimate:
   man_hours: 20.0
   hitl_hours: 0.0
@@ -34,3 +34,39 @@ depends_on:
 - 'E002-S02-011'
 - 'E002-S02-012'
 - 'E004-S01-002'
+completion_evidence:
+  fix_iterations: 1
+  files_changed: 31
+  test_runs:
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: PATH=<age 1.3.2>:$PATH uv run pytest -q tests/adapters/test_age_interop.py
+    exit_code: 0
+  tests_passing: true
+actual:
+  elapsed_hours: 0.86
+  man_hours: 32
+  hitl_hours: 0
+  tokens_k:
+    total: 35835.25
+    input: 0.344
+    output: 155.572
+    cache_write: 518.593
+    cache_read: 35160.738
+  cost: 24.71
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-06T18:15:26Z'

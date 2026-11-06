@@ -25,7 +25,18 @@ carries ``authenticated: true``. A wrong passphrase is
 ``PassphraseRejectedError`` and a damaged chunk ``PayloadDamagedError``, both
 exit 8. An Archive with no encrypted payload is refused
 (``ArchiveNotEncryptedError``, a usage error): there is nothing to
-authenticate. No passphrase resolved is ``PassphraseRequiredError``.
+authenticate. No passphrase resolved is ``PassphraseRequiredError``. The
+cipher is built by ``build_payload_cipher`` (E004-S01-003).
+
+**The inner Manifest (ADR-0024 amendment, BL-E002-115).** After ``age``
+accepts the payload, its inner Manifest must occur once, last, and equal the
+outer Manifest this scan verified, less the payload's size and sha256
+(``check_inner_manifest``); otherwise ``PayloadDamagedError`` naming the
+first differing field, with ``reason`` and ``field`` on the ``VERIFY``
+record. That binds the unencrypted Manifest to the payload. **A rollback is
+never detected:** a whole older Archive under the same passphrase is
+authentic, and the pass line says a pass does not show the Archive is the
+latest one.
 """
 
 from __future__ import annotations
@@ -38,10 +49,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
-from l3io.wp.backup.adapters.crypto import PassphraseCipher
-from l3io.wp.backup.adapters.phase import phase
+from l3io.wp.backup.adapters.crypto import build_payload_cipher
+from l3io.wp.backup.adapters.phase import PhaseRecord, phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.tar import decrypt_payload, verify_archive_view
+from l3io.wp.backup.adapters.tar import (
+    decrypt_payload,
+    read_inner_manifest,
+    verify_archive_manifest,
+)
 from l3io.wp.backup.cli.backup import storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.output import emit_result
@@ -51,11 +66,13 @@ from l3io.wp.backup.domain.archive_format import (
     ArchiveView,
     Integrity,
     VerificationResult,
+    check_inner_manifest,
     format_label,
 )
 from l3io.wp.backup.domain.errors import (
     ArchiveNotEncryptedError,
     PassphraseRequiredError,
+    PayloadDamagedError,
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
@@ -67,6 +84,8 @@ __all__ = ["VerifyRequest", "drive_verify", "run_verify"]
 _NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 #: The decrypted payload's name in the workspace; deleted once ``age`` accepts it.
 _AUTHENTICATED_PAYLOAD: Final = "authenticate.payload"
+#: The permanent limit of an authenticated pass (ADR-0024 amendment, F-21).
+ROLLBACK_LIMIT: Final = "this does not show the archive is the latest one"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,21 +107,26 @@ def _describe(result: VerificationResult, *, authenticated: bool) -> str:
     if result.integrity is Integrity.STRUCTURAL_ONLY:
         return f"{head}: integrity was not checked — a v0 archive carries no checksums"
     if authenticated:
-        return f"{head}: checksums consistent — authenticated with the passphrase"
+        return (
+            f"{head}: checksums consistent — authenticated with the passphrase; "
+            f"{ROLLBACK_LIMIT}"
+        )
     return f"{head}: checksums consistent — authenticity not checked (no key)"
 
 
 def _authenticate(
     target: StorageTarget,
     view: ArchiveView | None,
+    manifest_text: str | None,
     *,
+    record: PhaseRecord,
     ctx: RunContext,
     passphrase: str | None,
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
 ) -> None:
-    """Decrypt the whole payload into the workspace; raise unless ``age`` accepts it."""
-    if view is None or not view.encrypted:
+    """Decrypt the payload; raise unless ``age`` accepts it and the Manifests agree."""
+    if view is None or not view.encrypted or manifest_text is None:
         raise ArchiveNotEncryptedError(str(target.path))
     resolved = resolve_passphrase(
         explicit=passphrase, environ=environ, prompt=prompt, secrets=ctx.secrets
@@ -110,13 +134,18 @@ def _authenticate(
     if resolved is None:
         operation: Final = "verify"
         raise PassphraseRequiredError(operation)
-    cipher = PassphraseCipher(resolved.value)
-    cipher.check()
+    cipher = build_payload_cipher(passphrase=resolved.value, secrets=ctx.secrets)
     plain = decrypt_payload(
         target, view, cipher=cipher, destination=ctx.workspace / _AUTHENTICATED_PAYLOAD
     )
-    # The plaintext is not needed; the workspace removes it anyway (AD-12).
-    plain.unlink(missing_ok=True)
+    try:
+        field = check_inner_manifest(manifest_text, read_inner_manifest(plain))
+    finally:
+        # The plaintext is not needed; the workspace removes it anyway (AD-12).
+        plain.unlink(missing_ok=True)
+    if field is not None:
+        record.fields.update(reason="inner_manifest_mismatch", field=field)
+        raise PayloadDamagedError(field=field)
 
 
 def drive_verify(
@@ -147,11 +176,13 @@ def drive_verify(
         command_args=command_args,
     ) as handle:
         with phase(BackupStep.VERIFY.value) as record:
-            view, result = verify_archive_view(Path(request.archive.path))
+            view, result, text = verify_archive_manifest(Path(request.archive.path))
             if request.authenticate and result.passed:
                 _authenticate(
                     request.archive,
                     view,
+                    text,
+                    record=record,
                     ctx=handle.ctx,
                     passphrase=passphrase,
                     environ=environ,

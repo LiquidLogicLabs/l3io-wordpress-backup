@@ -1,4 +1,11 @@
-"""Regenerate ``minimal.tar.gz``, the committed v1 fixture Archive (ADR-0017).
+"""Regenerate the committed v1 fixture Archives (ADR-0017, ADR-0024).
+
+``minimal.tar.gz`` is plain. ``encrypted-passphrase.tar.gz`` (E004-S01-003) is
+the same Site and Dump with the payload encrypted by ``PassphraseCipher`` under
+the test-only passphrase in ``encrypted-passphrase.passphrase.txt``, and so
+ends with the inner Manifest (ADR-0024 amendment). ``age`` draws a random file
+key and salt, so a regenerated encrypted fixture differs in bytes; its
+reproducibility is asserted on the Manifest's structure, not on bytes.
 
 Run from the project root: ``uv run python tests/fixtures/archives/v1/generate.py``.
 
@@ -17,6 +24,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from l3io.wp.backup.adapters.crypto import PassphraseCipher
 from l3io.wp.backup.adapters.tar import collect_site_root, file_member, write_archive
 from l3io.wp.backup.domain.archive_format import (
     CONFIG_RELATIVE,
@@ -36,6 +44,17 @@ HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parents[3]
 WP_CONFIG = PROJECT_ROOT / "tests" / "data" / "wp-config.php"
 OUT = HERE / "minimal.tar.gz"
+ENCRYPTED_OUT = HERE / "encrypted-passphrase.tar.gz"
+PASSPHRASE_FILE = HERE / "encrypted-passphrase.passphrase.txt"
+
+
+def read_passphrase(path: Path = PASSPHRASE_FILE) -> str:
+    """The sidecar's first line that is neither empty nor a ``#`` comment."""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            return line.strip()
+    msg = f"{path} holds no passphrase line"
+    raise ValueError(msg)
 
 
 def _site(root: Path) -> None:
@@ -63,7 +82,9 @@ def _manifest(index: tuple[ManifestMember, ...]) -> Manifest:
     )
 
 
-def main() -> None:
+def write(path: Path, *, passphrase: str | None) -> None:
+    """Write one fixture Archive to ``path``; encrypted when ``passphrase`` is set."""
+    cipher = None if passphrase is None else PassphraseCipher(passphrase)
     with tempfile.TemporaryDirectory() as scratch:
         work = Path(scratch)
         root = work / "site"
@@ -77,8 +98,13 @@ def main() -> None:
             file_member(MemberRole.CONFIG, CONFIG_RELATIVE, root / CONFIG_RELATIVE),
             *collect_site_root(root, INCLUDE_EVERYTHING).members,
         ]
-        with OUT.open("wb") as out:
-            write_archive(out, _manifest, members, workspace=workspace, cipher=None)
+        with path.open("wb") as out:
+            write_archive(out, _manifest, members, workspace=workspace, cipher=cipher)
+
+
+def main() -> None:
+    write(OUT, passphrase=None)
+    write(ENCRYPTED_OUT, passphrase=read_passphrase())
 
 
 if __name__ == "__main__":

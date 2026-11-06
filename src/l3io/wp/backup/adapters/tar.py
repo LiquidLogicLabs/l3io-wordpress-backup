@@ -68,13 +68,14 @@ from typing import IO, BinaryIO, Final, Literal, cast
 
 import structlog
 
-from l3io.wp.backup.adapters.phase import join_phase, phase
+from l3io.wp.backup.adapters.phase import PhaseRecord, join_phase, phase
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.core.verify import verify_probe
 from l3io.wp.backup.domain.archive_format import (
     CONFIG_RELATIVE,
     DUMP_RELATIVE,
     ENCRYPTED_PAYLOAD_MEMBER,
+    INNER_MANIFEST_MEMBER,
     MANIFEST_MAX_BYTES,
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
@@ -92,6 +93,7 @@ from l3io.wp.backup.domain.archive_format import (
     TarMemberType,
     VerificationResult,
     format_label,
+    inner_manifest_bytes,
     manifest_to_json,
     member_path,
     member_relative,
@@ -103,6 +105,8 @@ from l3io.wp.backup.domain.errors import (
     BackupError,
     ExtractionRefusedError,
     MemberReadRefusedError,
+    PassphraseRejectedError,
+    PayloadDamagedError,
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
@@ -120,8 +124,10 @@ __all__ = [
     "decrypt_payload",
     "extract_archive",
     "file_member",
+    "read_inner_manifest",
     "require_patched_tarfile",
     "verify_archive",
+    "verify_archive_manifest",
     "verify_archive_view",
     "verify_or_raise",
     "write_archive",
@@ -434,18 +440,34 @@ def _add(inner: tarfile.TarFile, member: ArchiveMemberSource) -> ManifestMember:
     )
 
 
+def _add_inner_manifest(inner: tarfile.TarFile, text: bytes) -> None:
+    header = tarfile.TarInfo(INNER_MANIFEST_MEMBER)
+    header.size = len(text)
+    header.mode = _STAGED_MODE
+    header.mtime = time.time()
+    inner.addfile(header, io.BytesIO(text))
+
+
 def _write_payload(
-    destination: Path, members: Iterable[ArchiveMemberSource]
+    destination: Path,
+    members: Iterable[ArchiveMemberSource],
+    *,
+    seal: Callable[[tuple[ManifestMember, ...]], bytes] | None,
 ) -> tuple[tuple[ManifestMember, ...], _HashingWriter]:
+    """Write the gzip inner tar; ``seal`` returns the inner Manifest, written last."""
     ordered = sorted(members, key=lambda member: _ROLE_ORDER[member.role])
     with destination.open("xb") as raw:
         hashed = _HashingWriter(raw)
         with tarfile.open(fileobj=cast("IO[bytes]", hashed), mode="w|gz") as inner:
             index = tuple(_add(inner, member) for member in ordered)
+            if seal is not None:
+                _add_inner_manifest(inner, seal(index))
     return index, hashed
 
 
 def _encrypt(cipher: PayloadCipher, plain: Path, destination: Path) -> _HashingWriter:
+    # The one cipher is age with a passphrase (ADR-0024; E004-S01-003).
+    _log.info("encryption_configured", scheme="age", mode="passphrase")
     with phase(BackupStep.ENCRYPT.value) as record:
         with plain.open("rb") as reader, destination.open("xb") as raw:
             hashed = _HashingWriter(raw)
@@ -485,24 +507,41 @@ def write_archive(
 ) -> Manifest:
     """Write one v1 Archive into ``out`` and return its Manifest (ADR-0024).
 
-    ``manifest_builder`` receives the member index computed here and returns
-    the Manifest; ``encrypted`` and ``payload`` are then set from what was
-    written. The Manifest never passes through the cipher. Any failure removes
-    the payload files from ``workspace``; an ``OSError`` or ``tarfile`` error
-    is re-raised as :class:`ArchiveWriteError`.
+    ``manifest_builder`` is called once, with the member index computed here,
+    and returns the Manifest; ``encrypted`` and ``payload`` are then set from
+    what was written. The outer Manifest never passes through the cipher.
+    With a cipher, the plain payload ends with the inner Manifest
+    (:func:`~l3io.wp.backup.domain.archive_format.inner_manifest_bytes`; the
+    ADR-0024 amendment), which the outer one then equals less the encrypted
+    payload's size and sha256. Any failure removes the payload files from
+    ``workspace``; an ``OSError`` or ``tarfile`` error is re-raised as
+    :class:`ArchiveWriteError`.
     """
     plain = workspace / PAYLOAD_MEMBER
     sealed = workspace / ENCRYPTED_PAYLOAD_MEMBER
     writing = plain
+    built: list[Manifest] = []
+
+    def seal(index: tuple[ManifestMember, ...]) -> bytes:
+        pending = dataclasses.replace(
+            manifest_builder(index),
+            encrypted=True,
+            payload=ManifestPayload(name=ENCRYPTED_PAYLOAD_MEMBER, size=0, sha256=""),
+        )
+        built.append(pending)
+        return inner_manifest_bytes(pending)
+
     try:
-        index, hashed = _write_payload(plain, members)
+        index, hashed = _write_payload(
+            plain, members, seal=None if cipher is None else seal
+        )
         payload, name = plain, PAYLOAD_MEMBER
         if cipher is not None:
             writing = sealed
             hashed = _encrypt(cipher, plain, sealed)
             payload, name = sealed, ENCRYPTED_PAYLOAD_MEMBER
         manifest = dataclasses.replace(
-            manifest_builder(index),
+            built[0] if built else manifest_builder(index),
             encrypted=cipher is not None,
             payload=ManifestPayload(
                 name=name, size=hashed.size, sha256=hashed.digest.hexdigest()
@@ -804,6 +843,8 @@ class TarArchiveProbe:
         that is not a regular file and one larger than ``max_bytes``. Writes
         nothing.
         """
+        if _is_reserved(path):
+            raise MemberReadRefusedError(path, "the reserved inner Manifest name")
         member = next((m for m in view.members if m.path == path), None)
         if member is None:
             raise MemberReadRefusedError(path, "not in the member index")
@@ -856,10 +897,26 @@ def verify_archive_view(
 ) -> tuple[ArchiveView | None, VerificationResult]:
     """:func:`verify_archive`, also returning the classified view (``None`` if none).
 
-    For a caller that acts on the verified Archive (``verify --authenticate``,
-    the restore's ``VERIFY``) without streaming it a second time to classify
-    it. ``phase_name`` is the open phase it annotates (the restore's is
-    ``RestorePhase.VERIFY.value``), so a Run emits one record for it.
+    For a caller that acts on the verified Archive without streaming it a
+    second time to classify it. ``phase_name`` is the open phase it annotates
+    (the restore's is ``RestorePhase.VERIFY.value``), so a Run emits one
+    record for it. :func:`verify_archive_manifest` also returns the Manifest's
+    text.
+    """
+    view, result, _ = verify_archive_manifest(path, phase_name=phase_name)
+    return view, result
+
+
+def verify_archive_manifest(
+    path: Path, *, phase_name: str = BackupStep.VERIFY.value
+) -> tuple[ArchiveView | None, VerificationResult, str | None]:
+    """:func:`verify_archive_view`, also returning the outer Manifest's text.
+
+    The text is the one this single scan verified (``None`` for v0 or an
+    unreadable Manifest), so the inner-Manifest check
+    (:func:`~l3io.wp.backup.domain.archive_format.check_inner_manifest`)
+    compares the Manifest that was verified, from one read (ADR-0024
+    amendment). ``verify --authenticate`` and the restore's ``VERIFY`` call it.
     """
     with join_phase(phase_name) as record:
         scan = _stream_outer(path)
@@ -881,7 +938,7 @@ def verify_archive_view(
             )
         if not result.passed:
             record.fail(VerificationFailedError.exit_code)
-    return view, result
+    return view, result, scan.manifest_text
 
 
 def verify_or_raise(path: Path) -> None:
@@ -927,6 +984,11 @@ def _inner(
 
 
 _SkipReason = Literal["absolute", "outside_destination"]
+
+
+def _is_reserved(name: str) -> bool:
+    """``name`` is the inner Manifest's reserved name, or a path below it."""
+    return name == INNER_MANIFEST_MEMBER or name.startswith(f"{INNER_MANIFEST_MEMBER}/")
 
 
 def _header_kind(member: tarfile.TarInfo) -> MemberKind | None:
@@ -997,6 +1059,18 @@ class _ExtractFilter:
         if name in self.seen:
             raise ExtractionRefusedError(name, "occurs twice in the payload")
         self.seen.add(name)
+        if _is_reserved(name):
+            # The inner Manifest is read by read_inner_manifest, never written
+            # into a Site; only an encrypted payload carries it, as a file.
+            if name != INNER_MANIFEST_MEMBER or not self.view.encrypted:
+                raise ExtractionRefusedError(
+                    name, "under the reserved inner Manifest name"
+                )
+            if not member.isfile():
+                raise ExtractionRefusedError(
+                    name, "under the reserved inner Manifest name"
+                )
+            return None
         indexed = self.kinds.get(name)
         if indexed is None:
             raise ExtractionRefusedError(
@@ -1170,7 +1244,10 @@ def decrypt_payload(
 
     Streams the outer tar's payload member through ``cipher.decrypt``. Any
     failure — the cipher's own errors propagate unchanged — removes
-    ``destination``. A view that is not encrypted raises ``ValueError``.
+    ``destination``. A view that is not encrypted raises ``ValueError``. A
+    wrong passphrase or a damaged stream is logged first as ERROR
+    ``member_decryption_failed`` with the payload's name and ``reason``
+    (``wrong_passphrase`` or ``corrupt``).
     """
     if not view.encrypted or view.payload is None:
         msg = "decrypt_payload needs an encrypted v1 view"
@@ -1192,6 +1269,15 @@ def decrypt_payload(
         ):
             os.fchmod(writer.fileno(), _STAGED_MODE)
             cipher.decrypt(_payload_body(outer, view.payload.name, archive), writer)
+    except (PassphraseRejectedError, PayloadDamagedError) as exc:
+        destination.unlink(missing_ok=True)
+        reason = (
+            "wrong_passphrase"
+            if isinstance(exc, PassphraseRejectedError)
+            else "corrupt"
+        )
+        _log.error("member_decryption_failed", member=view.payload.name, reason=reason)
+        raise
     except (tarfile.TarError, EOFError, zlib.error) as exc:
         destination.unlink(missing_ok=True)
         raise ArchiveReadError(archive, _reason(exc)) from exc
@@ -1199,3 +1285,46 @@ def decrypt_payload(
         destination.unlink(missing_ok=True)
         raise
     return destination
+
+
+def _inner_manifest_failure(record: PhaseRecord, reason: str) -> PayloadDamagedError:
+    record.fields["reason"] = reason
+    return PayloadDamagedError()
+
+
+def read_inner_manifest(
+    payload: Path, *, phase_name: str = BackupStep.VERIFY.value
+) -> bytes:
+    """The inner Manifest's bytes from the decrypted ``payload`` (ADR-0024 amendment).
+
+    Streams the gzip tar :func:`decrypt_payload` wrote once, reading at most
+    :data:`MANIFEST_MAX_BYTES` of the reserved member (a larger or non-file
+    one reads as empty, so the comparison finds it unparsable). It must occur
+    exactly once and last; otherwise the open ``phase_name`` record gets
+    ``reason`` ``inner_manifest_missing``, ``inner_manifest_duplicated`` or
+    ``inner_manifest_misplaced`` and :class:`PayloadDamagedError` is raised.
+    A payload that is not a readable gzip tar is :class:`ArchiveReadError`.
+    """
+    with join_phase(phase_name) as record:
+        found = 0
+        last = False
+        text = b""
+        try:
+            with tarfile.open(payload, mode="r|gz") as tar:
+                for info in tar:
+                    last = info.name == INNER_MANIFEST_MEMBER
+                    if not last:
+                        continue
+                    found += 1
+                    handle = tar.extractfile(info) if info.isfile() else None
+                    if handle is not None and info.size <= MANIFEST_MAX_BYTES:
+                        text = handle.read(info.size)
+        except _STREAM_ERRORS as exc:
+            raise ArchiveReadError(payload, _reason(exc)) from exc
+        if found == 0:
+            raise _inner_manifest_failure(record, "inner_manifest_missing")
+        if found > 1:
+            raise _inner_manifest_failure(record, "inner_manifest_duplicated")
+        if not last:
+            raise _inner_manifest_failure(record, "inner_manifest_misplaced")
+    return text

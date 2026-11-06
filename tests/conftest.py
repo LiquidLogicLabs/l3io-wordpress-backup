@@ -19,22 +19,24 @@ Epic 3 story 3.1 applies the sentinel to a full restore; Epic 4
 from __future__ import annotations
 
 import hashlib
-import hmac
 import inspect
 import logging
 import os
 import subprocess
+import tarfile
 import tempfile
 import traceback
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any
+from typing import Any
 
 import pytest
 import structlog
 from structlog.testing import capture_logs
+
+from l3io.wp.backup.ports.crypto import PayloadCipher
 
 #: AD-26's environment step; spelled out so the fixture does not import the CLI.
 PASSPHRASE_ENV = "L3IO_WP_BACKUP_PASSPHRASE"
@@ -273,66 +275,6 @@ def credential_sentinel(
 # A passphrase-encrypted Archive, and a forged one (BL-E002-060)
 # --------------------------------------------------------------------------
 
-_FAKE_AGE_MAGIC = b"fake-age/v1\n"
-_CHECK_BYTES = 16
-_TAG_BYTES = 32
-
-
-def _key_check(passphrase: str) -> bytes:
-    return hashlib.sha256(b"key-check:" + passphrase.encode()).digest()[:_CHECK_BYTES]
-
-
-def _tag(passphrase: str, body: bytes) -> bytes:
-    return hmac.new(passphrase.encode(), body, hashlib.sha256).digest()
-
-
-class FakeAge:
-    """database's passphrase backend, replaced below ``encryption.decrypt``.
-
-    No ``age`` backend (the binder or ``age`` + batchpass) is installed in
-    development or CI until E004-S01-003 takes database's ``encryption``
-    extra, so this stands in for ``_passphrase.encrypt_io``/``decrypt_io``
-    only. It keeps the semantics the package relies on — a wrong passphrase is
-    database's ``DecryptionError``, any change to the ciphertext its
-    ``CorruptDumpError`` — and is not encryption: the body is stored plain,
-    authenticated by an HMAC. ``encryption.decrypt``'s own argument handling,
-    and everything above it, runs unchanged.
-    """
-
-    def encrypt_io(self, reader: IO[bytes], writer: IO[bytes], passphrase: str) -> None:
-        body = reader.read()
-        writer.write(
-            _FAKE_AGE_MAGIC + _key_check(passphrase) + body + _tag(passphrase, body)
-        )
-
-    def decrypt_io(self, reader: IO[bytes], writer: IO[bytes], passphrase: str) -> None:
-        from l3io.wp.database.errors import CorruptDumpError, DecryptionError
-
-        data = reader.read()
-        head = len(_FAKE_AGE_MAGIC) + _CHECK_BYTES
-        if not data.startswith(_FAKE_AGE_MAGIC) or len(data) < head + _TAG_BYTES:
-            msg = "the encrypted dump is damaged or not an age file"
-            raise CorruptDumpError(msg)
-        if data[len(_FAKE_AGE_MAGIC) : head] != _key_check(passphrase):
-            msg = "the passphrase cannot decrypt this dump"
-            raise DecryptionError(msg)
-        body, tag = data[head:-_TAG_BYTES], data[-_TAG_BYTES:]
-        if not hmac.compare_digest(tag, _tag(passphrase, body)):
-            msg = "the encrypted dump is damaged or not an age file"
-            raise CorruptDumpError(msg)
-        writer.write(body)
-
-
-@pytest.fixture
-def fake_age(monkeypatch: pytest.MonkeyPatch) -> FakeAge:
-    """Bind :class:`FakeAge` as database's passphrase backend for one test."""
-    backend = pytest.importorskip("l3io.wp.database._passphrase")
-    fake = FakeAge()
-    monkeypatch.setattr(backend, "resolve_backend", lambda: "binder")
-    monkeypatch.setattr(backend, "encrypt_io", fake.encrypt_io)
-    monkeypatch.setattr(backend, "decrypt_io", fake.decrypt_io)
-    return fake
-
 
 def seal_archive(workdir: Path, passphrase: str | None) -> Path:
     """A small v1 Archive by the real writer; encrypted when ``passphrase`` is set."""
@@ -387,9 +329,18 @@ def seal_archive(workdir: Path, passphrase: str | None) -> Path:
     return path
 
 
-def forge_archive(archive: Path, out: Path, edit: Callable[[bytes], bytes]) -> Path:
+def forge_archive(
+    archive: Path,
+    out: Path,
+    edit: Callable[[bytes], bytes],
+    *,
+    manifest_edit: Callable[[dict[str, Any]], None] | None = None,
+) -> Path:
     """The red-team forgery (RT-H2): edit the payload, recompute the Manifest's
-    ``size`` and ``sha256``, rewrite the Archive. Needs no key."""
+    ``size`` and ``sha256``, rewrite the Archive. Needs no key.
+
+    ``manifest_edit`` then edits the outer Manifest's parsed JSON in place
+    (BL-E002-115: a Manifest changed outside the payload)."""
     import io
     import json
     import tarfile
@@ -405,6 +356,8 @@ def forge_archive(archive: Path, out: Path, edit: Callable[[bytes], bytes]) -> P
         payload = edit(payload_file.read())
     manifest["payload"]["size"] = len(payload)
     manifest["payload"]["sha256"] = hashlib.sha256(payload).hexdigest()
+    if manifest_edit is not None:
+        manifest_edit(manifest)
     text = json.dumps(manifest).encode()
     with tarfile.open(out, "w") as forged:
         for name, data in ((manifest_name, text), (payload_name, payload)):
@@ -412,6 +365,40 @@ def forge_archive(archive: Path, out: Path, edit: Callable[[bytes], bytes]) -> P
             info.size = len(data)
             forged.addfile(info, io.BytesIO(data))
     return out
+
+
+InnerMembers = list[tuple[tarfile.TarInfo, bytes | None]]
+
+
+def reseal(
+    cipher: PayloadCipher, edit: Callable[[InnerMembers], InnerMembers]
+) -> Callable[[bytes], bytes]:
+    """A ``forge_archive`` edit that rewrites an encrypted payload's inner tar.
+
+    Decrypts with ``cipher``, hands ``edit`` the inner ``(TarInfo, bytes)``
+    members in order (``None`` for a non-file) and re-encrypts what it
+    returns: a forger who holds the passphrase (BL-E002-115's layout cases).
+    """
+    import io
+    import tarfile
+
+    def forge(payload: bytes) -> bytes:
+        plain = io.BytesIO()
+        cipher.decrypt(io.BytesIO(payload), plain)
+        members: InnerMembers = []
+        with tarfile.open(fileobj=io.BytesIO(plain.getvalue()), mode="r:gz") as inner:
+            for info in inner.getmembers():
+                handle = inner.extractfile(info) if info.isfile() else None
+                members.append((info, None if handle is None else handle.read()))
+        rebuilt = io.BytesIO()
+        with tarfile.open(fileobj=rebuilt, mode="w:gz") as out:
+            for info, body in edit(members):
+                out.addfile(info, None if body is None else io.BytesIO(body))
+        sealed = io.BytesIO()
+        cipher.encrypt(io.BytesIO(rebuilt.getvalue()), sealed)
+        return sealed.getvalue()
+
+    return forge
 
 
 def backdoor_plain_payload(payload: bytes) -> bytes:

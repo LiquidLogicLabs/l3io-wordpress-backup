@@ -6,13 +6,15 @@ import dataclasses
 import json
 import os
 from collections.abc import Mapping
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
 from l3io.wp.backup.domain.archive_format import (
     ENCRYPTED_PAYLOAD_MEMBER,
     FORMAT_VERSION,
+    INNER_MANIFEST_MEMBER,
+    INNER_UNPARSABLE,
     PAYLOAD_MEMBER,
     RESERVED_SOURCE_KEYS,
     Manifest,
@@ -24,6 +26,8 @@ from l3io.wp.backup.domain.archive_format import (
     MemberRole,
     OriginKind,
     SourceValue,
+    check_inner_manifest,
+    inner_manifest_bytes,
     is_safe_member_path,
     manifest_from_json,
     manifest_to_json,
@@ -330,3 +334,106 @@ def test_config_and_dump_roles_hold_only_their_one_member(
     under ``config`` or ``dump`` may be extracted into a directory the
     Archive does not own."""
     assert is_safe_member_path(path, role) is safe
+
+
+# --------------------------------------------------------------------------
+# The inner Manifest (BL-E002-115, ADR-0024 amendment 2026-11-06)
+# --------------------------------------------------------------------------
+
+
+def _other() -> Manifest:
+    """A Manifest that differs from ``full_manifest(encrypted=True)`` in every field."""
+    base = full_manifest(encrypted=True)
+    return Manifest(
+        format_version=FORMAT_VERSION + 1,
+        created_at="2026-11-06T00:00:00Z",
+        backup_scope="files",
+        source={**SOURCE, "db_name": "elsewhere"},
+        encrypted=False,
+        payload=ManifestPayload(PAYLOAD_MEMBER, 1, "f" * 64),
+        members=base.members[:-1],
+        dump_present=False,
+        origin=ManifestOrigin(OriginKind.SAFETY_SNAPSHOT, "overwrite", "run-2"),
+        exclusions=ManifestExclusions(source="default", patterns=(), excluded=()),
+        config_path="wp-config.php",
+    )
+
+
+def test_a_matching_pair_has_no_difference() -> None:
+    manifest = full_manifest(encrypted=True)
+    inner = inner_manifest_bytes(manifest)
+    assert check_inner_manifest(manifest_to_json(manifest), inner) is None
+
+
+def test_the_inner_manifest_leaves_out_only_the_payloads_size_and_sha256() -> None:
+    manifest = full_manifest(encrypted=True)
+    inner = json.loads(inner_manifest_bytes(manifest))
+    outer = json.loads(manifest_to_json(manifest))
+    assert inner["payload"] == {"name": ENCRYPTED_PAYLOAD_MEMBER}
+    del outer["payload"]["size"], outer["payload"]["sha256"]
+    assert inner == outer
+    # The encrypted payload's own size and sha256 are what the outer one adds.
+    resized = dataclasses.replace(
+        manifest, payload=ManifestPayload(ENCRYPTED_PAYLOAD_MEMBER, 99, "b" * 64)
+    )
+    assert (
+        check_inner_manifest(manifest_to_json(resized), inner_manifest_bytes(manifest))
+        is None
+    )
+
+
+@pytest.mark.parametrize("name", [f.name for f in dataclasses.fields(Manifest)])
+def test_each_field_changed_outside_the_payload_is_named(name: str) -> None:
+    """The field set is ``Manifest``'s own, not a list typed here."""
+    base, other = full_manifest(encrypted=True), _other()
+    assert getattr(base, name) != getattr(other, name), f"_other() must change {name}"
+    edited = dataclasses.replace(base, **{name: getattr(other, name)})
+    found = check_inner_manifest(manifest_to_json(edited), inner_manifest_bytes(base))
+    assert found is not None
+    assert found == name or found.startswith((f"{name}.", f"{name}["))
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        (
+            lambda d: d["source"].update(site_url="https://evil.example"),
+            "source.site_url",
+        ),
+        (lambda d: d["members"][3].update(size=43), "members[3].size"),
+        (lambda d: d["members"][1].update(path="site-root/x"), "members[1].path"),
+        (lambda d: d["source"].pop("db_host"), "source"),
+        (lambda d: d["source"].update({"\x1b[2J evil": 1}), "source"),
+        (lambda d: d["exclusions"]["patterns"].append("x/"), "exclusions.patterns"),
+    ],
+)
+def test_the_first_difference_is_a_path_never_a_value(
+    edit: object, expected: str
+) -> None:
+    manifest = full_manifest(encrypted=True)
+    document = json.loads(manifest_to_json(manifest))
+    edit(document)  # type: ignore[operator]
+    found = check_inner_manifest(json.dumps(document), inner_manifest_bytes(manifest))
+    assert found == expected
+    assert "evil" not in str(found)
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [b"not json", b"\xff\xfe", b"{}", b'{"payload": {"name": "payload.tar.gz.age"}}'],
+)
+def test_an_unparsable_inner_manifest_is_named_so(inner: bytes) -> None:
+    outer = manifest_to_json(full_manifest(encrypted=True))
+    assert check_inner_manifest(outer, inner) == INNER_UNPARSABLE
+
+
+def test_the_owner_guard_reaches_the_inner_manifest_name(tmp_path: Path) -> None:
+    """N-8: a second spelling of the reserved name is caught by the AD-6 guard."""
+    from tests.contracts.test_archive_format_owner import _offenders
+
+    assert INNER_MANIFEST_MEMBER == "inner-manifest.json"
+    planted = tmp_path / "leak.py"
+    planted.write_text("NAME = 'inner-manifest.json'\n", encoding="utf-8")
+    owner = tmp_path / "owner.py"
+    owner.write_text("", encoding="utf-8")
+    assert _offenders([planted, owner], owner) == ["leak.py:1: 'inner-manifest.json'"]

@@ -25,6 +25,7 @@ from l3io.wp.backup.adapters.tar import (
 )
 from l3io.wp.backup.domain.archive_format import (
     ENCRYPTED_PAYLOAD_MEMBER,
+    INNER_MANIFEST_MEMBER,
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
     ConfigLocation,
@@ -33,6 +34,8 @@ from l3io.wp.backup.domain.archive_format import (
     MemberKind,
     MemberRole,
     VerificationReason,
+    check_inner_manifest,
+    manifest_to_json,
     member_path,
 )
 from l3io.wp.backup.domain.errors import ArchiveWriteError, VerificationFailedError
@@ -298,7 +301,10 @@ def test_the_encrypted_payload_reverses_to_the_plain_members(
     members = _members(site_root, dump_file)
     (tmp_path / "plain").mkdir()
     plain_path, _ = _write(tmp_path / "plain", members, manifest_builder, workspace)
-    path, manifest = _write(tmp_path, members, manifest_builder, workspace, cipher)
+    with capture_logs() as logs:
+        path, manifest = _write(tmp_path, members, manifest_builder, workspace, cipher)
+    configured = [e for e in logs if e["event"] == "encryption_configured"]
+    assert [(e["scheme"], e["mode"]) for e in configured] == [("age", "passphrase")]
     read = archive_reader(path, decrypt=cipher)
     plain = archive_reader(plain_path)
 
@@ -308,8 +314,16 @@ def test_the_encrypted_payload_reverses_to_the_plain_members(
     assert manifest.payload.size == len(read.payload)
     assert manifest.payload.sha256 == hashlib.sha256(read.payload).hexdigest()
     assert read.payload[:2] != b"\x1f\x8b"  # the stored bytes are ciphertext
-    assert [i.name for i in read.inner] == [i.name for i in plain.inner]
-    assert read.contents == plain.contents
+    # ADR-0024 amendment: the inner Manifest is the encrypted payload's last
+    # member, and the only difference from the plain payload.
+    assert [i.name for i in read.inner] == [
+        *(i.name for i in plain.inner),
+        INNER_MANIFEST_MEMBER,
+    ]
+    sealed = dict(read.contents)
+    inner_manifest = sealed.pop(INNER_MANIFEST_MEMBER)
+    assert sealed == plain.contents
+    assert check_inner_manifest(manifest_to_json(manifest), inner_manifest) is None
     assert cipher.encrypt_calls == 1
     assert list(workspace.iterdir()) == []
     verify_or_raise(path)

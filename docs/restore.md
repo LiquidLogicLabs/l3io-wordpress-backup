@@ -202,6 +202,20 @@ which names an Archive with no checksums at all (a v0 Archive,
 `STRUCTURAL_ONLY`) as such. Restore only Archives from a source
 you trust, or encrypted ones, whose payload `age` authenticates.
 
+**What authentication proves, and what it does not.** For an encrypted
+Archive, `wpbackup2 verify --authenticate` and the restore's `VERIFY` decrypt
+the whole payload with the passphrase; `age` authenticates every chunk. The
+payload ends with an inner copy of the Manifest, and both then require it to
+match the unencrypted `manifest.json` field by field, less the payload's own
+size and checksum. A Manifest edited outside the payload (its scope, source or
+member list), or a payload swapped in from another Archive, is refused with
+`PayloadDamagedError` (exit 8), naming the first field that differs, before the
+Safety Snapshot and before anything destructive. **A rollback is not
+detected:** a whole older Archive encrypted with the same passphrase, put in
+place of a newer one, is genuine, so it passes. Detecting that needs a record
+kept outside the Archive, such as the name or checksum of the latest backup,
+which this package does not keep.
+
 **Quiesce the Site first.** A restore does not stop the web server, put the
 Site into maintenance or lock its database. Whatever is written to the Site
 Root or the live database after the Safety Snapshot is taken and before the

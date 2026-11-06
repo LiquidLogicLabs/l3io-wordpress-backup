@@ -18,6 +18,16 @@ names. The Manifest's member index lists the inner tar: every inner member has
 exactly one entry and every entry exactly one inner member. Mode, mtime, uid
 and gid live in the tar headers only.
 
+**The inner Manifest** (ADR-0024 amendment, 2026-11-06, BL-E002-115). An
+encrypted payload ends with one more member, :data:`INNER_MANIFEST_MEMBER`:
+the Manifest as :func:`inner_manifest_bytes` writes it, without the encrypted
+payload's own size and sha256. It is last, not listed in the index it
+carries, and never extracted. After decrypting, ``verify --authenticate`` and
+the restore's ``VERIFY`` compare it with the outer Manifest through
+:func:`check_inner_manifest`, which binds the unencrypted outer Manifest to
+the payload ``age`` authenticated. A whole older Archive under the same
+passphrase still passes: that rollback is a permanent limit.
+
 The Manifest carries **no key material, no KDF parameters and no salt**
 (ADR-0014, ADR-0024), and its ``source`` is the Site Descriptor projected
 without any credential. JSON is stdlib :mod:`json`; reads ignore unknown keys,
@@ -40,7 +50,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Literal, TypeVar, cast
@@ -59,6 +69,8 @@ __all__ = [
     "DUMP_RELATIVE",
     "ENCRYPTED_PAYLOAD_MEMBER",
     "FORMAT_VERSION",
+    "INNER_MANIFEST_MEMBER",
+    "INNER_UNPARSABLE",
     "MANIFEST_MAX_BYTES",
     "MANIFEST_MEMBER",
     "PAYLOAD_MEMBER",
@@ -87,8 +99,10 @@ __all__ = [
     "VerificationReason",
     "VerificationResult",
     "ViewMember",
+    "check_inner_manifest",
     "classify",
     "format_label",
+    "inner_manifest_bytes",
     "is_safe_member_path",
     "manifest_from_json",
     "manifest_to_json",
@@ -107,6 +121,10 @@ MANIFEST_MAX_BYTES: Final = 16 * 1024 * 1024
 MANIFEST_MEMBER: Final = "manifest.json"
 PAYLOAD_MEMBER: Final = "payload.tar.gz"
 ENCRYPTED_PAYLOAD_MEMBER: Final = "payload.tar.gz.age"
+#: The encrypted payload's last member: the Manifest less the payload's size
+#: and sha256 (ADR-0024 amendment). Every other inner member carries a role
+#: prefix (``dump/``, ``config/``, ``site-root/``), so it collides with none.
+INNER_MANIFEST_MEMBER: Final = "inner-manifest.json"
 #: The Dump's name under the ``dump`` role, and the located config's under the
 #: ``config`` role: ``member_path(MemberRole.DUMP, DUMP_RELATIVE)`` and
 #: ``member_path(MemberRole.CONFIG, CONFIG_RELATIVE)``.
@@ -278,6 +296,10 @@ def manifest_to_json(manifest: Manifest) -> str:
     decodes to (``os.fsdecode``), so the Manifest always encodes as UTF-8 and
     ``json.loads`` returns each string exactly.
     """
+    return json.dumps(_document(manifest), indent=2) + "\n"
+
+
+def _document(manifest: Manifest) -> dict[str, object]:
     document: dict[str, object] = {
         "format_version": manifest.format_version,
         "created_at": manifest.created_at,
@@ -318,7 +340,7 @@ def manifest_to_json(manifest: Manifest) -> str:
         }
     if manifest.config_path is not None:
         document["config_path"] = manifest.config_path
-    return json.dumps(document, indent=2) + "\n"
+    return document
 
 
 #: Called with ``(field, value)`` when a read drops a value this build does
@@ -335,7 +357,12 @@ def manifest_from_json(
     reported through ``on_unknown("origin.kind", value)`` (forward
     compatibility). An unknown member ``kind`` is malformed.
     """
-    doc = _object(_loads(text), "manifest")
+    return _manifest(_object(_loads(text), "manifest"), on_unknown)
+
+
+def _manifest(
+    doc: Mapping[str, object], on_unknown: UnknownValueHook | None
+) -> Manifest:
     source = _object(doc.get("source"), "source")
     return Manifest(
         format_version=_int(doc, "format_version"),
@@ -519,6 +546,117 @@ def _exclusions(value: object) -> ManifestExclusions | None:
         patterns=tuple(cast("list[str]", patterns)),
         excluded=tuple(excluded),
     )
+
+
+# --------------------------------------------------------------------------
+# The inner Manifest (ADR-0024 amendment, 2026-11-06)
+# --------------------------------------------------------------------------
+
+#: The payload fields the inner Manifest leaves out: they describe the
+#: encrypted payload, which cannot contain its own size or hash.
+_INNER_LEFT_OUT: Final = ("size", "sha256")
+#: What both sides' left-out fields are set to before the comparison.
+_LEFT_OUT_SIZE: Final = 0
+_LEFT_OUT_SHA256: Final = "0" * _SHA256_HEX_LENGTH
+#: :func:`check_inner_manifest`'s answer for an inner document it cannot read.
+INNER_UNPARSABLE: Final = "<unparsable>"
+
+
+def inner_manifest_bytes(manifest: Manifest) -> bytes:
+    """The inner Manifest's bytes: ``manifest`` without the payload's size and sha256.
+
+    Its own serialiser, because :func:`manifest_to_json` requires both fields.
+    Everything else is written as :func:`manifest_to_json` writes it.
+    """
+    document = _document(manifest)
+    payload = cast("dict[str, object]", document["payload"])
+    for key in _INNER_LEFT_OUT:
+        del payload[key]
+    return (json.dumps(document, indent=2) + "\n").encode("utf-8")
+
+
+def _without_payload_digest(manifest: Manifest) -> Manifest:
+    return replace(
+        manifest,
+        payload=ManifestPayload(
+            name=manifest.payload.name, size=_LEFT_OUT_SIZE, sha256=_LEFT_OUT_SHA256
+        ),
+    )
+
+
+def _inner_manifest(inner_bytes: bytes) -> Manifest:
+    """Parse the inner document with the outer parser's field rules."""
+    doc = _object(_loads(inner_bytes.decode("utf-8")), "manifest")
+    payload = _object(doc.get("payload"), "payload")
+    doc = {
+        **doc,
+        "payload": {
+            **payload,
+            "size": _LEFT_OUT_SIZE,
+            "sha256": _LEFT_OUT_SHA256,
+        },
+    }
+    return _manifest(doc, None)
+
+
+def _join(path: str, name: str) -> str:
+    return f"{path}.{name}" if path else name
+
+
+def _first_difference(outer: object, inner: object, path: str) -> str | None:
+    """The first path at which ``outer`` and ``inner`` differ, field by field."""
+    if is_dataclass(outer) and type(outer) is type(inner):
+        for item in fields(outer):
+            found = _first_difference(
+                getattr(outer, item.name),
+                getattr(inner, item.name),
+                _join(path, item.name),
+            )
+            if found is not None:
+                return found
+        return None
+    if isinstance(outer, Mapping) and isinstance(inner, Mapping):
+        outer_map = cast("Mapping[str, object]", outer)
+        inner_map = cast("Mapping[str, object]", inner)
+        for key in sorted(outer_map.keys() | inner_map.keys()):
+            if key not in outer_map or key not in inner_map:
+                # A key on one side only may be the unauthenticated outer
+                # Manifest's own text: name the mapping, never the key.
+                return path
+            found = _first_difference(outer_map[key], inner_map[key], _join(path, key))
+            if found is not None:
+                return found
+        return None
+    if isinstance(outer, tuple) and isinstance(inner, tuple):
+        if len(outer) != len(inner):
+            return path
+        for position, (left, right) in enumerate(zip(outer, inner, strict=True)):
+            found = _first_difference(left, right, f"{path}[{position}]")
+            if found is not None:
+                return found
+        return None
+    if type(outer) is not type(inner) or outer != inner:
+        return path
+    return None
+
+
+def check_inner_manifest(outer_text: str, inner_bytes: bytes) -> str | None:
+    """Compare the outer Manifest with the payload's inner one, field by field.
+
+    ``outer_text`` is the verified outer Manifest, parsed with
+    :func:`manifest_from_json`; the payload's size and sha256 are left out of
+    the comparison. Returns ``None`` when the two are equal, else the first
+    differing field's path (``source.site_url``, ``members[3].path``), never
+    a value; an inner document that does not parse is
+    :data:`INNER_UNPARSABLE`. Both check sites call this; neither compares
+    fields itself.
+    """
+    outer = _without_payload_digest(manifest_from_json(outer_text))
+    try:
+        inner = _inner_manifest(inner_bytes)
+    except (MalformedManifestError, UnicodeDecodeError):
+        return INNER_UNPARSABLE
+    return _first_difference(outer, inner, "")
 
 
 # --------------------------------------------------------------------------

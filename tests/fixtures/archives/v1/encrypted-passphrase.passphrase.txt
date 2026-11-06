@@ -1,0 +1,4 @@
+# TEST-ONLY. This passphrase protects nothing: it exists so CI can decrypt the
+# committed fixture encrypted-passphrase.tar.gz (E004-S01-003, ADR-0014,
+# ADR-0024). Never reuse it for a real Archive.
+fixture-only-passphrase-e004-s01-003-not-a-secret

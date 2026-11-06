@@ -483,15 +483,22 @@ class PayloadDamagedError(BackupError):
 
     Database's ``CorruptDumpError``.
 
-    ``age`` authenticates every chunk, so a tampered payload lands here.
+    ``age`` authenticates every chunk, so a tampered payload lands here. So
+    does an outer Manifest that disagrees with the inner Manifest the payload
+    carries (ADR-0024 amendment, 2026-11-06): ``field`` names the first
+    differing field's path, never a value.
     """
 
     exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
 
-    def __init__(self) -> None:
-        super().__init__(
+    def __init__(self, field: str | None = None) -> None:
+        self.field = field
+        message = (
             "authentication failed: the encrypted payload is damaged or tampered with"
         )
+        if field is not None:
+            message += f" (the Manifest's {field} differs from the authenticated copy)"
+        super().__init__(message)
 
 
 class ArchiveNotEncryptedError(UsageError):
