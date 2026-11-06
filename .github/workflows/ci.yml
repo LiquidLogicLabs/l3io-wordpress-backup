@@ -263,10 +263,51 @@ jobs:
       - name: AD-21 streaming bound
         run: uv run pytest tests/contracts/test_streaming.py -q
 
+  unit:
+    # Every supported interpreter, no database. The `test` job's matrix shrinks to
+    # one leg under act (every leg's service claims host port 3306), so a
+    # regression on a newer CPython could pass `make ci` locally. It did once:
+    # tarfile in 3.13/3.14 stopped calling TarInfo.frombuf, so the E004 header
+    # bound was bypassed there (E004 closure follow-up, 2026-11-06). This job has
+    # no `services:`, so act runs all four legs. Integration tests skip without
+    # DB_HOST.
+    name: unit+contracts · py${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-unit-py${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: "0.11.6"
+          python-version: ${{ matrix.python }}
+          enable-cache: ${{ !vars.LOCAL_ACT }}
+      # The same pinned, checksummed age as the `test` job: the interop test
+      # fails rather than skips when CI is set.
+      - name: install age
+        env:
+          AGE_VERSION: "1.3.2"
+          AGE_SHA256: "cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10"
+        run: |
+          curl -sSLo /tmp/age.tar.gz "https://github.com/FiloSottile/age/releases/download/v${AGE_VERSION}/age-v${AGE_VERSION}-linux-amd64.tar.gz"
+          echo "${AGE_SHA256}  /tmp/age.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/age
+          tar -xzf /tmp/age.tar.gz -C /tmp/age --strip-components=1
+          sudo install -m 0755 /tmp/age/age /tmp/age/age-plugin-batchpass /tmp/age/age-inspect /usr/local/bin/
+          age --version
+      - run: uv sync --locked --all-extras --dev
+      - name: pytest (no database)
+        run: uv run pytest -q -m "not integration"
+
   build:
     name: build
     runs-on: ubuntu-latest
-    needs: [static, contracts, test]
+    needs: [static, contracts, test, unit]
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-build
       # act binds the real checkout and runs as root, so build OUTPUT is left

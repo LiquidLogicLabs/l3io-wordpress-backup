@@ -167,20 +167,27 @@ _EXTENDED_HEADER_TYPES: Final = frozenset(
 class _BoundedTarInfo(tarfile.TarInfo):
     """A ``TarInfo`` that refuses an oversized extended header before reading it.
 
-    ``frombuf`` parses one 512-byte header block, before ``tarfile`` reads any
-    body, so the refusal costs no memory however large the declared size.
     Every reader of an Archive's tar uses it (``tarinfo=_BoundedTarInfo``).
+
+    The hook is ``_proc_member``, the dispatch ``tarfile`` documents in its own
+    source as the one to override in a subclass ("The entry point is
+    _proc_member() which can be overridden in a subclass"). It runs once per
+    header block, after the 512-byte header is parsed and before
+    ``_proc_gnulong`` or ``_proc_pax`` reads the body, on 3.11 through 3.14, and
+    also for the header that follows a GNU or pax header. The public
+    ``frombuf`` is not a hook: since the June 2025 dircheck fix, 3.13+
+    ``fromtarfile`` calls ``_frombuf`` directly and never calls ``frombuf``.
+    ``tests/contracts/test_tar_header_hook.py`` fails if this hook stops being
+    reached on the running interpreter.
     """
 
-    @classmethod
-    def frombuf(
-        cls, buf: bytes | bytearray, encoding: str, errors: str
-    ) -> _BoundedTarInfo:
-        info = super().frombuf(buf, encoding, errors)
-        if info.type in _EXTENDED_HEADER_TYPES and info.size > _MAX_EXTENDED_HEADER:
+    def _proc_member(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+        if self.type in _EXTENDED_HEADER_TYPES and self.size > _MAX_EXTENDED_HEADER:
             msg = f"a tar extended header declares over {_MAX_EXTENDED_HEADER} bytes"
             raise tarfile.ReadError(msg)
-        return info
+        # typeshed does not declare the private dispatch delegated to here.
+        member: tarfile.TarInfo = super()._proc_member(archive)  # type: ignore[misc]
+        return member
 
 
 @dataclass(frozen=True, slots=True)
