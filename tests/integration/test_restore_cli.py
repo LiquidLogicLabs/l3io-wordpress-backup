@@ -216,8 +216,9 @@ def test_an_empty_target_takes_its_descriptor_from_the_archive(
     ran = run_cli(site.argv(archive, "--mode", "all", root=empty), capsys)
     assert ran.code == int(ExitCode.REFUSED)
     assert "ArchiveIdentityUnconfirmedError" in ran.err
-    assert site.site.database in ran.err
-    assert site.site.user in ran.err
+    # RT-S02-003: the Archive's claim is not shown, so it cannot be pasted.
+    assert site.site.database not in ran.err
+    assert "USER@HOST[:PORT]/NAME" in ran.err
     assert not any(empty.iterdir())
     # The Archive's database is the fixture's live one (non-empty), so FR-7
     # needs the table's authorizing flags; the empty directory is the point.

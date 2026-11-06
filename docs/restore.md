@@ -116,9 +116,13 @@ Run workspace (mode `0600`). Because an Archive can be forged, the database it
 names is used only when you confirm it: `--archive-database
 USER@HOST[:PORT]/NAME` must name the same user, host (case-insensitive), port
 and database as the Archive's config, or the restore is refused (exit 3) before
-any database connection. The refusal shows the Archive's user, host, port and
-database, never a password, and names only which of them yours differs in; it
-never echoes what you typed. A user part holding `:` (as in `USER:PASSWORD@…`)
+any database connection. Name the database from your own records, not from
+the Archive. When the flag is absent, the refusal deliberately does not show
+the Archive's database, so it cannot be pasted back without checking it
+(RT-S02-003). When yours differs, the refusal shows the Archive's user, host,
+port and database, never a password, and names which of them differ; treat a
+difference you did not expect as a sign the Archive may not be what it claims.
+The refusal never echoes what you typed. A user part holding `:` (as in `USER:PASSWORD@…`)
 is refused as a usage error (exit 2) without being shown. With a target `wp-config.php` the flag is not
 needed and is ignored (logged `archive_database_unused`).
 

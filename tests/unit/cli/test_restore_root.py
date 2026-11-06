@@ -464,11 +464,18 @@ def test_an_unconfirmed_archive_identity_is_refused_before_any_connection(
     text = str(caught.value)
     # L-4: only which part differs is named; the operator's text never is.
     assert caught.value.differs == differs
-    if stated is not None:
-        assert stated not in text
-    for value in ("DB_HOST", "DB_NAME", "DB_USER"):
-        assert ARCHIVE_DB[value] in text
     assert ARCHIVE_DB["DB_PASSWORD"] not in text
+    # RT-S02-003 (owner, 2026-11-06, A): never a ready-to-paste confirmation.
+    assert "--archive-database " + ARCHIVE_DB["DB_USER"] not in text
+    if stated is None:
+        # Absent: the Archive's claim is not shown, so it cannot be pasted back.
+        for value in ("DB_HOST", "DB_NAME", "DB_USER"):
+            assert ARCHIVE_DB[value] not in text
+        assert "USER@HOST[:PORT]/NAME" in text
+    else:
+        assert stated not in text
+        for value in ("DB_HOST", "DB_NAME", "DB_USER"):
+            assert ARCHIVE_DB[value] in text
     assert rig.database is not None
     assert [e for e in rig.events if isinstance(e, tuple)] == []
     assert not rig.executions

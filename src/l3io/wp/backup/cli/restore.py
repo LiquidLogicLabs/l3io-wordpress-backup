@@ -522,8 +522,14 @@ class ArchiveIdentityUnconfirmedError(RefusedError):
 
     Raised after the bind and before any database connection, so a forged
     Archive cannot direct the administrator to a server the operator did not
-    name. Shows the Archive's user, host, port and database; never a
-    credential.
+    name. Never a credential.
+
+    RT-S02-003 (owner decision, 2026-11-06, option A): when the flag is
+    absent the refusal does **not** show the Archive's database, so the
+    operator must name the server from their own knowledge instead of
+    pasting the Archive's claim back. Only when the operator's value differs
+    is the Archive's database shown, with which parts differ, and never as a
+    ready-to-paste flag.
     """
 
     def __init__(
@@ -536,17 +542,24 @@ class ArchiveIdentityUnconfirmedError(RefusedError):
         self.user = user
         self.location = location
         self.differs = differs
-        named = f"{user}@{location.host}:{location.port}/{location.name}"
-        # L-4: the operator's text is never echoed; only which part differs.
-        said = (
-            "--archive-database was not given"
-            if differs is None
-            else f"--archive-database names another {', '.join(differs)}"
+        if differs is None:
+            super().__init__(
+                "the target has no wp-config.php, so the database would come "
+                "from the archive's config. Name the database this site is "
+                "being restored to, from your own records, with "
+                "--archive-database USER@HOST[:PORT]/NAME; it must match the "
+                "archive's. Nothing was changed"
+            )
+            return
+        named = (
+            f"{user} at {location.host} port {location.port}, database {location.name}"
         )
+        # L-4: the operator's text is never echoed; only which part differs.
         super().__init__(
-            "the target has no wp-config.php, so the database comes from the "
-            f"archive's config, which names {named}; {said}. Pass "
-            f"--archive-database {named} to confirm it; nothing was changed"
+            "the target has no wp-config.php, and --archive-database names "
+            f"another {', '.join(differs)} than the archive's config ({named}). "
+            "If that is not the server you meant, do not restore this archive "
+            "without checking where it came from. Nothing was changed"
         )
 
 

@@ -693,8 +693,8 @@ def test_restore_cli_is_credential_clean(
     password and ``--admin-password`` is the administrator sentinel. A
     ``files`` restore with ``--force`` takes an unencrypted Safety Snapshot of
     the target and restores over it; then a target with no ``wp-config.php``
-    is refused with ``ArchiveIdentityUnconfirmedError``, whose text names the
-    Archive's database and user. No output, log record or message may carry
+    is refused with ``ArchiveIdentityUnconfirmedError``, whose text does not
+    name the Archive's database (RT-S02-003). No output, log record or message may carry
     either secret.
     """
     s = credential_sentinel
@@ -728,7 +728,7 @@ def test_restore_cli_is_credential_clean(
     s.add("refusal stdout", refusal.out)
     s.add("refusal stderr", refusal.err)
     assert "ArchiveIdentityUnconfirmedError" in refusal.err
-    assert os.environ.get("DB_NAME", "wptest") in refusal.err
+    assert os.environ.get("DB_NAME", "wptest") not in refusal.err
     s.assert_clean()
 
 
