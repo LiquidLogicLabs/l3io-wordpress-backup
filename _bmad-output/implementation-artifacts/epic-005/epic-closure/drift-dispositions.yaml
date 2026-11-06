@@ -1,0 +1,11 @@
+review: _bmad-output/implementation-artifacts/epic-005/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: 'The whole epic S01-002 deliverable has no production consumer. `grep` finds `BinaryPreflight`, `diagnose` and `unsupported_platform` referenced only inside `adapters/preflight.py` and tests. Every root still binds `DumpReadinessPreflight`, which resolves non-dump tools with `shutil.which` and never probes versions, so a requirement with a minimum fails as "unusable (version unknown)". Windows is refused nowhere. The only proof is `test_binary_preflight_refusal.py`, which injects `preflight=` by hand. The wiring is deferred to E008-S01-001 by an *orchestrator* decision ("the owner may overrule"), not an owner decision, and nothing mechanical forces E008 to deliver it. Rule 3 and 4: the guard proves the seam, not the reach.'
+    disposition: spec-proposal
+    spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands
+    adr:
+    commit:
+    issue: BL-E005-013
+    proposal: _bmad-output/implementation-artifacts/epic-005/epic-closure/spec-proposals/AD-1.md

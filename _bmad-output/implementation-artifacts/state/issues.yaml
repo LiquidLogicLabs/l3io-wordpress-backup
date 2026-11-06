@@ -1,7 +1,8 @@
 next:
   '002': 122
   '003': 117
-  '004': 47
+  '004': 49
+  '005': 14
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -2273,3 +2274,153 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-7)
+- key: BL-E005-001
+  epic: '005'
+  sprint: '01'
+  title: credential_source_selected is logged on every resolve(), not once per Run (story says one INFO record)
+  source: code-review (E005-S01-001)
+  source_phase: code-review
+  source_ref: E005-S01-001
+  severity: Low
+  status: backlog
+  description: Review F-3. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. Either log once per wrapper or amend the AC to per-resolution and assert the count in tests/integration/test_credential_sources.py.
+- key: BL-E005-002
+  epic: '005'
+  sprint: '01'
+  title: require_wp_config_credentials reads os.environ inside adapters/ to name a half-set variable; pass environ from cli/backup.py instead
+  source: code-review (E005-S01-001)
+  source_phase: code-review
+  source_ref: E005-S01-001
+  severity: Low
+  status: backlog
+  description: Review F-5. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. cli/backup.py:630 already holds os.environ; that call site was outside this story's grant. E008-S01-001 edits the CLI seam and can take it.
+- key: BL-E004-047
+  epic: '004'
+  sprint: '01'
+  title: 'E004-S01-002: released-0.2.21-all.tar.gz and its provenance.json not committed; producing them needs wpbackup2==0.2.21 from PyPI, denied by the agent permission policy'
+  source: dev (E004-S01-002)
+  source_phase: dev
+  source_ref: E004-S01-002
+  severity: High
+  status: backlog
+  description: "Owner step. Procedure in the story doc's Dev Agent Record. Three tests fail until committed: test_v0_fixtures.py::test_the_table_and_the_directories_agree, ::test_the_released_fixture_carries_no_operator_secret, test_v0_fixtures_reproducible.py::test_the_released_fixture_matches_its_provenance."
+- key: BL-E004-048
+  epic: '004'
+  sprint: '01'
+  title: CLI no longer verifies a v0 Archive lacking the wp-root directory member end to end (classifier unit test still covers it)
+  source: code-review (E004-S01-002)
+  source_phase: code-review
+  source_ref: E004-S01-002
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-002.md F6
+- key: BL-E005-003
+  epic: '005'
+  sprint: '01'
+  title: diagnose() logs absent-but-not-required known tools as preflight_checked at ERROR while reporting ready
+  source: code-review (E005-S01-002)
+  source_phase: code-review
+  source_ref: E005-S01-002
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-002.md L1. The story fixes that diagnose emits only check's records; E008-S01-001 (wpbackup2 doctor) should decide the level for a tool no plan requires.
+- key: BL-E005-004
+  epic: '005'
+  sprint: '01'
+  title: PreflightFailedError message for a too-old tool does not state the minimum version (domain/preflight.py::preflight_failure)
+  source: code-review (E005-S01-002)
+  source_phase: code-review
+  source_ref: E005-S01-002
+  severity: Low
+  status: backlog
+  description: "Story E005-S01-002 edge case: 'age 1.2.1 found; 1.3 or later is needed'. The built preflight_failure gives found='<version>' only and domain/preflight.py was consume-only for this story. Either the requirement author includes the floor in needed_for (E004-S01-003, E007-S01-004) or the domain message gains it."
+- key: BL-E005-005
+  epic: '005'
+  sprint: '01'
+  title: 'Redaction does not cover passwords of 3 characters or fewer, and registers only after a successful resolve (redteam M-4); owner decision: refuse short passwords or accept'
+  source: epic-redteam (M-4)
+  source_phase: epic-redteam
+  source_ref: M-4
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/redteam-report.md. redaction.py:60. Owner is the ADR-0018 owner.
+- key: BL-E005-006
+  epic: '005'
+  sprint: '01'
+  title: AWS failure keeps a chained JSONDecodeError whose .doc holds the secret string (redteam L-1)
+  source: epic-arch-review (L-1)
+  source_phase: epic-arch-review
+  source_ref: L-1
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-007
+  epic: '005'
+  sprint: '01'
+  title: unset_partner reads os.environ in an adapter; step chosen from passed mapping (arch AD-4, review F-5, redteam L-5)
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-008
+  epic: '005'
+  sprint: '01'
+  title: credential_source_selected logged on every resolve, not once per Run (arch AD-5, review F-3)
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-009
+  epic: '005'
+  sprint: '01'
+  title: Restore pins WordPress credentials to wp-config.php (environ={}) with no guard test (arch AD-7)
+  source: epic-arch-review (AD-7)
+  source_phase: epic-arch-review
+  source_ref: AD-7
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-010
+  epic: '005'
+  sprint: '01'
+  title: Probe locates a binary by name; later run re-resolves PATH (adversarial A-2 TOCTOU)
+  source: epic-arch-review (A-2)
+  source_phase: epic-arch-review
+  source_ref: A-2
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-011
+  epic: '005'
+  sprint: '01'
+  title: Region error names unbound CLI flags to a library caller (adversarial A-5, review F-4)
+  source: epic-arch-review (A-5)
+  source_phase: epic-arch-review
+  source_ref: A-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-012
+  epic: '005'
+  sprint: '01'
+  title: E008-S01-001 specifies BinaryPreflight(environ=) but built class takes cwd and no environ (arch AD-3)
+  source: epic-arch-review (AD-3)
+  source_phase: epic-arch-review
+  source_ref: AD-3
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+- key: BL-E005-013
+  epic: '005'
+  sprint: ''
+  title: 'Spec proposal: The whole epic S01-002 deliverable has no production consumer. `grep` finds `BinaryPreflight`, `diagnose` and `unsupported_platform` referenced only inside `adapters/preflight.py` and tests. Every root still binds `DumpReadinessPreflight`, which resolves non-dump tools with `shutil.which` and never probes versions, so a requirement with a minimum fails as "unusable (version unknown)". Windows is refused nowhere. The only proof is `test_binary_preflight_refusal.py`, which injects `preflight=` by hand. The wiring is deferred to E008-S01-001 by an *orchestrator* decision ("the owner may overrule"), not an owner decision, and nothing mechanical forces E008 to deliver it. Rule 3 and 4: the guard proves the seam, not the reach.'
+  source: spec-sync (AD-1)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-005/epic-closure/spec-proposals/AD-1.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-005/epic-closure/arch-drift-review.md.'

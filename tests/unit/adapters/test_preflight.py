@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import tomllib
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
@@ -534,3 +535,21 @@ def test_the_diagnosis_is_sentinel_free(
     rendered = repr(diagnosis) + json.dumps(diagnosis.to_dict())
     assert secret not in rendered
     assert credential_sentinel.passphrase not in rendered
+
+
+def test_the_default_lookup_ignores_relative_path_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from l3io.wp.backup.adapters.preflight import _locate
+
+    planted = tmp_path / "planted"
+    planted.mkdir()
+    name = f"tool-{uuid.uuid4().hex}"
+    exe = planted / name
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    monkeypatch.chdir(planted)
+    monkeypatch.setenv("PATH", f"{os.pathsep}.{os.pathsep}/nonexistent-{name}")
+    assert _locate(name) is None
+    monkeypatch.setenv("PATH", f"{planted}{os.pathsep}.")
+    assert _locate(name) == str(exe)

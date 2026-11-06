@@ -225,6 +225,19 @@ def _dotted(version: tuple[int, ...] | None) -> str | None:
     return None if version is None else ".".join(str(part) for part in version)
 
 
+def _locate(name: str) -> str | None:
+    """``shutil.which`` over the absolute ``PATH`` entries only.
+
+    An empty or ``.`` entry makes ``which`` return a path relative to the
+    current directory, and the probe then runs it from the Run workspace -- a
+    different file from the one a later lookup finds. Relative entries are
+    dropped, so the result is always absolute.
+    """
+    entries = os.environ.get("PATH", os.defpath).split(os.pathsep)
+    path = os.pathsep.join(e for e in entries if e and Path(e).is_absolute())
+    return shutil.which(name, path=path)
+
+
 class BinaryPreflight:
     """``Preflight`` for the binaries on :data:`KNOWN_TOOLS`: statuses only.
 
@@ -238,7 +251,7 @@ class BinaryPreflight:
         self,
         *,
         cwd: Path,
-        which: Callable[[str], str | None] = shutil.which,
+        which: Callable[[str], str | None] = _locate,
         probe: Callable[
             [Sequence[str], Path, Mapping[str, str]], str
         ] = _version_output,
