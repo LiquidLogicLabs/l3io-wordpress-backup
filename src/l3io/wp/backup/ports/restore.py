@@ -31,16 +31,12 @@ class RestorePorts:
     filesystem holding ``path`` (``shutil.disk_usage``, bound by the root);
     ``cutover_credentials`` returns the relocated WordPress account's
     password at call time, or is ``None`` without relocation.
-    ``performs_effects`` is bound by the root: ``False`` only when the bound
-    command halves are the no-ops of a Dry Run, so the executor decides from
-    an input and never by inspecting the adapters (ADR-0022 option D).
     """
 
     adapters: AdapterSet
     preflight: Callable[[tuple[ToolRequirement, ...]], None]
     free_bytes: Callable[[Path], int]
     cutover_credentials: Callable[[], str] | None
-    performs_effects: bool
 
     def __repr__(self) -> str:
         # The credential callable is named, never called.
@@ -53,7 +49,6 @@ def restore_ports(
     preflight: Callable[[tuple[ToolRequirement, ...]], None],
     free_bytes: Callable[[Path], int],
     cutover_credentials: Callable[[], str] | None,
-    performs_effects: bool,
 ) -> RestorePorts:
     """The one constructor of :class:`RestorePorts`; every keyword required."""
     return RestorePorts(
@@ -61,5 +56,4 @@ def restore_ports(
         preflight=preflight,
         free_bytes=free_bytes,
         cutover_credentials=cutover_credentials,
-        performs_effects=performs_effects,
     )

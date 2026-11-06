@@ -1,0 +1,10 @@
+review: _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: '`performs_effects` is a Dry Run flag under another name, read by the executor'
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:

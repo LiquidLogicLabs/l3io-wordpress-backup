@@ -1,0 +1,63 @@
+key: 'E003'
+title: 'Restore a site without destroying it'
+goal: 'The safety work, and the epic where getting it wrong destroys a customer''s site.'
+status: done
+updated_at: '2026-11-06T12:45:56Z'
+origin: epics.md
+origin_note: goal and title taken from planning-artifacts/epics.md
+estimate:
+  man_hours_low: 144.34
+  man_hours_high: 164.02
+  hitl_hours_low: 2.67
+  hitl_hours_high: 3.03
+  elapsed_hours_low: 18.02
+  elapsed_hours_high: 20.48
+  tokens_k_min: 324543
+  tokens_k_max: 368799
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 287.5
+  cost_high: 326.69
+  model: claude-opus-5
+  confidence: medium
+depends_on:
+- 'E002'
+actual:
+  elapsed_hours: 5.18
+  man_hours: 320
+  hitl_hours: 0
+  tokens_k:
+    total: 204155.99
+    input: 2.658
+    output: 1315.741
+    cache_write: 5927.341
+    cache_read: 196910.254
+  cost: 101.04
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-06T12:44:46Z'
+orchestration:
+  elapsed_hours: 0.02
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 0
+    input: 0
+    output: 0
+    cache_write: 0
+    cache_read: 0
+  cost: 0.0
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-06T12:44:46Z'
+closed:
+  date: '2026-11-06'
+retrospective:
+  summary: Epic E003 delivered six stories that make wpbackup2 restore real, covering the restore plan, the destructive-restore refusal, the Safety Snapshot, an honest database report, kill-safe staging with a Run Journal, and the end-to-end command. About a third of the epic's commits were closure and post-closure fixes, driven by security findings found late, including one Critical, and a post-closure pass then closed every High and Medium backlog item. The main lesson is to threat-review untrusted input and credential handling at the story that introduces it, and to test behaviour rather than prose.
+  learnings: "- Run a threat pass at the first story that passes Archive content or a credential to an external process, not at sprint closure.\n- A guard must act on behaviour (code path, file mode, process arguments), not on help text or prose.\n- Record owner decisions as ADRs during story elaboration so they do not become open Medium backlog items.\n- Give every deferral a named owner story with amended acceptance criteria; unowned deferrals needed a separate fix pass.\n- Make the DB-backed integration suite and man-hour or cost capture mandatory closure steps."

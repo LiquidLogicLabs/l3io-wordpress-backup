@@ -647,9 +647,6 @@ def _require_snapshot(run: _Run, result: SnapshotResult, scope: BackupScope) -> 
         reason = f"the snapshot covers {result.scope.value!r}, not {scope.value!r}"
         raise SnapshotFailedError(planned, reason)
     if not result.performed:
-        if run.ports.performs_effects:
-            reason = "the snapshot was not performed, and the restore would destroy"
-            raise SnapshotFailedError(planned, reason)
         return
     if result.integrity is not Integrity.VERIFIED or result.bytes <= 0:
         integrity = None if result.integrity is None else result.integrity.value

@@ -360,7 +360,6 @@ def ports_for(spec: RestoreSpec, adapters: AdapterSet) -> RestorePorts:
         preflight=lambda _tools: None,
         free_bytes=lambda _path: 10**12,
         cutover_credentials=None if password is None else (lambda: password),
-        performs_effects=True,
     )
 
 

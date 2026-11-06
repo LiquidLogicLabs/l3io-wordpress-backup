@@ -123,12 +123,15 @@ closure:
     elapsed_hours:
       samples:
       - 0.0599
+      - 0.1047
     man_hours:
       samples:
       - 5.8003
+      - 4.3545
     tokens_k:
       samples:
       - 1.021
+      - 0.2643
 fix:
   simple: {}
   standard:
@@ -157,11 +160,14 @@ orchestration:
     elapsed_hours:
       samples:
       - 0.0085
+      - 0.0041
     man_hours:
       samples:
       - 0.0
+      - 0.0
     tokens_k:
       samples:
+      - 0.0
       - 0.0
 metrics_migrated_at: '2026-11-03T02:42:08Z'
 token_basis_migrated_at: '2026-11-03T02:42:08Z'

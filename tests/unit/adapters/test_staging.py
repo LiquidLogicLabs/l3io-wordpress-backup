@@ -542,10 +542,8 @@ def test_a_value_that_cannot_be_had_journals_no_intent_for_its_key(
     def failing_source() -> str:
         raise CredentialsError(staging.CUTOVER_PASSWORD_SOURCE)
 
-    def ports(
-        adapters: AdapterSet | None = None, *, performs_effects: bool = True
-    ) -> RestorePorts:
-        bound = real_ports(adapters, performs_effects=performs_effects)
+    def ports(adapters: AdapterSet | None = None) -> RestorePorts:
+        bound = real_ports(adapters)
         return dataclasses.replace(bound, cutover_credentials=failing_source)
 
     monkeypatch.setattr(h, "ports", ports)

@@ -126,6 +126,7 @@ from l3io.wp.backup.core.restore import (
     RestoreInputs,
     RestorePlan,
     RestoreRelocation,
+    SnapshotFailedError,
     SnapshotResult,
     TargetState,
     build_restore_plan,
@@ -1011,8 +1012,6 @@ def _ports(
     run: RunContext,
     site: SiteDescriptor,
     cutover: Callable[[], str] | None,
-    *,
-    performs_effects: bool,
 ) -> RestorePorts:
     """The one call of ``restore_ports``; preflight exactly as ``cli/backup.py``."""
     return restore_ports(
@@ -1027,7 +1026,6 @@ def _ports(
         ),
         free_bytes=lambda path: shutil.disk_usage(path).free,
         cutover_credentials=cutover,
-        performs_effects=performs_effects,
     )
 
 
@@ -1254,7 +1252,7 @@ def drive_restore(
         elif request.archive_database is not None:
             _log.info("archive_database_unused", reason="the target has wp-config.php")
         cutover = None if relocated is None else password_at_call_time(relocated)
-        ports = _ports(run, site, cutover, performs_effects=not request.dry_run)
+        ports = _ports(run, site, cutover)
         # Step 4: resolution only — resolving and restoring are never one command.
         if resolving is not None:
             record = resolving
@@ -1414,6 +1412,11 @@ def drive_restore(
                     performed=result.performed,
                 )
             )
+            if not request.dry_run and not taken[-1].performed:
+                # The executor accepts a not-performed snapshot from its result
+                # alone (ADR-0022 option D); a real Run never may.
+                reason = "the snapshot was not performed, and the restore would destroy"
+                raise SnapshotFailedError(str(snapshot_path), reason)
             if request.cipher is None and taken[-1].performed:
                 print(
                     f"safety snapshot is NOT encrypted: {result.path}", file=sys.stderr

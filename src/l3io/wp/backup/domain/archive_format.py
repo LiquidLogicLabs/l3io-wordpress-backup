@@ -685,10 +685,24 @@ def is_safe_member_path(path: str, role: MemberRole) -> bool:
         return True
     if not path.startswith(f"{prefix}/"):
         return False
+    return _role_relative_ok(role, path[len(prefix) + 1 :])
+
+
+def _role_relative_ok(role: MemberRole, relative: str) -> bool:
+    """Whether ``relative`` is a safe name under ``role``.
+
+    The ``dump`` and ``config`` roles each hold exactly one member, at the name
+    the builder writes. Anything else under them would be extracted into the
+    Run workspace or the config's directory (EP-RT-002).
+    """
     try:
-        member_path(role, path[len(prefix) + 1 :])
+        member_path(role, relative)
     except UnsafeMemberPathError:
         return False
+    if role is MemberRole.DUMP:
+        return relative == DUMP_RELATIVE
+    if role is MemberRole.CONFIG:
+        return relative == CONFIG_RELATIVE
     return True
 
 
@@ -720,9 +734,7 @@ def member_relative(view: ArchiveView, path: str) -> tuple[MemberRole, str] | No
     if path == prefix:
         return role, ""
     relative = path[len(prefix) + 1 :]
-    try:
-        member_path(role, relative)
-    except UnsafeMemberPathError:
+    if not _role_relative_ok(role, relative):
         return None
     return role, relative
 

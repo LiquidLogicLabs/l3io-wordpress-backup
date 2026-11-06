@@ -1,6 +1,6 @@
 next:
   '002': 122
-  '003': 108
+  '003': 117
   '004': 43
 backlog:
 - key: BL-E002-004
@@ -2143,3 +2143,93 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+- key: BL-E003-108
+  epic: '003'
+  sprint: ''
+  title: 'AD-2: the AD-4 grep gate misses compound names (skipped_dry_run, dry_run_adapters); widen the pattern and plant each spelling'
+  source: epic-arch-review (AD-2)
+  source_phase: epic-arch-review
+  source_ref: AD-2
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+- key: BL-E003-109
+  epic: '003'
+  sprint: ''
+  title: "AD-3: split core/restore.py (1495 lines) and cli/restore.py (1691) along SD-01-3's seams before Epic 6/7 add to them"
+  source: epic-arch-review (AD-3)
+  source_phase: epic-arch-review
+  source_ref: AD-3
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+- key: BL-E003-110
+  epic: '003'
+  sprint: ''
+  title: 'AD-4: record where the shared restore driver lives and add the api-must-not-import-cli reasoning (layers contract makes them independent)'
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+- key: BL-E003-111
+  epic: '003'
+  sprint: ''
+  title: 'AD-5: the ADR-0015 no-database-type-in-cli rule has no mechanical check; adapters/staging.py imports l3io.wp.database directly'
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+- key: BL-E003-112
+  epic: '003'
+  sprint: ''
+  title: 'AD-6: drive_restore docstring says it never prints but prints two warnings to stderr'
+  source: epic-arch-review (AD-6)
+  source_phase: epic-arch-review
+  source_ref: AD-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+- key: BL-E003-113
+  epic: '003'
+  sprint: ''
+  title: 'EP-RT-001 residual: the re-survey before CLEAN cannot detect writes to an already non-empty Site since the snapshot; the quiesce duty is documented only'
+  source: epic-redteam (EP-RT-001)
+  source_phase: epic-redteam
+  source_ref: EP-RT-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+- key: BL-E003-114
+  epic: '003'
+  sprint: ''
+  title: "EP-RT-003: RunTerminated is an Exception so the cutover's except Exception can swallow SIGTERM and continue to the live-database drop"
+  source: epic-redteam (EP-RT-003)
+  source_phase: epic-redteam
+  source_ref: EP-RT-003
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+- key: BL-E003-115
+  epic: '003'
+  sprint: ''
+  title: 'EP-RT-004: only SIGTERM is handled; SIGHUP leaves the decrypted payload and Dump in the temp workspace'
+  source: epic-redteam (EP-RT-004)
+  source_phase: epic-redteam
+  source_ref: EP-RT-004
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+- key: BL-E003-116
+  epic: '003'
+  sprint: ''
+  title: "EP-RT-005: the free-space check does not cover the database server's disk where the staging load happens"
+  source: epic-redteam (EP-RT-005)
+  source_phase: epic-redteam
+  source_ref: EP-RT-005
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md

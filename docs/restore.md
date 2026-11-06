@@ -202,6 +202,15 @@ which names an Archive with no checksums at all (a v0 Archive,
 `STRUCTURAL_ONLY`) as such. Restore only Archives from a source
 you trust, or encrypted ones, whose payload `age` authenticates.
 
+**Quiesce the Site first.** A restore does not stop the web server, put the
+Site into maintenance or lock its database. Whatever is written to the Site
+Root or the live database after the Safety Snapshot is taken and before the
+restore finishes is in neither the snapshot nor the Archive, and `CLEAN` or a
+Mode that drops the live database removes it. The re-survey before the first
+destructive step refuses only a part that went from empty to holding content,
+not a change to a part that was already non-empty. Take the Site offline (or
+stop its writers) before running `restore`.
+
 1. **Preflight** — the required tools, the passphrase backend when the Archive
    is encrypted, the interpreter's tarfile fixes, free space, and (for a Mode
    that loads the Dump) the database checks.

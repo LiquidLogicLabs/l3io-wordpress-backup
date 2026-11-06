@@ -138,6 +138,7 @@ class Rig:
     plan_calls: list[dict[str, Any]] = field(default_factory=list)
     executions: list[dict[str, Any]] = field(default_factory=list)
     backups: list[dict[str, Any]] = field(default_factory=list)
+    snapshot_performed: bool = True
     survey: DatabaseTargetState = field(
         default_factory=lambda: DatabaseTargetState(True, 12, True, "57155", True, 0, 0)
     )
@@ -215,7 +216,7 @@ class Rig:
                 bytes=0,
                 encrypted=False,
                 integrity=None,
-                performed=False,
+                performed=self.snapshot_performed,
                 plan=None,  # type: ignore[arg-type]
             )
 
@@ -223,6 +224,20 @@ class Rig:
         mp.setattr(restore_mod, "build_restore_plan", plan)
         mp.setattr(restore_mod, "execute_restore", execute)
         mp.setattr(restore_mod, "backup", backup)
+
+        def published(path: Any, **kwargs: Any) -> SnapshotResult:
+            # The post-publish verification reads a real file; the rig has none.
+            performed = kwargs["performed"]
+            return SnapshotResult(
+                path=path,
+                scope=kwargs["scope"],
+                encrypted=kwargs["encrypted"],
+                bytes=1 if performed else 0,
+                integrity=Integrity.VERIFIED if performed else None,
+                performed=performed,
+            )
+
+        mp.setattr(restore_mod, "snapshot_result", published)
         mp.setattr(journal_module.FileRunJournal, "incomplete", incomplete)
 
     def real_executor(self) -> None:

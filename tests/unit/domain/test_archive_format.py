@@ -24,6 +24,7 @@ from l3io.wp.backup.domain.archive_format import (
     MemberRole,
     OriginKind,
     SourceValue,
+    is_safe_member_path,
     manifest_from_json,
     manifest_to_json,
     member_path,
@@ -308,3 +309,24 @@ def test_database_still_exposes_no_wordpress_options_read() -> None:
     survey_fields = {f.name for f in dataclasses.fields(database.Survey)}
     offenders += [f for f in survey_fields if any(w in f.lower() for w in words)]
     assert offenders == [], f"write stored_siteurl/stored_home now: {offenders}"
+
+
+@pytest.mark.parametrize(
+    ("path", "role", "safe"),
+    [
+        ("config/wp-config.php", MemberRole.CONFIG, True),
+        ("dump/database.sql", MemberRole.DUMP, True),
+        ("site-root/wp-content/a.php", MemberRole.SITE_ROOT, True),
+        ("config/.ssh/authorized_keys", MemberRole.CONFIG, False),
+        ("config/other.php", MemberRole.CONFIG, False),
+        ("dump/x/y.sql", MemberRole.DUMP, False),
+        ("dump/archive.bin", MemberRole.DUMP, False),
+    ],
+)
+def test_config_and_dump_roles_hold_only_their_one_member(
+    path: str, role: MemberRole, safe: bool
+) -> None:
+    """EP-RT-002: the builder writes exactly these two names, so nothing else
+    under ``config`` or ``dump`` may be extracted into a directory the
+    Archive does not own."""
+    assert is_safe_member_path(path, role) is safe

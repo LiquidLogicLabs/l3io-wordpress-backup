@@ -35,6 +35,7 @@ from l3io.wp.backup.cli.restore import (
 )
 from l3io.wp.backup.core.restore import (
     IncompleteRunError,
+    SnapshotFailedError,
     SnapshotResult,
     staging_name,
 )
@@ -952,3 +953,18 @@ def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(
     err = capsys.readouterr().err
     assert err.count(restore_mod.STRUCTURAL_ONLY_WARNING) == 1
     assert restore_mod.UNAUTHENTICATED_WARNING not in err
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+def test_only_a_real_run_refuses_a_snapshot_that_was_not_performed(
+    rig: Rig, dry_run: bool
+) -> None:
+    """ADV-5/AD-1: the executor accepts a not-performed snapshot from its result
+    alone; the root, which alone knows the Run is real, refuses it."""
+    rig.snapshot_performed = False
+    rig.drive(dry_run=dry_run)
+    if dry_run:
+        assert rig.take_snapshot().performed is False
+    else:
+        with pytest.raises(SnapshotFailedError, match="not performed"):
+            rig.take_snapshot()

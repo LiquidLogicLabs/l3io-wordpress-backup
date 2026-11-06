@@ -636,7 +636,6 @@ def test_a_failing_snapshot_refuses_with_nothing_destroyed(
 @pytest.mark.parametrize(
     ("fields", "match"),
     [
-        ({"performed": False, "integrity": None, "bytes": 0}, "not performed"),
         ({"integrity": Integrity.STRUCTURAL_ONLY}, "STRUCTURAL_ONLY"),
         ({"integrity": None}, "integrity None"),
         ({"bytes": 0}, "0 bytes"),
@@ -664,30 +663,13 @@ def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
         h, performed=False, integrity=None, bytes=0
     )
     with capture_logs() as logs:
-        report = h.run(adapters=dry_run_adapters(h.adapters()), performs_effects=False)
+        report = h.run(adapters=dry_run_adapters(h.adapters()))
     assert report.snapshot is not None
     assert report.snapshot.performed is False
     planned = [e for e in logs if e["event"] == "safety_snapshot_planned"]
     assert [e["integrity"] for e in planned] == ["would verify"]
     done = [e for e in logs if e["event"] == "phase_completed"]
     assert "snapshot" in [e["phase"] for e in done]
-
-
-def test_a_not_performed_snapshot_is_refused_when_the_ports_perform_effects(
-    tmp_path: Path, archive: Path
-) -> None:
-    """SD-02-1: the verdict follows ``performs_effects``, never an adapter's module.
-
-    A no-op-named adapter set bound with ``performs_effects=True`` is refused,
-    and real adapters bound with ``False`` are accepted: the input decides.
-    """
-    h = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL_CLEAN)
-    h.take_snapshot = _snapshot_of(  # type: ignore[method-assign]
-        h, performed=False, integrity=None, bytes=0
-    )
-    with pytest.raises(SnapshotFailedError, match="not performed"):
-        h.run(adapters=dry_run_adapters(h.adapters()), performs_effects=True)
-    h.run(adapters=h.adapters(), performs_effects=False)
 
 
 def test_every_phase_is_a_check_the_snapshot_or_destroying() -> None:
