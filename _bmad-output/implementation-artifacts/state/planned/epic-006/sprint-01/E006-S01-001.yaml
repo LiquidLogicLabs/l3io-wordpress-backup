@@ -4,7 +4,7 @@ sprint: 'S01'
 title: Drive backup and restore from Python
 classification: standard
 status: backlog
-updated_at: '2026-10-30T15:45:34Z'
+updated_at: '2026-11-06T14:20:01Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -33,3 +33,4 @@ depends_on:
 - 'E002-S01-010'
 - 'E004-S01-001'
 - 'E004-S01-003'
+- 'E005-S01-001'
