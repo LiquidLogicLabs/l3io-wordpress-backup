@@ -34,7 +34,6 @@ classifiers = [
 # ProxyTracer/NonRecordingSpan, so putting it behind an extra would oblige us to
 # hand-roll a shim (AD-24, ADR-0011).
 dependencies = [
-  "cryptography>=45,<51",
   "structlog>=26.1,<27",
   "opentelemetry-api>=1.40,<2",
   # AD-19: the per-user state directory (the Site Lock's `locks/`, later Epic 3's

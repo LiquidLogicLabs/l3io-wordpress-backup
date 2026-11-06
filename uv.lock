@@ -577,7 +577,6 @@ wheels = [
 name = "l3io-wordpress-backup"
 source = { editable = "." }
 dependencies = [
-    { name = "cryptography" },
     { name = "opentelemetry-api" },
     { name = "packaging" },
     { name = "pathspec" },
@@ -624,7 +623,6 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cryptography", specifier = ">=45,<51" },
     { name = "l3io-age-passphrase", marker = "extra == 'database'", specifier = ">=0.1.1,<0.2", index = "https://test.pypi.org/simple/" },
     { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.3,<0.2", index = "https://test.pypi.org/simple/" },
     { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.2,<0.4", index = "https://test.pypi.org/simple/" },
