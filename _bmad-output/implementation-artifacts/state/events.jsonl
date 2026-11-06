@@ -815,3 +815,13 @@
 {"epic": "E005", "event": "actual", "from": null, "key": "E005", "node": "epic", "session": null, "sprint": null, "to": null, "ts": "2026-11-06T15:11:34Z"}
 {"epic": "E005", "event": "status", "from": "in-progress", "key": "E005", "node": "epic", "session": null, "sprint": null, "to": "done", "ts": "2026-11-06T15:11:41Z"}
 {"agent": "l3io-pm-epic-closure", "epic": "E005", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T15:12:17Z"}
+{"epic": "E007", "event": "status", "from": "in-progress", "key": "E007", "node": "epic", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": null, "to": "in-progress", "ts": "2026-11-06T15:19:18Z"}
+{"epic": "E007", "event": "status", "from": "backlog", "key": "E007-S01-001", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T15:20:59Z"}
+{"epic": "E007", "event": "status", "from": "backlog", "key": "E007-S01-002", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T15:20:59Z"}
+{"epic": "E007", "event": "status", "from": "backlog", "key": "E007-S01-003", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T15:21:00Z"}
+{"epic": "E007", "event": "status", "from": "backlog", "key": "E007-S01-004", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T15:21:00Z"}
+{"cause": "cli", "epic": "004", "event": "issue_resolved", "key": "BL-E004-047", "ref": "E004-S01-002", "resolution": "fixed", "session": null, "ts": "2026-11-06T17:15:34Z"}
+{"epic": "E004", "event": "actual", "from": null, "key": "E004-S01-002", "node": "story", "session": null, "sprint": "S01", "to": null, "ts": "2026-11-06T17:15:50Z"}
+{"epic": "E004", "event": "status", "from": "blocked", "key": "E004-S01-002", "node": "story", "session": null, "sprint": "S01", "to": "done", "ts": "2026-11-06T17:15:50Z"}
+{"duration_hours": 2.67, "event": "block_close", "resolution": "released fixture committed", "session": null, "story": "E004-S01-002", "ts": "2026-11-06T17:15:50Z"}
+{"agent": "l3io-pm-story", "epic": "E004", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E004-S01-002", "ts": "2026-11-06T17:16:12Z"}

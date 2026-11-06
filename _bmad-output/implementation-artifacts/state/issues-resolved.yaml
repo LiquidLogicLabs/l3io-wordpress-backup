@@ -690,3 +690,16 @@ resolved:
   resolved_at: '2026-11-06T12:24:48Z'
   ref: E003-S02-006
   note: ADV-7, ADV-8, ADV-11 and ADV-10's overwrite half fixed in E003-S02-006; ADV-9 (BL-E003-055) settled by ADR-0021; ADV-10 lay-down half re-homed as BL-E003-056 to E007-S01-002 and SD-01-1 as BL-E003-057 to E007-S01-001, each named in that story's ACs.
+- key: BL-E004-047
+  epic: '004'
+  sprint: '01'
+  title: 'E004-S01-002: released-0.2.21-all.tar.gz and its provenance.json not committed; producing them needs wpbackup2==0.2.21 from PyPI, denied by the agent permission policy'
+  source: dev (E004-S01-002)
+  source_phase: dev
+  source_ref: E004-S01-002
+  severity: High
+  status: resolved
+  description: "Owner step. Procedure in the story doc's Dev Agent Record. Three tests fail until committed: test_v0_fixtures.py::test_the_table_and_the_directories_agree, ::test_the_released_fixture_carries_no_operator_secret, test_v0_fixtures_reproducible.py::test_the_released_fixture_matches_its_provenance."
+  resolution: fixed
+  resolved_at: '2026-11-06T17:15:34Z'
+  ref: E004-S01-002

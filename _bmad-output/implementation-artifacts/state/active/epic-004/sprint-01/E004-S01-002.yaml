@@ -3,8 +3,8 @@ epic: 'E004'
 sprint: 'S01'
 title: Read an archive written before the rewrite
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-06T13:48:40Z'
+status: done
+updated_at: '2026-11-06T17:15:50Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -29,3 +29,52 @@ depends_on:
 - 'E002-S01-003'
 - 'E002-S01-006'
 - 'E002-S01-010'
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 1
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 1
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 27
+  blocks_seen: 1
+actual:
+  elapsed_hours: 0.9
+  man_hours: 16
+  hitl_hours: 0.5
+  tokens_k:
+    total: 27506.79
+    input: 0.324
+    output: 186.771
+    cache_write: 700.964
+    cache_read: 26618.734
+  cost: 22.36
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-06T17:15:50Z'

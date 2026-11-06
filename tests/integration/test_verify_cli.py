@@ -1,10 +1,11 @@
 """FR-3 — ``wpbackup2 verify`` against the committed fixture, a corrupted copy
-and an in-test v0 Archive. Unmarked: it needs no database.
+and the committed v0 fixtures (FR-10: every Archive in ``v0/`` passes as
+``STRUCTURAL_ONLY``, whatever its file name, and every one in ``v0/malformed/``
+exits ``VERIFICATION_FAILED``). Unmarked: it needs no database.
 """
 
 from __future__ import annotations
 
-import io
 import shutil
 import tarfile
 from pathlib import Path
@@ -12,11 +13,15 @@ from pathlib import Path
 import pytest
 
 from l3io.wp.backup.cli import main
-from l3io.wp.backup.domain.archive_format import PAYLOAD_MEMBER, V0_SITE_ROOT
+from l3io.wp.backup.domain.archive_format import PAYLOAD_MEMBER
 from l3io.wp.backup.domain.exit_codes import ExitCode
+from tests.archive_fixtures import archive_files
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "archives" / "v1" / "minimal.tar.gz"
+V0 = PROJECT_ROOT / "tests" / "fixtures" / "archives" / "v0"
+V0_PASSING = archive_files(V0)
+V0_MALFORMED = archive_files(V0 / "malformed")
 
 
 def test_the_fixture_passes_verified(capsys: pytest.CaptureFixture[str]) -> None:
@@ -41,18 +46,29 @@ def test_a_corrupted_copy_fails_naming_the_payload(
     assert f"CHECKSUM_MISMATCH ({PAYLOAD_MEMBER!r})" in err
 
 
+@pytest.mark.parametrize("archive", V0_PASSING, ids=lambda p: p.name)
 def test_a_v0_archive_passes_structural_only(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    archive: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    old = tmp_path / "old.tar.gz"
-    with tarfile.open(old, mode="w:gz") as out:
-        info = tarfile.TarInfo(f"{V0_SITE_ROOT}/index.php")
-        info.size = 5
-        out.addfile(info, io.BytesIO(b"<?php"))
-    assert main(["verify", "--archive", str(old)]) == 0
+    assert main(["verify", "--archive", str(archive)]) == ExitCode.OK
     out = capsys.readouterr().out
     assert "integrity STRUCTURAL_ONLY (format v0)" in out
     assert "integrity was not checked" in out
+    assert "VERIFIED" not in out
+
+
+@pytest.mark.parametrize("archive", V0_MALFORMED, ids=lambda p: p.name)
+def test_a_malformed_v0_archive_fails_verification(
+    archive: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = main(["verify", "--archive", str(archive)])
+    assert code == ExitCode.VERIFICATION_FAILED
+    assert "STRUCTURAL_ONLY" not in capsys.readouterr().out
+
+
+def test_the_v0_fixture_sets_are_not_empty() -> None:
+    assert V0_PASSING, f"no v0 fixtures in {V0}"
+    assert V0_MALFORMED, f"no malformed v0 fixtures in {V0}/malformed"
 
 
 def test_a_missing_archive_is_an_error(

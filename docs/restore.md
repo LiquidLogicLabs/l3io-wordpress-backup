@@ -218,8 +218,11 @@ stop its writers) before running `restore`.
    `VERIFICATION_FAILED` (8). An encrypted Archive's payload is then decrypted
    into the Run workspace; a wrong passphrase or a damaged payload also exits
    `VERIFICATION_FAILED`. A v0 Archive (no Manifest) is reported as
-   `STRUCTURAL_ONLY`, never as `VERIFIED`. An Archive that changed between
-   planning and verification is refused with the same exit code.
+   `STRUCTURAL_ONLY`, never as `VERIFIED`. A v0 Archive holding a hard link
+   (0.2.21 wrote one for any Site file with more than one link) fails
+   verification with `UNSUPPORTED_MEMBER_TYPE` and cannot be restored; take a
+   fresh backup of that Site with this version instead. An Archive that changed
+   between planning and verification is refused with the same exit code.
 
 ### Interpreter
 

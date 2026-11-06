@@ -1,0 +1,37 @@
+{
+  "command": "python3.11 -m wpbackup2 backup --wp-dir /site --mode all --archive /out/released-0.2.21-all.tar.gz",
+  "tool_version": "0.2.21",
+  "python_version": "3.11.13",
+  "date": "2026-11-06",
+  "sha256": "bd85ff622aebd9fedc605535fb5a14e0117fc8ab1669a53cc0974e11e3a4d591",
+  "mysqldump": "mysqldump  Ver 8.4.13 for Linux on x86_64 (MySQL Community Server - GPL)",
+  "environment": "throwaway containers on a private Docker network: mysql:8.4 server 'wordpressdb' seeded with one wp_options row; the tool ran in a second mysql:8.4 container (real MySQL mysqldump) with Python 3.11 installed there only",
+  "package_sources": {
+    "wpbackup2==0.2.21": "PyPI",
+    "wpdatabase2, boto3, ec2-metadata and other dependencies": "PyPI",
+    "wpconfigr==1.2, chesney==1.0": "TestPyPI, installed by exact version with --no-deps: both were removed from PyPI, so released 0.2.21 is no longer installable from PyPI alone (owner decision, Shawn, 2026-11-06, option A)"
+  },
+  "pip_freeze": [
+    "boto3==1.43.125",
+    "botocore==1.43.125",
+    "cached-property==2.0.1",
+    "certifi==2026.10.23",
+    "charset-normalizer==3.5.2",
+    "chesney==1.0",
+    "ec2-metadata==1.8.0",
+    "idna==3.20",
+    "jmespath==1.1.0",
+    "mysql-connector==2.2.9",
+    "python-dateutil==2.9.0.post0",
+    "requests==2.34.2",
+    "s3transfer==0.19.3",
+    "six==1.17.0",
+    "urllib3==2.8.0",
+    "wpbackup2==0.2.21",
+    "wpconfigr==1.2",
+    "wpdatabase2==0.0.15"
+  ],
+  "site": "tests/data/wp-config.php as wp-config.php, index.php, wp-content/uploads/a.txt; no hard links (F-16)",
+  "output": "(no output)",
+  "generator_script": "the orchestrator's /tmp/wpb-make-released-fixture.sh, reproduced in the E004-S01-002 story's Dev Agent Record"
+}

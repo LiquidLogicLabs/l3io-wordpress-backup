@@ -25,6 +25,8 @@ pip install l3io-wordpress-backup
 
 Requirements: Python 3.11 or newer. Extracting an archive also needs a Python with the June 2025 `tarfile` security fixes (3.11.13+, 3.12.11+, 3.13.4+; CVE-2025-4517); on an older one extraction is refused — upgrade Python.
 
+Upgrading from 0.2.21: that release can no longer be installed from PyPI, because two of its dependencies (`wpconfigr`, `chesney`) were removed from there. You do not need it: this package reads 0.2.21 Archives itself (`wpbackup2 verify --archive <file>` reports them as `STRUCTURAL_ONLY`, and `restore` restores them).
+
 ### External tools
 
 A Run checks every external tool its plan needs before its first effect, and stops with exit 7 (`NOT_READY`) naming the tool, the step that needed it and what was found. The table lists the tools this package runs itself and the minimum a plan in this build asks for:

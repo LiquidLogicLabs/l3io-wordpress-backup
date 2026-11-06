@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import posixpath
 import shutil
 import stat
 import tarfile
@@ -56,10 +57,15 @@ from l3io.wp.backup.domain.errors import (
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
+from tests.archive_fixtures import archive_files
+from tests.fixtures.archives.v0 import make_v0_fixtures
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "archives" / "v1" / "minimal.tar.gz"
 WP_CONFIG = PROJECT_ROOT / "tests" / "data" / "wp-config.php"
+V0_FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "archives" / "v0"
+#: The committed passing v0 Archives (E004-S01-002), from the directory.
+V0_PASSING = archive_files(V0_FIXTURES)
 R = VerificationReason
 PROBE = TarArchiveProbe()
 
@@ -567,21 +573,85 @@ def test_extract_reads_the_payload_inside_the_outer_tar(tmp_path: Path) -> None:
     assert result.skipped_links == ()
 
 
-def test_extract_reads_a_v0_archive_itself(tmp_path: Path) -> None:
-    old = _v0(tmp_path / "old.tgz", gz=True)
+def _tree(root: Path) -> dict[str, bytes | str | None]:
+    found: dict[str, bytes | str | None] = {}
+    for path in sorted(root.rglob("*")):
+        key = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            found[key] = f"-> {path.readlink()}"
+        else:
+            found[key] = path.read_bytes() if path.is_file() else None
+    return found
+
+
+def _v0_members(archive: Path) -> dict[str, bytes | str | None]:
+    """What a v0 Archive holds, keyed as extraction lays it out."""
+    found: dict[str, bytes | str | None] = {}
+    with tarfile.open(archive) as tar:
+        for member in tar:
+            if member.name == V0_SITE_ROOT:
+                continue
+            key = (
+                DUMP_RELATIVE
+                if member.name == V0_DUMP_MEMBER
+                else member.name.removeprefix(f"{V0_SITE_ROOT}/")
+            )
+            if member.issym():
+                found[key] = f"-> {member.linkname}"
+            elif member.isfile():
+                handle = tar.extractfile(member)
+                assert handle is not None
+                found[key] = handle.read()
+            else:
+                found[key] = None
+    return found
+
+
+@pytest.mark.parametrize("archive", V0_PASSING, ids=lambda p: p.name)
+def test_extract_reads_a_v0_archive_itself(tmp_path: Path, archive: Path) -> None:
+    out = tmp_path / "out"
+    out.mkdir()
+    result = extract_archive(
+        _target(archive),
+        out,
+        _view(archive),
+        roles=frozenset({MemberRole.SITE_ROOT, MemberRole.DUMP}),
+    )
+    members = _v0_members(archive)
+    outward = {
+        key
+        for key, value in members.items()
+        if isinstance(value, str)
+        and (
+            value.startswith("-> /")
+            or posixpath.normpath(
+                posixpath.join(posixpath.dirname(key), value.removeprefix("-> "))
+            ).startswith("..")
+        )
+    }
+    assert {s.path for s in result.skipped_links} == outward
+    expected = {k: v for k, v in members.items() if k not in outward}
+    assert _tree(out) == expected
+    assert "wp-config.php" in expected
+
+
+def test_the_v0_fixture_set_is_not_empty() -> None:
+    assert len(V0_PASSING) >= 2, f"no passing v0 fixtures in {V0_FIXTURES}"
+
+
+def test_extracting_the_pax_fixture_gives_back_the_generator_site(
+    tmp_path: Path,
+) -> None:
+    site = tmp_path / "site"
+    site.mkdir()
+    make_v0_fixtures.make_site(site)
+    archive = V0_FIXTURES / "synthetic-all-pax.tar.gz"
     out = tmp_path / "out"
     out.mkdir()
     extract_archive(
-        _target(old),
-        out,
-        _view(old),
-        roles=frozenset({MemberRole.SITE_ROOT, MemberRole.DUMP}),
+        _target(archive), out, _view(archive), roles=frozenset({MemberRole.SITE_ROOT})
     )
-    assert sorted(p.name for p in out.iterdir()) == [
-        DUMP_RELATIVE,
-        "index.php",
-        "wp-config.php",
-    ]
+    assert _tree(out) == _tree(site)
 
 
 def _encrypted(

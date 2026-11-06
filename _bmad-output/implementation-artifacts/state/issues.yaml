@@ -2294,16 +2294,6 @@ backlog:
   severity: Low
   status: backlog
   description: Review F-5. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. cli/backup.py:630 already holds os.environ; that call site was outside this story's grant. E008-S01-001 edits the CLI seam and can take it.
-- key: BL-E004-047
-  epic: '004'
-  sprint: '01'
-  title: 'E004-S01-002: released-0.2.21-all.tar.gz and its provenance.json not committed; producing them needs wpbackup2==0.2.21 from PyPI, denied by the agent permission policy'
-  source: dev (E004-S01-002)
-  source_phase: dev
-  source_ref: E004-S01-002
-  severity: High
-  status: backlog
-  description: "Owner step. Procedure in the story doc's Dev Agent Record. Three tests fail until committed: test_v0_fixtures.py::test_the_table_and_the_directories_agree, ::test_the_released_fixture_carries_no_operator_secret, test_v0_fixtures_reproducible.py::test_the_released_fixture_matches_its_provenance."
 - key: BL-E004-048
   epic: '004'
   sprint: '01'

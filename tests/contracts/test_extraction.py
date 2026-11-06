@@ -21,7 +21,13 @@ refused wherever it points, including at an in-destination file that
 after the role prefix is stripped; the refusal path when ``data_filter`` is
 absent, and when ``os.path.ALLOW_MISSING`` is (an interpreter without the
 June 2025 tarfile CVE fixes, BL-E002-059; both states simulated); and
-``exclude``. The stdlib mechanism tests below them keep proving
+``exclude``. The committed v0 fixtures run here too, so this step carries
+them on every Python (E004-S01-002, F-17): every ``v0/malformed/escape-*``
+Archive is refused before its escaping member is written (observed for the
+``..`` case by a snapshot of the test's directory; for ``wp-root//etc/x``, whose
+target is outside it, only the refusal itself is observed), and
+``v0/symlink-escape.tar.gz`` extracts with its outward link skipped and
+reported. The stdlib mechanism tests below them keep proving
 that ``filter='data'`` itself refuses, and that the fixture really escapes
 without it.
 """
@@ -42,21 +48,24 @@ from pathlib import Path, PurePosixPath
 import pytest
 import structlog
 
-from l3io.wp.backup.adapters.tar import extract_archive
+from l3io.wp.backup.adapters.tar import TarArchiveProbe, extract_archive
 from l3io.wp.backup.domain.archive_format import (
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
+    V0_SITE_ROOT,
     ArchiveView,
     Integrity,
     ManifestPayload,
     MemberKind,
     MemberRole,
     ViewMember,
+    classify,
 )
 from l3io.wp.backup.domain.errors import ExtractionRefusedError
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.site_files import SiteFilesCommand
+from tests.archive_fixtures import archive_files
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "adapters"
@@ -71,6 +80,11 @@ ESCAPING_MEMBER = "../escape.txt"
 PAYLOAD = b"this must never be written outside the destination\n"
 CONFIG = b"<?php // the kept config\n"
 SITE = MemberRole.SITE_ROOT
+V0_FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "archives" / "v0"
+#: The committed escaping v0 Archives, by name, from the failing set's directory.
+V0_ESCAPES = [
+    p for p in archive_files(V0_FIXTURES / "malformed") if p.name.startswith("escape-")
+]
 
 
 # --------------------------------------------------------------------------
@@ -484,6 +498,54 @@ def test_a_hard_link_to_the_kept_config_leaves_it_byte_identical(
         )
     assert kept.read_bytes() == CONFIG
     assert not (destination / "x").exists()
+
+
+def _v0_fixture(path: Path) -> tuple[StorageTarget, ArchiveView]:
+    target = StorageTarget(scheme="file", path=PurePosixPath(path))
+    return target, classify(TarArchiveProbe().member_index(target))
+
+
+def test_the_committed_escape_fixtures_are_found() -> None:
+    assert len(V0_ESCAPES) >= 2, f"no escape-* fixtures in {V0_FIXTURES}/malformed"
+
+
+@pytest.mark.parametrize("archive", V0_ESCAPES, ids=lambda p: p.name)
+def test_a_committed_escaping_v0_fixture_is_refused(
+    archive: Path, tmp_path: Path, destination: Path
+) -> None:
+    source, view = _v0_fixture(archive)
+    before = {p for p in tmp_path.rglob("*") if destination not in (p, *p.parents)}
+    with pytest.raises(ExtractionRefusedError, match="escapes its role prefix"):
+        extract_archive(source, destination, view, roles=frozenset({SITE}))
+    after = {p for p in tmp_path.rglob("*") if destination not in (p, *p.parents)}
+    assert after == before
+    (escaping,) = [m.path for m in view.members if ".." in m.path or "//" in m.path]
+    would_be = destination / escaping.removeprefix(f"{V0_SITE_ROOT}/")
+    assert not would_be.exists(), would_be
+
+
+def test_the_committed_symlink_escape_fixture_skips_its_link(
+    tmp_path: Path, destination: Path
+) -> None:
+    source, view = _v0_fixture(V0_FIXTURES / "symlink-escape.tar.gz")
+    with structlog.testing.capture_logs() as logs:
+        result = extract_archive(source, destination, view, roles=frozenset({SITE}))
+    assert [(s.path, s.link_target, s.reason) for s in result.skipped_links] == [
+        ("link", "../../outside", "outside_destination")
+    ]
+    skipped = [e for e in logs if e["event"] == "symlink_skipped"]
+    assert len(skipped) == 1
+    assert skipped[0]["log_level"] == "warning"
+    tree = _tree(destination)
+    assert "link" not in tree
+    expected = {
+        m.path.removeprefix(f"{V0_SITE_ROOT}/")
+        for m in view.members
+        if m.path not in (V0_SITE_ROOT, f"{V0_SITE_ROOT}/link")
+    }
+    assert set(tree) == expected
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out"]
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["destination"]
 
 
 def test_containment_is_rechecked_after_the_prefix_is_stripped(

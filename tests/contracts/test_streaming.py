@@ -61,6 +61,7 @@ from pathlib import Path
 import pytest
 
 from l3io.wp.backup.ports.archive import ArchiveStoreCommand
+from tests.fixtures.archives.v0 import make_v0_fixtures
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PORTS = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "ports"
@@ -335,6 +336,14 @@ elif mode == "restore":
         "read_bytes": len(config),
         "last_member": view.members[-1].path.endswith("wp-config.php"),
     }
+elif mode == "verify-v0":
+    from l3io.wp.backup.adapters.tar import verify_archive
+
+    (archive,) = paths
+    before = baseline()
+    result = verify_archive(archive)
+    growth = peak() - before
+    extra = {"passed": result.passed, "v0": result.format_version is None}
 elif mode == "copy":
     source, copy = paths
     before = baseline()
@@ -469,6 +478,23 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     assert restored["growth"] < RSS_BOUND_BYTES, (
         f"AD-21 — reading back {restored['plain_bytes'] // MIB} MiB grew peak RSS "
         f"by {restored['growth'] // MIB} MiB, over the "
+        f"{RSS_BOUND_BYTES // MIB} MiB bound."
+    )
+
+
+@linux_proc
+def test_verifying_a_large_v0_archive_stays_under_the_bound(tmp_path: Path) -> None:
+    """AD-21 for v0 (E004-S01-002): generated at test time, never committed."""
+    site_root, dump, final = _site(tmp_path, SITE_FILE_BYTES, DUMP_BYTES)
+    archive = make_v0_fixtures.write_v0(final, site_root, dump)
+    shutil.rmtree(site_root)
+    dump.unlink()
+    assert archive.stat().st_size >= 10 * RSS_BOUND_BYTES
+    measured = _measure("verify-v0", archive)
+    assert (measured["passed"], measured["v0"]) == (True, True)
+    assert measured["growth"] < RSS_BOUND_BYTES, (
+        f"AD-21 — verifying a {archive.stat().st_size // MIB} MiB v0 Archive grew "
+        f"peak RSS by {measured['growth'] // MIB} MiB, over the "
         f"{RSS_BOUND_BYTES // MIB} MiB bound."
     )
 
