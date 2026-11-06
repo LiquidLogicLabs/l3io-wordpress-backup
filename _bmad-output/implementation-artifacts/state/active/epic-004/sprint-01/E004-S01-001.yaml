@@ -3,8 +3,8 @@ epic: 'E004'
 sprint: 'S01'
 title: Exclude paths that should not be in a backup
 classification: simple
-status: backlog
-updated_at: '2026-10-27T22:15:32Z'
+status: ready-for-dev
+updated_at: '2026-11-06T13:48:39Z'
 estimate:
   man_hours: 3.75
   hitl_hours: 0.25

@@ -1,8 +1,12 @@
+_lock:
+  session_id: b74a242a-6a71-45d8-8ece-7b06b152e53c
+  claimed_at: '2026-11-06T13:47:58Z'
+  ttl_minutes: 1440
 key: 'E004'
 title: 'Archive lifecycle — exclusions, legacy reads, encryption'
 goal: 'Fills three seams the skeleton left open, each behind a port it does not share.'
-status: backlog
-updated_at: '2026-10-27T21:06:16Z'
+status: in-progress
+updated_at: '2026-11-06T13:47:59Z'
 origin: epics.md
 origin_note: goal and title taken from planning-artifacts/epics.md
 estimate:

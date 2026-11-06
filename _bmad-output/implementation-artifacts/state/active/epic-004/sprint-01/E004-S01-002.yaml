@@ -3,8 +3,8 @@ epic: 'E004'
 sprint: 'S01'
 title: Read an archive written before the rewrite
 classification: standard
-status: backlog
-updated_at: '2026-10-27T22:15:32Z'
+status: ready-for-dev
+updated_at: '2026-11-06T13:48:40Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44

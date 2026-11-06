@@ -743,3 +743,7 @@
 {"epic": "E003", "event": "actual", "from": null, "key": "E003", "node": "epic", "session": null, "sprint": null, "to": null, "ts": "2026-11-06T12:44:46Z"}
 {"epic": "E003", "event": "actual", "from": null, "key": "E003", "node": "epic", "session": null, "sprint": null, "to": null, "ts": "2026-11-06T12:44:46Z"}
 {"agent": "l3io-pm-epic-closure", "epic": "E003", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-06T12:55:24Z"}
+{"epic": "E004", "event": "status", "from": "in-progress", "key": "E004", "node": "epic", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": null, "to": "in-progress", "ts": "2026-11-06T13:47:59Z"}
+{"epic": "E004", "event": "status", "from": "backlog", "key": "E004-S01-001", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T13:48:39Z"}
+{"epic": "E004", "event": "status", "from": "backlog", "key": "E004-S01-002", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T13:48:40Z"}
+{"epic": "E004", "event": "status", "from": "backlog", "key": "E004-S01-003", "node": "story", "session": null, "sprint": "S01", "to": "ready-for-dev", "ts": "2026-11-06T13:48:40Z"}
