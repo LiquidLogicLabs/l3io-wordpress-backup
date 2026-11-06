@@ -25,6 +25,19 @@ pip install l3io-wordpress-backup
 
 Requirements: Python 3.11 or newer. Extracting an archive also needs a Python with the June 2025 `tarfile` security fixes (3.11.13+, 3.12.11+, 3.13.4+; CVE-2025-4517); on an older one extraction is refused — upgrade Python.
 
+### External tools
+
+A Run checks every external tool its plan needs before its first effect, and stops with exit 7 (`NOT_READY`) naming the tool, the step that needed it and what was found. The table lists the tools this package runs itself and the minimum a plan in this build asks for:
+
+<!-- BEGIN GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
+| Tool | Minimum | Purpose | Needed for | Install |
+|---|---|---|---|---|
+| `age` | — | encrypts the Archive under a passphrase (CLI passphrase backend) | no plan in this build | https://github.com/FiloSottile/age#installation |
+| `age-plugin-batchpass` | — | supplies the passphrase to age non-interactively (CLI backend) | no plan in this build | https://github.com/FiloSottile/age/releases |
+| `wp` | — | WP-CLI, which relocation runs to rewrite the Site's URLs | no plan in this build | https://wp-cli.org/#installing |
+| MySQL/MariaDB client tools | client 8.4+, MariaDB 11.4+ | the database dump and load | checked per Site by l3io-wordpress-database (`check_dump`/`check_load`), never run by this package | your distribution's MySQL or MariaDB client package |
+<!-- END GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
+
 ## Usage
 
 To backup:
