@@ -227,3 +227,14 @@ It is granted the edits this needs:
 - `docs/restore.md`.
 - Their tests, including `tests/adapters/test_tar_writer.py`. Its assertion that the
   encrypted and plain inner members are equal becomes "equal except the inner Manifest".
+
+## Amendment — 2026-11-07: encryption passphrases are at least 12 characters (Shawn, E004 D5 option a)
+
+BL-E004-052. A passphrase used to **encrypt** (backup with `--encrypt-with-passphrase`, the
+library `backup(..., encrypt=True)`, and the Safety Snapshot's encryption) must be at least 12
+characters (Unicode code points, after resolution through the one passphrase chain). Below that the
+Run is refused before any effect (`PassphraseTooShortError`, a `UsageError`, exit 2), naming the
+minimum and never the value. An interactive prompt asks for the passphrase twice and refuses on a
+mismatch. The floor is one constant, `MIN_ENCRYPTION_PASSPHRASE_LENGTH = 12`.
+**Decryption is unaffected:** restoring or verifying an existing Archive accepts any passphrase,
+so Archives made before this change stay readable. **Owner:** E008-S01-001.
