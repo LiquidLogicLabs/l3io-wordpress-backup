@@ -172,3 +172,34 @@ def test_a_files_only_backup_on_windows_is_refused_with_nothing_written(
     assert caught.value.tool == "platform"
     assert exit_code_for(caught.value) is ExitCode.NOT_READY
     assert list(target.iterdir()) == []
+
+
+def test_a_wp_cli_config_planted_beside_the_workspace_cannot_deny_the_probe(
+    tmp_path: Path,
+) -> None:
+    """BL-E008-002: the Run workspace sits under a shared $TMPDIR, so the probe
+    must not start there. The control shows the planted file would refuse one that did.
+    """
+    from types import SimpleNamespace
+
+    from l3io.wp.backup.domain.errors import WpCliConfigFoundError
+
+    workspace = tmp_path / "l3io-wp-backup-x"
+    workspace.mkdir()
+    (tmp_path / "wp-cli.yml").write_text("require: [x.php]\n")  # an ancestor
+    requirement = ToolRequirement("wp", (2, 12), "relocation")
+
+    def probe(*_: object) -> str:
+        return "WP-CLI 2.12.0"
+
+    control = BinaryPreflight(
+        cwd=workspace, which=lambda name: f"/usr/bin/{name}", probe=probe
+    )
+    with pytest.raises(WpCliConfigFoundError):
+        control.check([requirement])
+
+    built = preflight_mod.binary_preflight(SimpleNamespace(workspace=workspace))  # type: ignore[arg-type]
+    built._which = lambda name: f"/usr/bin/{name}"  # noqa: SLF001
+    built._probe = probe  # noqa: SLF001
+    (status,) = built.check([requirement])
+    assert status.present

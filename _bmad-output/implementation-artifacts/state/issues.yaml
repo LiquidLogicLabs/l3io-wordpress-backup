@@ -5,7 +5,7 @@ next:
   '005': 14
   '007': 21
   '006': 26
-  '008': 10
+  '008': 32
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -2906,14 +2906,6 @@ backlog:
   source: owner-decision (E006 closure 5)
   severity: Low
   status: backlog
-- key: BL-E008-002
-  epic: '008'
-  sprint: '01'
-  title: Any local user can plant /tmp/wp-cli.yml and make every URL-relocating restore (and its wp probe) refuse with exit 3; refusing is the safe side (WP-CLI would read the file), but the probe could run from an owner-only directory instead
-  source: code-review
-  severity: Medium
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-4. Fix: probe wp from an owner-only directory under the per-user state dir, as _Session does.'
 - key: BL-E008-003
   epic: '008'
   sprint: '01'
@@ -2962,3 +2954,223 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+- key: BL-E008-010
+  epic: '008'
+  sprint: ''
+  title: 'Spec proposal: The owner decision (E004 D2 c) and the story say the Manifest cap is refused "at plan time ... with nothing written". The check sits in the archive-writer command adapter, which the Dry Run binds as a no-op. A backup Dry Run on a site whose Manifest exceeds 256 MiB therefore reports success and the real Run refuses. ADR-0019 option C permits this only for refusals "only a command can detect"; this one needs only the member list. The tests (`test_manifest_cap.py`) cover the adapter, not the Dry Run.'
+  source: spec-sync (AD-2)
+  severity: Medium
+  status: backlog
+  kind: spec-proposal
+  ref: _bmad-output/implementation-artifacts/epic-008/epic-closure/spec-proposals/AD-2.md
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-4--dry-run-is-adapter-selection-never-a-conditional. From: _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md.'
+- key: BL-E008-011
+  epic: '008'
+  sprint: ''
+  title: 'Manifest cap 256 MiB: verify/restore allocate ~4.3x the Manifest size (about 1.1 GiB at the cap, test factor 25 = 6.4 GiB) before authentication; streaming parse is only on the backlog (owner decision pending)'
+  source: epic-adversarial (A-01)
+  source_phase: epic-adversarial
+  source_ref: A-01
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Options in epic-008/epic-closure/closure-report.md.
+- key: BL-E008-012
+  epic: '008'
+  sprint: ''
+  title: api.backup and api.verify accept on_warning and discard it; passphrase_below_encryption_floor and password_on_command_line are log-only, never a RunWarning (owner decision pending)
+  source: epic-adversarial (A-03)
+  source_phase: epic-adversarial
+  source_ref: A-03
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Options in epic-008/epic-closure/closure-report.md.
+- key: BL-E008-013
+  epic: '008'
+  sprint: ''
+  title: backup --list-default-excludes still requires --wp-dir (the other flags are now refused as a UsageError)
+  source: epic-adversarial (A-02)
+  source_phase: epic-adversarial
+  source_ref: A-02
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Needs a parser change to AD-22's frozen surface; owner decision in closure-report.md.
+- key: BL-E008-014
+  epic: '008'
+  sprint: ''
+  title: "Restored Site PHP (wp-config.php, mu-plugins, drop-ins) runs in the relocation wp child with the operator's full privileges and real HOME (owner decision pending: confinement)"
+  source: epic-redteam (RT-01)
+  source_phase: epic-redteam
+  source_ref: RT-01
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md. Options in epic-008/epic-closure/closure-report.md.
+- key: BL-E008-015
+  epic: '008'
+  sprint: ''
+  title: Secret makes ExplicitCredentialSpec and RelocationFlags unhashable and not copyable
+  source: epic-adversarial (A-04)
+  source_phase: epic-adversarial
+  source_ref: A-04
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-016
+  epic: '008'
+  sprint: ''
+  title: --new-db-password-file keeps a UTF-8 BOM; the 'readable only by you' help is not enforced
+  source: epic-adversarial (A-05)
+  source_phase: epic-adversarial
+  source_ref: A-05
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-017
+  epic: '008'
+  sprint: ''
+  title: Secret.__eq__ raises on a lone surrogate
+  source: epic-adversarial (A-06)
+  source_phase: epic-adversarial
+  source_ref: A-06
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-018
+  epic: '008'
+  sprint: ''
+  title: run_bounded signals a process group after its leader was reaped
+  source: epic-adversarial (A-07)
+  source_phase: epic-adversarial
+  source_ref: A-07
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-019
+  epic: '008'
+  sprint: ''
+  title: Dead contextlib.nullcontext() wrapper in run_bounded
+  source: epic-adversarial (A-08)
+  source_phase: epic-adversarial
+  source_ref: A-08
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-020
+  epic: '008'
+  sprint: ''
+  title: doctor blockers carry only an exit-code name
+  source: epic-adversarial (A-09)
+  source_phase: epic-adversarial
+  source_ref: A-09
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-021
+  epic: '008'
+  sprint: ''
+  title: restore flag combinations --allow-unencrypted etc. accepted and resolved silently
+  source: epic-adversarial (A-10)
+  source_phase: epic-adversarial
+  source_ref: A-10
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-022
+  epic: '008'
+  sprint: ''
+  title: A raising on_warning sink aborts a restore after the Safety Snapshot is taken
+  source: epic-adversarial (A-11)
+  source_phase: epic-adversarial
+  source_ref: A-11
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+- key: BL-E008-023
+  epic: '008'
+  sprint: ''
+  title: A config laid down from the tree keeps the Archive's mode before it receives the relocated DB password
+  source: epic-redteam (RT-02)
+  source_phase: epic-redteam
+  source_ref: RT-02
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+- key: BL-E008-024
+  epic: '008'
+  sprint: ''
+  title: --admin-password on argv gives no runtime warning (--new-db-password does)
+  source: epic-redteam (RT-03)
+  source_phase: epic-redteam
+  source_ref: RT-03
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+- key: BL-E008-025
+  epic: '008'
+  sprint: ''
+  title: --new-db-password-file has no regular-file/owner/mode check (a FIFO blocks while the Site Lock is held); next to BL-E008-006
+  source: epic-redteam (RT-04)
+  source_phase: epic-redteam
+  source_ref: RT-04
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+- key: BL-E008-026
+  epic: '008'
+  sprint: ''
+  title: The age CLI backend (l3io-wordpress-database) inherits the whole environment including L3IO_WP_BACKUP_* secrets
+  source: epic-redteam (RT-05)
+  source_phase: epic-redteam
+  source_ref: RT-05
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+- key: BL-E008-027
+  epic: '008'
+  sprint: ''
+  title: Existing per-user state directory accepted without checking owner or mode
+  source: epic-redteam (RT-06)
+  source_phase: epic-redteam
+  source_ref: RT-06
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+- key: BL-E008-028
+  epic: '008'
+  sprint: ''
+  title: RunContext is still public though no entry point accepts or returns one
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
+- key: BL-E008-029
+  epic: '008'
+  sprint: ''
+  title: 'ADR-0025 Consequences stale: notices now go to on_warning; type list predates RunWarning, Secret, Diagnosis, doctor'
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
+- key: BL-E008-030
+  epic: '008'
+  sprint: ''
+  title: 'ADR-0017 amendment: MANIFEST_MAX_BYTES 16 to 256 MiB (owner D2 c) is recorded only in the story'
+  source: epic-arch-review (AD-6)
+  source_phase: epic-arch-review
+  source_ref: AD-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
+- key: BL-E008-031
+  epic: '008'
+  sprint: ''
+  title: Wrong call now raises a bare TypeError outside the BackupError family; docs/api.md Errors section and AD-14 note do not say so; api/operations.py docstring typo
+  source: epic-arch-review (AD-8)
+  source_phase: epic-arch-review
+  source_ref: AD-8
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md

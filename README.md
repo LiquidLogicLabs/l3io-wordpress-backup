@@ -147,7 +147,8 @@ options:
   --no-default-excludes
                         Do not apply the default exclusion set
   --list-default-excludes
-                        Print the default exclusion set and exit without backing up
+                        Print the default exclusion set and exit without backing up (takes no
+                        other backup flag besides --wp-dir)
 
 database credentials:
   --db-credentials-aws-secret-id ID

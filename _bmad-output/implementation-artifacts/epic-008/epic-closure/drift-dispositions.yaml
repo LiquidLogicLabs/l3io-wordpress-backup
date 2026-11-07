@@ -1,0 +1,27 @@
+review: _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: The `Secret` type (opaque, `.reveal()` allowed in four modules, no `==` against `str`, no pickling, public on `ExplicitCredentialSpec`/`RelocationFlags`/entry-point params) is a load-bearing public-surface and redaction decision. It is recorded only in the module docstring, `docs/api.md` and `tests/contracts/test_secret_reveal.py`. No ADR or spine amendment mentions it. ADR-0018 still reads "a wrapper type for secret arguments is BL-E006-009", which the code contradicts.
+    disposition: resolved-in-code
+    spec:
+    adr: docs/adr/0018-redaction-at-the-boundary.md
+    commit:
+    issue:
+  AD-3:
+    severity: MAJOR
+    title: The 2026-11-07 decision removed `context=` and the "Joining a Run" section, but two hand-written passages still describe joining a Run, and one links to a section that no longer exists. `test_api_docs.py` and `gen_*_docs --check` passed over them, so the guard's reach is signatures and headings, not prose naming a removed parameter.
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:
+  AD-2:
+    severity: MAJOR
+    title: The owner decision (E004 D2 c) and the story say the Manifest cap is refused "at plan time ... with nothing written". The check sits in the archive-writer command adapter, which the Dry Run binds as a no-op. A backup Dry Run on a site whose Manifest exceeds 256 MiB therefore reports success and the real Run refuses. ADR-0019 option C permits this only for refusals "only a command can detect"; this one needs only the member list. The tests (`test_manifest_cap.py`) cover the adapter, not the Dry Run.
+    disposition: spec-proposal
+    spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-4--dry-run-is-adapter-selection-never-a-conditional
+    adr:
+    commit:
+    issue: BL-E008-010
+    proposal: _bmad-output/implementation-artifacts/epic-008/epic-closure/spec-proposals/AD-2.md

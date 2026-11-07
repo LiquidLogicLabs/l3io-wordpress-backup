@@ -20,7 +20,8 @@ requirement (``core.backup.DUMP_REQUIREMENT``) is routed by the root to
 is refused here like any other name outside :data:`KNOWN_TOOLS`.
 
 **The probe.** ``[path, *version_argv, *root_argv-if-root]`` runs in ``cwd``
-— the Run workspace, never a Site Root — with no shell, a 10-second timeout,
+— the filesystem root from the roots (BL-E008-002), never a Site Root — with no
+shell, a 10-second timeout,
 in its own process group (killed whole on a timeout) and an ``env`` of
 exactly ``PATH``, ``HOME``, ``LC_ALL=C`` plus the tool's own fixed
 ``probe_env``. Before ``wp`` is probed, ``cwd`` and its resolved path are

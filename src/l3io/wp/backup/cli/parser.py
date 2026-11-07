@@ -265,7 +265,10 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
     backup.add_argument(
         "--list-default-excludes",
         action="store_true",
-        help="Print the default exclusion set and exit without backing up",
+        help=(
+            "Print the default exclusion set and exit without backing up "
+            "(takes no other backup flag besides --wp-dir)"
+        ),
     )
     _add_db_credentials(backup)
 

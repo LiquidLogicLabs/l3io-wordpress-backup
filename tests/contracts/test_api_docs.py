@@ -214,3 +214,36 @@ def test_the_preface_names_every_internal_layer(text: str) -> None:
         if f"`.{layer}`" not in preface and f"`{PACKAGE}.{layer}`" not in preface
     ]
     assert missing == []
+
+
+KEYWORD = re.compile(r"(?<![\w.])`([a-z_][a-z0-9_]*)=")
+#: A line that says a parameter is gone may name it (the guard's one exemption).
+RETIRED_WORDS = ("removed", "is gone")
+
+
+def live_parameters(public: Mapping[str, object]) -> set[str]:
+    """Every parameter name of every public callable, derived at run time."""
+    return {p for obj in public.values() for p in required_mentions(obj)}
+
+
+def stale_keywords(text: str, public: Mapping[str, object]) -> list[str]:
+    """E008 closure ED-3: a backticked ``name=`` in prose that is no live parameter."""
+    live = live_parameters(public)
+    return [
+        f"docs/api.md:{number}: `{match[1]}=` is not a parameter of any public name"
+        for number, line in enumerate(text.splitlines(), start=1)
+        if not any(word in line for word in RETIRED_WORDS)
+        for match in KEYWORD.finditer(line)
+        if match[1] not in live
+    ]
+
+
+def test_prose_names_only_live_keyword_arguments(text: str) -> None:
+    assert stale_keywords(text, public_names()) == []
+
+
+def test_a_removed_keyword_left_in_prose_is_caught(text: str) -> None:
+    planted = text + "\nA call that joined a Run through `context=` writes no record.\n"
+    defects = stale_keywords(planted, public_names())
+    assert len(defects) == 1
+    assert "`context=`" in defects[0]

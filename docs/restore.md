@@ -297,8 +297,9 @@ drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
   is found there, the Run is refused (exit 3) before `wp` runs.
   `WP_CLI_CONFIG_PATH` names an empty file, so no `~/.wp-cli/config.yml` is
   read either. The `wp cli version` probe that preflight runs starts from the
-  Run workspace under `$TMPDIR`; a `wp-cli.yml` in it or above it (the path
-  as given and resolved) refuses the Run (exit 3) before the probe runs, and
+  filesystem root, not from the Run workspace under the shared `$TMPDIR`, where
+  another user could plant a `wp-cli.yml`; a `wp-cli.yml` there (the path as
+  given and resolved) refuses the Run (exit 3) before the probe runs, and
   the probe also gets `--skip-plugins --skip-themes --skip-packages
   --no-color`.
 - **The environment it gets.** Exactly `PATH`, `HOME`, `LC_ALL=C` and

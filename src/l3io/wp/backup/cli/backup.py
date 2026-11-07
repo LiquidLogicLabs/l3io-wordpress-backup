@@ -697,6 +697,38 @@ def _exclusion(
     )
 
 
+def _refuse_flags_with_list(values: Mapping[str, object]) -> None:
+    """``UsageError``: ``--list-default-excludes`` takes no other backup flag.
+
+    It prints and exits without a Run, so any other flag would be accepted
+    and silently ignored (E008 closure A-02). ``--wp-dir`` stays required by
+    the parser (AD-22's frozen surface) and is the one flag it may carry. The
+    flags checked are the backup parser's own, so a flag added later is
+    covered without touching this function.
+    """
+    from l3io.wp.backup.cli.parser import BACKUP_COMMAND, build_parser
+
+    subparsers = next(
+        action.choices
+        for action in build_parser()._actions  # noqa: SLF001
+        if isinstance(action, argparse._SubParsersAction)  # noqa: SLF001
+    )
+    exempt = {"help", "wp_dir", "list_default_excludes"}
+    given = tuple(
+        action.option_strings[-1]
+        for action in subparsers[BACKUP_COMMAND]._actions  # noqa: SLF001
+        if action.option_strings
+        and action.dest not in exempt
+        and values.get(action.dest, action.default) != action.default
+    )
+    if given:
+        message = (
+            "--list-default-excludes takes no other backup flag besides "
+            f"--wp-dir; remove {', '.join(given)}"
+        )
+        raise UsageError(message, arguments=given)
+
+
 def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
     """``wpbackup2 backup``: ``ExitCode.OK``, or raises ``BackupError``.
 
@@ -708,6 +740,7 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     and returns ``OK`` with no Run and nothing read.
     """
     if args.list_default_excludes:
+        _refuse_flags_with_list(vars(args))
         emit_result("\n".join(enumerate_defaults()))
         return ExitCode.OK
     exclusion = _exclusion(

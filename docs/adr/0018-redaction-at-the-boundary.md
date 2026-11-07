@@ -143,5 +143,32 @@ already closed, so the record cannot be redacted (red team RT-1, adversarial AR-
 **Decided:** that record carries the traceback **frames** with the message of every non-package
 exception withheld (`cli.exit.render_failure`, the rule the CLI's failure report applies), and never
 `exc_info`. The original, message included, is on `__cause__` for the host. Secrets held in the frames'
-local variables are not covered by redaction (stated in `docs/api.md`); a wrapper type for secret
-arguments is BL-E006-009.
+local variables are not covered by redaction (stated in `docs/api.md`); the wrapper type for secret
+arguments is the `Secret` type of the next amendment.
+
+## Amendment — 2026-11-07: an opaque `Secret` type for passwords and passphrases (owner decision, E006 closure decision 4 option a; built by E008-S01-001)
+
+Recorded at E008 closure (arch finding AD-1 of epic-008/epic-closure/arch-drift-review.md): the decision was taken and built but written into no ADR.
+
+**Decided (owner):** passwords and passphrases that cross the public boundary or the CLI/library seams are
+held as `domain/secret.py::Secret`, re-exported from `api/`:
+
+- `repr` and `str` give `Secret('***')`; it has no hash and is not equal to its plain `str`; two
+  `Secret`s compare in constant time (`hmac.compare_digest`); pickling (and so `copy`) raises `TypeError`.
+- `.reveal()` returns the text and is called only where the value leaves the package or where the
+  `SecretRegistry` learns it: `adapters/credential_providers.py`, `adapters/crypto.py`,
+  `adapters/redaction.py` and `domain/secret.py`. `tests/contracts/test_secret_reveal.py` derives that
+  set from the source tree and fails on any other caller.
+- It is accepted (`Secret | str`) for `ExplicitCredentialSpec.password`, `RelocationFlags.new_db_password`
+  and the `passphrase` parameters of `api.backup/restore/verify`; a plain `str` is wrapped (`as_secret`) where
+  the value is read. The CLI sources produce `Secret`s.
+
+**Options not taken:** a pydantic `SecretStr` (rejected by the owner: no new runtime dependency for about
+thirty lines; pydantic is not otherwise used); keeping plain `str` and relying on the registry (what this
+ADR's frames decision left, and what BL-E006-009 recorded as the gap).
+
+**Cost accepted:** `Secret` is not hashable, so a dataclass holding one is not hashable and cannot be
+`copy`-ed or pickled (A-04); `len()` reveals the length. The owner of the type is this package.
+
+**Revisit when:** a host needs to pass credentials across a process boundary (pickling), or the library moves
+to the neutral module of BL-E006-024.

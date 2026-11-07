@@ -1,0 +1,60 @@
+key: 'S01'
+epic: 'E008'
+title: Sprint 01
+status: done
+updated_at: '2026-11-07T20:47:01Z'
+estimate:
+  man_hours_low: 8.25
+  man_hours_high: 9.38
+  hitl_hours_low: 0.48
+  hitl_hours_high: 0.55
+  elapsed_hours_low: 2.75
+  elapsed_hours_high: 3.12
+  tokens_k_min: 194
+  tokens_k_max: 220
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 0.81
+  cost_high: 0.91
+  model: claude-opus-5
+  confidence: medium
+actual:
+  elapsed_hours: 1.45
+  man_hours: 84
+  hitl_hours: 0
+  tokens_k:
+    total: 130344.74
+    input: 1.066
+    output: 406.807
+    cache_write: 2632.995
+    cache_read: 127303.871
+  cost: 54.17
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-07T20:46:55Z'
+orchestration:
+  elapsed_hours: 0
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 0
+    input: 0
+    output: 0
+    cache_write: 0
+    cache_read: 0
+  cost: 0.0
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-07T20:46:55Z'
+closed:
+  date: '2026-11-07'
+retrospective:
+  summary: One story binding every epic into the composition root; closure lenses found 4 Medium and 3 arch Major (1 fixed in code, 2 docs fixed, 1 proposal), 5 owner decisions batched; BL-E008-002 fixed.
+  velocity: '1'
+  carry_over: '0'

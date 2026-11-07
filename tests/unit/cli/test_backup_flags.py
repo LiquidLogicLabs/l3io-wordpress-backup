@@ -35,6 +35,7 @@ from l3io.wp.backup.domain.credentials import AwsSecretCredentialSpec
 from l3io.wp.backup.domain.errors import (
     PassphraseTooShortError,
     PassphraseUnavailableError,
+    UsageError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
@@ -213,3 +214,25 @@ def test_the_db_aws_pair_reaches_the_request(rig: Rig) -> None:
     )
     assert request.credentials == AwsSecretCredentialSpec(secret_id, "eu-west-1")
     assert rig.request().credentials is None
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ("--exclude", "wp-content/cache"),
+        ("--no-default-excludes",),
+        ("--encrypt-with-passphrase",),
+        ("--archive", "x.tar.gz"),
+        ("--mode", "db"),
+        ("--db-credentials-aws-secret-id", "e008/ignored"),
+    ],
+)
+def test_list_default_excludes_refuses_every_other_backup_flag(
+    rig: Rig, flags: tuple[str, ...]
+) -> None:
+    """E008 closure A-02: a flag the listing would ignore is a UsageError."""
+    with pytest.raises(UsageError) as caught:
+        rig.run("--list-default-excludes", *flags)
+    assert exit_code_for(caught.value) is ExitCode.USAGE
+    assert flags[0] in caught.value.arguments
+    assert rig.requests == rig.joined == rig.built == []

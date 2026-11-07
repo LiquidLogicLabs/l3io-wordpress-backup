@@ -949,3 +949,15 @@ resolved:
   resolved_at: '2026-11-07T19:35:27Z'
   ref: E008-S01-001
   note: "Owner decision 2026-11-07 (option a): the Safety Snapshot reuses the restore's passphrase with a warning below 12; ADR-0024 addendum"
+- key: BL-E008-002
+  epic: '008'
+  sprint: '01'
+  title: Any local user can plant /tmp/wp-cli.yml and make every URL-relocating restore (and its wp probe) refuse with exit 3; refusing is the safe side (WP-CLI would read the file), but the probe could run from an owner-only directory instead
+  source: code-review
+  severity: Medium
+  status: resolved
+  description: 'See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-4. Fix: probe wp from an owner-only directory under the per-user state dir, as _Session does.'
+  resolution: fixed
+  resolved_at: '2026-11-07T20:38:27Z'
+  ref: E008-S01-001
+  note: 'E008 closure: wp probe starts from / (cli/preflight.PROBE_DIRECTORY); regression test in tests/unit/cli/test_root_preflight.py'

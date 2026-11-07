@@ -58,11 +58,11 @@ no redaction step. If stdout is a data channel for your process, call
 while a Run is active in the current context raises `RunContextActiveError`.
 There is no public way to join a Run: the `context=` parameter was removed
 before 1.0 (owner decision 2026-11-07), and a public `open_run()` and
-`context=` return with the post-v1 library refactor (BL-E006-024).
+the parameter return with the post-v1 library refactor (BL-E006-024).
 
 **Pre-1.0 changes (2026-11-07).** `backup`'s `target` is now required (no
 default; a call without it is a `TypeError`, raised before anything runs);
-`context=` is gone from `backup`, `restore` and `verify`; passwords and
+the `context` parameter is gone from `backup`, `restore` and `verify`; passwords and
 passphrases accept a `Secret`; `on_warning` and `doctor` are new.
 
 **The environment.** A library call may read these variables from the host's
@@ -88,11 +88,9 @@ the caller receives `UnexpectedError`, with the original on `__cause__`. If
 the exception escaped a Run the call opened, that Run's `run_finished.error`
 record and its span's `error.type` still name the original exception's type,
 because they are written as the exception leaves the Run, before the boundary
-translates it. Two cases differ. A failure before the Run opens (a `prompt`
+translates it. One case differs: a failure before the Run opens (a `prompt`
 callable that raises, for example) writes no `run_finished`; only the
-boundary's `unexpected_exception` record names it. A call that joined an
-enclosing Run through `context=` writes no `run_finished` of its own, and the
-enclosing Run, if it records the failure, sees `UnexpectedError`.
+boundary's `unexpected_exception` record names it.
 
 The boundary's `unexpected_exception` record carries the original's class
 (`cause_type`), the entry point, the `run_id` when known, and a `traceback`
@@ -557,7 +555,7 @@ RunContext(run_id: str, started_at: datetime, workspace: Path, logger: structlog
 | `dry_run` | `bool` | `False` |
 | `site_lock` | `LockHandle \| None` | `None` |
 
-Do not construct a `RunContext`. A caller only ever holds one handed to it by an enclosing Run, and passes it on as `context=` (see *Joining a Run* above).
+Do not construct a `RunContext`. No public entry point accepts or returns one: the `context=` parameter was removed before v1 and returns with the neutral library module (BL-E008-001, BL-E006-024).
 
 Defined in the CLI layer; import it from l3io.wp.backup.api.
 

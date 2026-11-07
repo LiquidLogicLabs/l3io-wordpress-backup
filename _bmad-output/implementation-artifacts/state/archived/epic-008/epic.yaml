@@ -1,0 +1,66 @@
+key: 'E008'
+title: Wire the parallel epics into the commands
+goal: 'Integration after the parallel epics: bind Epics 4 and 5''s providers into the hooks Epic 2 leaves in cli/, so Epics 3–6 never edit cli/ and no closed epic is reopened.'
+status: done
+updated_at: '2026-11-07T20:47:29Z'
+origin_note: created 2026-10-27 from gap-pass-2 proposal P3 (elaboration-proposed-stories.md), re-homed from an Epic 2 sprint S03 to avoid an epic cycle (Shawn)
+estimate:
+  man_hours_low: 9.7
+  man_hours_high: 11.02
+  hitl_hours_low: 0.57
+  hitl_hours_high: 0.64
+  elapsed_hours_low: 3.23
+  elapsed_hours_high: 3.67
+  tokens_k_min: 228
+  tokens_k_max: 259
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 0.93
+  cost_high: 1.07
+  model: claude-opus-5
+  confidence: medium
+depends_on:
+- 'E002'
+- 'E003'
+- 'E004'
+- 'E005'
+- 'E006'
+actual:
+  elapsed_hours: 1.5
+  man_hours: 86
+  hitl_hours: 0
+  tokens_k:
+    total: 130919.31
+    input: 1.072
+    output: 408.217
+    cache_write: 2635.364
+    cache_read: 127874.657
+  cost: 54.37
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-07T20:47:16Z'
+orchestration:
+  elapsed_hours: 0
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 0
+    input: 0
+    output: 0
+    cache_write: 0
+    cache_read: 0
+  cost: 0.0
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-07T20:47:16Z'
+closed:
+  date: '2026-11-07'
+retrospective:
+  summary: "Last epic: one story bound every epic's providers into the composition root. Closure lenses found no Critical/High; BL-E008-002 and three doc/guard drifts fixed; five owner decisions batched (Manifest cap timing, read-side memory, on_warning coverage, --wp-dir for the listing flag, confinement of the relocation wp child)."
+  learnings: Wiring stories expose unreached earlier code, guard the reach; record owner decisions in the ADR in the same change; get owner sign-off before narrowing an acceptance criterion; docs guards must reach prose; test a replaced stdlib call's guarantees before first use

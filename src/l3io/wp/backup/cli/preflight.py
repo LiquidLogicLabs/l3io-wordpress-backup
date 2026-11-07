@@ -34,6 +34,7 @@ from __future__ import annotations
 import shutil
 import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import structlog
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "PLATFORM_NEEDED_FOR",
+    "PROBE_DIRECTORY",
     "DumpReadinessPreflight",
     "RootPreflight",
     "binary_preflight",
@@ -177,12 +179,22 @@ def root_preflight(
     )
 
 
-def binary_preflight(run: RunContext, *, optional: bool = False) -> BinaryPreflight:
-    """Epic 5's ``BinaryPreflight``, probing in ``run``'s workspace.
+#: Where the tool probes run (BL-E008-002): the filesystem root, whose only
+#: ancestor is itself, so no unprivileged user can plant a ``wp-cli.yml`` that
+#: WP-CLI's upward search would meet. The Run workspace sits under the shared,
+#: world-writable ``$TMPDIR``, where anyone could plant one in an ancestor.
+PROBE_DIRECTORY: Final = Path("/")
 
+
+def binary_preflight(run: RunContext, *, optional: bool = False) -> BinaryPreflight:
+    """Epic 5's ``BinaryPreflight``, probing from :data:`PROBE_DIRECTORY`.
+
+    ``run`` is kept so the one construction stays tied to a Run; the probe
+    deliberately does not start in its workspace (BL-E008-002).
     ``optional=True`` is ``doctor``'s: no plan requires the tools it reports.
     """
-    return BinaryPreflight(cwd=run.workspace, optional=optional)
+    del run
+    return BinaryPreflight(cwd=PROBE_DIRECTORY, optional=optional)
 
 
 def refuse_unsupported_platform(platform: str | None = None) -> None:

@@ -21,7 +21,6 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.preflight import BinaryPreflight, Diagnosis
-from l3io.wp.backup.adapters.workspace import WORKSPACE_PREFIX
 from l3io.wp.backup.cli import doctor as doctor_mod
 from l3io.wp.backup.cli import main
 from l3io.wp.backup.domain.database import Readiness
@@ -91,7 +90,7 @@ def test_text_on_a_terminal(
     assert "tool age:" in out
 
 
-def test_diagnose_gets_a_binary_preflight_in_the_run_workspace(
+def test_diagnose_gets_a_binary_preflight_probing_from_the_filesystem_root(
     workdir: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -103,16 +102,15 @@ def test_diagnose_gets_a_binary_preflight_in_the_run_workspace(
         preflight = kwargs["preflight"]
         assert isinstance(preflight, BinaryPreflight)
         cwd = preflight._cwd  # noqa: SLF001
-        assert cwd.is_dir(), "the probe's cwd is not a live directory"
         seen.append(cwd)
         return real(**kwargs)
 
     monkeypatch.setattr(doctor_mod, "diagnose", spy)
     _doctor(capsys, "--json")
     (cwd,) = seen
-    assert cwd.parent == workdir
-    assert cwd.name.startswith(WORKSPACE_PREFIX)
-    assert not cwd.exists(), "the Run workspace outlived the Run"
+    # BL-E008-002: not the Run workspace, whose ancestor $TMPDIR is shared.
+    assert cwd == Path("/")
+    assert not cwd.is_relative_to(workdir)
 
 
 def test_windows_is_reported_not_raised(
