@@ -5,7 +5,8 @@
 - **Deciders:** E006 closure orchestrator
 - **Epic:** E006 (stories E006-S01-001, E006-S01-003)
 - **Resolves:** E006 arch-drift finding AD-1 (`epic-006/epic-closure/arch-drift-review.md`)
-- **Departs from spec:** _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-1 (the structural seed draws `cli/` and `api/` as peer composition roots)
+- **Departs from spec:** _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-1--the-core-computes-plans-only-adapters-perform-effects
+  (the structural seed draws `cli/` and `api/` as peer composition roots; AD-1 is amended 2026-11-07 to match)
 - **Principle(s) in tension:** Core §1 separation of concerns, AD-16 one sequence, FR-24 one public surface
 
 ## Context
