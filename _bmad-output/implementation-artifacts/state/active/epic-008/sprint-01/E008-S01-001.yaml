@@ -2,27 +2,27 @@ key: 'E008-S01-001'
 epic: 'E008'
 sprint: 'S01'
 title: Bind the parallel epics' providers into the composition roots
-classification: standard
-status: backlog
-updated_at: '2026-11-03T02:11:20Z'
+classification: complex
+status: ready-for-dev
+updated_at: '2026-11-07T07:58:57Z'
 estimate:
-  man_hours: 7.5
-  hitl_hours: 0.44
-  elapsed_hours: 2.5
-  cost: 0.73
+  man_hours: 22.89
+  hitl_hours: 0.0
+  elapsed_hours: 0.8
+  cost: 27.88
   model: claude-opus-5
   fix_factor: 1.25
   scope_ratios:
-    man_hours: 1.0
-    hitl_hours: 1.0
-    elapsed_hours: 1.0
-    tokens_k: 1.0
+    man_hours: 1.526
+    hitl_hours: 0.0
+    elapsed_hours: 0.1596
+    tokens_k: 6.7532
   tokens_k:
-    total: 176
-    input: 26
-    output: 9
-    cache_write: 53
-    cache_read: 88
+    total: 33239
+    input: 0
+    output: 238
+    cache_write: 944
+    cache_read: 32057
 depends_on:
 - 'E002-S01-005'
 - 'E002-S01-006'
