@@ -14,14 +14,18 @@ from pathlib import PurePath
 
 import pytest
 
+from l3io.wp.backup.adapters.preflight import KNOWN_TOOLS
 from l3io.wp.backup.core.relocation import (
     RELOCATION_FLAGS,
+    WP_CLI_MINIMUM,
+    WP_CLI_REQUIREMENT,
     RelocationRequest,
     nested,
     pairs_merged,
     relocation_actions,
     relocation_undo,
     replacement_pairs,
+    required_tools,
     requires_search_replace,
     rewrite_values,
     safe_order,
@@ -325,6 +329,38 @@ def test_requires_search_replace_iff_a_url_is_supplied(combo: tuple[str, ...]) -
         site_url=VALUES["new_site_url"] if "new_site_url" in combo else None,
         home_url=VALUES["new_home_url"] if "new_home_url" in combo else None,
     )
+
+
+# --------------------------------------------------------------------------
+# E007-S01-004: WP-CLI is required iff a URL is relocated
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("with_config", [False, True], ids=["", "wp_config"])
+@pytest.mark.parametrize("combo", _subsets(), ids=lambda c: "+".join(c) or "none")
+def test_wp_cli_is_required_iff_a_url_is_supplied(
+    combo: tuple[str, ...], *, with_config: bool
+) -> None:
+    """Every subset of every request field (``dataclasses.fields``), config too."""
+    names = {f.name for f in dataclasses.fields(_Request)}
+    assert names == {*RELOCATION_FLAGS, "wp_config"}
+    assert set(combo) <= names
+    given: dict[str, object] = {name: VALUES[name] for name in combo}
+    if with_config:
+        given["wp_config"] = PurePath("/srv/wp-config.php")
+    request = _request(**given)  # type: ignore[arg-type]
+    wanted = bool(set(combo) & set(_URL_NAMES))
+    assert required_tools(request) == ((WP_CLI_REQUIREMENT,) if wanted else ())
+
+
+def test_the_wp_cli_requirement_says_why_and_where_to_get_it() -> None:
+    assert WP_CLI_REQUIREMENT.name == "wp"
+    assert WP_CLI_REQUIREMENT.minimum_version == WP_CLI_MINIMUM
+    assert all(isinstance(part, int) for part in WP_CLI_MINIMUM)
+    for text in ("SEARCH_REPLACE", "FR-12", "--new-site-url", "--new-site-home-url"):
+        assert text in WP_CLI_REQUIREMENT.needed_for
+    assert WP_CLI_REQUIREMENT.install_hint == "https://wp-cli.org/#installing"
+    assert WP_CLI_REQUIREMENT.install_hint == KNOWN_TOOLS["wp"].install_hint
 
 
 OLD_SITE = "https://old.e007.example/wp"

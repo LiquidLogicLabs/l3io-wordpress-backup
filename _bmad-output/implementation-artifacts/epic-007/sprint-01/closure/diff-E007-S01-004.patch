@@ -1,0 +1,919 @@
+diff --git a/README.md b/README.md
+index 19c9635..629a29f 100644
+--- a/README.md
++++ b/README.md
+@@ -36,7 +36,7 @@ A Run checks every external tool its plan needs before its first effect, and sto
+ |---|---|---|---|---|
+ | `age` | — | encrypts the Archive under a passphrase (CLI passphrase backend) | no plan in this build | https://github.com/FiloSottile/age#installation |
+ | `age-plugin-batchpass` | — | supplies the passphrase to age non-interactively (CLI backend) | no plan in this build | https://github.com/FiloSottile/age/releases |
+-| `wp` | — | WP-CLI, which relocation runs to rewrite the Site's URLs | no plan in this build | https://wp-cli.org/#installing |
++| `wp` | 2.12.0 | WP-CLI, which relocation runs to rewrite the Site's URLs | SEARCH_REPLACE: serialization-safe content URL rewrite for --new-site-url/--new-site-home-url (FR-12) | https://wp-cli.org/#installing |
+ | MySQL/MariaDB client tools | client 8.4+, MariaDB 11.4+ | the database dump and load | checked per Site by l3io-wordpress-database (`check_dump`/`check_load`), never run by this package | your distribution's MySQL or MariaDB client package |
+ <!-- END GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
+ 
+diff --git a/src/l3io/wp/backup/adapters/preflight.py b/src/l3io/wp/backup/adapters/preflight.py
+index 377f5b2..ebe5692 100644
+--- a/src/l3io/wp/backup/adapters/preflight.py
++++ b/src/l3io/wp/backup/adapters/preflight.py
+@@ -1,8 +1,8 @@
+ """AD-13/FR-27 — the binaries this package runs, checked before the first effect.
+ 
+-Layer: ``adapters`` (AD-1). It imports ``domain/``, ``ports/``, the stdlib,
+-``structlog`` and ``packaging`` only; no optional extra is imported at module
+-scope (AD-8).
++Layer: ``adapters`` (AD-1). It imports ``domain/``, ``ports/``, ``core/``
++(relocation's requirement constant), the stdlib, ``structlog`` and
++``packaging`` only; no optional extra is imported at module scope (AD-8).
+ 
+ :class:`BinaryPreflight` satisfies ``ports.preflight.Preflight`` for the
+ binaries on :data:`KNOWN_TOOLS` — ``age``, ``age-plugin-batchpass`` and ``wp``.
+@@ -54,6 +54,7 @@ import structlog
+ from packaging.requirements import InvalidRequirement, Requirement
+ from packaging.version import InvalidVersion, Version
+ 
++from l3io.wp.backup.core.relocation import WP_CLI_REQUIREMENT
+ from l3io.wp.backup.domain.database import Readiness
+ from l3io.wp.backup.domain.errors import BackupError
+ from l3io.wp.backup.domain.preflight import (
+@@ -143,11 +144,12 @@ KNOWN_TOOLS: Final[Mapping[str, ToolInfo]] = MappingProxyType(
+ #: Each entry returns requirements some plan can emit that a backup plan
+ #: built over ``BackupScope`` does not show. ``tools/gen_tool_docs.py`` and
+ #: ``tests/contracts/test_tool_requirements_documented.py`` call every entry.
+-#: E008-S01-001 (crypto backends, restore modes) and E007-S01-004 (``wp``)
+-#: register theirs here.
++#: E007-S01-004 registers relocation's (``wp``, what
++#: ``core/relocation.py::required_tools`` returns for a URL relocation);
++#: E008-S01-001 (crypto backends, restore modes) registers theirs here.
+ DOCUMENTED_REQUIREMENT_SOURCES: Final[
+     tuple[Callable[[], tuple[ToolRequirement, ...]], ...]
+-] = ()
++] = ((lambda: (WP_CLI_REQUIREMENT,)),)
+ 
+ 
+ class _ProbeFailedError(BackupError):
+diff --git a/src/l3io/wp/backup/adapters/wpcli.py b/src/l3io/wp/backup/adapters/wpcli.py
+index 4105405..ddfa86d 100644
+--- a/src/l3io/wp/backup/adapters/wpcli.py
++++ b/src/l3io/wp/backup/adapters/wpcli.py
+@@ -16,8 +16,10 @@
+   and resolves it. No ``l3io.wp.database`` type is named here;
+ * :meth:`~WpCliRestoreExtension.search_replace` returns
+   :class:`WpCliSearchReplace` (E007-S01-003) when a URL is relocated and
+-  ``wp`` is on ``PATH``; :meth:`~WpCliRestoreExtension.required_tools` is
+-  E007-S01-004's, and until it lands, no extra tool.
++  ``wp`` is on ``PATH``; :meth:`~WpCliRestoreExtension.required_tools`
++  returns ``core/relocation.py::required_tools`` (E007-S01-004): WP-CLI at
++  ``WP_CLI_MINIMUM`` iff a URL is relocated, which the root appends to the
++  plan so ``PREFLIGHT`` refuses (exit 7) before the first effect.
+ 
+ :class:`WpCliSearchReplace` is the one place this package runs ``wp``. Every
+ call:
+@@ -88,6 +90,7 @@ from l3io.wp.backup.core.relocation import (
+     relocation_actions,
+     relocation_undo,
+     replacement_pairs,
++    required_tools,
+     rewrite_values,
+     safe_order,
+     url_relocation,
+@@ -613,8 +616,12 @@ class WpCliRestoreExtension:
+         return "WpCliRestoreExtension()"
+ 
+     def required_tools(self) -> tuple[ToolRequirement, ...]:
+-        """None yet: E007-S01-004 registers WP-CLI's requirement."""
+-        return ()
++        """WP-CLI's requirement iff a URL is relocated (``core/relocation.py``).
++
++        This is the one route a relocation's tools reach the plan:
++        ``RestoreRelocation.required_tools`` stays ``()``.
++        """
++        return required_tools(self._request)
+ 
+     def wordpress_spec(self) -> ExplicitCredentialSpec | None:
+         """The relocated account, or ``None`` without the user/password pair."""
+diff --git a/src/l3io/wp/backup/core/relocation.py b/src/l3io/wp/backup/core/relocation.py
+index 8c835b4..261b986 100644
+--- a/src/l3io/wp/backup/core/relocation.py
++++ b/src/l3io/wp/backup/core/relocation.py
+@@ -23,7 +23,12 @@ derives the parts of it that are pure value work, for
+   :func:`nested` — what
+   ``SEARCH_REPLACE`` rewrites (E007-S01-003): the pairs WP-CLI's
+   ``search-replace`` is run with, derived from the stored ``siteurl``/``home``
+-  and the new URLs. No serialized value is read or written here.
++  and the new URLs. No serialized value is read or written here;
++* :data:`WP_CLI_MINIMUM`, :data:`WP_CLI_REQUIREMENT` and
++  :func:`required_tools` — the tool a relocation needs (E007-S01-004, FR-13):
++  WP-CLI iff a URL is relocated, checked in ``PREFLIGHT`` before the first
++  effect. The minimum is the release CI pins
++  (``tests/contracts/test_wp_cli_pin.py`` enforces the equality).
+ 
+ The new database password never enters this module beyond the fact that it
+ was supplied: :func:`validate_relocation` reads whether it is ``None`` or
+@@ -50,18 +55,22 @@ from l3io.wp.backup.domain.errors import (
+     InvalidRelocationValueError,
+     RelocationNeedsDatabaseRestoreError,
+ )
++from l3io.wp.backup.domain.preflight import ToolRequirement
+ from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
+ from l3io.wp.backup.domain.search_replace import Replacement, StoredUrls, UrlRelocation
+ 
+ __all__ = [
+     "RELOCATION_FLAGS",
+     "URL_SCHEMES",
++    "WP_CLI_MINIMUM",
++    "WP_CLI_REQUIREMENT",
+     "RelocationRequest",
+     "nested",
+     "pairs_merged",
+     "relocation_actions",
+     "relocation_undo",
+     "replacement_pairs",
++    "required_tools",
+     "requires_search_replace",
+     "rewrite_values",
+     "safe_order",
+@@ -288,6 +297,34 @@ def requires_search_replace(request: RelocationRequest) -> bool:
+     return request.new_site_url is not None or request.new_home_url is not None
+ 
+ 
++#: The oldest WP-CLI ``SEARCH_REPLACE`` accepts: the release
++#: ``.github/workflows/ci.yml`` pins (``WP_CLI_VERSION``), so the floor never
++#: claims a version the integration suite did not run.
++WP_CLI_MINIMUM: Final[tuple[int, ...]] = (2, 12, 0)
++
++#: What a URL relocation needs. ``install_hint`` matches
++#: ``adapters/preflight.py::KNOWN_TOOLS["wp"]`` (a test checks it); the refusal
++#: renders both through ``PreflightFailedError``.
++WP_CLI_REQUIREMENT: Final = ToolRequirement(
++    name="wp",
++    minimum_version=WP_CLI_MINIMUM,
++    needed_for=(
++        "SEARCH_REPLACE: serialization-safe content URL rewrite for "
++        "--new-site-url/--new-site-home-url (FR-12)"
++    ),
++    install_hint="https://wp-cli.org/#installing",
++)
++
++
++def required_tools(request: RelocationRequest) -> tuple[ToolRequirement, ...]:
++    """``(WP_CLI_REQUIREMENT,)`` iff a URL is relocated, else ``()``.
++
++    A config-only relocation (``--new-db-*`` alone) needs no ``wp``, so a
++    restore without a URL flag never looks for it.
++    """
++    return (WP_CLI_REQUIREMENT,) if requires_search_replace(request) else ()
++
++
+ def pairs_merged(stored: StoredUrls, urls: UrlRelocation) -> bool:
+     """True when both URLs are relocated but the stored two are one value.
+ 
+diff --git a/tests/contracts/test_wp_cli_pin.py b/tests/contracts/test_wp_cli_pin.py
+index 37b85cc..aa9130f 100644
+--- a/tests/contracts/test_wp_cli_pin.py
++++ b/tests/contracts/test_wp_cli_pin.py
+@@ -4,11 +4,8 @@ The source of truth for the tested version is ``.github/workflows/ci.yml``: ever
+ step whose ``env`` sets ``WP_CLI_VERSION`` (found by walking every job's steps,
+ not by step name). ``tests/contracts/test_workflow_invariants.py`` checks that
+ pin's shape and checksum; this file checks that there is one version, and that
+-it equals ``adapters/preflight.py``'s ``WP_CLI_MINIMUM``.
+-
+-``WP_CLI_MINIMUM`` is story E007-S01-004's (7.4). Until it lands, the equality
+-test is a strict ``xfail`` on the ``ImportError``: when 7.4 adds the constant,
+-an XPASS fails the suite, so the marker cannot outlive its reason.
++it equals ``core/relocation.py``'s ``WP_CLI_MINIMUM`` (E007-S01-004), the
++floor relocation's preflight requires.
+ """
+ 
+ from __future__ import annotations
+@@ -17,9 +14,10 @@ import pathlib
+ import re
+ from typing import Any
+ 
+-import pytest
+ import yaml
+ 
++from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
++
+ ROOT = pathlib.Path(__file__).resolve().parents[2]
+ CI = ROOT / ".github" / "workflows" / "ci.yml"
+ 
+@@ -54,15 +52,7 @@ def test_a_planted_second_version_is_found(tmp_path: pathlib.Path) -> None:
+     assert _pinned_versions(planted) == ["2.12.0", "2.11.0"]
+ 
+ 
+-@pytest.mark.xfail(
+-    raises=ImportError,
+-    strict=True,
+-    reason="WP_CLI_MINIMUM is E007-S01-004's; remove this marker when it lands",
+-)
+ def test_the_pinned_version_is_the_supported_minimum() -> None:
+-    from l3io.wp.backup.adapters.preflight import (  # type: ignore[attr-defined]
+-        WP_CLI_MINIMUM,
+-    )
+-
+     (pinned,) = set(_pinned_versions())
+-    assert str(WP_CLI_MINIMUM) == pinned
++    assert ".".join(map(str, WP_CLI_MINIMUM)) == pinned
++    assert WP_CLI_REQUIREMENT.minimum_version == WP_CLI_MINIMUM
+diff --git a/tests/integration/live_restore.py b/tests/integration/live_restore.py
+index 7d06ce6..9dd2e4a 100644
+--- a/tests/integration/live_restore.py
++++ b/tests/integration/live_restore.py
+@@ -74,6 +74,7 @@ from l3io.wp.backup.domain.archive_format import (
+ from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
+ from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
+ from l3io.wp.backup.domain.journal import JOURNALED_CONSTANTS, JournalHeader
++from l3io.wp.backup.domain.preflight import ToolRequirement
+ from l3io.wp.backup.domain.restore import (
+     ConfigPolicy,
+     Override,
+@@ -353,11 +354,20 @@ def adapters_for(
+     return adapters, journal
+ 
+ 
+-def ports_for(spec: RestoreSpec, adapters: AdapterSet) -> RestorePorts:
++Preflight = Callable[[tuple[ToolRequirement, ...]], None]
++
++
++def _no_preflight(_tools: tuple[ToolRequirement, ...]) -> None:
++    return None
++
++
++def ports_for(
++    spec: RestoreSpec, adapters: AdapterSet, preflight: Preflight = _no_preflight
++) -> RestorePorts:
+     password = spec.relocated_password
+     return restore_ports(
+         adapters,
+-        preflight=lambda _tools: None,
++        preflight=preflight,
+         free_bytes=lambda _path: 10**12,
+         cutover_credentials=None if password is None else (lambda: password),
+     )
+@@ -375,8 +385,20 @@ def _no_snapshot(_scope: object) -> SnapshotResult:
+     raise AssertionError(msg)
+ 
+ 
+-def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
+-    """One restore of ``spec.archive`` onto ``spec.site_root``, as the root would."""
++def restore(
++    spec: RestoreSpec,
++    wrap: Wrap = _identity,
++    *,
++    extra_tools: tuple[ToolRequirement, ...] = (),
++    preflight: Preflight = _no_preflight,
++    select: Callable[[AdapterSet], AdapterSet] | None = None,
++) -> ExecutionReport:
++    """One restore of ``spec.archive`` onto ``spec.site_root``, as the root would.
++
++    ``extra_tools`` reach the plan as the root's ``ext.required_tools()`` do;
++    ``preflight`` replaces the default no-op; ``select`` (``dry_run_adapters``,
++    say) is applied to the real set (E007-S01-004).
++    """
+     if spec.state_home is not None:
+         os.environ["XDG_STATE_HOME"] = spec.state_home
+     secrets = SecretRegistry()
+@@ -398,6 +420,8 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
+         laid.write_bytes(body)
+         site, _ = site_descriptor_from_archive_config(root.resolve(), config_file=laid)
+     adapters, _journal = adapters_for(spec, secrets, wrap)
++    if select is not None:
++        adapters = select(adapters)
+     files = LocalSiteFiles()
+     location = site.database_location()
+ 
+@@ -429,6 +453,7 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
+         snapshot_dir=root.parent / "snapshots",
+         config_dir=config_path.parent,
+         config_policy=ConfigPolicy.KEEP,
++        extra_tools=extra_tools,
+     )
+     prior: dict[str, str | None] = dict.fromkeys(JOURNALED_CONSTANTS)
+     if config_path.exists():
+@@ -470,7 +495,7 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
+         live_database_exists=target.database is not None
+         and target.database.database_exists,
+     )
+-    ports = ports_for(spec, adapters)
++    ports = ports_for(spec, adapters, preflight)
+     return execute_restore(
+         plan,
+         inputs,
+diff --git a/tests/integration/test_wp_cli_missing.py b/tests/integration/test_wp_cli_missing.py
+new file mode 100644
+index 0000000..e4ce64f
+--- /dev/null
++++ b/tests/integration/test_wp_cli_missing.py
+@@ -0,0 +1,229 @@
++"""E007-S01-004 (FR-13, AD-13) — no usable WP-CLI, nothing touched (CI database).
++
++Each case runs ``execute_restore`` over the real adapters
++(``tests/integration/live_restore``), with the plan built through Epic 7's
++real extension — ``ext.resolve`` and ``extra_tools=ext.required_tools()``, as
++the restore root does — and the preflight composed in the test as
++``functools.partial(require_tools, BinaryPreflight(cwd=<workspace>))`` (C5).
++``wpbackup2 restore`` itself binds ``DumpReadinessPreflight`` until
++E008-S01-001's root preflight, so the CLI cases are E008-S01-001's (X1).
++
++``wp`` is controlled by ``PATH``, never by uninstalling it: ``PATH`` is a temp
++directory holding links to the database client tools found on the original
++``PATH`` (whatever of :data:`CLIENT_TOOLS` exists) and, per case, a fake
++``wp`` script that appends to a marker file when run.
++
++1. no ``wp``: ``PreflightFailedError`` (exit 7) naming ``wp``,
++   ``SEARCH_REPLACE`` and ``wp-cli.org``; the Site Root tree, the
++   ``wp-config.php`` bytes, a ``CHECKSUM TABLE`` of the live database and the
++   set of databases are unchanged; no journal ``current.json`` exists;
++2. a ``wp`` printing ``WP-CLI 2.0.0``: exit 7, ``found: 2.0.0``, and the
++   preflight record carries the minimum;
++3. a ``wp`` exiting 127 (no PHP): exit 7, ``found: unusable (exit 127 ...)``;
++4. the same restore without URL flags: it completes and ``wp`` never ran;
++5. ``--new-db-host`` alone, ``--mode database``: it completes without ``wp``;
++6. a Dry Run of case 1: exit 7 with the identical message.
++
++Needs the CI ``db`` service (``DB_HOST``/``DB_PASSWORD``); skips without it.
++"""
++
++from __future__ import annotations
++
++import dataclasses
++import functools
++import hashlib
++import os
++import shutil
++from collections.abc import Callable
++from pathlib import Path
++
++import pytest
++from structlog.testing import capture_logs
++
++pytest.importorskip("l3io.wp.database")
++
++from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
++from l3io.wp.backup.adapters.journal import CURRENT
++from l3io.wp.backup.adapters.preflight import BinaryPreflight
++from l3io.wp.backup.adapters.redaction import SecretRegistry
++from l3io.wp.backup.adapters.site_files import LocalSiteFiles
++from l3io.wp.backup.adapters.tar import verify_archive_view
++from l3io.wp.backup.adapters.wpcli import restore_extension
++from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
++from l3io.wp.backup.cli.preflight import require_tools
++from l3io.wp.backup.cli.restore import RelocationFlags
++from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
++from l3io.wp.backup.core.restore import RestoreRelocation
++from l3io.wp.backup.domain.errors import ExitCode, PreflightFailedError
++from l3io.wp.backup.domain.restore import RestoreMode
++from l3io.wp.backup.ports.adapter_set import AdapterSet
++from tests.integration.live_restore import (
++    LiveSite,
++    build_archive,
++    host,
++    journal_for,
++    live_site,
++    port,
++    restore,
++    spec_for,
++)
++
++__all__ = ["live_site"]
++
++pytestmark = [
++    pytest.mark.integration,
++    pytest.mark.skipif(
++        "DB_HOST" not in os.environ, reason="needs the CI database (DB_HOST unset)"
++    ),
++]
++
++#: Linked into the controlled ``PATH`` when the original ``PATH`` has them.
++CLIENT_TOOLS = ("mysql", "mysqldump", "mariadb", "mariadb-dump", "php")
++URLS = dataclasses.replace(
++    RelocationFlags.none(),
++    new_site_url="https://staging.e007.example",
++    new_home_url="https://www.staging.e007.example",
++)
++MINIMUM = ".".join(map(str, WP_CLI_MINIMUM))
++
++
++@dataclasses.dataclass
++class Rig:
++    site: LiveSite
++    bin: Path
++    marker: Path
++    archive: Path
++
++    def fake_wp(self, body: str) -> None:
++        script = self.bin / "wp"
++        script.write_text(
++            f"#!/bin/sh\necho ran >> '{self.marker}'\n{body}\n", encoding="utf-8"
++        )
++        script.chmod(0o755)
++
++    def run(
++        self,
++        flags: RelocationFlags,
++        *,
++        mode: RestoreMode = RestoreMode.ALL,
++        select: Callable[[AdapterSet], AdapterSet] | None = None,
++    ) -> object:
++        site = self.site
++        ext = restore_extension(flags, secrets=SecretRegistry())
++        relocation = RestoreRelocation.none()
++        if flags != RelocationFlags.none():
++            descriptor, _ = site_descriptor_from_wp_config(
++                site.site_root, config_file=site.config
++            )
++            view, _ = verify_archive_view(self.archive)
++            assert view is not None
++            relocation = ext.resolve(
++                site_root=site.site_root,
++                site=descriptor,
++                view=view,
++                files=LocalSiteFiles(),
++                mode=mode,
++            )
++        spec = spec_for(site, self.archive, mode, relocation=relocation)
++        workspace = site.work / f"preflight-{spec.run_id}"
++        workspace.mkdir(mode=0o700)
++        return restore(
++            spec,
++            extra_tools=ext.required_tools(),
++            preflight=functools.partial(require_tools, BinaryPreflight(cwd=workspace)),
++            select=select,
++        )
++
++
++@pytest.fixture
++def rig(live_site: LiveSite, monkeypatch: pytest.MonkeyPatch) -> Rig:
++    binaries = live_site.work / "controlled-bin"
++    binaries.mkdir()
++    for name in CLIENT_TOOLS:
++        found = shutil.which(name)
++        if found is not None:
++            (binaries / name).symlink_to(found)
++    monkeypatch.setenv("PATH", str(binaries))
++    assert shutil.which("wp") is None
++    return Rig(
++        site=live_site,
++        bin=binaries,
++        marker=live_site.work / "wp-ran",
++        archive=build_archive(live_site.work, config=None),
++    )
++
++
++def _tree(root: Path) -> str:
++    digest = hashlib.sha256()
++    for path in sorted(root.rglob("*")):
++        digest.update(str(path.relative_to(root)).encode())
++        if path.is_file() and not path.is_symlink():
++            digest.update(path.read_bytes())
++    return digest.hexdigest()
++
++
++def _untouched_after(
++    rig: Rig, *, select: Callable[[AdapterSet], AdapterSet] | None = None
++) -> PreflightFailedError:
++    site = rig.site
++    tree, config = _tree(site.site_root), site.config.read_bytes()
++    checksums, databases = site.checksums(), site.databases()
++    with pytest.raises(PreflightFailedError) as caught:
++        rig.run(URLS, select=select)
++    assert caught.value.exit_code is ExitCode.NOT_READY
++    assert caught.value.tool == "wp"
++    assert _tree(site.site_root) == tree
++    assert site.config.read_bytes() == config
++    assert site.checksums() == checksums
++    assert site.databases() == databases
++    assert not (journal_for(site.site_root).directory / CURRENT).exists()
++    assert not (site.site_root.parent / "snapshots").exists()
++    return caught.value
++
++
++def test_1_no_wp_refuses_with_nothing_changed(rig: Rig) -> None:
++    error = _untouched_after(rig)
++    text = str(error)
++    assert text.startswith("wp is needed for SEARCH_REPLACE"), text
++    assert "found: absent" in text
++    assert "wp-cli.org" in text
++    assert not rig.marker.exists()
++
++
++def test_2_an_old_wp_refuses_naming_found_and_minimum(rig: Rig) -> None:
++    rig.fake_wp("echo 'WP-CLI 2.0.0'")
++    with capture_logs() as logs:
++        error = _untouched_after(rig)
++    assert error.found == "2.0.0"
++    assert "found: 2.0.0" in str(error)
++    (checked,) = [r for r in logs if r["event"] == "preflight_checked"]
++    assert checked["minimum"] == MINIMUM
++    assert rig.marker.exists(), "the probe did not execute wp"
++
++
++def test_3_an_unrunnable_wp_refuses_as_unusable(rig: Rig) -> None:
++    rig.fake_wp("exit 127")
++    error = _untouched_after(rig)
++    assert error.found.startswith("unusable (exit 127"), error.found
++
++
++def test_4_without_url_flags_wp_is_never_run(rig: Rig) -> None:
++    rig.fake_wp("exit 127")
++    rig.run(RelocationFlags.none())
++    assert not rig.marker.exists(), "wp was run"
++
++
++def test_5_a_db_host_relocation_needs_no_wp(rig: Rig) -> None:
++    flags = dataclasses.replace(
++        RelocationFlags.none(), new_db_host=f"{host()}:{port()}"
++    )
++    rig.run(flags, mode=RestoreMode.DATABASE)
++    assert shutil.which("wp") is None
++
++
++def test_6_a_dry_run_refuses_identically(rig: Rig) -> None:
++    real = _untouched_after(rig)
++    dry = _untouched_after(rig, select=dry_run_adapters)
++    assert str(dry) == str(real)
++    assert WP_CLI_REQUIREMENT.install_hint is not None
++    assert WP_CLI_REQUIREMENT.install_hint in str(dry)
+diff --git a/tests/unit/core/test_relocation.py b/tests/unit/core/test_relocation.py
+index d3fb52d..d852437 100644
+--- a/tests/unit/core/test_relocation.py
++++ b/tests/unit/core/test_relocation.py
+@@ -14,14 +14,18 @@ from pathlib import PurePath
+ 
+ import pytest
+ 
++from l3io.wp.backup.adapters.preflight import KNOWN_TOOLS
+ from l3io.wp.backup.core.relocation import (
+     RELOCATION_FLAGS,
++    WP_CLI_MINIMUM,
++    WP_CLI_REQUIREMENT,
+     RelocationRequest,
+     nested,
+     pairs_merged,
+     relocation_actions,
+     relocation_undo,
+     replacement_pairs,
++    required_tools,
+     requires_search_replace,
+     rewrite_values,
+     safe_order,
+@@ -327,6 +331,38 @@ def test_requires_search_replace_iff_a_url_is_supplied(combo: tuple[str, ...]) -
+     )
+ 
+ 
++# --------------------------------------------------------------------------
++# E007-S01-004: WP-CLI is required iff a URL is relocated
++# --------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize("with_config", [False, True], ids=["", "wp_config"])
++@pytest.mark.parametrize("combo", _subsets(), ids=lambda c: "+".join(c) or "none")
++def test_wp_cli_is_required_iff_a_url_is_supplied(
++    combo: tuple[str, ...], *, with_config: bool
++) -> None:
++    """Every subset of every request field (``dataclasses.fields``), config too."""
++    names = {f.name for f in dataclasses.fields(_Request)}
++    assert names == {*RELOCATION_FLAGS, "wp_config"}
++    assert set(combo) <= names
++    given: dict[str, object] = {name: VALUES[name] for name in combo}
++    if with_config:
++        given["wp_config"] = PurePath("/srv/wp-config.php")
++    request = _request(**given)  # type: ignore[arg-type]
++    wanted = bool(set(combo) & set(_URL_NAMES))
++    assert required_tools(request) == ((WP_CLI_REQUIREMENT,) if wanted else ())
++
++
++def test_the_wp_cli_requirement_says_why_and_where_to_get_it() -> None:
++    assert WP_CLI_REQUIREMENT.name == "wp"
++    assert WP_CLI_REQUIREMENT.minimum_version == WP_CLI_MINIMUM
++    assert all(isinstance(part, int) for part in WP_CLI_MINIMUM)
++    for text in ("SEARCH_REPLACE", "FR-12", "--new-site-url", "--new-site-home-url"):
++        assert text in WP_CLI_REQUIREMENT.needed_for
++    assert WP_CLI_REQUIREMENT.install_hint == "https://wp-cli.org/#installing"
++    assert WP_CLI_REQUIREMENT.install_hint == KNOWN_TOOLS["wp"].install_hint
++
++
+ OLD_SITE = "https://old.e007.example/wp"
+ OLD_HOME = "https://old.e007.example"
+ NEW_SITE = "https://new.e007.example/wp"
+diff --git a/tests/unit/core/test_wp_cli_preflight_order.py b/tests/unit/core/test_wp_cli_preflight_order.py
+new file mode 100644
+index 0000000..5522475
+--- /dev/null
++++ b/tests/unit/core/test_wp_cli_preflight_order.py
+@@ -0,0 +1,315 @@
++"""E007-S01-004 (FR-13, AD-13) — no WP-CLI, nothing touched.
++
++Driven through ``execute_restore`` over :mod:`tests.restore_harness`, with the
++plan built the way the restore root builds it — ``build_restore_plan(...,
++extra_tools=ext.required_tools())`` over Epic 7's real extension — and the
++preflight composed as the root will compose it: ``require_tools`` over E005's
++real ``BinaryPreflight``. ``wp`` is controlled by ``PATH``: it holds only a
++temp directory, empty or with a fake ``wp`` script, so the result never depends
++on what this host has installed.
++
++The ``database-dump`` requirement is not a binary (ADR-0015), so a small
++router answers it as ready and hands every other requirement to
++``BinaryPreflight``, in plan order.
++
++Asserted for a refusal, in a real Run and under ``dry_run_adapters`` alike:
++``PreflightFailedError`` (exit 7) with the built rendering, an empty command
++log, an Archive never verified (``VERIFY``'s scan never called), no
++``begin_run`` and no Safety Snapshot. Without a URL relocation ``wp`` is never
++looked up, and a fake ``wp`` that writes a marker when run never runs.
++"""
++
++from __future__ import annotations
++
++import dataclasses
++import functools
++import os
++import shutil
++from collections.abc import Callable, Sequence
++from pathlib import Path
++from typing import Any
++
++import pytest
++
++pytest.importorskip("l3io.wp.database")
++
++from l3io.wp.backup.adapters import preflight as preflight_module
++from l3io.wp.backup.adapters import restore_runner
++from l3io.wp.backup.adapters.preflight import BinaryPreflight
++from l3io.wp.backup.adapters.redaction import SecretRegistry
++from l3io.wp.backup.adapters.site_files import LocalSiteFiles
++from l3io.wp.backup.adapters.wpcli import WpCliRestoreExtension, restore_extension
++from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
++from l3io.wp.backup.cli.preflight import require_tools
++from l3io.wp.backup.cli.restore import RelocationFlags
++from l3io.wp.backup.core.backup import DUMP_REQUIREMENT
++from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
++from l3io.wp.backup.core.restore import NO_RELOCATION, build_restore_plan
++from l3io.wp.backup.domain.errors import ExitCode, PreflightFailedError
++from l3io.wp.backup.domain.preflight import UNKNOWN_VERSION, ToolRequirement, ToolStatus
++from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, SnapshotPolicy
++from l3io.wp.backup.ports.adapter_set import AdapterSet
++from l3io.wp.backup.ports.restore import RestorePorts, restore_ports
++from tests.restore_harness import Harness, write_v1
++
++MINIMUM = ".".join(map(str, WP_CLI_MINIMUM))
++URLS = dataclasses.replace(
++    RelocationFlags.none(),
++    new_site_url="https://staging.e007.example",
++    new_home_url="https://www.staging.e007.example",
++)
++SELECTIONS: dict[str, Callable[[AdapterSet], AdapterSet]] = {
++    "real": lambda adapters: adapters,
++    "dry_run": dry_run_adapters,
++}
++
++
++class Routed:
++    """``database-dump`` ready; every binary to ``BinaryPreflight``; plan order."""
++
++    def __init__(self, binaries: BinaryPreflight, looked_up: list[str]) -> None:
++        self._binaries, self.looked_up = binaries, looked_up
++
++    def check(self, requirements: Sequence[ToolRequirement]) -> Sequence[ToolStatus]:
++        rest = [r for r in requirements if r.name != DUMP_REQUIREMENT.name]
++        self.looked_up.extend(r.name for r in rest)
++        found = {s.name: s for s in self._binaries.check(rest)} if rest else {}
++        return [
++            found.get(r.name)
++            or ToolStatus(name=r.name, present=True, version=None, path=None)
++            for r in requirements
++        ]
++
++
++@dataclasses.dataclass
++class Rig:
++    h: Harness
++    bin: Path
++    marker: Path
++    looked_up: list[str]
++    verified: list[Path]
++
++    def fake_wp(self, body: str) -> Path:
++        """A ``wp`` on ``PATH`` that records it ran, then runs ``body``."""
++        script = self.bin / "wp"
++        script.write_text(
++            f"#!/bin/sh\necho ran >> '{self.marker}'\n{body}\n", encoding="utf-8"
++        )
++        script.chmod(0o755)
++        return script
++
++    def extension(self, flags: RelocationFlags) -> WpCliRestoreExtension:
++        """Epic 7's factory, as the root calls it: ``wp`` resolved on ``PATH`` once."""
++        return restore_extension(flags, secrets=SecretRegistry())
++
++    def ports(self, adapters: AdapterSet) -> RestorePorts:
++        checker = Routed(BinaryPreflight(cwd=self.h.workspace), self.looked_up)
++        return restore_ports(
++            adapters,
++            preflight=functools.partial(require_tools, checker),
++            free_bytes=lambda _path: 10**12,
++            cutover_credentials=None,
++        )
++
++    def run(
++        self,
++        flags: RelocationFlags,
++        *,
++        selection: str = "real",
++        mode: RestoreMode = RestoreMode.ALL,
++    ) -> object:
++        ext = self.extension(flags)
++        relocation = NO_RELOCATION
++        if flags != RelocationFlags.none():
++            relocation = ext.resolve(
++                site_root=self.h.site_root,
++                site=self.h.site,
++                view=self.h.view,
++                files=LocalSiteFiles(),
++                mode=mode,
++            )
++        self.h.mode, self.h.relocation = mode, relocation
++        plan = build_restore_plan(
++            self.h.site,
++            mode,
++            self.h.overrides,
++            self.h.view,
++            self.h.target(),
++            archive=self.h.archive,
++            relocation=relocation,
++            snapshot=self.h.snapshot,
++            snapshot_dir=self.h.work / "snapshots",
++            config_dir=self.h.site_root,
++            config_policy=self.h.config_policy,
++            extra_tools=ext.required_tools(),
++        )
++        self.h.ports = self.ports  # type: ignore[method-assign,assignment]
++        adapters = SELECTIONS[selection](self.h.adapters())
++        journal = adapters.journal_command
++        return self.h.run(plan=plan, adapters=adapters, journal=journal)
++
++
++@pytest.fixture
++def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
++    binaries = tmp_path / "bin"
++    binaries.mkdir()
++    monkeypatch.setenv("PATH", str(binaries))
++    work = tmp_path / "work"
++    work.mkdir()
++    h = Harness(work=work, archive_path=write_v1(work), snapshot=SnapshotPolicy.TAKE)
++    verified: list[Path] = []
++    real_verify = restore_runner.verify_archive_manifest
++
++    def counting(path: Path, **kwargs: Any) -> Any:  # noqa: ANN401
++        verified.append(path)
++        return real_verify(path, **kwargs)
++
++    monkeypatch.setattr(restore_runner, "verify_archive_manifest", counting)
++    return Rig(
++        h=h,
++        bin=binaries,
++        marker=tmp_path / "wp-ran",
++        looked_up=[],
++        verified=verified,
++    )
++
++
++def _refused(rig: Rig, selection: str) -> PreflightFailedError:
++    config = rig.h.config_path.read_bytes()
++    with pytest.raises(PreflightFailedError) as caught:
++        rig.run(URLS, selection=selection)
++    assert caught.value.exit_code is ExitCode.NOT_READY
++    assert rig.h.log.calls == [], "a command adapter was called"
++    assert rig.verified == [], "the Archive was verified"
++    assert rig.h.journal.events == [], "the journal was begun"
++    assert rig.h.snapshots == [], "a Safety Snapshot was taken"
++    assert rig.h.config_path.read_bytes() == config
++    assert rig.looked_up == ["wp"]
++    return caught.value
++
++
++def _rendering(found: str) -> str:
++    return (
++        f"wp is needed for {WP_CLI_REQUIREMENT.needed_for}; found: {found}\n"
++        f"install: {WP_CLI_REQUIREMENT.install_hint}"
++    )
++
++
++# --------------------------------------------------------------------------
++# The plan carries WP-CLI only for a URL relocation
++# --------------------------------------------------------------------------
++
++
++def test_the_scope_reaches_preflight_through_the_extension(rig: Rig) -> None:
++    """The one route: ``ext.required_tools()``; ``RestoreRelocation``'s stays empty."""
++    ext = rig.extension(URLS)
++    relocation = ext.resolve(
++        site_root=rig.h.site_root,
++        site=rig.h.site,
++        view=rig.h.view,
++        files=LocalSiteFiles(),
++        mode=RestoreMode.ALL,
++    )
++    assert relocation.required_tools == ()
++    assert ext.required_tools() == (WP_CLI_REQUIREMENT,)
++    assert rig.extension(RelocationFlags.none()).required_tools() == ()
++
++
++# --------------------------------------------------------------------------
++# Refused before the first effect, real and Dry Run alike
++# --------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize("selection", sorted(SELECTIONS))
++def test_no_wp_refuses_before_anything_is_touched(rig: Rig, selection: str) -> None:
++    error = _refused(rig, selection)
++    assert str(error) == _rendering("absent")
++    assert "wp-cli.org" in str(error)
++    assert "SEARCH_REPLACE" in str(error)
++
++
++@pytest.mark.parametrize(
++    ("body", "found"),
++    [
++        ("echo 'WP-CLI 2.0.0'", "2.0.0"),
++        ("exit 127", "unusable (exit 127)"),
++        ("echo 'WP-CLI nightly'", UNKNOWN_VERSION),
++    ],
++    ids=["too-old", "unrunnable", "unparsable"],
++)
++@pytest.mark.parametrize("selection", sorted(SELECTIONS))
++def test_an_unusable_wp_refuses_before_anything_is_touched(
++    rig: Rig, selection: str, body: str, found: str
++) -> None:
++    rig.fake_wp(body)
++    error = _refused(rig, selection)
++    assert str(error).startswith(_rendering(found).split("\n", 1)[0]), str(error)
++    assert error.found.startswith(found)
++
++
++def test_the_dry_run_refuses_with_the_identical_message(rig: Rig) -> None:
++    real = _refused(rig, "real")
++    rig.looked_up.clear()
++    assert str(_refused(rig, "dry_run")) == str(real)
++
++
++def test_a_wp_at_the_minimum_passes_and_the_restore_proceeds(rig: Rig) -> None:
++    rig.fake_wp(f"echo 'WP-CLI {MINIMUM}'")
++    rig.run(URLS)
++    assert rig.looked_up == ["wp"]
++    assert rig.marker.read_text(encoding="utf-8") == "ran\n"
++    assert rig.verified == [rig.h.archive_path]
++    assert "search_replace.relocate_content" in rig.h.log.methods()
++
++
++# --------------------------------------------------------------------------
++# Without a URL relocation, wp is irrelevant
++# --------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize(
++    ("flags", "mode"),
++    [
++        (RelocationFlags.none(), RestoreMode.ALL),
++        (
++            dataclasses.replace(RelocationFlags.none(), new_db_host="db.e007:3307"),
++            RestoreMode.DATABASE,
++        ),
++    ],
++    ids=["no-relocation", "new-db-host-only"],
++)
++def test_without_a_url_wp_is_never_looked_up_or_run(
++    rig: Rig, flags: RelocationFlags, mode: RestoreMode
++) -> None:
++    rig.fake_wp("exit 127")
++    rig.run(flags, mode=mode)
++    assert "wp" not in rig.looked_up
++    assert not rig.marker.exists(), "wp was run"
++    assert rig.h.journal.events, "the restore did not proceed"
++    assert "search_replace.relocate_content" not in rig.h.log.methods()
++    assert RestorePhase.SEARCH_REPLACE not in {c[0] for c in rig.h.log.calls}
++
++
++# --------------------------------------------------------------------------
++# One wp path (the residual is the docstring's)
++# --------------------------------------------------------------------------
++
++
++def test_the_checked_wp_is_the_wp_the_extension_runs(rig: Rig) -> None:
++    script = rig.fake_wp(f"echo 'WP-CLI {MINIMUM}'")
++    ext = rig.extension(URLS)
++    (status,) = BinaryPreflight(cwd=rig.h.workspace).check([WP_CLI_REQUIREMENT])
++    assert status.path is not None
++    assert ext._wp == status.path == str(script)  # noqa: SLF001
++    assert shutil.which("wp") == str(script)
++    assert os.environ["PATH"] == str(rig.bin)
++
++
++def test_relocation_s_requirement_is_registered_for_the_docs() -> None:
++    """FR-27: the README's table is generated from these sources."""
++    produced = [
++        r
++        for source in preflight_module.DOCUMENTED_REQUIREMENT_SOURCES
++        for r in source()
++    ]
++    assert WP_CLI_REQUIREMENT in produced

@@ -16,8 +16,10 @@
   and resolves it. No ``l3io.wp.database`` type is named here;
 * :meth:`~WpCliRestoreExtension.search_replace` returns
   :class:`WpCliSearchReplace` (E007-S01-003) when a URL is relocated and
-  ``wp`` is on ``PATH``; :meth:`~WpCliRestoreExtension.required_tools` is
-  E007-S01-004's, and until it lands, no extra tool.
+  ``wp`` is on ``PATH``; :meth:`~WpCliRestoreExtension.required_tools`
+  returns ``core/relocation.py::required_tools`` (E007-S01-004): WP-CLI at
+  ``WP_CLI_MINIMUM`` iff a URL is relocated, which the root appends to the
+  plan so ``PREFLIGHT`` refuses (exit 7) before the first effect.
 
 :class:`WpCliSearchReplace` is the one place this package runs ``wp``. Every
 call:
@@ -42,9 +44,11 @@ As root it adds ``--allow-root`` and logs WARNING ``wp_cli_running_as_root``;
 it never refuses (owner decision O4, 2026-11-06).
 
 **Residual (stated, not closed).** ``restore_extension`` resolves ``wp`` on
-``PATH`` once; story 7.4's preflight looks it up again by name on the same
-``PATH`` in the same process. A ``PATH`` entry changing between the two
-lookups is not detected.
+``PATH`` once, with ``adapters/preflight.py::locate_tool`` (absolute entries
+only); story 7.4's preflight looks it up again by name, by the same rule, on
+the same ``PATH`` in the same process. A ``PATH`` entry changing between the
+two lookups is not detected. ``wp`` disappearing after the preflight surfaces
+as ``WpCliFailedError`` at ``SEARCH_REPLACE``, journaled incomplete.
 
 The factory is annotated with ``core/relocation.py::RelocationRequest``,
 because ``adapters/`` may not import ``cli/`` where ``RelocationFlags`` lives.
@@ -70,6 +74,7 @@ import structlog
 
 from l3io.wp.backup.adapters.database import database_location_from_db_host
 from l3io.wp.backup.adapters.journal import journal_directory
+from l3io.wp.backup.adapters.preflight import locate_tool
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.restore_runner import config_member
 from l3io.wp.backup.adapters.workspace import private_directories
@@ -88,6 +93,7 @@ from l3io.wp.backup.core.relocation import (
     relocation_actions,
     relocation_undo,
     replacement_pairs,
+    required_tools,
     rewrite_values,
     safe_order,
     url_relocation,
@@ -613,8 +619,12 @@ class WpCliRestoreExtension:
         return "WpCliRestoreExtension()"
 
     def required_tools(self) -> tuple[ToolRequirement, ...]:
-        """None yet: E007-S01-004 registers WP-CLI's requirement."""
-        return ()
+        """WP-CLI's requirement iff a URL is relocated (``core/relocation.py``).
+
+        This is the one route a relocation's tools reach the plan:
+        ``RestoreRelocation.required_tools`` stays ``()``.
+        """
+        return required_tools(self._request)
 
     def wordpress_spec(self) -> ExplicitCredentialSpec | None:
         """The relocated account, or ``None`` without the user/password pair."""
@@ -847,13 +857,14 @@ def restore_extension(
     Mode-independent rules (``validate_relocation_values``) run here, before
     the root reads the Site or the Archive; the Mode rule runs in
     :meth:`WpCliRestoreExtension.resolve`. With a URL relocated, ``wp`` is
-    looked up on ``PATH`` here, once, and kept as an absolute path.
+    looked up on ``PATH`` here, once, by preflight's own rule
+    (:func:`~l3io.wp.backup.adapters.preflight.locate_tool`: relative and
+    empty entries ignored), so the path is absolute and is the one checked.
     """
     if flags.new_db_password:
         secrets.register(flags.new_db_password, source="--new-db-password")
     validate_relocation_values(flags)
     wp = None
     if url_relocation(flags) is not None:
-        found = shutil.which("wp")
-        wp = None if found is None else str(Path(found).absolute())
+        wp = locate_tool("wp")
     return WpCliRestoreExtension(flags, secrets=secrets, wp=wp)

@@ -3,8 +3,8 @@ epic: 'E006'
 sprint: 'S01'
 title: Catch typed failures
 classification: complex
-status: ready-for-dev
-updated_at: '2026-11-07T02:50:11Z'
+status: in-progress
+updated_at: '2026-11-07T06:24:05Z'
 estimate:
   man_hours: 24.92
   hitl_hours: 0.0

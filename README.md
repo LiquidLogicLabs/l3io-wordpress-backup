@@ -36,7 +36,7 @@ A Run checks every external tool its plan needs before its first effect, and sto
 |---|---|---|---|---|
 | `age` | — | encrypts the Archive under a passphrase (CLI passphrase backend) | no plan in this build | https://github.com/FiloSottile/age#installation |
 | `age-plugin-batchpass` | — | supplies the passphrase to age non-interactively (CLI backend) | no plan in this build | https://github.com/FiloSottile/age/releases |
-| `wp` | — | WP-CLI, which relocation runs to rewrite the Site's URLs | no plan in this build | https://wp-cli.org/#installing |
+| `wp` | 2.12.0 | WP-CLI, which relocation runs to rewrite the Site's URLs | SEARCH_REPLACE: serialization-safe content URL rewrite for --new-site-url/--new-site-home-url (FR-12) | https://wp-cli.org/#installing |
 | MySQL/MariaDB client tools | client 8.4+, MariaDB 11.4+ | the database dump and load | checked per Site by l3io-wordpress-database (`check_dump`/`check_load`), never run by this package | your distribution's MySQL or MariaDB client package |
 <!-- END GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
 

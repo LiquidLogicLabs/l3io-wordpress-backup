@@ -378,7 +378,7 @@ def test_search_replace_is_bound_iff_a_url_and_wp(
         lookups.append(name)
         return found
 
-    monkeypatch.setattr(wpcli.shutil, "which", which)
+    monkeypatch.setattr(wpcli, "locate_tool", which)
     extension = restore_extension(_from(combo), secrets=SecretRegistry())
     url = bool(names & {"new_site_url", "new_home_url"})
     assert lookups == (["wp"] if url else [])

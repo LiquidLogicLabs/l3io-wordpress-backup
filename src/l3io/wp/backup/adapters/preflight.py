@@ -1,8 +1,8 @@
 """AD-13/FR-27 — the binaries this package runs, checked before the first effect.
 
-Layer: ``adapters`` (AD-1). It imports ``domain/``, ``ports/``, the stdlib,
-``structlog`` and ``packaging`` only; no optional extra is imported at module
-scope (AD-8).
+Layer: ``adapters`` (AD-1). It imports ``domain/``, ``ports/``, ``core/``
+(relocation's requirement constant), the stdlib, ``structlog`` and
+``packaging`` only; no optional extra is imported at module scope (AD-8).
 
 :class:`BinaryPreflight` satisfies ``ports.preflight.Preflight`` for the
 binaries on :data:`KNOWN_TOOLS` — ``age``, ``age-plugin-batchpass`` and ``wp``.
@@ -54,6 +54,7 @@ import structlog
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
+from l3io.wp.backup.core.relocation import WP_CLI_REQUIREMENT
 from l3io.wp.backup.domain.database import Readiness
 from l3io.wp.backup.domain.errors import BackupError
 from l3io.wp.backup.domain.preflight import (
@@ -77,6 +78,7 @@ __all__ = [
     "TargetStatus",
     "ToolInfo",
     "diagnose",
+    "locate_tool",
     "unsupported_platform",
 ]
 
@@ -143,11 +145,12 @@ KNOWN_TOOLS: Final[Mapping[str, ToolInfo]] = MappingProxyType(
 #: Each entry returns requirements some plan can emit that a backup plan
 #: built over ``BackupScope`` does not show. ``tools/gen_tool_docs.py`` and
 #: ``tests/contracts/test_tool_requirements_documented.py`` call every entry.
-#: E008-S01-001 (crypto backends, restore modes) and E007-S01-004 (``wp``)
-#: register theirs here.
+#: E007-S01-004 registers relocation's (``wp``, what
+#: ``core/relocation.py::required_tools`` returns for a URL relocation);
+#: E008-S01-001 (crypto backends, restore modes) registers theirs here.
 DOCUMENTED_REQUIREMENT_SOURCES: Final[
     tuple[Callable[[], tuple[ToolRequirement, ...]], ...]
-] = ()
+] = ((lambda: (WP_CLI_REQUIREMENT,)),)
 
 
 class _ProbeFailedError(BackupError):
@@ -252,6 +255,12 @@ def _locate(name: str) -> str | None:
     """
     entries = os.environ.get("PATH", os.defpath)
     return shutil.which(name, path=os.pathsep.join(_absolute_entries(entries)))
+
+
+#: The one lookup rule for a binary this package runs: what
+#: :class:`BinaryPreflight` checks, and what ``adapters/wpcli.py`` resolves
+#: ``wp`` with, so the binary checked is the binary run (E007-S01-004).
+locate_tool: Final = _locate
 
 
 class BinaryPreflight:

@@ -23,7 +23,12 @@ derives the parts of it that are pure value work, for
   :func:`nested` — what
   ``SEARCH_REPLACE`` rewrites (E007-S01-003): the pairs WP-CLI's
   ``search-replace`` is run with, derived from the stored ``siteurl``/``home``
-  and the new URLs. No serialized value is read or written here.
+  and the new URLs. No serialized value is read or written here;
+* :data:`WP_CLI_MINIMUM`, :data:`WP_CLI_REQUIREMENT` and
+  :func:`required_tools` — the tool a relocation needs (E007-S01-004, FR-13):
+  WP-CLI iff a URL is relocated, checked in ``PREFLIGHT`` before the first
+  effect. The minimum is the release CI pins
+  (``tests/contracts/test_wp_cli_pin.py`` enforces the equality).
 
 The new database password never enters this module beyond the fact that it
 was supplied: :func:`validate_relocation` reads whether it is ``None`` or
@@ -50,18 +55,22 @@ from l3io.wp.backup.domain.errors import (
     InvalidRelocationValueError,
     RelocationNeedsDatabaseRestoreError,
 )
+from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
 from l3io.wp.backup.domain.search_replace import Replacement, StoredUrls, UrlRelocation
 
 __all__ = [
     "RELOCATION_FLAGS",
     "URL_SCHEMES",
+    "WP_CLI_MINIMUM",
+    "WP_CLI_REQUIREMENT",
     "RelocationRequest",
     "nested",
     "pairs_merged",
     "relocation_actions",
     "relocation_undo",
     "replacement_pairs",
+    "required_tools",
     "requires_search_replace",
     "rewrite_values",
     "safe_order",
@@ -286,6 +295,34 @@ def url_relocation(request: RelocationRequest) -> UrlRelocation | None:
 def requires_search_replace(request: RelocationRequest) -> bool:
     """True iff ``--new-site-url`` or ``--new-site-home-url`` is supplied."""
     return request.new_site_url is not None or request.new_home_url is not None
+
+
+#: The oldest WP-CLI ``SEARCH_REPLACE`` accepts: the release
+#: ``.github/workflows/ci.yml`` pins (``WP_CLI_VERSION``), so the floor never
+#: claims a version the integration suite did not run.
+WP_CLI_MINIMUM: Final[tuple[int, ...]] = (2, 12, 0)
+
+#: What a URL relocation needs. ``install_hint`` matches
+#: ``adapters/preflight.py::KNOWN_TOOLS["wp"]`` (a test checks it); the refusal
+#: renders both through ``PreflightFailedError``.
+WP_CLI_REQUIREMENT: Final = ToolRequirement(
+    name="wp",
+    minimum_version=WP_CLI_MINIMUM,
+    needed_for=(
+        "SEARCH_REPLACE: serialization-safe content URL rewrite for "
+        "--new-site-url/--new-site-home-url (FR-12)"
+    ),
+    install_hint="https://wp-cli.org/#installing",
+)
+
+
+def required_tools(request: RelocationRequest) -> tuple[ToolRequirement, ...]:
+    """``(WP_CLI_REQUIREMENT,)`` iff a URL is relocated, else ``()``.
+
+    A config-only relocation (``--new-db-*`` alone) needs no ``wp``, so a
+    restore without a URL flag never looks for it.
+    """
+    return (WP_CLI_REQUIREMENT,) if requires_search_replace(request) else ()
 
 
 def pairs_merged(stored: StoredUrls, urls: UrlRelocation) -> bool:

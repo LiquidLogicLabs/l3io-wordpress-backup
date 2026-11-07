@@ -3,8 +3,8 @@ epic: 'E007'
 sprint: 'S01'
 title: Fail before touching anything when WP-CLI is missing
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-06T15:21:00Z'
+status: done
+updated_at: '2026-11-07T06:52:18Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
@@ -29,3 +29,37 @@ depends_on:
 - E003-S02-006
 - 'E005-S01-002'
 - 'E002-S02-012'
+completion_evidence:
+  fix_iterations: 1
+  files_changed: 11
+  test_runs:
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  tests_passing: true
+actual:
+  elapsed_hours: 0.5
+  man_hours: 10
+  hitl_hours: 0
+  tokens_k:
+    total: 35926.97
+    input: 0.478
+    output: 215.585
+    cache_write: 701.853
+    cache_read: 35009.051
+  cost: 27.28
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-07T06:52:17Z'

@@ -74,6 +74,7 @@ from l3io.wp.backup.domain.archive_format import (
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 from l3io.wp.backup.domain.journal import JOURNALED_CONSTANTS, JournalHeader
+from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
     Override,
@@ -353,11 +354,20 @@ def adapters_for(
     return adapters, journal
 
 
-def ports_for(spec: RestoreSpec, adapters: AdapterSet) -> RestorePorts:
+Preflight = Callable[[tuple[ToolRequirement, ...]], None]
+
+
+def _no_preflight(_tools: tuple[ToolRequirement, ...]) -> None:
+    return None
+
+
+def ports_for(
+    spec: RestoreSpec, adapters: AdapterSet, preflight: Preflight = _no_preflight
+) -> RestorePorts:
     password = spec.relocated_password
     return restore_ports(
         adapters,
-        preflight=lambda _tools: None,
+        preflight=preflight,
         free_bytes=lambda _path: 10**12,
         cutover_credentials=None if password is None else (lambda: password),
     )
@@ -375,8 +385,20 @@ def _no_snapshot(_scope: object) -> SnapshotResult:
     raise AssertionError(msg)
 
 
-def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
-    """One restore of ``spec.archive`` onto ``spec.site_root``, as the root would."""
+def restore(
+    spec: RestoreSpec,
+    wrap: Wrap = _identity,
+    *,
+    extra_tools: tuple[ToolRequirement, ...] = (),
+    preflight: Preflight = _no_preflight,
+    select: Callable[[AdapterSet], AdapterSet] | None = None,
+) -> ExecutionReport:
+    """One restore of ``spec.archive`` onto ``spec.site_root``, as the root would.
+
+    ``extra_tools`` reach the plan as the root's ``ext.required_tools()`` do;
+    ``preflight`` replaces the default no-op; ``select`` (``dry_run_adapters``,
+    say) is applied to the real set (E007-S01-004).
+    """
     if spec.state_home is not None:
         os.environ["XDG_STATE_HOME"] = spec.state_home
     secrets = SecretRegistry()
@@ -398,6 +420,8 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
         laid.write_bytes(body)
         site, _ = site_descriptor_from_archive_config(root.resolve(), config_file=laid)
     adapters, _journal = adapters_for(spec, secrets, wrap)
+    if select is not None:
+        adapters = select(adapters)
     files = LocalSiteFiles()
     location = site.database_location()
 
@@ -429,6 +453,7 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
         snapshot_dir=root.parent / "snapshots",
         config_dir=config_path.parent,
         config_policy=ConfigPolicy.KEEP,
+        extra_tools=extra_tools,
     )
     prior: dict[str, str | None] = dict.fromkeys(JOURNALED_CONSTANTS)
     if config_path.exists():
@@ -470,7 +495,7 @@ def restore(spec: RestoreSpec, wrap: Wrap = _identity) -> ExecutionReport:
         live_database_exists=target.database is not None
         and target.database.database_exists,
     )
-    ports = ports_for(spec, adapters)
+    ports = ports_for(spec, adapters, preflight)
     return execute_restore(
         plan,
         inputs,
