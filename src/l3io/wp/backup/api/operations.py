@@ -27,6 +27,14 @@ chain itself, ``note_unused_passphrase`` for an unencrypted backup, and
 ``drive_verify`` when authenticating); the drivers hand it to the credential
 builders.
 
+**Tracing (AD-24).** Each call hands the driver an
+``adapters/tracing.OpenTelemetryTracer``: inert unless the host configures an
+OpenTelemetry SDK, and then one root span per Run and one span per
+``phase_completed`` record, each nested in the span that encloses it (a
+joined Run opens no root of its own). No command line is placed on a span
+(``command_args=None``): a library call has none of its own. The CLI binds
+the no-op tracer.
+
 Pruning is FR-17 (v1.1): the CLI has no prune operation, so neither has this.
 """
 
@@ -42,6 +50,7 @@ from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.tracing import OpenTelemetryTracer
 from l3io.wp.backup.cli.backup import (
     BackupRequest,
     BackupResult,
@@ -174,7 +183,13 @@ def backup(
             extra_tools=extra_tools,
         )
     )
-    return drive_backup(request, ctx=context, secrets=registry, command_args=None)
+    return drive_backup(
+        request,
+        ctx=context,
+        tracer=OpenTelemetryTracer(),
+        secrets=registry,
+        command_args=None,
+    )
 
 
 def verify(
@@ -198,6 +213,7 @@ def verify(
     result = drive_verify(
         request,
         ctx=context,
+        tracer=OpenTelemetryTracer(),
         secrets=registry,
         command_args=None,
         passphrase=passphrase,
@@ -274,6 +290,12 @@ def restore(
         opted_out_by=SNAPSHOT_SKIPPED_BY,
         require_encrypted=require_encrypted,
     )
-    outcome = drive_restore(request, ctx=context, secrets=registry, command_args=None)
+    outcome = drive_restore(
+        request,
+        ctx=context,
+        tracer=OpenTelemetryTracer(),
+        secrets=registry,
+        command_args=None,
+    )
     require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
     return outcome
