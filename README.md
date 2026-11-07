@@ -200,8 +200,7 @@ restore mode:
 restore options:
   --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
                         change nothing (also accepted before `restore`)
-  --wp-config PATH      use this wp-config.php instead of searching for it (not available in this
-                        build)
+  --wp-config PATH      use this wp-config.php instead of searching for it
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
                         a mode that restores files)

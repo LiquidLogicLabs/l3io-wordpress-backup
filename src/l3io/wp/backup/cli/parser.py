@@ -70,8 +70,9 @@ RESTORE_OPTIONS_GROUP = "restore options"
 #: The administrator's password from the environment, not the command line.
 ADMIN_PASSWORD_VARIABLE = "L3IO_WP_BACKUP_ADMIN_PASSWORD"  # noqa: S105 - a name
 
-#: Why a relocation flag is refused. Each entry names its binder: the six
-#: ``--new-*`` flags were bound by E007-S01-001; ``--wp-config`` is E007-S01-002's.
+#: Why a relocation flag is refused while no restore extension is built in.
+#: The six ``--new-*`` flags were bound by E007-S01-001 and ``restore
+#: --wp-config`` by E007-S01-002; none is listed in NOT_YET_IMPLEMENTED.
 RELOCATION_UNAVAILABLE: Final = (
     "restoring to a new URL, database or wp-config.php location is not supported yet"
 )
@@ -90,7 +91,6 @@ NOT_AVAILABLE_NOTE: Final = "(not available in this build)"
 #: one exits ``USAGE`` naming both; the binding story removes its entries.
 NOT_YET_IMPLEMENTED: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "restore --wp-config": RELOCATION_UNAVAILABLE,  # E007-S01-002 binds it
         "restore --admin-credentials-aws-secret-id": _AWS_UNAVAILABLE,
         "restore --admin-credentials-aws-region": _AWS_UNAVAILABLE,
         "restore --db-credentials-aws-secret-id": _AWS_UNAVAILABLE,

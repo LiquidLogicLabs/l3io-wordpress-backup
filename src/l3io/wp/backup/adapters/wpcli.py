@@ -7,9 +7,10 @@
 
 * :meth:`~WpCliRestoreExtension.resolve` validates the relocation flags
   (``core/relocation.py``) and fills ``core/restore.py``'s
-  ``RestoreRelocation``: the URL keys ``REWRITE_CONFIG`` writes, and the
+  ``RestoreRelocation``: the URL keys ``REWRITE_CONFIG`` writes, the
   ``DB_*`` values ``LOAD_DUMP``'s cutover writes with the relocated load
-  location;
+  location, and where ``wp-config.php`` is laid down when the target has
+  none (FR-29, ``core/config_location.py``; E007-S01-002);
 * :meth:`~WpCliRestoreExtension.wordpress_spec` hands the relocated account to
   the composition root as an ``ExplicitCredentialSpec``; the root registers
   and resolves it. No ``l3io.wp.database`` type is named here;
@@ -62,7 +63,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final, NoReturn, Protocol
 
 import structlog
@@ -70,7 +71,16 @@ import structlog
 from l3io.wp.backup.adapters.database import database_location_from_db_host
 from l3io.wp.backup.adapters.journal import journal_directory
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.restore_runner import config_member
 from l3io.wp.backup.adapters.workspace import private_directories
+from l3io.wp.backup.core.config_location import (
+    ConfigFacts,
+    ConfigPlacement,
+    config_file,
+    existing_location,
+    manifest_location,
+    place_config,
+)
 from l3io.wp.backup.core.relocation import (
     RelocationRequest,
     nested,
@@ -88,17 +98,23 @@ from l3io.wp.backup.core.restore import (
     RestoreRelocation,
     planned_cutover_keys,
 )
-from l3io.wp.backup.domain.archive_format import ArchiveView
+from l3io.wp.backup.domain.archive_format import (
+    ArchiveView,
+    ConfigLocation,
+    MemberRole,
+)
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.errors import (
+    ConfigLocationConflictError,
     SearchReplaceIncompleteError,
     StoredUrlMissingError,
+    UsageError,
     WpCliConfigFoundError,
     WpCliFailedError,
     WpCliOutputUnrecognisedError,
 )
 from l3io.wp.backup.domain.preflight import ToolRequirement
-from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
+from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_files
 from l3io.wp.backup.domain.search_replace import (
     Replacement,
     SearchReplaceReport,
@@ -155,6 +171,9 @@ _AFTER_A_WRITE: Final = frozenset({"replace", "recount"})
 _VERSION_PREFIX: Final = "WP-CLI "
 #: The empty global config file ``WP_CLI_CONFIG_PATH`` names.
 _EMPTY_CONFIG: Final = "config.yml"
+#: The file ``wp-load.php`` looks for, and the one that marks an install.
+_CONFIG: Final = "wp-config.php"
+_SETTINGS: Final = "wp-settings.php"
 
 
 def wp_cli_environment(config_path: Path) -> dict[str, str]:
@@ -634,9 +653,8 @@ class WpCliRestoreExtension:
         ``--new-db-name``, the load location is parsed once by
         ``database_location_from_db_host`` (the one ``host:port`` splitter),
         defaulting each half to the Site's own; a bad host or name is its
-        ``UsageError``.
+        ``UsageError``. Then the config placement (:meth:`_config_file`).
         """
-        del files
         request = self._request
         validate_relocation(request, mode=mode)
         self._facts.archive_encrypted = view.encrypted
@@ -659,6 +677,13 @@ class WpCliRestoreExtension:
         if urls is not None:
             owed = owed_search_replace(site_root, urls, wp=self._wp)
             undo = (*undo, (RestorePhase.SEARCH_REPLACE, owed))
+        laid_down = self._config_file(
+            site_root=site_root,
+            view=view,
+            files=files,
+            mode=mode,
+            urls_relocated=urls is not None,
+        )
         relocation = RestoreRelocation(
             rewrite_values=rewrite_values(request),
             load_database=request.new_db_name,
@@ -667,8 +692,8 @@ class WpCliRestoreExtension:
             cutover_user=request.new_db_user,
             cutover_password=request.new_db_password is not None,
             search_replace=urls,
-            config_file=None,
-            lay_down_config=False,
+            config_file=laid_down,
+            lay_down_config=laid_down is not None,
             required_tools=(),
             actions=(),
             undo=undo,
@@ -676,7 +701,10 @@ class WpCliRestoreExtension:
         relocation = dataclasses.replace(
             relocation, actions=relocation_actions(relocation)
         )
-        if relocation != RestoreRelocation.none():
+        relocated = dataclasses.replace(
+            relocation, config_file=None, lay_down_config=False
+        )
+        if relocated != RestoreRelocation.none():
             # Logged as the relocation is resolved, before the survey and
             # FR-7's check: a Run refused after this still logged it.
             _log.info(
@@ -700,6 +728,113 @@ class WpCliRestoreExtension:
                 home_url_changed=request.new_home_url is not None,
             )
         return relocation
+
+    def _config_file(
+        self,
+        *,
+        site_root: Path,
+        view: ArchiveView,
+        files: SiteFilesQuery,
+        mode: RestoreMode,
+        urls_relocated: bool,
+    ) -> PurePosixPath | None:
+        """The file to lay ``wp-config.php`` down at, or ``None`` (FR-29).
+
+        ``None`` when the target already has the config WordPress reads (the
+        root located it at step 3 and it stands), when ``--wp-config`` named
+        one (used as given, overriding the search), or when nothing is laid
+        down. A Manifest ``config_path`` outside ``ConfigLocation`` is refused
+        whether or not ``--wp-config`` is given. The facts are what
+        ``locate_wp_config`` reads: a regular file (symlinks followed) at the
+        two places ``wp-load.php`` looks, and anything at
+        ``<root>/../wp-settings.php``. A lay-down is refused when anything at
+        all (a directory, a dangling symlink) is at its path. ``site_root`` is
+        the root's canonical Site Root.
+
+        A URL relocation whose ``--wp-config`` is not the file WordPress would
+        load is a ``UsageError``: WP-CLI's ``search-replace`` would bootstrap
+        from another config than the one rewritten, a partial relocation
+        (FR-13).
+        """
+        root = PurePosixPath(site_root)
+        in_root = site_root / _CONFIG
+        in_parent = site_root.parent / _CONFIG
+        by_role = any(m.role is MemberRole.CONFIG for m in view.members)
+        wanted = (
+            manifest_location(view.config_path)
+            if by_role and view.config_path is not None
+            else None
+        )
+        facts = ConfigFacts(
+            at_site_root=_regular_file(files, in_root),
+            at_parent=_regular_file(files, in_parent),
+            parent_has_wp_settings=files.file_exists(site_root.parent / _SETTINGS),
+        )
+        recorded = None if wanted is None else wanted.value
+        stated = self._request.wp_config
+        if stated is not None:
+            existing = existing_location(facts)
+            read = (
+                None
+                if existing is None
+                else Path(config_file(root, _existing(existing)))
+            )
+            loaded = read is not None and _same_file(read, Path(stated))
+            if urls_relocated and not loaded:
+                reads = "no wp-config.php" if read is None else str(read)
+                msg = (
+                    f"--wp-config {str(stated)!r} is not the file WordPress "
+                    f"loads for this Site ({reads}; it reads {in_root}, else "
+                    f"{in_parent}), so WP-CLI could not rewrite its URLs from "
+                    "it; nothing was changed"
+                )
+                raise UsageError(msg)
+            _log.info(
+                "config_located",
+                config_path=os.path.realpath(stated),
+                location=existing.value if loaded and existing else None,
+                action="use-existing",
+                source="stated",
+                manifest_config_path=recorded,
+            )
+            return None
+        placement = place_config(
+            recorded,
+            facts,
+            site_root=root,
+            restores_files=restores_files(mode),
+            archive_has_config=config_member(view) is not None,
+        )
+        path = config_file(root, placement)
+        if placement.action == "lay-down" and os.path.lexists(path):
+            raise ConfigLocationConflictError(
+                path,
+                "is there and is not a regular file, so wp-config.php cannot be "
+                "laid down at it",
+            )
+        _log.info(
+            "config_located",
+            config_path=str(path),
+            location=placement.location.value,
+            action=placement.action,
+            source=placement.source,
+            manifest_config_path=recorded,
+        )
+        return path if placement.action == "lay-down" else None
+
+
+def _existing(location: ConfigLocation) -> ConfigPlacement:
+    return ConfigPlacement(location=location, action="use-existing", source="target")
+
+
+def _regular_file(files: SiteFilesQuery, path: Path) -> bool:
+    """``locate_wp_config``'s test: a regular file, a symlink to one followed."""
+    return files.file_exists(path) and os.path.isfile(path)  # noqa: PTH113
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    """Whether two paths name one file, symlinks and ``..`` resolved."""
+    return os.path.realpath(left) == os.path.realpath(right)
 
 
 def restore_extension(

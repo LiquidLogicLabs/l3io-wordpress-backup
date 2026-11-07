@@ -757,3 +757,18 @@ resolved:
   resolved_at: '2026-11-07T03:23:02Z'
   ref: E007-S01-003
   note: "Owner decision O3 (a): every child process this package starts gets an explicit minimal env (adapters/wpcli.py: PATH, HOME, LC_ALL=C, WP_CLI_CONFIG_PATH; adapters/preflight.py probes: PATH, HOME, LC_ALL=C). Enforced by tests/contracts/test_child_env_explicit.py (AST guard over every module found by walking src/l3io/wp/backup, cross-checked against pkgutil; refuses missing/None env, env built from os.environ/getenv, value references, star imports; planted violations incl. a new module) and the sentinel leak tests in tests/adapters/test_wpcli.py (recording runner and the real run_child). The passphrase is NOT removed from os.environ. RESIDUAL: l3io-wordpress-database's own children (mysqldump, mysql, the age CLI backend) inherit the process environment; they run no site code (see BL-E004-055)."
+- key: BL-E003-056
+  epic: '003'
+  sprint: '02'
+  title: 'ADV-10 lay-down half: config written by relocation lay-down is outside the FR-7 guard/snapshot scope; needs Epic 7 (adapters/wpcli place_config) (remaining part of BL-E003-038)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-10. The --overwrite-wp-config half is fixed in E003-S02-006.
+  story: E007-S01-002
+  scheduled_at: '2026-11-06T12:13:20Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T05:04:47Z'
+  ref: E007-S01-002

@@ -1067,7 +1067,9 @@ def _surveyor(
         return TargetState(
             site_root_empty=files.is_empty(site_root),
             database=live,
-            config_exists=files.file_exists(target_config),
+            config_exists=files.file_exists(
+                Path(relocation.config_file or target_config)
+            ),
             site_root=PurePosixPath(site_root),
             site_root_entries=files.entry_count(site_root),
             database_location=location if live is not None else None,
@@ -1376,7 +1378,7 @@ def drive_restore(
             ),
             live_database_before=site.db_name,
             staging_database=staging,
-            wp_config_path=str(target_config),
+            wp_config_path=str(relocation.config_file or target_config),
             load_database=load,
             cutover_keys=planned_cutover_keys(relocation),
             cutover_targets=planned_cutover_targets(load, relocation),

@@ -46,6 +46,7 @@ __all__ = [
     "ArchiveWriteError",
     "BackupError",
     "CleanFailedError",
+    "ConfigLocationConflictError",
     "ConfigWriteFailedError",
     "CredentialsError",
     "DatabaseRefusedError",
@@ -81,6 +82,7 @@ __all__ = [
     "UnrecognisedArchiveError",
     "UnsafeCleanTargetError",
     "UnsafeMemberPathError",
+    "UnsupportedConfigLocationError",
     "UnsupportedFormatVersionError",
     "UnsupportedStorageSchemeError",
     "UsageError",
@@ -803,6 +805,39 @@ class WpCliConfigFoundError(RefusedError):
         super().__init__(
             f"refused to run WP-CLI: {str(path)!r} would configure it (it can load "
             "PHP); remove the file or run the restore from another state directory"
+        )
+
+
+class UnsupportedConfigLocationError(RefusedError):
+    """FR-29, AD-11: the Manifest's ``config_path`` is not a place WordPress reads.
+
+    ``value`` is the Manifest's text as found, and ``allowed`` the two
+    ``ConfigLocation`` values. The value is never joined to a path.
+    """
+
+    def __init__(self, value: str, *, allowed: tuple[str, ...]) -> None:
+        self.value = value
+        self.allowed = allowed
+        super().__init__(
+            f"refused: the Archive's Manifest records config_path {value!r}, "
+            f"which is not one of {', '.join(repr(a) for a in allowed)}; "
+            "nothing was changed"
+        )
+
+
+class ConfigLocationConflictError(RefusedError):
+    """FR-29: ``wp-config.php`` cannot be laid down where the Archive places it.
+
+    ``path`` is the file or directory in the way; ``reason`` says why. Raised
+    before any effect.
+    """
+
+    def __init__(self, path: PurePath, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(
+            f"refused to lay down wp-config.php: {str(path)!r} {reason}; "
+            "nothing was changed"
         )
 
 

@@ -3,8 +3,8 @@ next:
   '003': 117
   '004': 70
   '005': 14
-  '007': 3
-  '006': 6
+  '007': 6
+  '006': 8
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -1784,18 +1784,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-004.md
-- key: BL-E003-056
-  epic: '003'
-  sprint: '02'
-  title: 'ADV-10 lay-down half: config written by relocation lay-down is outside the FR-7 guard/snapshot scope; needs Epic 7 (adapters/wpcli place_config) (remaining part of BL-E003-038)'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-10. The --overwrite-wp-config half is fixed in E003-S02-006.
-  story: E007-S01-002
-  scheduled_at: '2026-11-06T12:13:20Z'
 - key: BL-E003-061
   epic: '003'
   sprint: '02'
@@ -2656,3 +2644,53 @@ backlog:
   severity: Low
   status: backlog
   description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
+- key: BL-E006-006
+  epic: '006'
+  sprint: '01'
+  title: 'E006-S01-004 R-002: no-SDK test compares only phase/outcome/exit_code of phase_completed records, not bytes or the other field values'
+  source: code-review (E006-S01-004)
+  source_phase: code-review
+  source_ref: E006-S01-004
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-004.md
+- key: BL-E006-007
+  epic: '006'
+  sprint: '01'
+  title: "E006-S01-004 R-003: no test that concurrent Runs (threads/asyncio) never carry each other's trace_id/span_id"
+  source: code-review (E006-S01-004)
+  source_phase: code-review
+  source_ref: E006-S01-004
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-004.md
+- key: BL-E007-003
+  epic: '007'
+  sprint: '01'
+  title: 'F-09: no rig test of a SITE_ROOT v1 Archive laid down by role into a config-less root (one write, tree copy excluded, journal steps)'
+  source: code-review (E007-S01-002)
+  source_phase: code-review
+  source_ref: E007-S01-002
+  severity: Low
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-002.md. Deferred: behaviour is built runner code exercised by E003 integration tests; test-only gap.'
+- key: BL-E007-004
+  epic: '007'
+  sprint: '01'
+  title: 'F-10: database-only Mode with PARENT Archive and no target config: NoConfigForCutoverError names only <root>/wp-config.php, not both searched paths'
+  source: code-review (E007-S01-002)
+  source_phase: code-review
+  source_ref: E007-S01-002
+  severity: Low
+  status: backlog
+  description: "See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-002.md. Deferred: the refusal text is core/restore.py (E003), outside this story's grant."
+- key: BL-E007-005
+  epic: '007'
+  sprint: '01'
+  title: 'F-11: wp-config.php / wp-settings.php names defined in several modules; export one constant next to ConfigLocation'
+  source: code-review (E007-S01-002)
+  source_phase: code-review
+  source_ref: E007-S01-002
+  severity: Low
+  status: backlog
+  description: "See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-002.md. Deferred: refactor touching domain/archive_format, adapters/database and core/restore, outside this story's files."

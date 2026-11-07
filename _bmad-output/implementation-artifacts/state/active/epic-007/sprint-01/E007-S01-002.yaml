@@ -3,8 +3,8 @@ epic: 'E007'
 sprint: 'S01'
 title: Restore a site whose config lives outside the site root
 classification: standard
-status: ready-for-dev
-updated_at: '2026-11-06T15:20:59Z'
+status: done
+updated_at: '2026-11-07T05:04:47Z'
 estimate:
   man_hours: 18.73
   hitl_hours: 0.0
@@ -35,3 +35,117 @@ depends_on:
 - 'E002-S01-010'
 - 'E002-S02-011'
 resolves: [BL-E003-056]
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy --strict src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy --strict src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy --strict src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy --strict src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 2
+  files_changed: 18
+actual:
+  elapsed_hours: 1.25
+  man_hours: 18
+  hitl_hours: 0
+  tokens_k:
+    total: 52390.78
+    input: 0.626
+    output: 260.084
+    cache_write: 1288.403
+    cache_read: 50841.668
+  cost: 39.98
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-07T05:04:46Z'

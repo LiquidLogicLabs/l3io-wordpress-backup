@@ -499,6 +499,54 @@ refused with this flag (exit 3; omit it to keep the target's), as is one whose
 Archive's copy is read into memory and written only once, over the target's
 file; no other copy of it is written, and a Dry Run writes none.
 
+### Where the config is, and where it is laid down
+
+WordPress reads `<Site Root>/wp-config.php`, else `<Site Root>/../wp-config.php`
+when the parent directory holds no `wp-settings.php` (a parent that holds one
+is another WordPress install). A restore finds the target's config the same
+way, or uses `--wp-config PATH` as given. The INFO record `config_located`
+names the file, its location (`wp-config.php` or `../wp-config.php`), and
+whether it was found on the target, recorded in the Manifest or defaulted.
+
+A Site that keeps its config one level up is backed up with that file as the
+Archive member `config/wp-config.php` (never a `../` path), and the Manifest
+records `config_path: "../wp-config.php"`. When the target has **no** config,
+a Mode that restores files lays the Archive's copy down where the Manifest
+says, before any constant is rewritten: restoring into `<dir>/public` writes
+`<dir>/wp-config.php` and nothing at `<dir>/public/wp-config.php`. The journal
+names that file, so `--resolve-interrupted-run` completes an interrupted
+cutover in it. A Dry Run prints `lay down <path>` and writes nothing.
+
+A target config WordPress reads is otherwise used as it is. Refused before
+anything is changed (exit 3):
+
+- a Manifest `config_path` other than those two values, with or without
+  `--wp-config`; it is never used as a path;
+- when the Manifest records `../wp-config.php` and the target has no config
+  WordPress reads: a parent directory that holds `wp-settings.php`;
+- when the Manifest records `../wp-config.php`: a parent `wp-config.php` next
+  to an existing `<Site Root>/wp-config.php` (WordPress reads the Site Root's,
+  so remove the one you do not mean);
+- anything that is not a regular file (a directory, a dangling symlink) where
+  the config would be laid down.
+
+A database-only Mode never lays a config down; with no target config it is
+refused as described under [A target with no `wp-config.php`](#a-target-with-no-wp-configphp).
+An Archive that records no location (a v0 Archive, or a v1 one made with a
+`--wp-config` outside both places) has its `wp-config.php` laid down at the
+default, `<Site Root>/wp-config.php`, by a Mode that restores files. With a URL relocation, a `--wp-config` that is not the file
+WordPress loads for the Site (the Site Root's when both exist) is refused as a
+usage error (exit 2), since WP-CLI would rewrite URLs from another config.
+
+The Site Lock covers the Site Root, not its parent: a `wp-config.php` created
+one level up after the checks and before the lay-down is not detected, and the
+lay-down overwrites it; it is in neither the pre-restore checks nor the Safety
+Snapshot.
+
+The laid-down file's mode is logged (INFO `config_laid_down`), with the
+WARNING `config_world_readable` when other users can read it: it holds
+`DB_PASSWORD`.
+
 ## Symlinks
 
 A symlink whose target is absolute or resolves outside the Site Root is **not

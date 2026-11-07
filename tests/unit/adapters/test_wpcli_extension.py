@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import itertools
+from pathlib import Path
 
 import pytest
 from structlog.testing import capture_logs
@@ -97,13 +98,24 @@ def _from(combo: tuple[str, ...]) -> RelocationFlags:
     return _flags(**{ATTRIBUTE[flag]: VALUES[ATTRIBUTE[flag]] for flag in combo})
 
 
+class _NoFiles:
+    """A target with no file at all (E007-S01-002's placement asks ``file_exists``)."""
+
+    def file_exists(self, path: Path) -> bool:
+        del path
+        return False
+
+
+NO_FILES = _NoFiles()
+
+
 def _resolve(flags: RelocationFlags, mode: RestoreMode) -> RestoreRelocation:
     extension = restore_extension(flags, secrets=SecretRegistry())
     return extension.resolve(
         site_root=SITE.site_root,  # type: ignore[arg-type]
         site=SITE,
         view=view(),
-        files=None,  # type: ignore[arg-type]
+        files=NO_FILES,  # type: ignore[arg-type]
         mode=mode,
     )
 
@@ -121,7 +133,8 @@ def test_every_new_flag_is_known_and_bound() -> None:
     assert set(RELOCATION_FLAGS) == fields
     unbound = [f for f in FLAGS if f"{RESTORE_COMMAND} {f}" in NOT_YET_IMPLEMENTED]
     assert unbound == []
-    assert f"{RESTORE_COMMAND} --wp-config" in NOT_YET_IMPLEMENTED
+    # E007-S01-002 bound --wp-config: it is a passthrough, not a --new-* flag.
+    assert f"{RESTORE_COMMAND} --wp-config" not in NOT_YET_IMPLEMENTED
 
 
 def test_relocation_flags_are_a_relocation_request() -> None:
@@ -228,9 +241,13 @@ def test_the_load_location_defaults_each_half_to_the_site() -> None:
         host="db.e007.example", port=3311, name=SITE.db_name
     )
     assert by_host.load_database is None
-    assert _resolve(RelocationFlags.none(), RestoreMode.ALL) == (
-        RestoreRelocation.none()
-    )
+    # No flag relocates nothing; the target here has no config, so the
+    # Archive's is laid down at the default (E007-S01-002), which is no relocation.
+    unrelocated = _resolve(RelocationFlags.none(), RestoreMode.ALL)
+    assert unrelocated.lay_down_config is True
+    assert dataclasses.replace(
+        unrelocated, config_file=None, lay_down_config=False
+    ) == (RestoreRelocation.none())
 
 
 @pytest.mark.parametrize(
@@ -284,7 +301,7 @@ def test_the_factory_registers_the_password_and_no_repr_holds_it(
             site_root=SITE.site_root,  # type: ignore[arg-type]
             site=SITE,
             view=view(),
-            files=None,  # type: ignore[arg-type]
+            files=NO_FILES,  # type: ignore[arg-type]
             mode=RestoreMode.ALL,
         )
     credential_sentinel.add_repr("RestoreRelocation", relocation)

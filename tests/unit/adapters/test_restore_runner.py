@@ -465,6 +465,47 @@ def test_a_lay_down_extracts_the_config_role_first(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize("mode", [0o640, 0o644], ids=["private", "world-readable"])
+def test_a_lay_down_logs_the_file_s_mode(tmp_path: Path, mode: int) -> None:
+    """E007-S01-002: ``config_laid_down`` (path, octal mode); WARNING if others read."""
+    archive = write_v1(tmp_path, config_role=True)
+    relocation = dataclasses.replace(RELOCATIONS["url-only"], lay_down_config=True)
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.ALL, relocation=relocation, real_files=True
+    )
+    h.config_path.unlink()
+    real_extract = LocalSiteFiles.extract
+
+    def extract(self: LocalSiteFiles, *args: object, **kwargs: object) -> object:
+        result = real_extract(self, *args, **kwargs)  # type: ignore[arg-type]
+        if h.config_path.exists():
+            h.config_path.chmod(mode)
+        return result
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(LocalSiteFiles, "extract", extract)
+        with capture_logs() as logs:
+            h.run()
+    (laid,) = [e for e in logs if e["event"] == "config_laid_down"]
+    assert laid["config_path"] == str(h.config_path)
+    assert laid["mode"] == f"{mode:04o}"
+    assert laid["duration_ms"] >= 0
+    warned = [e for e in logs if e["event"] == "config_world_readable"]
+    if mode & 0o004:
+        assert warned == [
+            {
+                "event": "config_world_readable",
+                "log_level": "warning",
+                "config_path": str(h.config_path),
+                "mode": f"{mode:04o}",
+            }
+        ]
+    else:
+        assert warned == []
+    body = h.config_path.read_text(encoding="utf-8")
+    assert all(body not in repr(e) for e in logs)
+
+
 def test_a_lay_down_of_an_in_root_config_arrives_with_the_tree(
     tmp_path: Path, archive: Path
 ) -> None:

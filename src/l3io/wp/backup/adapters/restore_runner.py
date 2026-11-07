@@ -45,6 +45,8 @@ from __future__ import annotations
 
 import contextlib
 import os
+import stat
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -746,6 +748,7 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
         run.journal.phase_started(RestorePhase.EXTRACT, f"config:{config_file}")
         run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG_STARTED)
     if by_role:
+        started = time.monotonic()
         laid = adapters.site_files_command.extract(
             inputs.archive,
             config_file.parent,
@@ -754,6 +757,7 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
             payload=run.payload,
         )
         record.bytes += laid.bytes
+        _log_laid_down(config_file, started)
         run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG)
     if restores_files(run.plan.mode):
         # The tree's copy is excluded when the target keeps its own, or when
@@ -778,6 +782,28 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
     if lay_down and not by_role:
         run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG)
     run.journal.phase_completed(RestorePhase.EXTRACT)
+
+
+def _log_laid_down(config_file: Path, started: float) -> None:
+    """FR-29: ``config_laid_down`` with the file's mode; WARNING if others can read it.
+
+    The file holds ``DB_PASSWORD``: its path and mode are logged, never its
+    content. Nothing is logged when no file was written (a no-op extraction).
+    """
+    try:
+        mode = stat.S_IMODE(os.stat(config_file).st_mode)  # noqa: PTH116
+    except OSError:
+        return
+    _log.info(
+        "config_laid_down",
+        config_path=str(config_file),
+        mode=f"{mode:04o}",
+        duration_ms=(time.monotonic() - started) * 1000,
+    )
+    if mode & stat.S_IROTH:
+        _log.warning(
+            "config_world_readable", config_path=str(config_file), mode=f"{mode:04o}"
+        )
 
 
 def _same_dir(left: Path, right: Path) -> bool:
