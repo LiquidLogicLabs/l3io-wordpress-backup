@@ -37,6 +37,8 @@ The pre-rewrite `wpconfigr` already separates a pure core (`WpConfigString`, ope
 | `adapters/` | Real implementations: subprocess, filesystem, tar, storage, secrets. **`WpConfigFile` lives here** | `domain/`, `ports/`, `core/` |
 | `cli/`, `api/` | Composition roots — bind adapters, build the Run Context, translate errors | all of the above |
 
+*(Amended 2026-11-07, ADR-0025, owner decision: `api/` composes through `cli/`'s drivers (`drive_backup`, `drive_verify`, `drive_restore`), so the library and the CLI run one sequence; `cli/` never imports `api/` (an import-linter contract). A neutral driver module is to be revisited after the first release, BL-E006-024.)*
+
 `adapters/` may import `core/`: `wpconfigr`'s `WpConfigFile` *subclasses* the pure `WpConfigString`, and an I/O shell wrapping a pure core is the paradigm working, not a violation. The forbidden direction is inward-facing — `domain/` and `core/` may never import `ports/`, `adapters/`, or a composition root.
 
 ## Invariants & Rules

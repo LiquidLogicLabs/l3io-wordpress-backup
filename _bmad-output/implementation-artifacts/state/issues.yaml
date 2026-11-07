@@ -4,7 +4,7 @@ next:
   '004': 70
   '005': 14
   '007': 21
-  '006': 24
+  '006': 25
   '008': 2
 backlog:
 - key: BL-E002-004
@@ -3020,5 +3020,12 @@ backlog:
   sprint: ''
   title: 'Stream-parse the Manifest so reading memory does not grow with the member count (owner decision E004 D2 (c), 2026-11-07: later, not v1; revisit when a site approaches the 256 MiB cap, about 1.5M files)'
   source: owner-decision (E004 D2)
+  severity: Low
+  status: backlog
+- key: BL-E006-024
+  epic: '006'
+  sprint: ''
+  title: 'After the first release: revisit ADR-0025 option b — move drive_backup/drive_verify/drive_restore from cli/ into a neutral module that cli/ and api/ both call (owner, 2026-11-07)'
+  source: owner-decision (ADR-0025)
   severity: Low
   status: backlog

@@ -1,6 +1,6 @@
 # ADR-0025: `api/` composes through the `cli/` drivers
 
-- **Status:** Proposed — awaiting the owner (it departs from the spine's AD-1). The built code already composes this way (E006-S01-001); the E006 closure recommends ratifying it.
+- **Status:** Accepted (Shawn, 2026-11-07: option a; revisit option b, a neutral driver module, after the first release — BL-E006-024)
 - **Date:** 2026-11-07
 - **Deciders:** E006 closure orchestrator
 - **Epic:** E006 (stories E006-S01-001, E006-S01-003)

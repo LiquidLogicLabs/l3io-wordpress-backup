@@ -32,7 +32,7 @@ which carries the invariants (`AD-n`). An ADR here records a *mechanism*; an `AD
 | [0022](0022-restore-planned-from-probe-executor-runs-every-phase.md) | A restore is planned from a probe; the executor runs every phase, in a Dry Run too | **Accepted** | AD-4, AD-13, AD-17 |
 | [0023](0023-target-wp-config-kept-unless-overwrite.md) | The target's `wp-config.php` is kept unless `--overwrite-wp-config` | **Accepted** | AD-18, AD-22 |
 | [0024](0024-one-encrypted-payload-passphrase-only.md) | One encrypted payload per Archive, passphrase only for v1 | **Accepted** | AD-6, AD-11, AD-21, AD-26 |
-| [0025](0025-api-composes-through-the-cli-drivers.md) | `api/` composes through the `cli/` drivers, not a second sequence | Proposed | AD-1, AD-16, AD-22 |
+| [0025](0025-api-composes-through-the-cli-drivers.md) | `api/` composes through the `cli/` drivers, not a second sequence | **Accepted** | AD-1, AD-16, AD-22 |
 
 The spine carries 30 invariants (AD-1..AD-30). AD-16..AD-21 came from the reviewer gate: Run Context, phase ordering, recoverability, Site Lock, atomic publication, streaming. AD-22..AD-24 came from the rewrite mandate: the CLI as a frozen contract, archive-format detection with permanent v0 reads, and API-only tracing. AD-25..AD-27 close the flag-to-mode map, the passphrase chain, and the PEP 420 namespace discipline. AD-28 and AD-29 came from the database work (GRANT escaping, administrator-answered existence); AD-30 records the git tag as the only version.
 
