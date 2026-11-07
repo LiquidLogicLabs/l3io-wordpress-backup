@@ -164,3 +164,14 @@ and `verify --authenticate` authenticates.
 **Revisit when:** an operator needs a restore that refuses an unauthenticated Archive. That
 would be an opt-in flag, for example `--require-authenticated`, added without changing the
 default.
+
+## Amendment — 2026-11-07: a passphrase means an encrypted Archive is expected (Shawn, E004 D1 option b)
+
+The 2026-11-06 waiver (an unauthenticated Archive restores with a warning) is narrowed in one
+case. When the operator supplies a passphrase explicitly (`--passphrase-file`, the prompt, or
+`L3IO_WP_BACKUP_PASSPHRASE`, through the one resolution chain), an unencrypted Archive is
+refused before any effect (`ArchiveNotEncryptedError`, exit 2), unless `--allow-unencrypted` is
+also given. That is the case where a plain Archive most likely means the encrypted one was swapped.
+With no passphrase the behaviour is unchanged (restore with the WARNING), and `--require-encrypted`
+keeps refusing a plain Archive outright. The library `restore()` takes the same rule through an
+`allow_unencrypted` keyword. **Owner:** E008-S01-001.
