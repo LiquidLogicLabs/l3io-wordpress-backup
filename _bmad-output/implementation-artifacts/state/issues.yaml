@@ -7,34 +7,10 @@ next:
   '006': 26
   '008': 32
 backlog:
-- key: BL-E002-004
-  epic: '002'
-  sprint: ''
-  title: README CLI usage generated from --help and checked in CI belongs with the epic that freezes the CLI surface
-  source: arch-gate AG-25 (l3io-arch-review)
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/arch/arch-gate-review.md (AG-25)
 - key: BL-E002-005
   epic: '002'
   sprint: ''
   title: 'Timestamp spelling differs: Manifest created_at uses +00:00 (S01-001), log records use Z (S01-004) — pick one per the Consistency Conventions'
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
-- key: BL-E002-006
-  epic: '002'
-  sprint: ''
-  title: domain/storage_target.parse_storage_target takes raw text but domain/ may not import urllib — parse in an adapter or pass parts, never hand-split URLs
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
-- key: BL-E002-007
-  epic: '002'
-  sprint: ''
-  title: "Stale cross-references: 'proposed story P3' is Epic 8 (E008-S01-001); S02-007 points at an old proposal instead of E002-S02-009; old sprint-split wording"
   source: arch-gate
   severity: Low
   status: backlog
@@ -47,62 +23,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
-- key: BL-E002-009
-  epic: '002'
-  sprint: ''
-  title: --wp-config validation vs Site Lock order differs between S01-001 and S01-004
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
-- key: BL-E002-010
-  epic: '002'
-  sprint: ''
-  title: RunContext.site_lock typed as the SiteLock port in S01-004 but holds a LockHandle in S02-008
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
-- key: BL-E002-011
-  epic: '002'
-  sprint: ''
-  title: S01-004 AC1 (Run ID across subprocess boundaries) depends on an upstream l3io-wp-database fix with no stated fallback
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
-- key: BL-E002-012
-  epic: '002'
-  sprint: ''
-  title: S02-008 test_site_lock_signals.py needs a blocking-hook test seam that no story defines
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
-- key: BL-E002-013
-  epic: '002'
-  sprint: ''
-  title: S01-001's LocalArchiveStore has no default verify; S01-001 does not say which verifier its root binds before S01-003 lands
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
-- key: BL-E002-014
-  epic: '002'
-  sprint: ''
-  title: 'Duplicated Spec pointer lines within one block (S01-001 #ad-6 and #ad-21, others)'
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
-- key: BL-E002-015
-  epic: '002'
-  sprint: ''
-  title: VERIFY and PUBLISH are separate BackupSteps each emitting phase_completed, but verification happens inside publish (S01-001/S01-002)
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
 - key: BL-E002-016
   epic: '002'
   sprint: ''
@@ -111,54 +31,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
-- key: BL-E002-017
-  epic: '002'
-  sprint: ''
-  title: WpConfigWriter.read_constants has no key restriction — AD-3 tension (Site Descriptor is the one parse of wp-config.php)
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
-- key: BL-E002-018
-  epic: '002'
-  sprint: ''
-  title: ADR-0015 says restore uses load(replace=); S02-007/S02-009 forbid replace= (it is a confirmation token in database) — fix ADR-0015's wording
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
-- key: BL-E002-019
-  epic: '002'
-  sprint: ''
-  title: UnboundSearchReplace.relocate_content raises a bare RuntimeError, which S01-005 classes as a non-BackupError defect
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
-- key: BL-E002-020
-  epic: '002'
-  sprint: ''
-  title: Manifest.source is a mutable dict on a frozen, slotted dataclass — not hashable or truly immutable
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
-- key: BL-E002-021
-  epic: '002'
-  sprint: ''
-  title: "E002-S01-006: ExplicitCredentialSpec.__repr__ in domain/ emits the literal '***', which its own test_single_redaction.py forbids outside adapters/redaction.py — omit the password from repr without the literal, keep the guard exemption-free"
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: New MINOR from the 2026-10-27 gate re-check (l3io-arch-review); see epic-002/arch/recheck-l3io-arch-review-2026-10-27.md.
-- key: BL-E002-022
-  epic: '002'
-  sprint: ''
-  title: 'E002-S01-005: phase() (adapters/phase.py) is said to take its exit code from exit_code_for (cli/exit.py); adapters/ may not import cli/ — read type(exc).exit_code directly'
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: New MINOR from the 2026-10-27 gate re-check (bmad-agent-architect); see epic-002/arch/recheck-bmad-agent-architect-2026-10-27.md.
 - key: BL-E002-023
   epic: '002'
   sprint: ''
@@ -171,16 +43,6 @@ backlog:
   epic: '003'
   sprint: ''
   title: "epics.md Epic List: add adapters/restore_runner.py and E003-S02-006's edit of cli/parser.py::NOT_YET_IMPLEMENTED to Epic 3's ownership notes"
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-005
-  epic: '003'
-  sprint: ''
-  title: 'E003-S01-002 L236: site_root_empty is not testable as written — state that is_empty means no directory entries, or name the excluded entry and its port argument'
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
@@ -201,36 +63,6 @@ backlog:
   epic: '003'
   sprint: ''
   title: "E003-S02-006 L67: v0 Archive config read uses a second read instead of ADR-0016's stored digest — record as accepted residual in ADR-0016"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-010
-  epic: '003'
-  sprint: ''
-  title: 'E003-S01-002: NonEmptyTargetError.part should be parts: tuple[...] (L234 vs L251, L266)'
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-011
-  epic: '003'
-  sprint: ''
-  title: "E003-S01-002 L231 and E003-S02-003 L54: 'story 3.1's OPEN on cli/restore.py' is resolved by E003-S02-006"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
-- key: BL-E003-012
-  epic: '003'
-  sprint: ''
-  title: 'E003-S01-001 L113: a Dry Run refusal cannot print a plan never built — state what is printed'
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
@@ -297,16 +129,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E003-022
-  epic: '003'
-  sprint: ''
-  title: 'E003-S01-001/E003-S02-006: no integration case for a target whose wp-config.php is one level up (PARENT), the AG-10 fix'
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
 - key: BL-E003-023
   epic: '003'
   sprint: ''
@@ -314,26 +136,6 @@ backlog:
   source: arch-gate (l3io-arch-review)
   source_phase: arch-gate
   source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E003-024
-  epic: '003'
-  sprint: ''
-  title: 'E002-S01-003: says a hard link is refused "in any position", but the decision is taken from data_filter, which allows in-root hard links — state which is meant'
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E003-025
-  epic: '003'
-  sprint: ''
-  title: "E003: RestorePorts' fields are not stated in one place, and no named carrier brings the Run's MemberCipher (Dump decryption) or SecretRegistry to the executor"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
@@ -347,90 +149,10 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E003-028
-  epic: '003'
-  sprint: ''
-  title: RestorePorts is now a cross-sprint contract (load_staged takes it) with no declared module or fields; cutover_credentials has no owner; Path is passed where PurePosixPath is typed (mypy --strict rejects) — E003-S01-001 L106
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
-- key: BL-E003-029
-  epic: '003'
-  sprint: ''
-  title: E003-S01-001 test_snapshot_location's "per-user default accepted" case relies on the default path sprint 02 (E003-S02-003/006) defines — give the test its own path
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
 - key: BL-E004-001
   epic: '004'
   sprint: ''
   title: epics.md Epic 4 header (L513) claims the v0 classifier in domain/archive_format; the Epic List note gives it to Epic 2 alone — fix the header
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-002
-  epic: '004'
-  sprint: ''
-  title: PRD FR-4 consequence 2 records algorithm/KDF/salt in the Manifest; ADR-0014 overrules it — add the amendment backlink under FR-4
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-003
-  epic: '004'
-  sprint: ''
-  title: "E004-S01-003 L88/L171: \"every non-link member encrypted: true\" contradicts ADR-0017's dir entries (encrypted: false) — say every payload file member"
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-004
-  epic: '004'
-  sprint: ''
-  title: E004-S01-003 committed-key guard (L147, L179) is worded inconsistently about tests/fixtures/ and has scope gaps — derive its scope, state the exemption once
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-005
-  epic: '004'
-  sprint: ''
-  title: 'E004-S01-002 L58: ownership of tests/contracts/test_supported_formats.py is left conditional — decide it'
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-006
-  epic: '004'
-  sprint: ''
-  title: 'Shared build files in phase 2: E004 and E005 both edit pyproject.toml, uv.lock and ci.yml — record the shared edits and an order'
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-007
-  epic: '004'
-  sprint: ''
-  title: E005-S01-002 L139/L141 still describe the superseded route (roots/RootPreflight append passphrase_backend_requirements) — now cipher.required_tools() via extra_tools
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
@@ -447,60 +169,10 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-009
-  epic: '004'
-  sprint: ''
-  title: VerifyRequest.cipher and --identity-file on verify have no defined effect; verification is keyless — remove or define
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-010
-  epic: '004'
-  sprint: ''
-  title: encryption_configured is "per Run" but build_member_cipher runs before open_run, so the record has no run_id — move the emission
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-011
-  epic: '004'
-  sprint: ''
-  title: 'E004-S01-003: nobody is stated to call AgeMemberCipher.check() — have build_member_cipher call it before returning'
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
 - key: BL-E004-012
   epic: '004'
   sprint: ''
   title: 'plan-2026-10-27-v2 phase 3: E006/E007 dependencies omit E004 although E006-S01-001 calls build_member_cipher'
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-013
-  epic: '004'
-  sprint: ''
-  title: 'E004-S01-002 test_no_v0_writer: literal grep also hits comments/docstrings and misses prefix stripping not using the domain constants'
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-014
-  epic: '004'
-  sprint: ''
-  title: E004-S01-002 released fixture (L55) needs network, MySQL and mysqldump for a 0.2.21 run — mark it the human-in-the-loop step explicitly
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
@@ -527,70 +199,10 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-017
-  epic: '004'
-  sprint: ''
-  title: E004-S01-003 §Non-goals L46 cites Epic 3 stories by old numbers — use E003-S01-001, E003-S02-003, E003-S02-006
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-018
-  epic: '004'
-  sprint: ''
-  title: 'E004-S01-001 L107/L119 bans a hand-listed set of pathspec I/O helpers — invert to an allow-list (rule 4: derive scope)'
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-019
-  epic: '004'
-  sprint: ''
-  title: E004-S01-001 two typing gaps (see reviewer file)
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-020
-  epic: '004'
-  sprint: ''
-  title: E004-S01-001 L87 says a Manifest over the cap fails before publishing; no E002 writer enforces a write-side cap
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
 - key: BL-E004-021
   epic: '004'
   sprint: ''
   title: E004-S01-002 L106 byte-identical .tar.gz across CI Pythons/OSes depends on the zlib build — compare decompressed members instead
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-022
-  epic: '004'
-  sprint: ''
-  title: E004-S01-002 v0 fixtures lack a hard-link member and a FIFO, which the legacy writer emits
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
-- key: BL-E004-023
-  epic: '004'
-  sprint: ''
-  title: E004-S01-002 L107(b) calls write_archive with a scope it does not take — drive TarArchiveWriter.write per BackupScope
   source: arch-gate (l3io-arch-review)
   source_phase: arch-gate
   source_ref: l3io-arch-review
@@ -627,16 +239,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-027
-  epic: '004'
-  sprint: ''
-  title: Restore resolves the passphrase on every run, so every interactive restore prompts (plain and v0 Archives too) — state it as intended or skip for unencrypted Archives
-  source: arch-gate (both)
-  source_phase: arch-gate
-  source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
 - key: BL-E004-028
   epic: '004'
   sprint: ''
@@ -644,16 +246,6 @@ backlog:
   source: arch-gate (both)
   source_phase: arch-gate
   source_ref: both
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-029
-  epic: '004'
-  sprint: ''
-  title: E004-S01-003 L187 says decrypt failures are tested "through the drivers", but no driver reaches a decrypt in E004's loop
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
@@ -671,26 +263,6 @@ backlog:
   epic: '004'
   sprint: ''
   title: E004-S01-001/-003 story depends_on omit E002-S01-004 (covered by the epic edge)
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-032
-  epic: '004'
-  sprint: ''
-  title: AGE_SHA256 not written into E004-S01-003 (architect computed cbe240…ac10 from GitHub; cross-check at implementation)
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-033
-  epic: '004'
-  sprint: ''
-  title: E004-S01-003 estimate dates from 2026-10-27 though largely rewritten — re-estimate
   source: arch-gate (bmad-agent-architect)
   source_phase: arch-gate
   source_ref: bmad-agent-architect
@@ -727,46 +299,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-037
-  epic: '004'
-  sprint: ''
-  title: 'E003-S02-006 L68: no-config path decrypts the payload twice to the same path; decrypt_payload does not say overwrite or refuse'
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-038
-  epic: '004'
-  sprint: ''
-  title: LoggedExclusionPolicy called frozen but holds a once-flag; direct library callers get no exclusion events; E006-S01-001 L132 names the old default
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-039
-  epic: '004'
-  sprint: ''
-  title: The f17170c CI step comment says "from the family index alone" but --index adds it ahead of PyPI
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E004-040
-  epic: '004'
-  sprint: ''
-  title: E002-S02-009 L97 still says "against the pinned v0.1.1" after the v0.1.2 bump
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
 - key: BL-E004-041
   epic: '004'
   sprint: ''
@@ -781,16 +313,6 @@ backlog:
   epic: '002'
   sprint: ''
   title: Manifest.payload is required but the manifest builder and no-op writer must create a Manifest before a payload exists — make it Optional or build it after the payload
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
-- key: BL-E002-025
-  epic: '002'
-  sprint: ''
-  title: Verification does not check that the payload member name matches Manifest.encrypted (payload.tar.gz vs payload.tar.gz.age)
   source: arch-gate (l3io-arch-review)
   source_phase: arch-gate
   source_ref: l3io-arch-review
@@ -837,16 +359,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
-- key: BL-E002-030
-  epic: '002'
-  sprint: ''
-  title: join_or_open does not forward dry_run to open_run
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
 - key: BL-E002-031
   epic: '002'
   sprint: ''
@@ -887,26 +399,6 @@ backlog:
   severity: Low
   status: backlog
   description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-06)
-- key: BL-E002-035
-  epic: '002'
-  sprint: '01'
-  title: dump_to maps database AccessDeniedError (privilege missing mid-session) to CredentialsError instead of DatabaseRefusedError(missing_privilege)
-  source: code-review (E002-S01-001)
-  source_phase: code-review
-  source_ref: E002-S01-001
-  severity: Low
-  status: backlog
-  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-07)
-- key: BL-E002-036
-  epic: '002'
-  sprint: '01'
-  title: Manifest reader accepts member paths not role-prefixed or escaping (../), unlike member_path
-  source: code-review (E002-S01-001)
-  source_phase: code-review
-  source_ref: E002-S01-001
-  severity: Low
-  status: backlog
-  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-08)
 - key: BL-E002-037
   epic: '002'
   sprint: '01'
@@ -927,16 +419,6 @@ backlog:
   severity: Low
   status: backlog
   description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-10)
-- key: BL-E002-039
-  epic: '002'
-  sprint: '01'
-  title: WpDatabase/IncludeEverything port conformance is claimed in docstrings but not type-checked
-  source: code-review (E002-S01-001)
-  source_phase: code-review
-  source_ref: E002-S01-001
-  severity: Low
-  status: backlog
-  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-11)
 - key: BL-E002-040
   epic: '002'
   sprint: '01'
@@ -1117,26 +599,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
-- key: BL-E002-061
-  epic: '002'
-  sprint: '01'
-  title: verify tar header memory bomb (389 KB archive -> 1.18 GB)
-  source: redteam (M1)
-  source_phase: redteam
-  source_ref: M1
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
-- key: BL-E002-062
-  epic: '002'
-  sprint: '01'
-  title: FIFO swapped in after walk hangs backup (tar.py open)
-  source: redteam (M2)
-  source_phase: redteam
-  source_ref: M2
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
 - key: BL-E002-063
   epic: '002'
   sprint: '01'
@@ -1177,26 +639,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/sprint-01/closure/redteam-report.md
-- key: BL-E002-067
-  epic: '002'
-  sprint: '01'
-  title: wp-config.php exclusion on restore compares names case-sensitively (AR-01)
-  source: adversarial (AR-01)
-  source_phase: adversarial
-  source_ref: AR-01
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/adversarial-review.md
-- key: BL-E002-068
-  epic: '002'
-  sprint: '01'
-  title: Extraction does not bound member size; compressed bomb passes verify (AR-02)
-  source: adversarial (AR-02)
-  source_phase: adversarial
-  source_ref: AR-02
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/adversarial-review.md
 - key: BL-E002-069
   epic: '002'
   sprint: '01'
@@ -1204,16 +646,6 @@ backlog:
   source: adversarial (AR-03-05)
   source_phase: adversarial
   source_ref: AR-03-05
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/adversarial-review.md
-- key: BL-E002-070
-  epic: '002'
-  sprint: '01'
-  title: Passphrase prompt has no confirmation or length check (AR-06); fix before E002-S02-011
-  source: adversarial (AR-06)
-  source_phase: adversarial
-  source_ref: AR-06
   severity: Medium
   status: backlog
   description: See epic-002/sprint-01/closure/adversarial-review.md
@@ -1347,16 +779,6 @@ backlog:
   severity: Low
   status: backlog
   description: F4 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
-- key: BL-E002-085
-  epic: '002'
-  sprint: '02'
-  title: test_no_restore_option_is_silently_accepted passes on any usage error, not specifically the NOT_YET_IMPLEMENTED refusal
-  source: code-review (E002-S02-011)
-  source_phase: code-review
-  source_ref: E002-S02-011
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
 - key: BL-E002-087
   epic: '002'
   sprint: '02'
@@ -1397,46 +819,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
-- key: BL-E002-092
-  epic: '002'
-  sprint: '02'
-  title: 'RunTerminated (SIGTERM) is an Exception: swallowed by tracer guard and exclusion decide'
-  source: adversarial (AD-1)
-  source_phase: adversarial
-  source_ref: AD-1
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
-- key: BL-E002-093
-  epic: '002'
-  sprint: '02'
-  title: No-op twins skip refusals the real adapters make (clean target, keep None, absent wp-config)
-  source: adversarial (AD-2)
-  source_phase: adversarial
-  source_ref: AD-2
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
-- key: BL-E002-094
-  epic: '002'
-  sprint: '02'
-  title: Site Lock is per OS user and keyed on path only; no database-keyed lock
-  source: adversarial (AD-3)
-  source_phase: adversarial
-  source_ref: AD-3
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
-- key: BL-E002-095
-  epic: '002'
-  sprint: '02'
-  title: No contract test that flags removed from NOT_YET_IMPLEMENTED are read by their driver
-  source: adversarial (AD-4)
-  source_phase: adversarial
-  source_ref: AD-4
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
 - key: BL-E002-096
   epic: '002'
   sprint: '02'
@@ -1447,16 +829,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
-- key: BL-E002-097
-  epic: '002'
-  sprint: '02'
-  title: Restore database account created at host % (network-reachable); revoke misses localhost
-  source: redteam (RT-1)
-  source_phase: redteam
-  source_ref: RT-1
-  severity: High
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
 - key: BL-E002-098
   epic: '002'
   sprint: '02'
@@ -1467,46 +839,6 @@ backlog:
   severity: High
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
-- key: BL-E002-099
-  epic: '002'
-  sprint: '02'
-  title: SIGTERM during set_constants loses the written-keys record; cutover half-done
-  source: redteam (RT-6)
-  source_phase: redteam
-  source_ref: RT-6
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
-- key: BL-E002-100
-  epic: '002'
-  sprint: '02'
-  title: Default backup from inside Site Root still collects earlier Archives (size doubles per run)
-  source: redteam (RT-1-self-inclusion)
-  source_phase: redteam
-  source_ref: RT-1-self-inclusion
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
-- key: BL-E002-101
-  epic: '002'
-  sprint: '02'
-  title: backup --whatIf after the subcommand is rejected with no hint
-  source: ux-review (UX-1)
-  source_phase: ux-review
-  source_ref: UX-1
-  severity: High
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
-- key: BL-E002-102
-  epic: '002'
-  sprint: '02'
-  title: Dry Run output not labelled as a plan; does not say write-time failures go undetected
-  source: ux-review (UX-2)
-  source_phase: ux-review
-  source_ref: UX-2
-  severity: High
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
 - key: BL-E002-103
   epic: '002'
   sprint: '02'
@@ -1547,26 +879,6 @@ backlog:
   kind: spec-proposal
   ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-01-2.md
   description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-23--archive-format-detection-is-explicit-and-one-way. From: _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/arch-drift-review.md.'
-- key: BL-E002-107
-  epic: '002'
-  sprint: ''
-  title: "Spec proposal: Each no-op command hard-codes the restore phase it belongs to. `adapters/phase.py::join_phase` joins only when the innermost open phase has that exact name; otherwise it opens a new phase and emits its own `phase_completed`. The AD-17 amendments (2026-10-20, 2026-10-27) put the `DB_*` cutover `set_constants` call inside `LOAD_DUMP`. AD-18.3 drops the database that loses the cutover after the load. So under the dry-run set, a cutover emits a `rewrite-config` record nested in `load-dump`, and a drop emits a `clean` record after `load-dump`. The real adapters emit no phase records at all. A Dry Run's phase sequence would then differ from the real Run's, and it would contradict the order that Epic 3's phase-sequence test asserts (\"no `DB_*` write precedes the end of the load\"). The adapter is deciding plan structure that belongs to the executor."
-  source: spec-sync (SD-02-1)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-02-1.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
-- key: BL-E002-108
-  epic: '002'
-  sprint: ''
-  title: 'Spec proposal: The parser docstring states that AD-22 preserves `python -m wpbackup2`. In practice the legacy `wpbackup2/` tree occupies that module name and is excluded from the wheel, so the invocation does not reach the new parser. The contract test carries a strict xfail. It is tracked only as BL-E002-086 ("no story owns it yet"). This hard-rule deviation of the frozen contract has no owner and no ADR.'
-  source: spec-sync (SD-02-2)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-02-2.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-22--the-cli-is-a-frozen-contract-the-python-api-is-not. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
 - key: BL-E002-109
   epic: '002'
   sprint: ''
@@ -1597,16 +909,6 @@ backlog:
   severity: Low
   status: backlog
   description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-3). '
-- key: BL-E002-113
-  epic: '002'
-  sprint: ''
-  title: cryptography is a mandatory dependency but nothing under src imports it
-  source: epic-arch-review (AD-4)
-  source_phase: epic-arch-review
-  source_ref: AD-4
-  severity: Low
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-4). '
 - key: BL-E002-118
   epic: '002'
   sprint: ''
@@ -1617,16 +919,6 @@ backlog:
   severity: Low
   status: backlog
   description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-5). '
-- key: BL-E002-119
-  epic: '002'
-  sprint: ''
-  title: Second SIGTERM interrupts finally that removes the plaintext workspace
-  source: epic-redteam (RT-6)
-  source_phase: epic-redteam
-  source_ref: RT-6
-  severity: Low
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-6). '
 - key: BL-E002-120
   epic: '002'
   sprint: ''
@@ -1637,16 +929,6 @@ backlog:
   severity: Low
   status: backlog
   description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-7). '
-- key: BL-E002-121
-  epic: '002'
-  sprint: ''
-  title: Plaintext Archive re-opened by path for extraction; extract_archive filters against the VERIFY-time view (swap window)
-  source: epic-redteam (RT-8)
-  source_phase: epic-redteam
-  source_ref: RT-8
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-8). Precondition for Epic 3.
 - key: BL-E003-030
   epic: '003'
   sprint: '01'
@@ -1715,16 +997,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R5)
-- key: BL-E003-043
-  epic: '003'
-  sprint: '02'
-  title: cutover_started:DB_PASSWORD is journaled before cutover_credentials() resolves; a credential failure leaves a misleading intent step
-  source: code-review (E003-S02-005)
-  source_phase: code-review
-  source_ref: E003-S02-005
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R6)
 - key: BL-E003-044
   epic: '003'
   sprint: '02'
@@ -1785,16 +1057,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
-- key: BL-E003-062
-  epic: '003'
-  sprint: '02'
-  title: 'L-3: rewritten test_no_restore_option_is_silently_accepted plants a violation of the rule, not its scope'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
 - key: BL-E003-063
   epic: '003'
   sprint: '02'
@@ -1809,16 +1071,6 @@ backlog:
   epic: '003'
   sprint: '02'
   title: "L-6: 'admin_tls is passed only by the restore root' is not guarded by a contract test"
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
-- key: BL-E003-065
-  epic: '003'
-  sprint: '02'
-  title: 'L-7: Safety Snapshot path carried to the operator only for BackupError failures, not all failures after SNAPSHOT (AG-15)'
   source: code-review (E003-S02-006)
   source_phase: code-review
   source_ref: E003-S02-006
@@ -1925,26 +1177,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-092
-  epic: '003'
-  sprint: '02'
-  title: _archive_config redundant unlink before O_EXCL masks a pre-existing file
-  source: adversarial (ADV-S02-14)
-  source_phase: adversarial
-  source_ref: ADV-S02-14
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-093
-  epic: '003'
-  sprint: '02'
-  title: drive_restore documented as never printing but prints warnings to stderr
-  source: adversarial (ADV-S02-15)
-  source_phase: adversarial
-  source_ref: ADV-S02-15
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-094
   epic: '003'
   sprint: '02'
@@ -1972,16 +1204,6 @@ backlog:
   source: adversarial (CR-S02-03)
   source_phase: adversarial
   source_ref: CR-S02-03
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-097
-  epic: '003'
-  sprint: '02'
-  title: Shared restore driver lives in cli/restore.py; add api-must-not-import-cli contract and ADR
-  source: arch-drift (SD-02-2)
-  source_phase: arch-drift
-  source_ref: SD-02-2
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
@@ -2105,16 +1327,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
-- key: BL-E003-110
-  epic: '003'
-  sprint: ''
-  title: 'AD-4: record where the shared restore driver lives and add the api-must-not-import-cli reasoning (layers contract makes them independent)'
-  source: epic-arch-review (AD-4)
-  source_phase: epic-arch-review
-  source_ref: AD-4
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
 - key: BL-E003-111
   epic: '003'
   sprint: ''
@@ -2122,16 +1334,6 @@ backlog:
   source: epic-arch-review (AD-5)
   source_phase: epic-arch-review
   source_ref: AD-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
-- key: BL-E003-112
-  epic: '003'
-  sprint: ''
-  title: 'AD-6: drive_restore docstring says it never prints but prints two warnings to stderr'
-  source: epic-arch-review (AD-6)
-  source_phase: epic-arch-review
-  source_ref: AD-6
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
@@ -2185,16 +1387,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-3)
-- key: BL-E004-044
-  epic: '004'
-  sprint: '01'
-  title: exclusions_applied once-flag is per LoggedExclusionPolicy instance, not per Run; E008-S01-001 must build one wrapper per Run
-  source: code-review (E004-S01-001)
-  source_phase: code-review
-  source_ref: E004-S01-001
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-4)
 - key: BL-E004-045
   epic: '004'
   sprint: '01'
@@ -2215,26 +1407,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-7)
-- key: BL-E005-001
-  epic: '005'
-  sprint: '01'
-  title: credential_source_selected is logged on every resolve(), not once per Run (story says one INFO record)
-  source: code-review (E005-S01-001)
-  source_phase: code-review
-  source_ref: E005-S01-001
-  severity: Low
-  status: backlog
-  description: Review F-3. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. Either log once per wrapper or amend the AC to per-resolution and assert the count in tests/integration/test_credential_sources.py.
-- key: BL-E005-002
-  epic: '005'
-  sprint: '01'
-  title: require_wp_config_credentials reads os.environ inside adapters/ to name a half-set variable; pass environ from cli/backup.py instead
-  source: code-review (E005-S01-001)
-  source_phase: code-review
-  source_ref: E005-S01-001
-  severity: Low
-  status: backlog
-  description: Review F-5. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. cli/backup.py:630 already holds os.environ; that call site was outside this story's grant. E008-S01-001 edits the CLI seam and can take it.
 - key: BL-E004-048
   epic: '004'
   sprint: '01'
@@ -2305,36 +1477,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
-- key: BL-E005-011
-  epic: '005'
-  sprint: '01'
-  title: Region error names unbound CLI flags to a library caller (adversarial A-5, review F-4)
-  source: epic-arch-review (A-5)
-  source_phase: epic-arch-review
-  source_ref: A-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
-- key: BL-E005-012
-  epic: '005'
-  sprint: '01'
-  title: E008-S01-001 specifies BinaryPreflight(environ=) but built class takes cwd and no environ (arch AD-3)
-  source: epic-arch-review (AD-3)
-  source_phase: epic-arch-review
-  source_ref: AD-3
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
-- key: BL-E005-013
-  epic: '005'
-  sprint: ''
-  title: 'Spec proposal: The whole epic S01-002 deliverable has no production consumer. `grep` finds `BinaryPreflight`, `diagnose` and `unsupported_platform` referenced only inside `adapters/preflight.py` and tests. Every root still binds `DumpReadinessPreflight`, which resolves non-dump tools with `shutil.which` and never probes versions, so a requirement with a minimum fails as "unusable (version unknown)". Windows is refused nowhere. The only proof is `test_binary_preflight_refusal.py`, which injects `preflight=` by hand. The wiring is deferred to E008-S01-001 by an *orchestrator* decision ("the owner may overrule"), not an owner decision, and nothing mechanical forces E008 to deliver it. Rule 3 and 4: the guard proves the seam, not the reach.'
-  source: spec-sync (AD-1)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-005/epic-closure/spec-proposals/AD-1.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-005/epic-closure/arch-drift-review.md.'
 - key: BL-E004-049
   epic: '004'
   sprint: '01'
@@ -2395,26 +1537,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
-- key: BL-E004-057
-  epic: '004'
-  sprint: ''
-  title: 'AR-2: database extra depends on l3io-age-passphrase and sibling packages not published on PyPI; open release gate before any tag'
-  source: epic-adversarial (AR-2)
-  source_phase: epic-adversarial
-  source_ref: AR-2
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
-- key: BL-E004-058
-  epic: '004'
-  sprint: ''
-  title: 'AR-4: cryptography is a core dependency nothing imports; remove from pyproject (needs the pyproject owner)'
-  source: epic-adversarial (AR-4)
-  source_phase: epic-adversarial
-  source_ref: AR-4
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
 - key: BL-E004-059
   epic: '004'
   sprint: ''
@@ -2485,16 +1607,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
-- key: BL-E004-066
-  epic: '004'
-  sprint: ''
-  title: 'AD-2: README tool table says age has no plan in this build; register passphrase_backend_requirements in DOCUMENTED_REQUIREMENT_SOURCES'
-  source: epic-arch-review (AD-2)
-  source_phase: epic-arch-review
-  source_ref: AD-2
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
 - key: BL-E004-067
   epic: '004'
   sprint: ''
@@ -2535,16 +1647,6 @@ backlog:
   severity: Low
   status: backlog
   description: "Deferred: the real output can only be captured where wp, php-mysql and MySQL exist (CI, from this story's ci.yml change); see _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-003.md (L3, H3 item 3)"
-- key: BL-E006-001
-  epic: '006'
-  sprint: '01'
-  title: api.restore copies run_restore's new_db_password registration and its --new-db-password label (F-5)
-  source: code-review (E006-S01-001)
-  source_phase: code-review
-  source_ref: E006-S01-001
-  severity: Low
-  status: backlog
-  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
 - key: BL-E006-002
   epic: '006'
   sprint: '01'
@@ -2735,16 +1837,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-- key: BL-E006-009
-  epic: '006'
-  sprint: ''
-  title: 'api: secrets are plain str in traceback frames; consider an opaque Secret wrapper for passphrase and ExplicitCredentialSpec.password'
-  source: epic-adversarial (AR-4)
-  source_phase: epic-adversarial
-  source_ref: AR-4
-  severity: Medium
-  status: backlog
-  description: Documented in docs/api.md; owner decision OD-4. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
 - key: BL-E006-010
   epic: '006'
   sprint: ''
@@ -2755,26 +1847,6 @@ backlog:
   severity: Medium
   status: backlog
   description: Documented in docs/api.md and ADR-0011 amendment. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
-- key: BL-E006-011
-  epic: '006'
-  sprint: ''
-  title: backup(target=None) writes the archive to the host's current directory; make target required for the library
-  source: epic-redteam (RT-6)
-  source_phase: epic-redteam
-  source_ref: RT-6
-  severity: Low
-  status: backlog
-  description: Owner decision OD-3. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
-- key: BL-E006-012
-  epic: '006'
-  sprint: ''
-  title: 'api: context= is public but no public opener exists; remove the parameter or export the opener'
-  source: epic-adversarial (AR-12)
-  source_phase: epic-adversarial
-  source_ref: AR-12
-  severity: Low
-  status: backlog
-  description: Owner decision OD-5. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
 - key: BL-E006-013
   epic: '006'
   sprint: ''
@@ -2815,16 +1887,6 @@ backlog:
   severity: Low
   status: backlog
   description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
-- key: BL-E006-017
-  epic: '006'
-  sprint: ''
-  title: ExplicitCredentialSpec, RelocationFlags and PassphraseCipher pickle and asdict plain-str secrets; add __reduce__ guard like SecretRegistry
-  source: epic-adversarial (AR-10)
-  source_phase: epic-adversarial
-  source_ref: AR-10
-  severity: Low
-  status: backlog
-  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
 - key: BL-E006-018
   epic: '006'
   sprint: ''
@@ -2855,16 +1917,6 @@ backlog:
   severity: Low
   status: backlog
   description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md'
-- key: BL-E006-021
-  epic: '006'
-  sprint: ''
-  title: Move api composition off cli/ drivers into a neutral module (ADR-0025 revisit)
-  source: epic-arch-review (AD-1)
-  source_phase: epic-arch-review
-  source_ref: AD-1
-  severity: Low
-  status: backlog
-  description: ADR-0025 accepts the current layering. See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
 - key: BL-E006-022
   epic: '006'
   sprint: ''

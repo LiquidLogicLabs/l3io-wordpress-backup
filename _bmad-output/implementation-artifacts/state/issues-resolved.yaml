@@ -961,3 +961,1338 @@ resolved:
   resolved_at: '2026-11-07T20:38:27Z'
   ref: E008-S01-001
   note: 'E008 closure: wp probe starts from / (cli/preflight.PROBE_DIRECTORY); regression test in tests/unit/cli/test_root_preflight.py'
+- key: BL-E002-097
+  epic: '002'
+  sprint: '02'
+  title: Restore database account created at host % (network-reachable); revoke misses localhost
+  source: redteam (RT-1)
+  source_phase: redteam
+  source_ref: RT-1
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+  resolution: wontfix
+  resolved_at: '2026-11-07T21:04:01Z'
+  ref: RT-S02-004
+  note: "Owner decision RT-S02-004 (Shawn 2026-11-06, option A): the WordPress account stays USER@'%' so WordPress can reach it from another host; an existing account is not reset without --reset-existing-db-user. Recorded in docs/restore.md:131-136, cli/restore.py ExistingDatabaseUserError docstring (:595), tests/unit/cli/test_restore_root.py:497; code adapters/database.py:147 _ANY_HOST. Revoke acts on the same '%' account the restore created."
+- key: BL-E006-011
+  epic: '006'
+  sprint: ''
+  title: backup(target=None) writes the archive to the host's current directory; make target required for the library
+  source: epic-redteam (RT-6)
+  source_phase: epic-redteam
+  source_ref: RT-6
+  severity: Low
+  status: resolved
+  description: Owner decision OD-3. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:04:40Z'
+  ref: '14029e8'
+  note: target is a required keyword-only parameter of api.backup (src/l3io/wp/backup/api/operations.py:143); no cwd default remains. Commit 14029e8 (E008-S01-001).
+- key: BL-E006-012
+  epic: '006'
+  sprint: ''
+  title: 'api: context= is public but no public opener exists; remove the parameter or export the opener'
+  source: epic-adversarial (AR-12)
+  source_phase: epic-adversarial
+  source_ref: AR-12
+  severity: Low
+  status: resolved
+  description: Owner decision OD-5. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:04:42Z'
+  ref: '14029e8'
+  note: context= removed from api.backup/verify/restore (operations.py signatures, no context parameter); docs/api.md:558 records removal before v1; re-adding tracked by BL-E006-025. Commit 14029e8.
+- key: BL-E006-017
+  epic: '006'
+  sprint: ''
+  title: ExplicitCredentialSpec, RelocationFlags and PassphraseCipher pickle and asdict plain-str secrets; add __reduce__ guard like SecretRegistry
+  source: epic-adversarial (AR-10)
+  source_phase: epic-adversarial
+  source_ref: AR-10
+  severity: Low
+  status: resolved
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+  resolution: fixed
+  resolved_at: '2026-11-07T21:04:44Z'
+  ref: '14029e8'
+  note: Secret refuses pickling (domain/secret.py:51 __reduce__); ExplicitCredentialSpec.password (domain/credentials.py:62-67), RelocationFlags.new_db_password (cli/restore.py:687-693) and PassphraseCipher (adapters/crypto.py:128) all hold a Secret. Commit 14029e8.
+- key: BL-E006-021
+  epic: '006'
+  sprint: ''
+  title: Move api composition off cli/ drivers into a neutral module (ADR-0025 revisit)
+  source: epic-arch-review (AD-1)
+  source_phase: epic-arch-review
+  source_ref: AD-1
+  severity: Low
+  status: resolved
+  description: ADR-0025 accepts the current layering. See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
+  resolution: duplicate
+  resolved_at: '2026-11-07T21:04:50Z'
+  ref: BL-E006-024
+  note: duplicate of BL-E006-024
+- key: BL-E003-092
+  epic: '003'
+  sprint: '02'
+  title: _archive_config redundant unlink before O_EXCL masks a pre-existing file
+  source: adversarial (ADV-S02-14)
+  source_phase: adversarial
+  source_ref: ADV-S02-14
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-07T21:04:57Z'
+  ref: 91f8222
+  note: _archive_config (adapters/restore_runner.py:836) reads the config member into memory; no unlink/O_EXCL workspace copy remains (BL-E003-057, 91f8222)
+- key: BL-E003-093
+  epic: '003'
+  sprint: '02'
+  title: drive_restore documented as never printing but prints warnings to stderr
+  source: adversarial (ADV-S02-15)
+  source_phase: adversarial
+  source_ref: ADV-S02-15
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-07T21:04:59Z'
+  ref: '14029e8'
+  note: cli/restore.py:1160-1166 drive_restore takes on_warning and its docstring states notices go to the sink or stderr via cli/output.emit_warning
+- key: BL-E003-112
+  epic: '003'
+  sprint: ''
+  title: 'AD-6: drive_restore docstring says it never prints but prints two warnings to stderr'
+  source: epic-arch-review (AD-6)
+  source_phase: epic-arch-review
+  source_ref: AD-6
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:05:01Z'
+  ref: '14029e8'
+  note: 'cli/restore.py:1160-1166 drive_restore docstring corrected: notices routed via on_warning/emit_warning (cli/output.py:55); ADR-0025 consequences list the stderr notices'
+- key: BL-E004-044
+  epic: '004'
+  sprint: '01'
+  title: exclusions_applied once-flag is per LoggedExclusionPolicy instance, not per Run; E008-S01-001 must build one wrapper per Run
+  source: code-review (E004-S01-001)
+  source_phase: code-review
+  source_ref: E004-S01-001
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-4)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:05:03Z'
+  ref: '14029e8'
+  note: api/operations.py:132-135 wraps per call; cli/backup.py:218-228 default_exclusion_policy builds a fresh LoggedExclusionPolicy per call (once per Run)
+- key: BL-E003-097
+  epic: '003'
+  sprint: '02'
+  title: Shared restore driver lives in cli/restore.py; add api-must-not-import-cli contract and ADR
+  source: arch-drift (SD-02-2)
+  source_phase: arch-drift
+  source_ref: SD-02-2
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: wontfix
+  resolved_at: '2026-11-07T21:05:05Z'
+  note: 'ADR-0025 (docs/adr/0025-api-composes-through-the-cli-drivers.md, owner 2026-11-07, option a): driver stays in cli/, api composes through it; an api-must-not-import-cli contract would contradict it. Neutral module revisited post-release (BL-E006-024)'
+- key: BL-E003-110
+  epic: '003'
+  sprint: ''
+  title: 'AD-4: record where the shared restore driver lives and add the api-must-not-import-cli reasoning (layers contract makes them independent)'
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+  resolution: wontfix
+  resolved_at: '2026-11-07T21:05:07Z'
+  note: ADR-0025 records where the shared restore driver lives and why api/ imports cli/ (owner decision 2026-11-07); no api->cli contract by design; revisit tracked in BL-E006-024/021
+- key: BL-E005-002
+  epic: '005'
+  sprint: '01'
+  title: require_wp_config_credentials reads os.environ inside adapters/ to name a half-set variable; pass environ from cli/backup.py instead
+  source: code-review (E005-S01-001)
+  source_phase: code-review
+  source_ref: E005-S01-001
+  severity: Low
+  status: resolved
+  description: Review F-5. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. cli/backup.py:630 already holds os.environ; that call site was outside this story's grant. E008-S01-001 edits the CLI seam and can take it.
+  resolution: duplicate
+  resolved_at: '2026-11-07T21:05:14Z'
+  ref: BL-E005-007
+  note: duplicate of BL-E005-007 (same unset_partner(os.environ) read at adapters/database.py:558; 007 is the fuller item)
+- key: BL-E005-001
+  epic: '005'
+  sprint: '01'
+  title: credential_source_selected is logged on every resolve(), not once per Run (story says one INFO record)
+  source: code-review (E005-S01-001)
+  source_phase: code-review
+  source_ref: E005-S01-001
+  severity: Low
+  status: resolved
+  description: Review F-3. See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-001.md. Either log once per wrapper or amend the AC to per-resolution and assert the count in tests/integration/test_credential_sources.py.
+  resolution: duplicate
+  resolved_at: '2026-11-07T21:05:16Z'
+  ref: BL-E005-008
+  note: duplicate of BL-E005-008 (same credential_source_selected per-resolve log, adapters/database.py:656; 008 is the fuller item)
+- key: BL-E005-011
+  epic: '005'
+  sprint: '01'
+  title: Region error names unbound CLI flags to a library caller (adversarial A-5, review F-4)
+  source: epic-arch-review (A-5)
+  source_phase: epic-arch-review
+  source_ref: A-5
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+  resolution: fixed
+  resolved_at: '2026-11-07T21:05:45Z'
+  ref: '14029e8'
+  note: E008-S01-001 bound the AWS region flags (parser.py:93-97 NOT_YET_IMPLEMENTED no longer lists them; cli/credentials.py:63; test_new_db_password.py test_run_restore_builds_the_wordpress_aws_spec) and the region error names both the flag and AwsSecretCredentialSpec.region (adapters/database.py:639-640).
+- key: BL-E005-012
+  epic: '005'
+  sprint: '01'
+  title: E008-S01-001 specifies BinaryPreflight(environ=) but built class takes cwd and no environ (arch AD-3)
+  source: epic-arch-review (AD-3)
+  source_phase: epic-arch-review
+  source_ref: AD-3
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+  resolution: fixed
+  resolved_at: '2026-11-07T21:05:47Z'
+  ref: 8dbdb82
+  note: 'E008-S01-001 story corrected by the E008 arch gate: stories/E008-S01-001.md:140-142 supersedes BinaryPreflight(environ=os.environ) with BinaryPreflight(cwd=run.workspace), built as such (cli/preflight.py:197).'
+- key: BL-E006-001
+  epic: '006'
+  sprint: '01'
+  title: api.restore copies run_restore's new_db_password registration and its --new-db-password label (F-5)
+  source: code-review (E006-S01-001)
+  source_phase: code-review
+  source_ref: E006-S01-001
+  severity: Low
+  status: resolved
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:05:49Z'
+  ref: '14029e8'
+  note: api/operations.py:296-305 calls the shared cli/credentials.py new_db_password (explicit_source='RelocationFlags.new_db_password', cli/credentials.py:159) instead of copying run_restore's registration and flag label.
+- key: BL-E004-066
+  epic: '004'
+  sprint: ''
+  title: 'AD-2: README tool table says age has no plan in this build; register passphrase_backend_requirements in DOCUMENTED_REQUIREMENT_SOURCES'
+  source: epic-arch-review (AD-2)
+  source_phase: epic-arch-review
+  source_ref: AD-2
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:05:51Z'
+  ref: '14029e8'
+  note: adapters/preflight.py:207-214 registers WP_CLI_REQUIREMENT and passphrase_backend_requirements in DOCUMENTED_REQUIREMENT_SOURCES; README.md:37 lists age 1.3 and no longer says no plan in this build.
+- key: BL-E002-085
+  epic: '002'
+  sprint: '02'
+  title: test_no_restore_option_is_silently_accepted passes on any usage error, not specifically the NOT_YET_IMPLEMENTED refusal
+  source: code-review (E002-S02-011)
+  source_phase: code-review
+  source_ref: E002-S02-011
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
+  resolution: obsolete
+  resolved_at: '2026-11-07T21:06:06Z'
+  ref: '14029e8'
+  note: test_no_restore_option_is_silently_accepted no longer exists; replaced by AST-based per-subcommand test_no_option_is_silently_accepted (tests/contracts/test_not_yet_implemented.py:306), which does not rely on a usage-error code
+- key: BL-E003-062
+  epic: '003'
+  sprint: '02'
+  title: 'L-3: rewritten test_no_restore_option_is_silently_accepted plants a violation of the rule, not its scope'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:08Z'
+  ref: '14029e8'
+  note: 'scope attacks now exist: test_a_subcommand_missing_from_the_map_is_caught (tests/contracts/test_not_yet_implemented.py:317) and test_a_planted_unread_option_is_caught per subcommand (:325); each command reads only its own root module'
+- key: BL-E003-065
+  epic: '003'
+  sprint: '02'
+  title: 'L-7: Safety Snapshot path carried to the operator only for BackupError failures, not all failures after SNAPSHOT (AG-15)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:10Z'
+  ref: e767a66
+  note: restore.py:1524-1527 'except BaseException' calls _carry_snapshot for any escaping error (BL-E003-074/ADV-S02-06), not only BackupError
+- key: BL-E003-043
+  epic: '003'
+  sprint: '02'
+  title: cutover_started:DB_PASSWORD is journaled before cutover_credentials() resolves; a credential failure leaves a misleading intent step
+  source: code-review (E003-S02-005)
+  source_phase: code-review
+  source_ref: E003-S02-005
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R6)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:12Z'
+  ref: e767a66
+  note: staging.py:412-413 resolves _cutover_value before journaling STEP_CUTOVER_STARTED
+- key: BL-E002-025
+  epic: '002'
+  sprint: ''
+  title: Verification does not check that the payload member name matches Manifest.encrypted (payload.tar.gz vs payload.tar.gz.age)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:13Z'
+  ref: d8a52c5
+  note: core/verify.py:84-88 compares payload.name with the constant for encrypted (UNREADABLE); tests/unit/core/test_verify.py:213 pins it
+- key: BL-E002-113
+  epic: '002'
+  sprint: ''
+  title: cryptography is a mandatory dependency but nothing under src imports it
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: resolved
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-4). '
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:15Z'
+  ref: 3f29b0d
+  note: cryptography no longer in [project].dependencies (pyproject.toml); only the import-linter forbidden list names it (pyproject.toml:360)
+- key: BL-E002-030
+  epic: '002'
+  sprint: ''
+  title: join_or_open does not forward dry_run to open_run
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:16Z'
+  ref: 2d9987c
+  note: cli/context.py:315 join_or_open takes dry_run and forwards it to open_run at :355
+- key: BL-E002-121
+  epic: '002'
+  sprint: ''
+  title: Plaintext Archive re-opened by path for extraction; extract_archive filters against the VERIFY-time view (swap window)
+  source: epic-redteam (RT-8)
+  source_phase: epic-redteam
+  source_ref: RT-8
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-8). Precondition for Epic 3.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:18Z'
+  ref: 02b9752
+  note: cli/restore.py:897 _bind_archive copies the Archive into the private workspace; every later read is of that copy (RT-001)
+- key: BL-E002-035
+  epic: '002'
+  sprint: '01'
+  title: dump_to maps database AccessDeniedError (privilege missing mid-session) to CredentialsError instead of DatabaseRefusedError(missing_privilege)
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: resolved
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-07)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:20Z'
+  ref: 825c31f
+  note: adapters/database.py:817-819 maps AccessDeniedError to DatabaseRefusedError(missing_privilege); tests/adapters/test_database_backup.py:212 pins it
+- key: BL-E002-036
+  epic: '002'
+  sprint: '01'
+  title: Manifest reader accepts member paths not role-prefixed or escaping (../), unlike member_path
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: resolved
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-08)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:22Z'
+  ref: d8a52c5
+  note: 'Verification rejects unsafe or non-role-prefixed member paths: core/verify.py:106 is_safe_member_path (domain/archive_format.py:827), UNSAFE_MEMBER_PATH; tests/unit/core/test_verify.py:131'
+- key: BL-E002-039
+  epic: '002'
+  sprint: '01'
+  title: WpDatabase/IncludeEverything port conformance is claimed in docstrings but not type-checked
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: resolved
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-11)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:06:24Z'
+  ref: 5a3aadb
+  note: 'port conformance is mypy-checked: cli/adapter_sets.py:168-169 assigns WpDatabase to DatabaseQuery/DatabaseCommand fields of AdapterSet (ports/adapter_set.py:43-44); cli/restore.py:1461 passes INCLUDE_EVERYTHING as an ExclusionPolicy argument'
+- key: BL-E002-119
+  epic: '002'
+  sprint: ''
+  title: Second SIGTERM interrupts finally that removes the plaintext workspace
+  source: epic-redteam (RT-6)
+  source_phase: epic-redteam
+  source_ref: RT-6
+  severity: Low
+  status: resolved
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-6). '
+  resolution: duplicate
+  resolved_at: '2026-11-07T21:06:26Z'
+  ref: BL-E002-081
+  note: duplicate of BL-E002-081 (same second-SIGTERM-during-cleanup finding; cli/__init__.py _terminate unchanged)
+- key: BL-E004-002
+  epic: '004'
+  sprint: ''
+  title: PRD FR-4 consequence 2 records algorithm/KDF/salt in the Manifest; ADR-0014 overrules it — add the amendment backlink under FR-4
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:10Z'
+  ref: e44ac5b
+  note: 'PRD FR-4 consequence 2 now carries the Amended 2026-10-29 ADR-0014/ADR-0024 backlink: prd.md:139'
+- key: BL-E004-004
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 committed-key guard (L147, L179) is worded inconsistently about tests/fixtures/ and has scope gaps — derive its scope, state the exemption once
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:12Z'
+  ref: 3a1d1eb
+  note: 'committed-key guard derives scope from git ls-files, no tests/fixtures exemption: tests/contracts/test_no_committed_age_key.py:1-12,35-42'
+- key: BL-E004-005
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-002 L58: ownership of tests/contracts/test_supported_formats.py is left conditional — decide it'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:14Z'
+  ref: 6defdbe
+  note: 'E004-S01-002 owns test_supported_formats.py (story L41); built: tests/contracts/test_supported_formats.py:7-11,27,62'
+- key: BL-E004-006
+  epic: '004'
+  sprint: ''
+  title: 'Shared build files in phase 2: E004 and E005 both edit pyproject.toml, uv.lock and ci.yml — record the shared edits and an order'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:16Z'
+  ref: dee8395
+  note: 'shared pyproject/uv.lock edits and the rebase order recorded: E004-S01-001.md:48, E004-S01-003.md:177, epic-005 arch-gate-review.md:28'
+- key: BL-E004-007
+  epic: '004'
+  sprint: ''
+  title: E005-S01-002 L139/L141 still describe the superseded route (roots/RootPreflight append passphrase_backend_requirements) — now cipher.required_tools() via extra_tools
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:17Z'
+  ref: e44ac5b
+  note: E005-S01-002 L163,L203 now say requirements arrive via cipher.required_tools() through extra_tools, not appended by roots/RootPreflight
+- key: BL-E004-009
+  epic: '004'
+  sprint: ''
+  title: VerifyRequest.cipher and --identity-file on verify have no defined effect; verification is keyless — remove or define
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:19Z'
+  ref: 53ae80c
+  note: 'VerifyRequest has no cipher and no identity flag exists; verification keyless, authenticate resolves the AD-26 passphrase: src/l3io/wp/backup/cli/verify.py:94-102'
+- key: BL-E004-010
+  epic: '004'
+  sprint: ''
+  title: encryption_configured is "per Run" but build_member_cipher runs before open_run, so the record has no run_id — move the emission
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:21Z'
+  ref: 3a1d1eb
+  note: 'encryption_configured emitted by the writer ENCRYPT step inside the Run: adapters/tar.py:513, test tests/adapters/test_tar_writer.py:306'
+- key: BL-E004-011
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-003: nobody is stated to call AgeMemberCipher.check() — have build_member_cipher call it before returning'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:23Z'
+  ref: 3a1d1eb
+  note: 'build_payload_cipher calls cipher.check() before returning: adapters/crypto.py:234'
+- key: BL-E004-013
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-002 test_no_v0_writer: literal grep also hits comments/docstrings and misses prefix stripping not using the domain constants'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:24Z'
+  ref: 6defdbe
+  note: 'AST scan with whole-constant and wp-root/ prefix matching, not a literal grep: tests/contracts/test_archive_format_owner.py:5-6,58-60,68-70'
+- key: BL-E004-014
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 released fixture (L55) needs network, MySQL and mysqldump for a 0.2.21 run — mark it the human-in-the-loop step explicitly
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:26Z'
+  ref: 6defdbe
+  note: 'released 0.2.21 fixture committed after the manual step was flagged (BL-E004-047 resolved): E004-S01-002.md:139,157; tests/fixtures/archives/v0/released-0.2.21-all.tar.gz'
+- key: BL-E004-017
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 §Non-goals L46 cites Epic 3 stories by old numbers — use E003-S01-001, E003-S02-003, E003-S02-006
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:28Z'
+  ref: e44ac5b
+  note: E004-S01-003.md:94 cites E003-S01-001, E003-S02-003, E003-S02-006
+- key: BL-E004-018
+  epic: '004'
+  sprint: ''
+  title: 'E004-S01-001 L107/L119 bans a hand-listed set of pathspec I/O helpers — invert to an allow-list (rule 4: derive scope)'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:30Z'
+  ref: 6f3c5c4
+  note: 'forbidden pathspec I/O set derived from pathspec itself, not hand-listed: tests/contracts/test_exclusions_pure.py:9-12,25-28'
+- key: BL-E004-020
+  epic: '004'
+  sprint: ''
+  title: E004-S01-001 L87 says a Manifest over the cap fails before publishing; no E002 writer enforces a write-side cap
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:31Z'
+  ref: '14029e8'
+  note: 'write-side Manifest cap enforced: adapters/tar.py:640-643 (ManifestTooLargeError), tests/unit/adapters/test_manifest_cap.py'
+- key: BL-E004-022
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 v0 fixtures lack a hard-link member and a FIFO, which the legacy writer emits
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:33Z'
+  ref: 6defdbe
+  note: hard-link fixture malformed/hardlink.tar.gz asserted UNSUPPORTED_MEMBER_TYPE (tests/adapters/test_v0_fixtures.py:78), FIFO cases tests/adapters/test_tar_probe.py:261,417, operator line docs/restore.md:432
+- key: BL-E004-023
+  epic: '004'
+  sprint: ''
+  title: E004-S01-002 L107(b) calls write_archive with a scope it does not take — drive TarArchiveWriter.write per BackupScope
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:35Z'
+  ref: 6defdbe
+  note: 'TarArchiveWriter.write driven per BackupScope: tests/contracts/test_archive_format_owner.py:141 test_every_backup_scope_writes_v1'
+- key: BL-E004-027
+  epic: '004'
+  sprint: ''
+  title: Restore resolves the passphrase on every run, so every interactive restore prompts (plain and v0 Archives too) — state it as intended or skip for unencrypted Archives
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:37Z'
+  ref: fea5a21
+  note: 'the restore prompt on every interactive restore is stated as intended: docs/restore.md:498-501'
+- key: BL-E004-029
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 L187 says decrypt failures are tested "through the drivers", but no driver reaches a decrypt in E004's loop
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:38Z'
+  ref: e44ac5b
+  note: E004-S01-003.md:312 now routes restore-side decrypt failures through decrypt_payload
+- key: BL-E004-032
+  epic: '004'
+  sprint: ''
+  title: AGE_SHA256 not written into E004-S01-003 (architect computed cbe240…ac10 from GitHub; cross-check at implementation)
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:40Z'
+  ref: 3a1d1eb
+  note: 'AGE_SHA256 pinned and checked with sha256sum -c: .github/workflows/ci.yml:242-245,295-298, value equals the architect cross-check'
+- key: BL-E004-033
+  epic: '004'
+  sprint: ''
+  title: E004-S01-003 estimate dates from 2026-10-27 though largely rewritten — re-estimate
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:42Z'
+  ref: e0902df
+  note: 'E004-S01-003 re-estimated (20h, updated 2026-11-06) and done with actuals: state/archived/epic-004/sprint-01/E004-S01-003.yaml:8-11,60-63'
+- key: BL-E004-037
+  epic: '004'
+  sprint: ''
+  title: 'E003-S02-006 L68: no-config path decrypts the payload twice to the same path; decrypt_payload does not say overwrite or refuse'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:44Z'
+  ref: 02b9752
+  note: 'config read decrypts to its own workspace file, unlinked after use; decrypt_payload writes a new 0600 O_EXCL file, never overwrites; double decrypt commented: cli/restore.py:993-1005, adapters/tar.py:1338-1356'
+- key: BL-E004-038
+  epic: '004'
+  sprint: ''
+  title: LoggedExclusionPolicy called frozen but holds a once-flag; direct library callers get no exclusion events; E006-S01-001 L132 names the old default
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:45Z'
+  ref: 778989b
+  note: api wraps caller sets in LoggedExclusionPolicy (api/operations.py:135), CLI builds a fresh policy per call (cli/backup.py:225-228), once-flag documented adapters/exclusions.py:39; E006 story L179 states the wrapped default
+- key: BL-E004-040
+  epic: '004'
+  sprint: ''
+  title: E002-S02-009 L97 still says "against the pinned v0.1.1" after the v0.1.2 bump
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:07:47Z'
+  ref: 98b65d9
+  note: E002-S02-009.md:97 now says the pinned v0.1.3
+- key: BL-E004-003
+  epic: '004'
+  sprint: ''
+  title: "E004-S01-003 L88/L171: \"every non-link member encrypted: true\" contradicts ADR-0017's dir entries (encrypted: false) — say every payload file member"
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: obsolete
+  resolved_at: '2026-11-07T21:07:49Z'
+  ref: e44ac5b
+  note: story text gone; ADR-0024 (one encrypted payload) replaced per-member encrypted flags, E004-S01-003 rewritten in e44ac5b
+- key: BL-E004-039
+  epic: '004'
+  sprint: ''
+  title: The f17170c CI step comment says "from the family index alone" but --index adds it ahead of PyPI
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: obsolete
+  resolved_at: '2026-11-07T21:07:51Z'
+  ref: 98b65d9
+  note: the f17170c family-index CI step and its comment are gone; owner decision 2026-11-02 resolved the family from TestPyPI (arch-gate-review.md); ci.yml has no --index step
+- key: BL-E002-004
+  epic: '002'
+  sprint: ''
+  title: README CLI usage generated from --help and checked in CI belongs with the epic that freezes the CLI surface
+  source: arch-gate AG-25 (l3io-arch-review)
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/arch-gate-review.md (AG-25)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:11Z'
+  ref: d3e0b2b
+  note: tools/gen_cli_docs.py --check run by tests/contracts/test_cli_docs.py:1-30 (CI contracts job); README usage generated
+- key: BL-E002-006
+  epic: '002'
+  sprint: ''
+  title: domain/storage_target.parse_storage_target takes raw text but domain/ may not import urllib — parse in an adapter or pass parts, never hand-split URLs
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:13Z'
+  ref: 825c31f
+  note: domain/storage_target.py:1-33 takes (scheme,path); cli/backup.py:66 does the urlsplit; domain imports no urllib
+- key: BL-E004-019
+  epic: '004'
+  sprint: ''
+  title: E004-S01-001 two typing gaps (see reviewer file)
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: duplicate
+  resolved_at: '2026-11-07T21:08:15Z'
+  ref: BL-E004-016
+  note: duplicate of BL-E004-016 (StrEnum vs Literal vs str); the second gap, from_patterns with no patterns and no defaults returning none(), is fixed at core/exclusions.py:156,164
+- key: BL-E002-007
+  epic: '002'
+  sprint: ''
+  title: "Stale cross-references: 'proposed story P3' is Epic 8 (E008-S01-001); S02-007 points at an old proposal instead of E002-S02-009; old sprint-split wording"
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:16Z'
+  ref: 4130fc2
+  note: no P3 refs in epic-002 stories; E002-S02-007.md:43 points at E002-S02-012/009; gate-reconciliation-2026-10-27.md:37
+- key: BL-E002-009
+  epic: '002'
+  sprint: ''
+  title: --wp-config validation vs Site Lock order differs between S01-001 and S01-004
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:18Z'
+  ref: 5b44ca5
+  note: tests/unit/cli/test_lock_order.py:1-10 asserts lock then wp-config read; E002-S01-001.md:81 states locate runs after the lock
+- key: BL-E002-010
+  epic: '002'
+  sprint: ''
+  title: RunContext.site_lock typed as the SiteLock port in S01-004 but holds a LockHandle in S02-008
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:20Z'
+  ref: 5b44ca5
+  note: 'cli/context.py:121 site_lock: LockHandle | None, one type; S01-004 no longer types it as the port'
+- key: BL-E002-011
+  epic: '002'
+  sprint: ''
+  title: S01-004 AC1 (Run ID across subprocess boundaries) depends on an upstream l3io-wp-database fix with no stated fallback
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:22Z'
+  ref: 4130fc2
+  note: 'E002-S01-004.md:83 states the fallback: raise against l3io-wp-database rather than patch here'
+- key: BL-E002-012
+  epic: '002'
+  sprint: ''
+  title: S02-008 test_site_lock_signals.py needs a blocking-hook test seam that no story defines
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:24Z'
+  ref: 5b44ca5
+  note: tests/integration/test_site_lock_signals.py:1-8 uses a database double that blocks inside dump and signals via a ready file
+- key: BL-E002-013
+  epic: '002'
+  sprint: ''
+  title: S01-001's LocalArchiveStore has no default verify; S01-001 does not say which verifier its root binds before S01-003 lands
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:25Z'
+  ref: 4130fc2
+  note: adapters/store.py:158-163 verify is a required keyword; E002-S01-010.md:65 names structural_check as the interim verifier until S01-003
+- key: BL-E002-014
+  epic: '002'
+  sprint: ''
+  title: 'Duplicated Spec pointer lines within one block (S01-001 #ad-6 and #ad-21, others)'
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from architect.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:27Z'
+  ref: 4130fc2
+  note: 'no duplicate Spec: line inside any block of epic-002 stories (awk scan over sprint-01/02 stories found none)'
+- key: BL-E002-015
+  epic: '002'
+  sprint: ''
+  title: VERIFY and PUBLISH are separate BackupSteps each emitting phase_completed, but verification happens inside publish (S01-001/S01-002)
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:29Z'
+  ref: e74b298
+  note: E002-S01-010.md:100 states VERIFY and PUBLISH are emitted from inside publish(), once each
+- key: BL-E002-017
+  epic: '002'
+  sprint: ''
+  title: WpConfigWriter.read_constants has no key restriction — AD-3 tension (Site Descriptor is the one parse of wp-config.php)
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:31Z'
+  ref: 4130fc2
+  note: E002-S02-012.md:57 limits ConfigQuery.read_constants to the restore target's config; callers pass explicit keys (cli/restore.py:1011,1127)
+- key: BL-E002-018
+  epic: '002'
+  sprint: ''
+  title: ADR-0015 says restore uses load(replace=); S02-007/S02-009 forbid replace= (it is a confirmation token in database) — fix ADR-0015's wording
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:33Z'
+  ref: '8131002'
+  note: 'docs/adr/0015-credentials-delegated-to-database.md:27,45,70-76 corrected: replace= is a confirmation token, load uses replace=None'
+- key: BL-E002-019
+  epic: '002'
+  sprint: ''
+  title: UnboundSearchReplace.relocate_content raises a bare RuntimeError, which S01-005 classes as a non-BackupError defect
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:35Z'
+  ref: d08ec47
+  note: domain/errors.py:888 UnboundAdapterError replaces the bare RuntimeError; used by cli/adapter_sets.py:48
+- key: BL-E002-020
+  epic: '002'
+  sprint: ''
+  title: Manifest.source is a mutable dict on a frozen, slotted dataclass — not hashable or truly immutable
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from l3io-arch-review.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:36Z'
+  ref: 825c31f
+  note: domain/archive_format.py:251,266 Manifest.source wrapped in MappingProxyType in __post_init__
+- key: BL-E002-021
+  epic: '002'
+  sprint: ''
+  title: "E002-S01-006: ExplicitCredentialSpec.__repr__ in domain/ emits the literal '***', which its own test_single_redaction.py forbids outside adapters/redaction.py — omit the password from repr without the literal, keep the guard exemption-free"
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: New MINOR from the 2026-10-27 gate re-check (l3io-arch-review); see epic-002/arch/recheck-l3io-arch-review-2026-10-27.md.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:38Z'
+  ref: 0c1569e
+  note: domain/credentials.py:77-78 repr omits the password with no literal; tests/contracts/test_single_redaction.py exempts only domain/secret.py (SECRET_REPR)
+- key: BL-E002-022
+  epic: '002'
+  sprint: ''
+  title: 'E002-S01-005: phase() (adapters/phase.py) is said to take its exit code from exit_code_for (cli/exit.py); adapters/ may not import cli/ — read type(exc).exit_code directly'
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: New MINOR from the 2026-10-27 gate re-check (bmad-agent-architect); see epic-002/arch/recheck-bmad-agent-architect-2026-10-27.md.
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:40Z'
+  ref: d3e0b2b
+  note: adapters/phase.py:13-15,39 reads the exit code via domain.errors.exit_code_of, not cli/exit_code_for
+- key: BL-E003-005
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-002 L236: site_root_empty is not testable as written — state that is_empty means no directory entries, or name the excluded entry and its port argument'
+  source: arch-gate (both)
+  source_phase: arch-gate
+  source_ref: both
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:42Z'
+  ref: b037d9f
+  note: E003-S01-002.md:61 states site_root_empty means no directory entries beyond the config placement exclusion; ports/site_files.py:38 is_empty
+- key: BL-E003-010
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-002: NonEmptyTargetError.part should be parts: tuple[...] (L234 vs L251, L266)'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:44Z'
+  ref: 10193bf
+  note: 'core/restore.py:331-347 NonEmptyTargetError carries parts: tuple[RestorePart, ...]'
+- key: BL-E003-011
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-002 L231 and E003-S02-003 L54: 'story 3.1's OPEN on cli/restore.py' is resolved by E003-S02-006"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:45Z'
+  ref: e926410
+  note: "\"story 3.1's OPEN on cli/restore.py\" no longer present in E003-S01-002.md or E003-S02-003.md (only Resolved notes remain)"
+- key: BL-E003-012
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-001 L113: a Dry Run refusal cannot print a plan never built — state what is printed'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:47Z'
+  ref: 02b9752
+  note: docs/restore.md:104-106 states a Dry Run refuses the same way and logs restore_refused; docs/adr/0022:64-65 Dry Run exit rule
+- key: BL-E003-022
+  epic: '003'
+  sprint: ''
+  title: 'E003-S01-001/E003-S02-006: no integration case for a target whose wp-config.php is one level up (PARENT), the AG-10 fix'
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:49Z'
+  ref: c4059b6
+  note: tests/integration/test_config_outside_root.py:195 restores a PARENT wp-config one level up; test_config_parent_resolve.py:71
+- key: BL-E003-024
+  epic: '003'
+  sprint: ''
+  title: 'E002-S01-003: says a hard link is refused "in any position", but the decision is taken from data_filter, which allows in-root hard links — state which is meant'
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:51Z'
+  ref: 8f95820
+  note: E002-S01-003.md:85 now says a hard link is refused in any position by the filter callable, since data_filter allows in-root ones; tests/contracts/test_extraction.py:465
+- key: BL-E003-025
+  epic: '003'
+  sprint: ''
+  title: "E003: RestorePorts' fields are not stated in one place, and no named carrier brings the Run's MemberCipher (Dump decryption) or SecretRegistry to the executor"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:53Z'
+  ref: ffe6319
+  note: ports/restore.py:26-39 declares RestorePorts fields once; restore_runner.py:232,285 carries PayloadCipher; secrets via run.secrets; MemberCipher gone (ADR-0024)
+- key: BL-E003-028
+  epic: '003'
+  sprint: ''
+  title: RestorePorts is now a cross-sprint contract (load_staged takes it) with no declared module or fields; cutover_credentials has no owner; Path is passed where PurePosixPath is typed (mypy --strict rejects) — E003-S01-001 L106
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:55Z'
+  ref: ffe6319
+  note: ports/restore.py:26-56 RestorePorts declared with all fields; cutover_credentials bound at cli/restore.py:1054; E003-S01-001.md:230 Path->PurePath in core
+- key: BL-E003-029
+  epic: '003'
+  sprint: ''
+  title: E003-S01-001 test_snapshot_location's "per-user default accepted" case relies on the default path sprint 02 (E003-S02-003/006) defines — give the test its own path
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck2-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:08:56Z'
+  ref: ffe6319
+  note: tests/unit/core/test_snapshot_location.py:38-40 passes its own explicit default path
+- key: BL-E002-061
+  epic: '002'
+  sprint: '01'
+  title: verify tar header memory bomb (389 KB archive -> 1.18 GB)
+  source: redteam (M1)
+  source_phase: redteam
+  source_ref: M1
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:04Z'
+  ref: b424f7c
+  note: 'Every tar read opens through _BoundedTarInfo, which refuses a pax/GNU extended header over 1 MiB before reading it (adapters/tar.py:155-193). Tests: tests/adapters/test_tar_extended_header_bound.py::test_verify_refuses_an_extended_header_bomb_with_bounded_memory; tests/contracts/test_tar_header_hook.py. Hardened for 3.13/3.14 in 0034ae6.'
+- key: BL-E002-068
+  epic: '002'
+  sprint: '01'
+  title: Extraction does not bound member size; compressed bomb passes verify (AR-02)
+  source: adversarial (AR-02)
+  source_phase: adversarial
+  source_ref: AR-02
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:06Z'
+  ref: ffe6319
+  note: 'Extraction refuses a member larger than its indexed size and stops when the running total passes the indexed sum (adapters/tar.py _ExtractFilter, cap/sizes); size and free-space preflight before CLEAN (core/restore.py, ExpansionRatioError). Tests: tests/unit/adapters/test_tar.py::test_a_member_larger_than_its_index_entry_is_refused, ::test_the_running_total_stops_at_the_indexed_sum. Same fix as BL-E002-116 (resolved).'
+- key: BL-E002-070
+  epic: '002'
+  sprint: '01'
+  title: Passphrase prompt has no confirmation or length check (AR-06); fix before E002-S02-011
+  source: adversarial (AR-06)
+  source_phase: adversarial
+  source_ref: AR-06
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:07Z'
+  ref: '14029e8'
+  note: 'require_passphrase enforces MIN_ENCRYPTION_PASSPHRASE_LENGTH=12 and asks a prompted encryption passphrase twice (cli/passphrase.py require_passphrase; PassphraseTooShortError, PassphraseMismatchError; ADR-0024 amendment 2026-11-07). Tests: tests/unit/cli/test_passphrase_chain.py::test_a_prompted_passphrase_is_asked_twice, ::test_a_mismatched_confirmation_is_refused, ::test_require_passphrase_refuses_eleven_characters. Same fix as BL-E004-052.'
+- key: BL-E002-099
+  epic: '002'
+  sprint: '02'
+  title: SIGTERM during set_constants loses the written-keys record; cutover half-done
+  source: redteam (RT-6)
+  source_phase: redteam
+  source_ref: RT-6
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:09Z'
+  ref: ebff354
+  note: 'The cutover writes one key per set_constants call and journals cutover_started:<KEY> before and cutover:<KEY> after each (adapters/staging.py _cutover); recovery derives written/pending keys from the journal. Tests: tests/unit/core/test_restore_journal.py::test_written_and_pending_keys_inside_the_cutover; tests/integration/test_kill_mid_restore.py::test_a_restore_killed_at_every_ordinal_is_recoverable. The remaining SIGTERM-swallowed-in-_cutover path is fixed under BL-E002-092 (this triage).'
+- key: BL-E002-095
+  epic: '002'
+  sprint: '02'
+  title: No contract test that flags removed from NOT_YET_IMPLEMENTED are read by their driver
+  source: adversarial (AD-4)
+  source_phase: adversarial
+  source_ref: AD-4
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:11Z'
+  ref: '14029e8'
+  note: tests/contracts/test_not_yet_implemented.py::test_no_option_is_silently_accepted derives every option from the parser and fails unless it is in NOT_YET_IMPLEMENTED or read as args.<dest> by its root module; ::test_a_planted_unread_option_is_caught proves the guard. The backup flags the finding named are now read (cli/backup.py run_backup). This triage's new backup --whatIf is covered by the same test.
+- key: BL-E002-108
+  epic: '002'
+  sprint: ''
+  title: 'Spec proposal: The parser docstring states that AD-22 preserves `python -m wpbackup2`. In practice the legacy `wpbackup2/` tree occupies that module name and is excluded from the wheel, so the invocation does not reach the new parser. The contract test carries a strict xfail. It is tracked only as BL-E002-086 ("no story owns it yet"). This hard-rule deviation of the frozen contract has no owner and no ADR.'
+  source: spec-sync (SD-02-2)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: BL-E002-086
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-22--the-cli-is-a-frozen-contract-the-python-api-is-not. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
+  resolution: duplicate
+  resolved_at: '2026-11-07T21:24:13Z'
+  note: 'Duplicate of BL-E002-086 (resolved fixed, d23c9bd): src/wpbackup2/__main__.py calls run_from_cli, legacy tree moved to legacy/wpbackup2; tests/contracts/test_cli_surface.py::test_python_dash_m_wpbackup2_reaches_this_parser (strict xfail gone); BL-E002-086 is pinned in docs/closeout-gate.yaml.'
+- key: BL-E004-058
+  epic: '004'
+  sprint: ''
+  title: 'AR-4: cryptography is a core dependency nothing imports; remove from pyproject (needs the pyproject owner)'
+  source: epic-adversarial (AR-4)
+  source_phase: epic-adversarial
+  source_ref: AR-4
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:15Z'
+  ref: 3f29b0d
+  note: cryptography removed from [project].dependencies and uv.lock (3f29b0d, E004 closure D4); nothing in src imports it (it is in import-linter's forbidden list, pyproject.toml); PyMySQL's sha2 auth still gets it through l3io-wordpress-database -> pymysql[rsa] (uv.lock).
+- key: BL-E005-013
+  epic: '005'
+  sprint: ''
+  title: 'Spec proposal: The whole epic S01-002 deliverable has no production consumer. `grep` finds `BinaryPreflight`, `diagnose` and `unsupported_platform` referenced only inside `adapters/preflight.py` and tests. Every root still binds `DumpReadinessPreflight`, which resolves non-dump tools with `shutil.which` and never probes versions, so a requirement with a minimum fails as "unusable (version unknown)". Windows is refused nowhere. The only proof is `test_binary_preflight_refusal.py`, which injects `preflight=` by hand. The wiring is deferred to E008-S01-001 by an *orchestrator* decision ("the owner may overrule"), not an owner decision, and nothing mechanical forces E008 to deliver it. Rule 3 and 4: the guard proves the seam, not the reach.'
+  source: spec-sync (AD-1)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: '14029e8'
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-005/epic-closure/arch-drift-review.md.'
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:17Z'
+  note: 'cli/preflight.py RootPreflight (built only by root_preflight) routes database-dump to DumpReadinessPreflight and every other requirement to BinaryPreflight, refusing win32/cygwin first (refuse_unsupported_platform); bound by cli/backup.py and cli/restore.py, verify calls refuse_unsupported_platform, doctor uses diagnose; api/ composes through the drivers (ADR-0025). Tests: tests/contracts/test_preflight_construction.py::test_epic_5_preflight_has_production_callers, ::test_both_run_roots_bind_the_factory; tests/unit/cli/test_root_preflight.py::test_an_unsupported_platform_is_refused_first.'
+- key: BL-E006-009
+  epic: '006'
+  sprint: ''
+  title: 'api: secrets are plain str in traceback frames; consider an opaque Secret wrapper for passphrase and ExplicitCredentialSpec.password'
+  source: epic-adversarial (AR-4)
+  source_phase: epic-adversarial
+  source_ref: AR-4
+  severity: Medium
+  status: resolved
+  description: Documented in docs/api.md; owner decision OD-4. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:18Z'
+  ref: '14029e8'
+  note: "domain/secret.py::Secret (owner decision, ADR-0018 amendment 2026-11-07) holds passwords and passphrases at the public boundary; repr is Secret('***'), pickle/copy raise. Tests: tests/contracts/test_secret_reveal.py. This triage rewrote the stale docs/api.md paragraph that still called them plain str."
+- key: BL-E004-057
+  epic: '004'
+  sprint: ''
+  title: 'AR-2: database extra depends on l3io-age-passphrase and sibling packages not published on PyPI; open release gate before any tag'
+  source: epic-adversarial (AR-2)
+  source_phase: epic-adversarial
+  source_ref: AR-2
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:24:20Z'
+  ref: 9f56434
+  note: "The release gate exists: .github/workflows/publish.yml step 'every optional extra installs from PyPI alone' runs uv pip install --no-sources --all-extras for target=pypi and fails until database/config/age-passphrase are on PyPI (owner decision Shawn 2026-11-02/03, pyproject.toml:75-81; AD-15). A tag push never publishes to PyPI (publish-pypi is workflow_dispatch only)."
+- key: BL-E002-094
+  epic: '002'
+  sprint: '02'
+  title: Site Lock is per OS user and keyed on path only; no database-keyed lock
+  source: adversarial (AD-3)
+  source_phase: adversarial
+  source_ref: AD-3
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+  resolution: wontfix
+  resolved_at: '2026-11-07T21:24:22Z'
+  ref: AD-19
+  note: Spine AD-19 decides the lock identity (the canonical Site Root path) and its location (a per-user state directory); a database-keyed or system-wide lock would contradict it. The per-user scope is documented in docs/restore.md (fea5a21) and, from this triage, in SiteLockedError's message ('The lock covers Runs by the same OS user only').
+- key: BL-E002-062
+  epic: '002'
+  sprint: '01'
+  title: FIFO swapped in after walk hangs backup (tar.py open)
+  source: redteam (M2)
+  source_phase: redteam
+  source_ref: M2
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:01Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-067
+  epic: '002'
+  sprint: '01'
+  title: wp-config.php exclusion on restore compares names case-sensitively (AR-01)
+  source: adversarial (AR-01)
+  source_phase: adversarial
+  source_ref: AR-01
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:03Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-092
+  epic: '002'
+  sprint: '02'
+  title: 'RunTerminated (SIGTERM) is an Exception: swallowed by tracer guard and exclusion decide'
+  source: adversarial (AD-1)
+  source_phase: adversarial
+  source_ref: AD-1
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:05Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-093
+  epic: '002'
+  sprint: '02'
+  title: No-op twins skip refusals the real adapters make (clean target, keep None, absent wp-config)
+  source: adversarial (AD-2)
+  source_phase: adversarial
+  source_ref: AD-2
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:06Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-100
+  epic: '002'
+  sprint: '02'
+  title: Default backup from inside Site Root still collects earlier Archives (size doubles per run)
+  source: redteam (RT-1-self-inclusion)
+  source_phase: redteam
+  source_ref: RT-1-self-inclusion
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:08Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-101
+  epic: '002'
+  sprint: '02'
+  title: backup --whatIf after the subcommand is rejected with no hint
+  source: ux-review (UX-1)
+  source_phase: ux-review
+  source_ref: UX-1
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:10Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-102
+  epic: '002'
+  sprint: '02'
+  title: Dry Run output not labelled as a plan; does not say write-time failures go undetected
+  source: ux-review (UX-2)
+  source_phase: ux-review
+  source_ref: UX-2
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:12Z'
+  ref: cc60f50
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+- key: BL-E002-107
+  epic: '002'
+  sprint: ''
+  title: "Spec proposal: Each no-op command hard-codes the restore phase it belongs to. `adapters/phase.py::join_phase` joins only when the innermost open phase has that exact name; otherwise it opens a new phase and emits its own `phase_completed`. The AD-17 amendments (2026-10-20, 2026-10-27) put the `DB_*` cutover `set_constants` call inside `LOAD_DUMP`. AD-18.3 drops the database that loses the cutover after the load. So under the dry-run set, a cutover emits a `rewrite-config` record nested in `load-dump`, and a drop emits a `clean` record after `load-dump`. The real adapters emit no phase records at all. A Dry Run's phase sequence would then differ from the real Run's, and it would contradict the order that Epic 3's phase-sequence test asserts (\"no `DB_*` write precedes the end of the load\"). The adapter is deciding plan structure that belongs to the executor."
+  source: spec-sync (SD-02-1)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: cc60f50
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
+  resolution: fixed
+  resolved_at: '2026-11-07T21:48:14Z'
+  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
