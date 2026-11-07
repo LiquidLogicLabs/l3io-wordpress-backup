@@ -22,10 +22,18 @@ reaching the last member through the outer tar's payload.
 and the read-back decrypts with it, then streams the decrypted payload through
 ``read_inner_manifest`` and checks it against the outer Manifest. ``age``'s
 passphrase recipient is scrypt, whose memory cost (hundreds of MiB inside
-database's backend) is fixed per call and independent of the stream's size.
-So the encrypted leg also runs over a 2 MiB Site, and what it asserts is the
-growth at full size minus the growth at 2 MiB, against the same bound: a
-fixed cost cancels, and anything that buffers the payload still breaches.
+database's backend) is independent of the stream's size but not fixed: one
+call peaks at 256 MiB, the next at 512 MiB. Subtracting a small run's growth
+from a large run's, as this leg first did, left that difference in the result
+and failed by 255 MiB under parallel CI. So the child leaves each cipher call's
+**KDF window** out of the peak instead: on entry to ``encrypt``/``decrypt`` it
+keeps the high-water mark so far, and at the call's first write (the ``age``
+header, or the first plaintext chunk, both after scrypt has run and been freed)
+it resets the mark to the current RSS. The rest of the run is measured directly
+against the bound. Memory still resident at the first write stays counted, so a
+payload read whole before encrypting still breaches; the test asserts one
+window per leg and that the payload streamed after it. Not covered: a transient
+allocation made and freed inside the window, before the cipher writes anything.
 
 **Reach.** The RSS test covers the byte movers in :data:`RSS_COVERED` (the
 traversal and writer, ``TarArchiveWriter`` included, the local store, and the
@@ -221,13 +229,17 @@ def status(key):
             return int(line.split()[1]) * 1024
     raise SystemExit(f"no {key} in /proc/self/status")
 
+#: High-water marks of the measured run's spans closed before a KDF window.
+closed = []
+
 def baseline():
     # Reset the high-water mark to the current RSS, and return it.
+    closed.clear()
     Path("/proc/self/clear_refs").write_text("5")
     return status("VmRSS")
 
 def peak():
-    return status("VmHWM")
+    return max([status("VmHWM"), *closed])
 
 mode, *paths = sys.argv[1:]
 paths = [Path(p) for p in paths]
@@ -237,7 +249,50 @@ import os
 secret = os.environ.get("RSS_TEST_PASSPHRASE")
 if secret is not None:
     from l3io.wp.backup.adapters.crypto import PassphraseCipher
-    real_cipher = PassphraseCipher(secret)
+
+    # Each cipher call's KDF window is left out of the peak. age's scrypt runs
+    # inside the call before its first write (the header, or the first
+    # plaintext chunk) and is freed by then, at a peak of 256 or 512 MiB that
+    # varies from call to call. So the peak so far is kept in ``closed`` on
+    # entry, and the high-water mark is reset to the current RSS at the first
+    # write; what is still resident then (a buffered payload) stays counted.
+    kdf_windows = []
+    streamed = [0]
+
+    class _AfterKdf:
+        def __init__(self, inner):
+            self._inner, self._armed = inner, True
+
+        def write(self, data):
+            if self._armed:
+                self._armed = False
+                kdf_windows.append(status("VmHWM") - status("VmRSS"))
+                Path("/proc/self/clear_refs").write_text("5")
+            streamed[0] += len(data)
+            return self._inner.write(data)
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    class _KdfExcluded:
+        def __init__(self, cipher):
+            self._cipher = cipher
+
+        def check(self):
+            self._cipher.check()
+
+        def required_tools(self):
+            return self._cipher.required_tools()
+
+        def encrypt(self, reader, writer):
+            closed.append(status("VmHWM"))
+            self._cipher.encrypt(reader, _AfterKdf(writer))
+
+        def decrypt(self, reader, writer):
+            closed.append(status("VmHWM"))
+            self._cipher.decrypt(reader, _AfterKdf(writer))
+
+    real_cipher = _KdfExcluded(PassphraseCipher(secret))
 
 if mode in ("backup", "backup-buffered", "backup-noop"):
     from datetime import UTC, datetime
@@ -402,6 +457,8 @@ elif mode == "read":
 else:
     raise SystemExit(f"unknown mode {mode!r}")
 
+if secret is not None:
+    extra |= {"kdf_windows": len(kdf_windows), "streamed_bytes": streamed[0]}
 print(json.dumps({"growth": growth, **extra}))
 """
 
@@ -488,20 +545,6 @@ def _site(tmp_path: Path, site_bytes: int, dump_bytes: int) -> tuple[Path, ...]:
     return site_root, dump, out / "site.tar.gz"
 
 
-def _round_trip(
-    work: Path, site_bytes: int, dump_bytes: int, passphrase: str
-) -> tuple[int, int]:
-    """Peak RSS growth of an encrypted backup and its read-back of ``work``'s Site."""
-    site_root, dump, final = _site(work, site_bytes, dump_bytes)
-    backup = _measure("backup", site_root, dump, final, passphrase=passphrase)
-    run, destination = work / "run", work / "restored"
-    run.mkdir()
-    destination.mkdir()
-    restore = _measure("restore", final, run, destination, passphrase=passphrase)
-    assert restore["inner_matches"] is True
-    return backup["growth"], restore["growth"]
-
-
 @linux_proc
 @pytest.mark.parametrize("encrypted", [False, True], ids=["plain", "encrypted"])
 def test_the_real_backup_and_restore_paths_stay_under_the_bound(
@@ -509,16 +552,12 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
 ) -> None:
     """AD-21 with encryption off and on (AG-13): one test over an ``encrypted`` axis."""
     passphrase = f"rss-pp-{uuid.uuid4().hex}" if encrypted else None
-    # Encrypted, each leg's allowance is its own growth over a 2 MiB Site: the
-    # KDF's fixed cost (scrypt inside database's age backend, hundreds of MiB
-    # per call) is a constant of the call, not of the Archive. The assertions
-    # below are then growth(256 MiB) - growth(2 MiB) < the bound, so buffering
-    # the payload, which grows with it, still breaches. Plain, both are zero.
-    backup_base = restore_base = 0
-    if passphrase is not None:
-        small = tmp_path / "small"
-        small.mkdir()
-        backup_base, restore_base = _round_trip(small, MIB, MIB, passphrase)
+    # Encrypted, the child leaves each cipher call's KDF window out of the peak
+    # (scrypt, 256 or 512 MiB per call whatever the Archive's size, freed before
+    # the call's first write) and measures the rest of the run directly against
+    # the bound. A payload held in memory is still resident after the window,
+    # so it still breaches. The window must be the cipher's only one, and the
+    # payload must stream through the measured part of the call.
     site_root, dump, final = _site(tmp_path, SITE_FILE_BYTES, DUMP_BYTES)
 
     # The Dry Run's no-op command halves (``noop.py``) over the same fixture:
@@ -537,10 +576,13 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     assert measured["indexed_bytes"] >= SITE_FILE_BYTES + DUMP_BYTES >= floor
     assert measured["payload_bytes"] >= floor
     assert measured["archive_bytes"] >= floor
-    grown = measured["growth"] - backup_base
+    if encrypted:
+        assert measured["kdf_windows"] == 1
+        assert measured["streamed_bytes"] >= floor
+    grown = measured["growth"]
     assert grown < RSS_BOUND_BYTES, (
         f"AD-21 — backing up {measured['indexed_bytes'] // MIB} MiB grew peak RSS "
-        f"by {grown // MIB} MiB beyond the fixed cost, over the "
+        f"by {grown // MIB} MiB outside the KDF window, over the "
         f"{RSS_BOUND_BYTES // MIB} MiB bound."
     )
 
@@ -556,10 +598,13 @@ def test_the_real_backup_and_restore_paths_stay_under_the_bound(
     assert restored["extracted_bytes"] >= SITE_FILE_BYTES
     assert restored["last_member"]
     assert restored["read_bytes"] > 0
-    grown = restored["growth"] - restore_base
+    if encrypted:
+        assert restored["kdf_windows"] == 1
+        assert restored["streamed_bytes"] >= floor
+    grown = restored["growth"]
     assert grown < RSS_BOUND_BYTES, (
         f"AD-21 — reading back {restored['plain_bytes'] // MIB} MiB grew peak RSS "
-        f"by {grown // MIB} MiB beyond the fixed cost, over the "
+        f"by {grown // MIB} MiB outside the KDF window, over the "
         f"{RSS_BOUND_BYTES // MIB} MiB bound."
     )
 
