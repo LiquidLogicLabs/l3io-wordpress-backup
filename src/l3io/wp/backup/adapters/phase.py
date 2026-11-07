@@ -40,7 +40,14 @@ from l3io.wp.backup.domain.errors import exit_code_of
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.tracing import Redactor, Tracer
 
-__all__ = ["ACTIVE_TRACER", "SKIPPED_OUTCOME", "PhaseRecord", "join_phase", "phase"]
+__all__ = [
+    "ACTIVE_TRACER",
+    "SKIPPED_OUTCOME",
+    "PhaseRecord",
+    "join_open_phase",
+    "join_phase",
+    "phase",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -145,4 +152,21 @@ def join_phase(name: str) -> Iterator[PhaseRecord]:
         yield current
         return
     with phase(name) as record:
+        yield record
+
+
+@contextmanager
+def join_open_phase(fallback: str) -> Iterator[PhaseRecord]:
+    """The innermost open phase, whatever its name; else a new ``fallback``.
+
+    For the Dry Run's command no-ops: the executor decides which phase a call
+    belongs to (AD-17), so a no-op called inside an open phase adds to that
+    phase's record and never emits one of its own. ``fallback`` names the
+    phase only when the no-op is called outside any (BL-E002-107).
+    """
+    current = _current.get()
+    if current is not None:
+        yield current
+        return
+    with phase(fallback) as record:
         yield record

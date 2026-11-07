@@ -109,6 +109,7 @@ from l3io.wp.backup.domain.errors import (
     MemberReadRefusedError,
     PassphraseRejectedError,
     PayloadDamagedError,
+    RunTerminated,
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
@@ -264,6 +265,8 @@ def _decide(
 ) -> tuple[bool, str | None]:
     try:
         decision = policy.decide(PurePosixPath(relative), is_dir=is_dir)
+    except RunTerminated:
+        raise  # BL-E002-092: a SIGTERM is not a policy failure
     except Exception as exc:
         reason = (
             f"the exclusion policy failed deciding {relative!r}: {type(exc).__name__}"
@@ -441,8 +444,11 @@ def _header(member: ArchiveMemberSource, info: os.stat_result) -> tarfile.TarInf
 
 
 def _add_file(inner: tarfile.TarFile, member: ArchiveMemberSource) -> None:
+    # O_NONBLOCK: a FIFO swapped in after the walk would block a plain open
+    # until a writer appears (BL-E002-062); non-blocking, the open returns and
+    # the type check below refuses it. Cleared before any read.
     try:
-        fd = os.open(member.source, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(member.source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
         raise _member_changed(member) from exc
     with os.fdopen(fd, "rb") as handle:
@@ -453,6 +459,7 @@ def _add_file(inner: tarfile.TarFile, member: ArchiveMemberSource) -> None:
             or _identity(info) != member.identity
         ):
             raise _member_changed(member)
+        os.set_blocking(handle.fileno(), True)
         try:
             inner.addfile(_header(member, info), handle)
         except OSError as exc:
@@ -1094,6 +1101,15 @@ def _header_kind(member: tarfile.TarInfo) -> MemberKind | None:
     return MemberKind.SYMLINK if member.issym() else None
 
 
+def _existing_identity(path: Path) -> tuple[int, int] | None:
+    """``(st_dev, st_ino)`` of what ``path`` names, or ``None`` if nothing."""
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return (info.st_dev, info.st_ino)
+
+
 @dataclass(slots=True)
 class _ExtractFilter:
     """The ``filter=`` callable: hard links refused, then ``data_filter``.
@@ -1127,6 +1143,17 @@ class _ExtractFilter:
     #: role-relative name. Patched interpreters (3.11.13+, 3.12.11+) call the
     #: filter a second time with that same object to fix directory attributes.
     directories: dict[str, tuple[tarfile.TarInfo, str]] = field(default_factory=dict)
+    #: ``(st_dev, st_ino)`` of each excluded entry present before extraction;
+    #: ``None`` until the first member. On a case-insensitive filesystem
+    #: ``WP-CONFIG.PHP`` is ``wp-config.php`` under another spelling, which
+    #: only the inode shows (BL-E002-067).
+    excluded_identities: frozenset[tuple[int, int]] | None = None
+
+    def _excluded(self, root: Path) -> frozenset[tuple[int, int]]:
+        if self.excluded_identities is None:
+            found = (_existing_identity(root / entry) for entry in self.exclude)
+            self.excluded_identities = frozenset(i for i in found if i is not None)
+        return self.excluded_identities
 
     def _skip_link(self, relative: str, target: str, reason: _SkipReason) -> None:
         self.skipped.append(
@@ -1214,7 +1241,9 @@ class _ExtractFilter:
             self.directories[name] = (member, relative)
         if member.issym():
             self.links.add(PurePosixPath(relative))
-        elif target in {(root / entry).resolve() for entry in self.exclude}:
+        elif target in {(root / entry).resolve() for entry in self.exclude} or (
+            _existing_identity(target) in self._excluded(root)
+        ):
             raise ExtractionRefusedError(name, "resolves onto an excluded path")
         written = filtered.size if filtered.isfile() else 0
         if self.cap is not None and self.bytes + written > self.cap:

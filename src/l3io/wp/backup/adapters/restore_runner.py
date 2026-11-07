@@ -108,6 +108,7 @@ from l3io.wp.backup.domain.errors import (
     MemberReadRefusedError,
     PayloadDamagedError,
     RefusedError,
+    RunTerminated,
     UnsafeMemberPathError,
     VerificationFailedError,
 )
@@ -619,8 +620,8 @@ def _snapshot(run: _Run, record: PhaseRecord) -> None:
     run.journal.phase_started(RestorePhase.SNAPSHOT, scope.value)
     try:
         result = run.take_snapshot(scope)
-    except SnapshotFailedError:
-        raise
+    except (SnapshotFailedError, RunTerminated):
+        raise  # BL-E002-092: a SIGTERM stays a SIGTERM
     except Exception as exc:
         raise SnapshotFailedError(planned, exc) from exc
     _require_snapshot(run, result, scope)

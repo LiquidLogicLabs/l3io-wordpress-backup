@@ -290,7 +290,7 @@ def public_boundary(fn: Callable[_P, _R]) -> Callable[_P, _R]:
         signature.bind(*args, **kwargs)
         try:
             return fn(*args, **kwargs)
-        except Exception as exc:
+        except Exception as exc:  # RunTerminated: mapped here (exported, re-raised)
             if isinstance(exc, BackupError) and _exported(type(exc)):
                 raise
             cause_type = f"{type(exc).__module__}.{type(exc).__qualname__}"

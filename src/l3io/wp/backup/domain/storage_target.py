@@ -11,13 +11,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Final, Literal
 
 from l3io.wp.backup.domain.errors import UnsupportedStorageSchemeError, UsageError
 
-__all__ = ["StorageTarget", "default_archive_name", "parse_storage_target"]
+__all__ = [
+    "DEFAULT_ARCHIVE_NAME_GLOB",
+    "StorageTarget",
+    "default_archive_name",
+    "parse_storage_target",
+]
 
 _FILE_SCHEMES = frozenset({"", "file"})
+
+#: Every name :func:`default_archive_name` produces matches this ``fnmatch`` glob.
+DEFAULT_ARCHIVE_NAME_GLOB: Final = "wpbackup2-*.tar.gz"
 
 
 @dataclass(frozen=True, slots=True)

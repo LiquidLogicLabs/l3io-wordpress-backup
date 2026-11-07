@@ -503,3 +503,38 @@ def test_a_file_replaced_by_another_of_the_same_size_fails(
     with pytest.raises(ArchiveWriteError) as caught:
         _write(tmp_path, members, manifest_builder, workspace)
     assert "index.php" in caught.value.reason
+
+
+def test_a_file_swapped_for_a_fifo_after_collection_fails_without_hanging(
+    tmp_path: Path,
+    site_root: Path,
+    dump_file: Path,
+    manifest_builder: Builder,
+    workspace: Path,
+) -> None:
+    """BL-E002-062: a FIFO with no writer must not block the open."""
+    import threading
+
+    target = site_root / "index.php"
+    members = _members(site_root, dump_file)
+    target.unlink()
+    os.mkfifo(target)
+    raised: list[BaseException] = []
+
+    def write() -> None:
+        try:
+            _write(tmp_path, members, manifest_builder, workspace)
+        except BaseException as exc:
+            raised.append(exc)
+
+    worker = threading.Thread(target=write, daemon=True)
+    worker.start()
+    worker.join(timeout=10)
+    if worker.is_alive():
+        # Release the blocked open so the daemon thread can finish.
+        os.close(os.open(target, os.O_WRONLY | os.O_NONBLOCK))
+        worker.join(timeout=10)
+        pytest.fail("the write blocked opening a FIFO")
+    assert len(raised) == 1
+    assert isinstance(raised[0], ArchiveWriteError)
+    assert "index.php" in raised[0].reason

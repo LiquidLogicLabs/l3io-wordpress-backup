@@ -27,7 +27,7 @@ from l3io.wp.backup.domain.errors import (
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.site_files import require_site_relative
 
-__all__ = ["LocalSiteFiles"]
+__all__ = ["LocalSiteFiles", "refuse_unsafe_clean_target"]
 
 _log = structlog.get_logger(__name__)
 
@@ -52,6 +52,25 @@ def _listing(site_root: Path) -> list[os.DirEntry[str]]:
         raise InvalidSiteDescriptorError(msg, paths=(str(site_root),)) from exc
     except OSError as exc:
         raise UnreadableSiteRootError(site_root, type(exc).__name__) from exc
+
+
+def refuse_unsafe_clean_target(root: Path) -> None:
+    """``UnsafeCleanTargetError`` for a Site Root no clean may empty.
+
+    The filesystem root, the user's home directory, or a directory holding
+    neither ``wp-config.php`` nor ``wp-includes/``. A read, never an effect:
+    the Dry Run's ``NoopSiteFiles.clean`` calls it too, so a Dry Run refuses
+    where the real Run would (AD-4; BL-E002-093).
+    """
+    resolved = root.resolve()
+    if resolved == Path(resolved.anchor):
+        raise UnsafeCleanTargetError(root, "it is the filesystem root")
+    if resolved == Path.home().resolve():
+        raise UnsafeCleanTargetError(root, "it is the user's home directory")
+    if not any(os.path.lexists(resolved / marker) for marker in _SITE_MARKERS):
+        raise UnsafeCleanTargetError(
+            root, "it holds neither wp-config.php nor wp-includes/"
+        )
 
 
 class LocalSiteFiles:
@@ -109,7 +128,7 @@ class LocalSiteFiles:
         """
         require_site_relative(keep, argument="keep")
         root = site_root.absolute()
-        self._refuse_unsafe(root)
+        refuse_unsafe_clean_target(root)
         kept = {path.parts[0] for path in keep if path.parts}
         started = time.monotonic_ns()
         removed = 0
@@ -134,18 +153,6 @@ class LocalSiteFiles:
             kept=sorted(kept),
         )
         return removed
-
-    @staticmethod
-    def _refuse_unsafe(root: Path) -> None:
-        resolved = root.resolve()
-        if resolved == Path(resolved.anchor):
-            raise UnsafeCleanTargetError(root, "it is the filesystem root")
-        if resolved == Path.home().resolve():
-            raise UnsafeCleanTargetError(root, "it is the user's home directory")
-        if not any(os.path.lexists(resolved / marker) for marker in _SITE_MARKERS):
-            raise UnsafeCleanTargetError(
-                root, "it holds neither wp-config.php nor wp-includes/"
-            )
 
     def extract(
         self,

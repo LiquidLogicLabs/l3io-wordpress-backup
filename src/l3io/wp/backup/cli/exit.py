@@ -136,6 +136,6 @@ def report_failure(exc: Exception, *, secrets: SecretRegistry) -> ExitCode:
                 exc_info=None if isinstance(exc, BackupError) else exc,
                 **run_fields,
             )
-    except Exception:  # noqa: S110 - reporting must not change the code
+    except Exception:  # noqa: S110 - RunTerminated: mapped here (the code is decided)
         pass
     return code

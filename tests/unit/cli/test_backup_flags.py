@@ -225,6 +225,7 @@ def test_the_db_aws_pair_reaches_the_request(rig: Rig) -> None:
         ("--archive", "x.tar.gz"),
         ("--mode", "db"),
         ("--db-credentials-aws-secret-id", "e008/ignored"),
+        ("--what-if",),
     ],
 )
 def test_list_default_excludes_refuses_every_other_backup_flag(

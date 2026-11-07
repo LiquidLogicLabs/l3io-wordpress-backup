@@ -47,7 +47,7 @@ from l3io.wp.backup.ports.config import WHOLE_FILE
 if TYPE_CHECKING:
     from l3io.wp.config import WpConfigString
 
-__all__ = ["WpConfigWriter", "read_defined"]
+__all__ = ["WpConfigWriter", "read_defined", "refuse_unkeepable"]
 
 _log = structlog.get_logger(__name__)
 
@@ -148,6 +148,23 @@ def _keep_owner(fd: int, original: os.stat_result) -> None:
     if (current.st_uid, current.st_gid) != (original.st_uid, original.st_gid):
         os.fchown(fd, original.st_uid, original.st_gid)
     os.fchmod(fd, stat.S_IMODE(original.st_mode))
+
+
+def refuse_unkeepable(
+    config_file: Path, keep: Mapping[str, ConstantValue]
+) -> dict[str, str | int | bool]:
+    """``keep`` without ``None``s; a ``None`` (not defined) is refused.
+
+    ``ConfigWriteFailedError`` names the key. Pure: the Dry Run's
+    ``NoopConfigWriter.replace_file`` calls it too (AD-4; BL-E002-093).
+    """
+    kept: dict[str, str | int | bool] = {}
+    for key, value in keep.items():
+        if value is None:
+            absent = "the target does not define it, so it cannot be kept"
+            raise ConfigWriteFailedError(config_file, key, absent)
+        kept[key] = value
+    return kept
 
 
 class WpConfigWriter:
@@ -296,12 +313,7 @@ class WpConfigWriter:
 
         self._register(keep, source="replace_file")
         started = time.monotonic_ns()
-        kept: dict[str, str | int | bool] = {}
-        for key, value in keep.items():
-            if value is None:
-                absent = "the target does not define it, so it cannot be kept"
-                raise ConfigWriteFailedError(config_file, key, absent)
-            kept[key] = value
+        kept = refuse_unkeepable(config_file, keep)
         try:
             original = config_file.stat()
         except OSError as exc:

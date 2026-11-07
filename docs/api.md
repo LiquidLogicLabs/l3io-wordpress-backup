@@ -101,13 +101,18 @@ included, stays on `__cause__` for you to handle.
 
 **Secrets and what holds them.** The package keeps secrets out of its own
 exceptions, `repr`s, log records and spans. It cannot keep them out of
-memory you can reach. A `passphrase=` or `ExplicitCredentialSpec(password=...)`
-is a plain `str`, so it is a local variable in every frame of an exception that
-escapes a call, and `dataclasses.asdict()` or `pickle` of a spec exposes it. A
-tool that captures locals (an error tracker's local-variable option, rich or
-`dict_tracebacks(show_locals=True)` tracebacks, `pytest --showlocals`) will
-record it. Prefer `prompt=` or the environment to `passphrase=` where such a
-tool runs, and scrub locals in it. Span status descriptions name a
+memory you can reach. Pass a `passphrase=`, `ExplicitCredentialSpec(password=...)`
+or `RelocationFlags(new_db_password=...)` as a `Secret` (exported from this
+package; ADR-0018 amendment of 2026-11-07): its `repr` and `str` are
+`Secret('***')`, and pickling or copying it raises `TypeError`, so a captured
+local, `repr` or `pickle` of a spec does not show the value. A plain `str` is
+accepted and wrapped where it is read, but until then it is your own local
+variable in your frames. The text `.reveal()` returns is itself a `str` local
+for the moment the value is used, inside the few package modules allowed to
+call it. A tool that captures locals (an error tracker's local-variable option,
+rich or `dict_tracebacks(show_locals=True)` tracebacks, `pytest --showlocals`)
+can record such a `str`. Prefer `prompt=` or the environment to `passphrase=`
+where such a tool runs, and scrub locals in it. Span status descriptions name a
 non-package exception by class only. The database dependency's own
 `l3io.wp.database.*` spans, which nest under this package's phase spans, record
 the failure's message and stack trace as an `exception` event and in the status

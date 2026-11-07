@@ -18,6 +18,7 @@ from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.domain.archive_format import MemberRole
 from l3io.wp.backup.domain.errors import (
     CleanFailedError,
+    ExtractionRefusedError,
     InvalidSiteDescriptorError,
     RefusedError,
     UnreadableSiteRootError,
@@ -209,6 +210,53 @@ def test_extract_excluding_the_config_leaves_it_byte_identical(
     assert (destination / "wp-config.php").read_bytes() == CONFIG
     assert (destination / "index.php").read_bytes() == b"<?php"
     assert result.members == 1
+
+
+def test_a_case_variant_of_the_kept_config_is_refused_where_it_is_the_same_file(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    """BL-E002-067: on a case-insensitive filesystem ``WP-CONFIG.PHP`` *is*
+    ``wp-config.php``. A hard link gives the two names one inode here, which
+    is what such a filesystem does; the kept file stays byte-identical."""
+    destination = tmp_path / "target"
+    destination.mkdir()
+    (destination / "wp-config.php").write_bytes(CONFIG)
+    os.link(destination / "wp-config.php", destination / "WP-CONFIG.PHP")
+    source, view = _v1(
+        tmp_path,
+        [
+            _file("site-root/index.php", b"<?php"),
+            _file("site-root/WP-CONFIG.PHP", b"<?php // the archive's"),
+        ],
+    )
+    with pytest.raises(ExtractionRefusedError, match="excluded path"):
+        files.extract(
+            source,
+            destination,
+            view,
+            roles=frozenset({MemberRole.SITE_ROOT}),
+            exclude=frozenset({PurePosixPath("wp-config.php")}),
+        )
+    assert (destination / "wp-config.php").read_bytes() == CONFIG
+
+
+def test_a_case_variant_that_is_another_file_is_extracted(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    """On a case-sensitive filesystem the variant is a different file."""
+    destination = tmp_path / "target"
+    destination.mkdir()
+    (destination / "wp-config.php").write_bytes(CONFIG)
+    source, view = _v1(tmp_path, [_file("site-root/WP-CONFIG.PHP", b"other")])
+    files.extract(
+        source,
+        destination,
+        view,
+        roles=frozenset({MemberRole.SITE_ROOT}),
+        exclude=frozenset({PurePosixPath("wp-config.php")}),
+    )
+    assert (destination / "wp-config.php").read_bytes() == CONFIG
+    assert (destination / "WP-CONFIG.PHP").read_bytes() == b"other"
 
 
 def test_extract_delegates_to_extract_archive_unchanged(

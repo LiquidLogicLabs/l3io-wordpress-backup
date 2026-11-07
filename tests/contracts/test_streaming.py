@@ -110,6 +110,7 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_BoundedTarInfo",
             "_Counter",
             "_ExtractFilter",
+            "_existing_identity",  # BL-E002-067: one stat per member, no bytes
             # E008-S01-001 (BL-E004-053): called by TarArchiveWriter.write on
             # the real backup path this test drives; it serialises the
             # Manifest the writer builds anyway (members, not bytes).

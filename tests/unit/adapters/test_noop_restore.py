@@ -134,7 +134,7 @@ CASES: dict[type, list[tuple[Call, type | None]]] = {
         ),
         (
             lambda a, s: a.replace_file(
-                s / "wp-config.php", "<?php\n", keep={"DB_HOST": None}
+                s / "wp-config.php", "<?php\n", keep={"DB_HOST": "db"}
             ),
             ConfigWriteResult,
         ),
@@ -293,3 +293,82 @@ def test_the_database_twin_refuses_without_an_administrator(
 def test_load_dump_needs_no_administrator() -> None:
     result = noop.NoopDatabase(noop.ActionLog()).load_dump(WHERE, RecordingSource())  # type: ignore[arg-type]
     assert result == LoadResult(bytes=0, duration_ms=0.0, performed=False)
+
+
+# --- BL-E002-093 (AD-2): the twins refuse where the real adapters refuse ------
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["no-site-markers", "home", "filesystem-root"],
+)
+def test_the_site_files_twin_refuses_an_unsafe_clean_target_like_the_real_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    from l3io.wp.backup.adapters.site_files import LocalSiteFiles
+    from l3io.wp.backup.domain.errors import UnsafeCleanTargetError
+
+    target = tmp_path / "not-a-site"
+    target.mkdir()
+    (target / "keep-me.txt").write_text("x", encoding="utf-8")
+    if shape == "home":
+        (target / "wp-config.php").write_text("<?php\n", encoding="utf-8")
+        monkeypatch.setenv("HOME", str(target))
+    elif shape == "filesystem-root":
+        target = Path("/")
+    before = sorted(p.name for p in target.iterdir())
+    for adapter in (noop.NoopSiteFiles(noop.ActionLog()), LocalSiteFiles()):
+        with pytest.raises(UnsafeCleanTargetError):
+            adapter.clean(target, keep=frozenset())
+    assert sorted(p.name for p in target.iterdir()) == before
+
+
+def test_the_config_twin_refuses_an_unkeepable_constant_like_the_real_one(
+    site: Path,
+) -> None:
+    pytest.importorskip("l3io.wp.config")
+    from l3io.wp.backup.adapters.config_writer import WpConfigWriter
+    from l3io.wp.backup.adapters.redaction import SecretRegistry
+    from l3io.wp.backup.domain.errors import ConfigWriteFailedError
+
+    config = site / "wp-config.php"
+    before = config.read_bytes()
+    for adapter in (
+        noop.NoopConfigWriter(noop.ActionLog()),
+        WpConfigWriter(SecretRegistry()),
+    ):
+        with pytest.raises(ConfigWriteFailedError) as caught:
+            adapter.replace_file(config, "<?php\n", keep={"DB_HOST": None})
+        assert caught.value.key == "DB_HOST"
+    assert config.read_bytes() == before
+
+
+# --- BL-E002-107 (SD-02-1): the executor, not the no-op, names the phase -------
+
+
+@pytest.mark.parametrize("twin", list(CASES), ids=lambda t: t.__name__)
+@pytest.mark.parametrize("open_phase", [p.value for p in RestorePhase])
+def test_a_twin_called_inside_any_phase_joins_it_and_emits_none_of_its_own(
+    twin: type, open_phase: str, site: Path
+) -> None:
+    from l3io.wp.backup.adapters.phase import phase
+
+    adapter = _make(twin, noop.ActionLog())
+    with capture_logs() as logs, phase(open_phase):
+        for call, _expected in CASES[twin]:
+            call(adapter, site)
+    records = [e for e in logs if e["event"] == "phase_completed"]
+    assert [r["phase"] for r in records] == [open_phase]
+    assert records[0]["outcome"] == SKIPPED_OUTCOME
+
+
+def test_a_dry_run_cutover_is_recorded_inside_load_dump(site: Path) -> None:
+    """The reproduction: ``set_constants`` inside ``load-dump`` (AD-17)."""
+    from l3io.wp.backup.adapters.phase import phase
+
+    with capture_logs() as logs, phase(RestorePhase.LOAD_DUMP.value):
+        noop.NoopConfigWriter(noop.ActionLog()).set_constants(
+            site / "wp-config.php", {"DB_NAME": "x"}
+        )
+    phases = [e["phase"] for e in logs if e["event"] == "phase_completed"]
+    assert phases == [RestorePhase.LOAD_DUMP.value]

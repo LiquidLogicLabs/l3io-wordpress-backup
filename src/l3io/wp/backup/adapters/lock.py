@@ -263,7 +263,9 @@ class FcntlSiteLock:
             canonical = Path(site_root).resolve(strict=True)
         except (OSError, RuntimeError) as exc:
             msg = "site root does not exist"
-            raise InvalidSiteDescriptorError(msg, paths=(str(site_root),)) from exc
+            raise InvalidSiteDescriptorError(
+                msg, paths=(str(Path(site_root).absolute()),)
+            ) from exc
         directory = self._directory(canonical)
         digest = hashlib.sha256(str(canonical).encode()).hexdigest()
         lock_path = directory / f"{digest}.lock"

@@ -42,8 +42,10 @@ from typing import IO, Final, TypeVar
 
 import structlog
 
+from l3io.wp.backup.adapters.config_writer import refuse_unkeepable
 from l3io.wp.backup.adapters.database import ADMIN_FLAGS, ADMIN_SOURCE
-from l3io.wp.backup.adapters.phase import SKIPPED_OUTCOME, join_phase, phase
+from l3io.wp.backup.adapters.phase import SKIPPED_OUTCOME, join_open_phase, phase
+from l3io.wp.backup.adapters.site_files import refuse_unsafe_clean_target
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.domain.archive_format import (
     ArchiveView,
@@ -58,7 +60,7 @@ from l3io.wp.backup.domain.database import (
     EnsureOutcome,
     LoadResult,
 )
-from l3io.wp.backup.domain.errors import AdminCredentialsRequiredError
+from l3io.wp.backup.domain.errors import AdminCredentialsRequiredError, RunTerminated
 from l3io.wp.backup.domain.journal import JournalHeader
 from l3io.wp.backup.domain.restore import RestorePhase
 from l3io.wp.backup.domain.search_replace import (
@@ -182,6 +184,8 @@ class GuardedTracer:
             return _FAILED
         try:
             return fn()
+        except RunTerminated:
+            raise  # a SIGTERM is the Run's, never the tracer's failure (BL-E002-092)
         except Exception as exc:
             if not self._disabled:
                 self._disabled = True
@@ -323,8 +327,8 @@ class ActionLog:
 
 
 def _skip(phase_name: str, **fields: object) -> None:
-    """One ``phase_completed`` record, ``skipped_dry_run``, joining an open one."""
-    with join_phase(phase_name) as record:
+    """Mark the open phase ``skipped_dry_run``; ``phase_name`` only if none is open."""
+    with join_open_phase(phase_name) as record:
         record.skip()
         record.fields.update(fields)
 
@@ -354,7 +358,7 @@ class NoopDatabase:
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
         """A zero-byte result; ``destination`` is not created."""
         del destination
-        with join_phase(BackupStep.DUMP.value) as record:
+        with join_open_phase(BackupStep.DUMP.value) as record:
             record.skip()
         self._log.record("NoopDatabase", "dump_to", location.name)
         return DumpResult(bytes=0, duration_ms=0.0)
@@ -493,8 +497,10 @@ class NoopSiteFiles:
         self._log = log
 
     def clean(self, site_root: Path, *, keep: frozenset[PurePosixPath]) -> int:
-        """``0``: nothing removed. ``keep`` is checked as the real one checks it."""
+        """``0``: nothing removed. ``keep`` and the target are checked as the
+        real one checks them, so an unsafe target is refused here too."""
         require_site_relative(keep, argument="keep")
+        refuse_unsafe_clean_target(site_root.absolute())
         _skip(RestorePhase.CLEAN.value, method="clean", keep=_names(keep))
         self._log.record("NoopSiteFiles", "clean", str(site_root))
         return 0
@@ -558,8 +564,14 @@ class NoopConfigWriter:
         *,
         keep: Mapping[str, ConstantValue],
     ) -> ConfigWriteResult:
-        """Nothing replaced and nothing written; the keys of ``keep`` are recorded."""
+        """Nothing replaced and nothing written; the keys of ``keep`` are recorded.
+
+        A ``None`` in ``keep`` is refused as the real writer refuses it. That
+        ``config_file`` exists is not checked: in a Dry Run EXTRACT wrote
+        nothing, so its absence here says nothing about the real Run.
+        """
         del content
+        refuse_unkeepable(config_file, keep)
         self._skipped("replace_file", config_file, keep.keys())
         return ConfigWriteResult(changed=(), performed=False)
 

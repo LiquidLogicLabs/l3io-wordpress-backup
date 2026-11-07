@@ -578,9 +578,18 @@ class SiteLockedError(BackupError):
             if holder_run_id is not None
             else "the holder could not be identified"
         )
+        # UX-6 (BL-E002-103): what to do next, not only who holds it.
+        if holder_pid is not None:
+            advice = (
+                f"wait for that Run to finish, or check it with `ps -p {holder_pid}`; "
+                "a lock whose process has gone is reclaimed by the next Run"
+            )
+        else:
+            advice = "wait for the other Run to finish, then try again"
         super().__init__(
             f"site {str(site_root)!r} is locked ({holder}; lock file "
-            f"{str(lock_path)!r})"
+            f"{str(lock_path)!r}); {advice}. The lock covers Runs by the same "
+            "OS user only"
         )
 
 

@@ -165,11 +165,13 @@ def test_a_dry_run_changes_nothing_and_reads_no_site_content(
     assert spies == {"write_archive": [], "collect_site_root": [], "verify": []}
     assert fake_database.calls == []
     assert len(fake_database.checks) == 1
-    lines = printed.out.splitlines()
+    *lines, trailer = printed.out.splitlines()
+    assert trailer == backup_cli.DRY_RUN_TRAILER
+    assert "write-time failures" in trailer
     assert lines[0] == (
         f"1. resolve credentials from chain(wp-config:{site / 'wp-config.php'})"
     )
-    assert lines[1] == "2. check dump readiness (DatabaseQuery.check_dump)"
+    assert lines[1] == "2. check dump readiness"
     assert lines[-1] == f"{len(lines)}. publish to file:{out / 'a'}"
     phases = [e for e in logs if e["event"] == "phase_completed"]
     assert [e["phase"] for e in phases] == [
@@ -193,6 +195,33 @@ def test_the_same_run_for_real_trips_every_spy(
     assert "index.php" in opened
     assert fake_database.calls
     assert final.is_file()
+
+
+@pytest.mark.parametrize("spelling", ["--whatIf", "--what-if"])
+def test_what_if_after_backup_is_a_dry_run(
+    site: Path,
+    tmp_path: Path,
+    fake_database: FakeDatabase,
+    spies: dict[str, list[object]],
+    capsys: pytest.CaptureFixture[str],
+    spelling: str,
+) -> None:
+    """UX-1 (BL-E002-101): the flag where operators put it, after ``backup``."""
+    final = tmp_path / "never.tar.gz"
+    argv = ["backup", "--wp-dir", str(site), "--archive", str(final), spelling]
+    code = main(argv)
+    printed = capsys.readouterr()
+    assert code == 0, printed.err
+    assert not final.exists()
+    assert spies == {"write_archive": [], "collect_site_root": [], "verify": []}
+    assert fake_database.calls == []
+    assert printed.out.splitlines()[-1] == backup_cli.DRY_RUN_TRAILER
+
+
+def test_backup_help_lists_what_if(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["backup", "--help"])
+    assert "--whatIf" in capsys.readouterr().out
 
 
 def _direct_calls(path: Path, names: tuple[str, ...]) -> list[str]:

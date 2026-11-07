@@ -48,6 +48,8 @@ To backup:
 wpbackup2 backup --wp-dir /www/wordpress --archive ~/backup.tar.gz
 ```
 
+To rehearse a backup first, add `--whatIf` (before or after `backup`). The Dry Run resolves the credentials, runs the preflight and asks the database whether it can be dumped, all for real; then it prints the ordered plan and writes nothing. Its last line says so. It does not detect what only writing finds: a full disk, a file that cannot be read, or an Archive larger than the Manifest cap. A Site Lock is taken as for a real Run, so a Dry Run waits for nobody and is refused (exit 9) while another Run of the same Site by the same OS user holds the lock.
+
 To check an archive without touching a site:
 
 ```
@@ -127,7 +129,7 @@ exit codes:
 
 ```text
 $ wpbackup2 backup --help
-usage: wpbackup2 backup [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--wp-config PATH]
+usage: wpbackup2 backup [-h] --wp-dir WP_DIR [--whatIf] [--archive ARCHIVE] [--wp-config PATH]
                         [--mode {files,db,all}] [--encrypt-with-passphrase] [--exclude PATTERN]
                         [--no-default-excludes] [--list-default-excludes]
                         [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
@@ -135,9 +137,11 @@ usage: wpbackup2 backup [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--wp-config PA
 options:
   -h, --help            show this help message and exit
   --wp-dir WP_DIR       Path to the root of the WordPress directory
+  --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
+                        write nothing (also accepted before `backup`)
   --archive ARCHIVE     Archive path or file: URL (default: ./wpbackup2-<db>-<UTC
                         timestamp>.tar.gz)
-  --wp-config PATH      use this wp-config.php instead of searching for it
+  --wp-config PATH      Use this wp-config.php instead of searching for it
   --mode {files,db,all}
                         What to back up: files, db, or all (default: all)
   --encrypt-with-passphrase
@@ -165,16 +169,13 @@ usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files
                          [--require-encrypted] [--snapshot-dir PATH]
                          [--archive-database USER@HOST[:PORT]/NAME]
                          [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
-                         [--resolve-interrupted-run RUN_ID] [--admin-username ADMIN_USERNAME]
-                         [--admin-password ADMIN_PASSWORD]
-                         [--admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID]
-                         [--admin-credentials-aws-region ADMIN_CREDENTIALS_AWS_REGION]
-                         [--only-appointed-in-asg] [--new-site-url NEW_SITE_URL]
-                         [--new-site-home-url NEW_SITE_HOME_URL] [--new-db-host NEW_DB_HOST]
-                         [--new-db-name NEW_DB_NAME] [--new-db-user NEW_DB_USER]
-                         [--new-db-password NEW_DB_PASSWORD] [--new-db-password-file PATH]
-                         [--allow-unencrypted] [--db-credentials-aws-secret-id ID]
-                         [--db-credentials-aws-region REGION]
+                         [--resolve-interrupted-run RUN_ID] [--admin-username USER]
+                         [--admin-password PASSWORD] [--admin-credentials-aws-secret-id ID]
+                         [--admin-credentials-aws-region REGION] [--only-appointed-in-asg]
+                         [--new-site-url URL] [--new-site-home-url URL] [--new-db-host HOST]
+                         [--new-db-name NAME] [--new-db-user USER] [--new-db-password PASSWORD]
+                         [--new-db-password-file PATH] [--allow-unencrypted]
+                         [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
 
 options:
   -h, --help            show this help message and exit
@@ -188,15 +189,19 @@ restore mode:
                         What to restore: files, db, or all (default: all)
   --cleanfirst          Clear the Site Root before restoring the files. It does not remove the
                         database: that is --drop-database
-  --drop-database       Remove the previous database once the restored one has taken over. --mode
-                        all needs --cleanfirst with it
+  --drop-database       Remove the previous database once the restored one has taken over. Valid
+                        as --mode db --drop-database, or with --mode all --cleanfirst; alone (the
+                        default --mode all) it is refused
   --force               Restore into a non-empty target for the parts the mode restores. It
                         selects no mode and removes nothing
 
 restore options:
+  The flags that do not select the Restore Mode: Dry Run, wp-config.php, the Safety Snapshot,
+  the database administrator and relocation
+
   --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
                         change nothing (also accepted before `restore`)
-  --wp-config PATH      use this wp-config.php instead of searching for it
+  --wp-config PATH      Use this wp-config.php instead of searching for it
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
                         a mode that restores files)
@@ -220,28 +225,24 @@ restore options:
   --admin-tls-ca FILE   CA bundle that verifies the database server (default: the system store)
   --resolve-interrupted-run RUN_ID
                         Resolve the journal left by the interrupted Run with this ID
-  --admin-username ADMIN_USERNAME
+  --admin-username USER
                         Database administrator username (give --admin-password with it)
-  --admin-password ADMIN_PASSWORD
+  --admin-password PASSWORD
                         Database administrator password. The value is visible in the process list;
                         prefer L3IO_WP_BACKUP_ADMIN_PASSWORD
-  --admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID
+  --admin-credentials-aws-secret-id ID
                         Read the database administrator from this AWS Secrets Manager secret
-  --admin-credentials-aws-region ADMIN_CREDENTIALS_AWS_REGION
+  --admin-credentials-aws-region REGION
                         AWS region of --admin-credentials-aws-secret-id (needs the secret id)
   --only-appointed-in-asg
                         Removed; accepted only to say so (not available in this build)
-  --new-site-url NEW_SITE_URL
-                        Relocate the Site to this URL
-  --new-site-home-url NEW_SITE_HOME_URL
+  --new-site-url URL    Relocate the Site to this URL
+  --new-site-home-url URL
                         Relocate the Site's home URL
-  --new-db-host NEW_DB_HOST
-                        Relocate to this database host
-  --new-db-name NEW_DB_NAME
-                        Relocate to this database name
-  --new-db-user NEW_DB_USER
-                        Relocate to this database user
-  --new-db-password NEW_DB_PASSWORD
+  --new-db-host HOST    Relocate to this database host
+  --new-db-name NAME    Relocate to this database name
+  --new-db-user USER    Relocate to this database user
+  --new-db-password PASSWORD
                         Password of --new-db-user. The value is visible in the process list;
                         prefer --new-db-password-file or L3IO_WP_BACKUP_NEW_DB_PASSWORD
   --new-db-password-file PATH

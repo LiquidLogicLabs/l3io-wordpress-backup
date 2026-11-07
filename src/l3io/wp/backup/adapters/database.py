@@ -324,7 +324,9 @@ def _site_root(site_root: Path) -> Path:
         resolved = site_root.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         msg = "site root does not exist"
-        raise InvalidSiteDescriptorError(msg, paths=(str(site_root),)) from exc
+        raise InvalidSiteDescriptorError(
+            msg, paths=(str(Path(site_root).absolute()),)
+        ) from exc
     if not resolved.is_dir():
         msg = "site root is not a directory"
         raise InvalidSiteDescriptorError(msg, paths=(str(site_root),))

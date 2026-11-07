@@ -57,7 +57,9 @@ def _site_readiness(run: RunContext, site_root: Path) -> Readiness:
             root = site_root.resolve(strict=True)
         except (OSError, RuntimeError) as exc:
             msg = "site root does not exist"
-            raise InvalidSiteDescriptorError(msg, paths=(str(site_root),)) from exc
+            raise InvalidSiteDescriptorError(
+                msg, paths=(str(Path(site_root).absolute()),)
+            ) from exc
         config = locate_wp_config(root, stated=None)
         site, wp_config = site_descriptor_from_wp_config(root, config_file=config.path)
         source = wordpress_source(

@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import fnmatch
 import os
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -118,6 +119,7 @@ from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import (
+    DEFAULT_ARCHIVE_NAME_GLOB,
     StorageTarget,
     default_archive_name,
     parse_storage_target,
@@ -135,6 +137,7 @@ from l3io.wp.backup.ports.preflight import Preflight
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
+    "DRY_RUN_TRAILER",
     "BackupRequest",
     "BackupResult",
     "PlannedAction",
@@ -188,13 +191,31 @@ class PlannedAction:
     fields: Mapping[str, object]
 
 
+#: The last line of a successful backup Dry Run (UX-2, BL-E002-102).
+DRY_RUN_TRAILER: Final = (
+    "Dry Run complete: the plan above was checked, and nothing was written or "
+    "published. A Dry Run does not detect write-time failures, such as a full "
+    "disk or a file that cannot be read"
+)
+
+#: Names this package gives its own Archives: the default name, and the
+#: store's staged ``.<name>.<random>.partial`` beside it.
+_OWN_ARCHIVE_GLOBS: Final = (
+    DEFAULT_ARCHIVE_NAME_GLOB,
+    f".{DEFAULT_ARCHIVE_NAME_GLOB}.*.partial",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class _SkipStaged:
-    """An exclusion policy that also leaves out the Archive being written.
+    """An exclusion policy that also leaves out this package's own Archives.
 
     The staged file is created before the Site Root is collected; with a
     target inside the Site Root (the default is the current directory) it
-    would otherwise be collected into itself.
+    would otherwise be collected into itself. Earlier Archives under their
+    default name, and staged files a killed Run left, are left out too, so a
+    backup run from the docroot does not double in size every run
+    (BL-E002-100). This holds whatever the exclusion flags say.
     """
 
     inner: ExclusionPolicy
@@ -213,6 +234,12 @@ class _SkipStaged:
         if not is_dir and self.site_root / relative == self.staged:
             return ExclusionDecision(
                 excluded=True, pattern="the Archive being written", protected=False
+            )
+        if not is_dir and any(
+            fnmatch.fnmatchcase(relative.name, g) for g in _OWN_ARCHIVE_GLOBS
+        ):
+            return ExclusionDecision(
+                excluded=True, pattern="an earlier wpbackup2 Archive", protected=False
             )
         return self.inner.decide(relative, is_dir=is_dir)
 
@@ -289,8 +316,8 @@ _STEP_LINES: Final[Mapping[BackupStep, str]] = {
 def _collect_line(site: SiteDescriptor, plan: BackupPlan) -> str:
     patterns = plan.exclusion_patterns
     if not patterns:
-        source = plan.exclusion_source
-        return f"collect Site Root {site.site_root} (excluding nothing, {source})"
+        # UX-4 (BL-E002-103): say what it means, not "excluding nothing, none".
+        return f"collect Site Root {site.site_root} (no exclusion patterns)"
     return (
         f"collect Site Root {site.site_root} (excluding {len(patterns)} patterns, "
         f"{plan.exclusion_source}: {', '.join(patterns)})"
@@ -319,7 +346,7 @@ def plan_actions(
         entries.append(
             (
                 "CHECK_DUMP",
-                "check dump readiness (DatabaseQuery.check_dump)",
+                "check dump readiness",
                 {"db_name": site.db_name},
             )
         )
@@ -594,7 +621,9 @@ def drive_backup(
         site_root = Path(request.site_root).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         msg = "site root does not exist"
-        raise InvalidSiteDescriptorError(msg, paths=(str(request.site_root),)) from exc
+        raise InvalidSiteDescriptorError(
+            msg, paths=(str(Path(request.site_root).absolute()),)
+        ) from exc
     with join_or_open(
         ctx,
         operation="backup",
@@ -714,12 +743,17 @@ def _refuse_flags_with_list(values: Mapping[str, object]) -> None:
         if isinstance(action, argparse._SubParsersAction)  # noqa: SLF001
     )
     exempt = {"help", "wp_dir", "list_default_excludes"}
+
+    def unset(action: argparse.Action) -> object:
+        # A SUPPRESS default (``--whatIf``) leaves the top-level value: False.
+        return False if action.default == argparse.SUPPRESS else action.default
+
     given = tuple(
         action.option_strings[-1]
         for action in subparsers[BACKUP_COMMAND]._actions  # noqa: SLF001
         if action.option_strings
         and action.dest not in exempt
-        and values.get(action.dest, action.default) != action.default
+        and values.get(action.dest, unset(action)) != unset(action)
     )
     if given:
         message = (
@@ -761,7 +795,7 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         ),
         cipher=cipher,
         exclusion=default_exclusion_policy() if exclusion is None else exclusion,
-        dry_run=bool(getattr(args, "what_if", False)),
+        dry_run=bool(args.what_if),
         extra_tools=extra_tools,
     )
     planned: list[str] = []
@@ -778,6 +812,10 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         if request.dry_run and planned:
             emit_result("\n".join(planned))
         raise
-    # A Dry Run published nothing: its result is the ordered plan (FR-19).
-    emit_result(str(result.path) if result.performed else "\n".join(result.actions))
+    # A Dry Run published nothing: its result is the ordered plan (FR-19),
+    # then a line that says so (UX-2, BL-E002-102).
+    if result.performed:
+        emit_result(str(result.path))
+    else:
+        emit_result("\n".join([*result.actions, DRY_RUN_TRAILER]))
     return ExitCode.OK

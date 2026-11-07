@@ -141,7 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from l3io.wp.backup.cli.verify import run_verify
 
                 code = run_verify(args, secrets=secrets)
-    except Exception as exc:
+    except Exception as exc:  # RunTerminated: mapped here (exit code)
         # Every failure is mapped to its code; KeyboardInterrupt is not caught.
         return int(report_failure(exc, secrets=secrets))
     return int(code)

@@ -68,7 +68,8 @@ def test_a_dry_run_changes_nothing_and_prints_the_plan_in_order(
     assert _listing(out) == listing
     assert _snapshot(site) == files
     assert _checksums(database) == tables
-    lines = captured.out.splitlines()
+    *lines, trailer = captured.out.splitlines()
+    assert trailer.startswith("Dry Run complete")
     assert [line.split(".", 1)[0] for line in lines] == [
         str(n) for n in range(1, len(lines) + 1)
     ]

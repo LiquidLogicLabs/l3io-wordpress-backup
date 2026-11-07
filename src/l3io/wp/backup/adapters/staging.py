@@ -82,6 +82,7 @@ from l3io.wp.backup.domain.errors import (
     MissingExtraError,
     ProvisioningFailedError,
     RefusedError,
+    RunTerminated,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.journal import (
@@ -307,6 +308,8 @@ def _drop_staging(
     try:
         ports.adapters.restore_database_command.drop_database(target.load, confirm=name)
         journal.step_completed(_PHASE, STEP_STAGING_DROPPED)
+    except RunTerminated:
+        raise  # BL-E002-092
     except Exception as exc:  # the original error is re-raised by the caller
         _log.error(
             "staging_database_drop_failed",
@@ -377,6 +380,8 @@ def _read_back(
     """
     try:
         current = ports.adapters.config_query.read_constants(config_file, (key,))
+    except RunTerminated:
+        raise  # BL-E002-092
     except Exception as exc:  # unknown: the caller re-raises the write's error
         _log.error("cutover_read_back_failed", key=key, error_type=type(exc).__name__)
         return None
@@ -413,6 +418,8 @@ def _cutover(
         journal.step_completed(_PHASE, STEP_CUTOVER_STARTED + key)
         try:
             command.set_constants(config_file, {key: value or ""})
+        except RunTerminated:
+            raise  # BL-E002-092: never read back and carried on past a SIGTERM
         except Exception as exc:
             arrived = (
                 False

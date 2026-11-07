@@ -221,6 +221,20 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
     backup.add_argument(
         "--wp-dir", help="Path to the root of the WordPress directory", required=True
     )
+    # UX-1 (BL-E002-101): as on restore, an addition AD-22 permits; the frozen
+    # spelling stays on the top-level parser. SUPPRESS: absent here, the
+    # top-level value stands (a default would overwrite `--whatIf backup`).
+    backup.add_argument(
+        "--whatIf",
+        "--what-if",
+        dest="what_if",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "Dry Run: run every check and query for real, print the ordered "
+            "plan, and write nothing (also accepted before `backup`)"
+        ),
+    )
     backup.add_argument(
         "--archive",
         help=(
@@ -233,7 +247,7 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
     backup.add_argument(
         "--wp-config",
         metavar="PATH",
-        help="use this wp-config.php instead of searching for it",
+        help="Use this wp-config.php instead of searching for it",
         default=None,
     )
     backup.add_argument(
@@ -307,7 +321,8 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Remove the previous database once the restored one has taken "
-            "over. --mode all needs --cleanfirst with it"
+            "over. Valid as --mode db --drop-database, or with --mode all "
+            "--cleanfirst; alone (the default --mode all) it is refused"
         ),
     )
     mode.add_argument(
@@ -319,7 +334,11 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         ),
     )
 
-    options = restore.add_argument_group(RESTORE_OPTIONS_GROUP)
+    options = restore.add_argument_group(
+        RESTORE_OPTIONS_GROUP,
+        "The flags that do not select the Restore Mode: Dry Run, wp-config.php, "
+        "the Safety Snapshot, the database administrator and relocation",
+    )
     # UX-S02-02: an addition AD-22 permits; the frozen spelling stays on the
     # top-level parser. SUPPRESS: absent here, the top-level value stands
     # (a subparser's default would overwrite `wpbackup2 --whatIf restore`).
@@ -338,7 +357,7 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         "--wp-config",
         metavar="PATH",
         default=None,
-        help="use this wp-config.php instead of searching for it",
+        help="Use this wp-config.php instead of searching for it",
     )
     options.add_argument(
         "--overwrite-wp-config",
@@ -415,11 +434,13 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     )
     options.add_argument(
         "--admin-username",
+        metavar="USER",
         default=None,
         help="Database administrator username (give --admin-password with it)",
     )
     options.add_argument(
         "--admin-password",
+        metavar="PASSWORD",
         default=None,
         help=(
             "Database administrator password. The value is visible in the "
@@ -428,11 +449,13 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     )
     options.add_argument(
         "--admin-credentials-aws-secret-id",
+        metavar="ID",
         default=None,
         help="Read the database administrator from this AWS Secrets Manager secret",
     )
     options.add_argument(
         "--admin-credentials-aws-region",
+        metavar="REGION",
         default=None,
         help="AWS region of --admin-credentials-aws-secret-id (needs the secret id)",
     )
@@ -442,22 +465,38 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         help="Removed; accepted only to say so",
     )
     options.add_argument(
-        "--new-site-url", default=None, help="Relocate the Site to this URL"
+        "--new-site-url",
+        metavar="URL",
+        default=None,
+        help="Relocate the Site to this URL",
     )
     options.add_argument(
-        "--new-site-home-url", default=None, help="Relocate the Site's home URL"
+        "--new-site-home-url",
+        metavar="URL",
+        default=None,
+        help="Relocate the Site's home URL",
     )
     options.add_argument(
-        "--new-db-host", default=None, help="Relocate to this database host"
+        "--new-db-host",
+        metavar="HOST",
+        default=None,
+        help="Relocate to this database host",
     )
     options.add_argument(
-        "--new-db-name", default=None, help="Relocate to this database name"
+        "--new-db-name",
+        metavar="NAME",
+        default=None,
+        help="Relocate to this database name",
     )
     options.add_argument(
-        "--new-db-user", default=None, help="Relocate to this database user"
+        "--new-db-user",
+        metavar="USER",
+        default=None,
+        help="Relocate to this database user",
     )
     options.add_argument(
         "--new-db-password",
+        metavar="PASSWORD",
         default=None,
         help=(
             "Password of --new-db-user. The value is visible in the process "
