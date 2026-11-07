@@ -210,6 +210,7 @@ def test_a_corrupt_journal_refuses_and_is_never_absent(tmp_path: Path) -> None:
     assert caught.value.journal_path == str(directory / CURRENT)
     assert isinstance(caught.value, RefusedError)
     assert "could not be determined" in str(caught.value)
+    assert "move that file aside" in str(caught.value)
     (directory / CURRENT).write_text(json.dumps({"header": {}, "entries": []}))
     with pytest.raises(CorruptJournalError):
         refuse_incomplete(journal, SITE)

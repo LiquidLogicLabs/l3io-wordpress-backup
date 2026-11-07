@@ -1,10 +1,15 @@
 """AD-4 — a Dry Run restore changes nothing and refuses where the real Run does.
 
 ``execute_restore`` is driven under ``dry_run_adapters(...)`` over the real
-site-files adapter and config writer for the file Modes. The Site Root tree,
-the Storage Target listing and the snapshot and journal directories are
-unchanged; a refusal is the real Run's, with the same ``ExitCode``. The
-CLI-level ``--whatIf`` per Mode is E003-S02-006's.
+site-files adapter and config writer for the file Modes. The Site Root tree
+and the Storage Target listing are unchanged; a refusal is the real Run's, with
+the same ``ExitCode``.
+
+Not covered here (BL-E003-030): the snapshot and journal directories. In this
+harness ``take_snapshot`` is a fake that writes nothing and the journal is
+in-memory, so asserting those directories unchanged could not fail. They are
+covered with the real slots by the CLI-level ``--whatIf`` per Mode test in
+``tests/integration/test_restore_cli.py`` (E003-S02-006).
 """
 
 from __future__ import annotations
@@ -41,13 +46,11 @@ def _harness(tmp_path: Path, mode: RestoreMode) -> Harness:
         work=tmp_path, archive_path=write_v1(tmp_path), mode=mode, real_files=True
     )
     h.config = WpConfigWriter(SecretRegistry())  # type: ignore[assignment]
-    for name in ("snapshots", "journals"):
-        (tmp_path / name).mkdir()
     return h
 
 
 def _roots(h: Harness) -> tuple[Path, ...]:
-    return (h.site_root, h.archive_path.parent / "snapshots", h.work / "journals")
+    return (h.site_root,)
 
 
 @pytest.mark.parametrize("mode", FILE_MODES)

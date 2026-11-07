@@ -83,7 +83,8 @@ from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = ["VerifyRequest", "drive_verify", "run_verify"]
 
-_NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
+#: The environment a keyless verification is handed: none (A2).
+NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 #: The decrypted payload's name in the workspace; deleted once ``age`` accepts it.
 _AUTHENTICATED_PAYLOAD: Final = "authenticate.payload"
 #: The permanent limit of an authenticated pass (ADR-0024 amendment, F-21).
@@ -158,7 +159,7 @@ def drive_verify(
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
     passphrase: Secret | str | None = None,
-    environ: Mapping[str, str] = _NO_ENVIRONMENT,
+    environ: Mapping[str, str] = NO_ENVIRONMENT,
     prompt: Callable[[str], str] | None = None,
 ) -> VerificationResult:
     """The verify driver: returns or raises ``BackupError``; never prints.
@@ -215,7 +216,7 @@ def run_verify(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         request,
         ctx=None,
         secrets=secrets,
-        environ=os.environ if request.authenticate else _NO_ENVIRONMENT,
+        environ=os.environ if request.authenticate else NO_ENVIRONMENT,
         prompt=terminal_prompt() if request.authenticate else None,
     )
     if not result.passed:

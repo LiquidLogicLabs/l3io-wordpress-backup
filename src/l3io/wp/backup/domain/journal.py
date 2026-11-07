@@ -84,7 +84,14 @@ def _journaled(field: str, keys: Mapping[str, object]) -> None:
 
 @dataclass(frozen=True, slots=True)
 class JournalHeader:
-    """What a restore records before its first effect (AD-18.1)."""
+    """What a restore records before its first effect (AD-18.1).
+
+    ``live_database_before`` is the Site Descriptor's ``DB_NAME`` and
+    ``load_database``/``staging_database`` are the names the plan would load
+    into, in every Mode. A files-only Mode loads nothing: it records them all
+    the same, and the undo text never reads them, since it has no
+    ``LOAD_DUMP`` phase.
+    """
 
     run_id: str
     started_at: str

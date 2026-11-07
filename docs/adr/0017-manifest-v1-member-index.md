@@ -234,3 +234,14 @@ amendment therefore does not come from `tarfile`.
   tar, and v0 Archives.
 - This package never writes `LNKTYPE` members, so a hard link in a payload is only ever
   crafted.
+
+## Amendment — 2026-11-07: the Manifest size cap is 256 MiB
+
+Owner decision E004 D2 (c), Shawn, 2026-11-07 (E008-S01-001, BL-E004-053).
+`domain/archive_format.py::MANIFEST_MAX_BYTES`, the largest `manifest.json` a reader
+accepts, is raised from 16 MiB to 256 MiB, so a Site of roughly 1.5 million files still
+fits its member index. A backup whose Manifest would exceed the cap is refused before
+anything is written. This is a format-level limit: a reader built with the 16 MiB cap
+refuses an Archive whose Manifest is larger, which is acceptable before the first release.
+Reading memory still grows with the member count; a streaming parse is deferred
+(BL-E008-001). **Revisit when** a Site approaches the cap, or BL-E008-001 is taken.

@@ -43,6 +43,7 @@ from typing import Final
 
 from l3io.wp.backup import __version__
 from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
+from l3io.wp.backup.adapters.database import ADMIN_TLS_MODES
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
 
 __all__ = [
@@ -95,7 +96,8 @@ NOT_YET_IMPLEMENTED: Final[Mapping[str, str]] = MappingProxyType(
         "restore --only-appointed-in-asg": _REMOVED,
     }
 )
-#: Triage E-14: ``INFO``, not v0.2.21's ``CRITICAL`` (a behaviour fix AD-22 permits).
+#: ``INFO``, not v0.2.21's ``CRITICAL``, so a Run's progress is visible by
+#: default (a behaviour fix AD-22 permits).
 DEFAULT_LOG_LEVEL = "INFO"
 #: ``--log-format`` choices, as ``l3io-wp-database`` v0.2.0 spells them.
 LOG_FORMATS = ("console", "json")
@@ -293,9 +295,12 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     )
     restore.add_argument(
         "--archive",
-        help="Path or file: URL of the archive to restore from",
+        help=(
+            "Path or file: URL of the archive to restore from (required, "
+            "--resolve-interrupted-run included)"
+        ),
         default=None,
-        required=False,
+        required=True,
     )
 
     mode = restore.add_argument_group(
@@ -413,7 +418,7 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     )
     options.add_argument(
         "--admin-tls",
-        choices=["required", "verify-ca", "verify-identity"],
+        choices=ADMIN_TLS_MODES,
         default=None,
         help=(
             "Raise the TLS the database connections use (default: verified TLS "
@@ -430,7 +435,10 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         "--resolve-interrupted-run",
         metavar="RUN_ID",
         default=None,
-        help="Resolve the journal left by the interrupted Run with this ID",
+        help=(
+            "Resolve the journal left by the interrupted Run with this ID, then "
+            "stop: nothing is restored (run the restore again afterwards)"
+        ),
     )
     options.add_argument(
         "--admin-username",

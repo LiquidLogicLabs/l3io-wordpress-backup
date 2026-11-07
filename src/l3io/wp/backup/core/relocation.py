@@ -160,6 +160,10 @@ def _url_rule_broken(value: str, *, stored: bool = False) -> str | None:
     authority = _authority(value.split("://", 1)[1])
     if not authority or authority.startswith((":", "@")) or authority.endswith("@"):
         return "must name a host after the scheme"
+    if "@" in authority:
+        # A ``user:password@`` part would reach wp's argv, the logs and the
+        # report (AR-6); WordPress URLs never carry one.
+        return "must not contain user information (user@ or user:password@)"
     if value.endswith("/") and not stored:
         return "must not end with '/' (WordPress stores its URLs without one)"
     return None

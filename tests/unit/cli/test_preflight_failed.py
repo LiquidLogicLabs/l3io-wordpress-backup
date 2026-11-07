@@ -225,3 +225,24 @@ def test_the_import_check_sees_a_ports_import(tmp_path: Path) -> None:
     planted = tmp_path / "x.py"
     planted.write_text("from l3io.wp.backup.ports.preflight import Preflight\n")
     assert "l3io.wp.backup.ports.preflight" in _imports(planted)
+
+
+@pytest.mark.parametrize(
+    ("status", "found"),
+    [(_status(version=(1, 0, 3)), "1.0.3"), (_status(version=None), "unusable")],
+)
+def test_a_too_old_or_unknown_version_states_the_minimum(
+    status: ToolStatus, found: str
+) -> None:
+    failure = preflight_failure(AGE, status)
+    assert failure is not None
+    assert failure.minimum == "1.1"
+    assert f"found: {failure.found}; 1.1 or later is needed" in str(failure)
+    assert found in str(failure)
+
+
+def test_an_absent_tool_states_no_minimum() -> None:
+    failure = preflight_failure(AGE, None)
+    assert failure is not None
+    assert failure.minimum is None
+    assert "or later" not in str(failure)

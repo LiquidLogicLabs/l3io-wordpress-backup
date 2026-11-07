@@ -43,7 +43,9 @@ from l3io.wp.backup.domain.archive_format import (
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.database import DatabaseLocation, DumpResult, Readiness
 from l3io.wp.backup.domain.errors import (
+    ArchiveWriteError,
     BackupError,
+    DatabaseUnreachableError,
     DumpFailedError,
     UsageError,
 )
@@ -57,10 +59,22 @@ DUMP_TEXT = b"-- dump\nCREATE TABLE wp_options (id INT);\n"
 
 
 class FakeDatabase:
-    """``DatabaseCommand`` double: writes a fixed Dump at ``0600``, or fails."""
+    """``DatabaseCommand`` double: writes a fixed Dump at ``0600``, or fails.
 
-    def __init__(self, *, fail: bool = False) -> None:
+    ``error`` replaces the default ``DumpFailedError`` when ``fail`` is set;
+    ``text`` is the Dump written (empty for a 0-byte Dump).
+    """
+
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        error: BackupError | None = None,
+        text: bytes = DUMP_TEXT,
+    ) -> None:
         self.fail = fail
+        self.error = error
+        self.text = text
         self.calls: list[tuple[DatabaseLocation, Path]] = []
 
     def check_dump(self, location: DatabaseLocation) -> Readiness:
@@ -69,12 +83,14 @@ class FakeDatabase:
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
         self.calls.append((location, destination))
         if self.fail:
+            if self.error is not None:
+                raise self.error
             msg = "server went away"
             raise DumpFailedError(msg, database="wp")
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as handle:
-            handle.write(DUMP_TEXT)
-        return DumpResult(bytes=len(DUMP_TEXT), duration_ms=1.0)
+            handle.write(self.text)
+        return DumpResult(bytes=len(self.text), duration_ms=1.0)
 
 
 def _plan(
@@ -237,6 +253,86 @@ def test_a_failed_dump_stages_nothing(
     out.mkdir()
     with pytest.raises(DumpFailedError):
         _run(site_root, out / "a.tar", workspace, database=FakeDatabase(fail=True))
+    assert list(out.iterdir()) == []
+
+
+def test_a_cipher_failure_leaves_the_destination_empty(
+    tmp_path: Path, site_root: Path, workspace: Path, cipher_factory: type
+) -> None:
+    """BL-E002-042: the executor publishes nothing when the cipher fails."""
+    (site_root / "big.bin").write_bytes(os.urandom(256 * 1024))
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(ArchiveWriteError):
+        _run(
+            site_root, out / "a.tar.gz", workspace, cipher=cipher_factory(fail_after=1)
+        )
+    assert list(out.iterdir()) == []
+
+
+def test_an_empty_dump_is_archived_as_an_empty_member(
+    tmp_path: Path,
+    site_root: Path,
+    workspace: Path,
+    archive_reader: Callable[..., Any],
+) -> None:
+    """BL-E002-042: a 0-byte Dump is a valid, published, empty dump member."""
+    final = tmp_path / "site.tar.gz"
+    _run(site_root, final, workspace, database=FakeDatabase(text=b""))
+    read = archive_reader(final)
+    (dump_name,) = [
+        info.name
+        for info in read.inner
+        if info.name.startswith(MemberRole.DUMP.value + "/")
+    ]
+    assert read.contents[dump_name] == b""
+    assert read.manifest.dump_present is True
+
+
+def test_a_site_root_holding_only_wp_config_is_archived(
+    tmp_path: Path, workspace: Path, archive_reader: Callable[..., Any]
+) -> None:
+    """BL-E002-042: a Site Root of nothing but wp-config.php, end to end."""
+    site_root = tmp_path / "bare"
+    site_root.mkdir()
+    (site_root / "wp-config.php").write_text("<?php\n// only\n", encoding="utf-8")
+    final = tmp_path / "bare.tar.gz"
+    result = _run(site_root, final, workspace)
+    assert result.path == PurePosixPath(final)
+    read = archive_reader(final)
+    assert _roles(read.inner) == {
+        MemberRole.DUMP.value,
+        MemberRole.CONFIG.value,
+        MemberRole.SITE_ROOT.value,
+    }
+    config = f"{MemberRole.CONFIG.value}/wp-config.php"
+    assert read.contents[config] == b"<?php\n// only\n"
+    assert read.manifest.config_path == "wp-config.php"
+
+
+def test_a_site_root_collection_failure_discards_the_staged_archive(
+    tmp_path: Path,
+    site_root: Path,
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BL-E002-080 (R12): collection runs inside the writer, after staging, so
+    a collection failure stages and then discards; nothing is left at the
+    Storage Target."""
+    out = tmp_path / "out"
+    out.mkdir()
+    staged: list[list[Path]] = []
+
+    def collect_fails(root: Path, policy: ExclusionPolicy) -> SiteRootCollection:
+        staged.append(sorted(out.iterdir()))
+        msg = "unreadable"
+        raise PermissionError(msg)
+
+    monkeypatch.setattr(tar, "collect_site_root", collect_fails)
+    with pytest.raises(PermissionError):
+        _run(site_root, out / "a.tar.gz", workspace)
+    assert staged
+    assert staged[0], "collection ran before staging"
     assert list(out.iterdir()) == []
 
 
@@ -531,19 +627,55 @@ def test_a_db_backup_is_a_full_archive_with_no_site_root(
     ]  # fmt: skip
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        DatabaseUnreachableError("db.invalid", 3306),
+        DumpFailedError("server went away", database="wp"),
+    ],
+    ids=lambda e: type(e).__name__,
+)
 def test_a_failed_db_backup_leaves_no_archive_and_no_loose_dump(
-    tmp_path: Path, cli_site: tuple[Path, Any]
+    tmp_path: Path, cli_site: tuple[Path, Any], error: BackupError
 ) -> None:
+    """The AC's unreachable database, and a dump that fails, exit with the
+    error's own code (BL-E002-047)."""
     root, database = cli_site
     database.fail = True
+    database.error = error
     out = tmp_path / "out"
     out.mkdir()
     final = out / "db.tar.gz"
     argv = ["backup", "--wp-dir", str(root), "--archive", str(final), "--mode", "db"]
-    assert main(argv) != 0
+    assert main(argv) == int(type(error).exit_code)
     assert list(out.iterdir()) == []
     assert list((tmp_path / "tmp").iterdir()) == []
     assert not list(root.rglob("*.sql"))
+
+
+@pytest.mark.parametrize(("mode", "checked"), [("db", 1), ("all", 1), ("files", 0)])
+def test_the_early_credential_check_runs_for_every_dumping_mode(
+    tmp_path: Path,
+    cli_site: tuple[Path, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    checked: int,
+) -> None:
+    """BL-E002-046: ``require_wp_config_credentials`` runs before any dump for
+    ``db``/``all`` (and not for ``files``)."""
+    root, database = cli_site
+    dumps_at_check: list[int] = []
+    real = backup_cli.require_wp_config_credentials
+
+    def spy(credentials: object) -> None:
+        dumps_at_check.append(len(database.calls))
+        real(credentials)
+
+    monkeypatch.setattr(backup_cli, "require_wp_config_credentials", spy)
+    final = tmp_path / f"{mode}.tar.gz"
+    argv = ["backup", "--wp-dir", str(root), "--archive", str(final), "--mode", mode]
+    assert main(argv) == 0
+    assert dumps_at_check == [0] * checked
 
 
 @pytest.mark.parametrize("scope", list(BackupScope))
@@ -561,6 +693,36 @@ def test_the_database_binding_must_match_the_plans_dump_step(
             config=locate_wp_config(site_root, stated=None),
             workspace=workspace,
             database=wrong,
+            store=LocalArchiveStore(verify=verify_or_raise),
+            writer=TarArchiveWriter(),
+            cipher=None,
+            exclusion=INCLUDE_EVERYTHING,
+            origin=None,
+            now=NOW,
+        )
+    assert not (tmp_path / "a.tar").exists()
+
+
+def test_an_exclusion_policy_other_than_the_plans_is_refused(
+    tmp_path: Path, site_root: Path, workspace: Path
+) -> None:
+    """R8: the Manifest records the plan's set; the writer must apply that set."""
+    import dataclasses
+
+    site = _site(site_root)
+    target = StorageTarget(scheme="file", path=PurePosixPath(tmp_path / "a.tar"))
+    plan = dataclasses.replace(
+        _plan(site, BackupScope.ALL, target, encrypted=False),
+        exclusion_source="default",
+        exclusion_patterns=("wp-content/cache/",),
+    )
+    with pytest.raises(UsageError, match="exclusion"):
+        backup_cli.execute_backup_plan(
+            plan,
+            site=site,
+            config=LocatedConfig(path=site_root / "wp-config.php", location=None),
+            workspace=workspace,
+            database=FakeDatabase(),
             store=LocalArchiveStore(verify=verify_or_raise),
             writer=TarArchiveWriter(),
             cipher=None,

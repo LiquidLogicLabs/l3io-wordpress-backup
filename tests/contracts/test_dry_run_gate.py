@@ -122,3 +122,23 @@ def test_the_step_passes_when_only_the_roots_name_it(tmp_path: Path) -> None:
 def test_the_repository_passes_the_step() -> None:
     completed = run_gate(PROJECT_ROOT)
     assert completed.returncode == 0, completed.stdout
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "self._dry_run = True",
+        "if dry_run_flag:",
+        "is_skipped_dry_run = 1",
+        "isDryRun = True",
+        "whatIf = True",
+        "what_if_mode = 1",
+        "x = 'skipped_dry_run' if dry_run else ''",
+    ],
+)
+def test_the_step_fires_on_compound_and_camel_spellings(
+    tmp_path: Path, line: str
+) -> None:
+    completed = run_gate(_tree(tmp_path, {"core/x.py": line + "\n"}))
+    assert completed.returncode != 0, line
+    assert "core/x.py" in completed.stdout

@@ -1206,3 +1206,4 @@
 {"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-101", "ref": "cc60f50", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-07T21:48:11Z"}
 {"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-102", "ref": "cc60f50", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-07T21:48:12Z"}
 {"cause": "cli", "epic": "002", "event": "issue_resolved", "key": "BL-E002-107", "ref": "cc60f50", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-07T21:48:14Z"}
+{"cause": "triage", "epic": "003", "event": "issue_resolved", "key": "BL-E003-049", "ref": "02b9752", "resolution": "fixed", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-07T22:27:15Z"}

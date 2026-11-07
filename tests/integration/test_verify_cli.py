@@ -6,6 +6,7 @@ exits ``VERIFICATION_FAILED``). Unmarked: it needs no database.
 
 from __future__ import annotations
 
+import io
 import shutil
 import tarfile
 from pathlib import Path
@@ -13,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from l3io.wp.backup.cli import main
-from l3io.wp.backup.domain.archive_format import PAYLOAD_MEMBER
+from l3io.wp.backup.domain.archive_format import PAYLOAD_MEMBER, V0_SITE_ROOT
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from tests.archive_fixtures import archive_files
 
@@ -55,6 +56,23 @@ def test_a_v0_archive_passes_structural_only(
     assert "integrity STRUCTURAL_ONLY (format v0)" in out
     assert "integrity was not checked" in out
     assert "VERIFIED" not in out
+
+
+def test_a_v0_archive_without_a_site_root_directory_member_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """BL-E004-048 (review F6): every committed fixture carries the ``wp-root``
+    directory member; this one holds only ``wp-root/index.php`` (no directory
+    member, no dump, no wp-config.php) and still verifies end to end."""
+    archive = tmp_path / "dirless.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as out:
+        info = tarfile.TarInfo(f"{V0_SITE_ROOT}/index.php")
+        info.size = len(b"<?php\n")
+        out.addfile(info, io.BytesIO(b"<?php\n"))
+    with tarfile.open(archive) as check:
+        assert check.getnames() == [f"{V0_SITE_ROOT}/index.php"]
+    assert main(["verify", "--archive", str(archive)]) == ExitCode.OK
+    assert "integrity STRUCTURAL_ONLY (format v0)" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("archive", V0_MALFORMED, ids=lambda p: p.name)

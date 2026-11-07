@@ -1,8 +1,13 @@
 """FR-10 — the committed v0 fixtures are what their generator writes.
 
 ``make_v0_fixtures.build`` is run into ``tmp_path`` and every Archive it writes
-must be byte-identical to the committed file of the same name; a generator
-change that was not re-run, or a hand-edited fixture, fails. The scope is the
+must match the committed file of the same name; a generator change that was
+not re-run, or a hand-edited fixture, fails. Archives are compared by their
+**decompressed** bytes, not their ``.tar.gz`` bytes: the compressed stream
+depends on the zlib build, which differs across CI Pythons and OSes
+(BL-E004-021). A file whose gzip stream is incomplete by design
+(``malformed/truncated.tar.gz``) matches when both sides fail to decompress
+and one's decompressible prefix is a prefix of the other's. The scope is the
 committed tree, not the generator's list: every Archive directly in ``v0/`` and
 in ``v0/malformed/`` (selected by ``tests/archive_fixtures.py::archive_files``)
 except the released fixture must have been generated, so a fixture committed
@@ -12,8 +17,10 @@ its committed SHA-256, in ``released-0.2.21-all.provenance.json``, must match it
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
+import zlib
 from pathlib import Path
 
 from tests.archive_fixtures import archive_files
@@ -33,16 +40,37 @@ def _committed(root: Path = V0) -> list[str]:
     )
 
 
+def _content(path: Path) -> tuple[bool, bytes]:
+    """``(complete, decompressed bytes)``; a broken stream gives its prefix."""
+    data = path.read_bytes()
+    try:
+        return True, gzip.decompress(data)
+    except (OSError, EOFError, zlib.error):
+        partial = zlib.decompressobj(wbits=31)
+        try:
+            return False, partial.decompress(data)
+        except zlib.error:
+            return False, b""
+
+
+def _same(built: Path, committed: Path) -> bool:
+    (whole_a, a), (whole_b, b) = _content(built), _content(committed)
+    if whole_a or whole_b:
+        return whole_a == whole_b and a == b
+    return a.startswith(b) or b.startswith(a)
+
+
 def _differs(built: Path, committed: Path) -> list[str]:
     return sorted(
         p.relative_to(built).as_posix()
         for p in built.rglob("*")
-        if p.is_file()
-        and p.read_bytes() != (committed / p.relative_to(built)).read_bytes()
+        if p.is_file() and not _same(p, committed / p.relative_to(built))
     )
 
 
-def test_every_committed_fixture_is_regenerated_byte_for_byte(tmp_path: Path) -> None:
+def test_every_committed_fixture_is_regenerated_to_the_same_content(
+    tmp_path: Path,
+) -> None:
     built = make_v0_fixtures.build(tmp_path)
     names = sorted(p.relative_to(tmp_path).as_posix() for p in built)
     committed = _committed()
@@ -62,6 +90,24 @@ def test_the_guard_sees_a_hand_edited_fixture(tmp_path: Path) -> None:
     data[-1] ^= 0x01
     edited.write_bytes(data)
     assert _differs(tmp_path / "a", tmp_path / "b") == ["malformed/hardlink.tar.gz"]
+
+
+def test_a_recompressed_fixture_is_the_same_and_an_edited_member_is_not(
+    tmp_path: Path,
+) -> None:
+    """Another zlib's bytes for the same tar pass; a changed member fails."""
+    make_v0_fixtures.build(tmp_path / "a")
+    make_v0_fixtures.build(tmp_path / "b")
+    name = "synthetic-files-only.tar.gz"
+    tar = gzip.decompress((tmp_path / "a" / name).read_bytes())
+    recompressed = gzip.compress(tar, compresslevel=1, mtime=0)
+    assert recompressed != (tmp_path / "a" / name).read_bytes()
+    (tmp_path / "b" / name).write_bytes(recompressed)
+    assert _differs(tmp_path / "a", tmp_path / "b") == []
+    edited = bytearray(tar)
+    edited[600] ^= 0x01  # inside the first member's data block
+    (tmp_path / "b" / name).write_bytes(gzip.compress(bytes(edited), mtime=0))
+    assert _differs(tmp_path / "a", tmp_path / "b") == [name]
 
 
 def test_the_released_fixture_matches_its_provenance() -> None:

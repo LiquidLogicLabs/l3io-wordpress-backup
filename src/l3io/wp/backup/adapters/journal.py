@@ -92,7 +92,11 @@ class JournalWriteError(BackupError):
 
 
 class CorruptJournalError(RefusedError):
-    """``current.json`` exists and cannot be read back (NFR-1: never absent)."""
+    """``current.json`` exists and cannot be read back (NFR-1: never absent).
+
+    ``--resolve-interrupted-run`` cannot act on it either, since no Run ID or
+    phase can be read; the message names the manual way out (R10).
+    """
 
     def __init__(self, journal_path: str, reason: str) -> None:
         self.journal_path = journal_path
@@ -100,7 +104,10 @@ class CorruptJournalError(RefusedError):
         super().__init__(
             f"an incomplete run journal {journal_path!r} could not be read "
             f"({reason}), so the interrupted phase could not be determined; "
-            "inspect the Site and that file before restoring again"
+            "inspect the Site and that file, repair the Site if needed (a "
+            "Safety Snapshot taken to the default directory is beside it), "
+            "then move that file aside (for example rename it with a .corrupt "
+            "suffix) before restoring again"
         )
 
 

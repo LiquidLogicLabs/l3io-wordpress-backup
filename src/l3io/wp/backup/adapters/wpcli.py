@@ -192,6 +192,35 @@ _STDERR_TAIL_LINES: Final = 20
 _AFTER_A_WRITE: Final = frozenset({"replace", "recount"})
 #: The prefix ``wp cli version`` prints before the version number.
 _VERSION_PREFIX: Final = "WP-CLI "
+
+
+def _printed_version(stdout: str) -> str:
+    """The version ``wp cli version`` printed, from its ``WP-CLI`` line.
+
+    A PHP notice or warning can be printed before it, so the first line that
+    starts with :data:`_VERSION_PREFIX` is used; without one, the first line.
+    """
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    for line in lines:
+        if line.startswith(_VERSION_PREFIX):
+            return line.removeprefix(_VERSION_PREFIX)
+    return lines[0] if lines else ""
+
+
+def _escape_controls(text: str) -> str:
+    """``text`` with every non-printable character but a newline escaped.
+
+    ``wp``'s stderr is untrusted: a terminal control sequence in it must not
+    reach the operator's terminal through the error message (RT-7).
+    """
+    return "".join(
+        char
+        if char == "\n" or char.isprintable()
+        else char.encode("unicode_escape").decode("ascii")
+        for char in text
+    )
+
+
 #: The empty global config file ``WP_CLI_CONFIG_PATH`` names.
 _EMPTY_CONFIG: Final = "config.yml"
 #: The file ``wp-load.php`` looks for, and the one that marks an install.
@@ -460,7 +489,7 @@ class _Session:
             )
         if result.returncode != 0:
             lines = (result.stderr or "").strip().splitlines()[-_STDERR_TAIL_LINES:]
-            tail = self.secrets.redact("\n".join(lines))
+            tail = _escape_controls(self.secrets.redact("\n".join(lines)))
             raise WpCliFailedError(step, result.returncode, tail)
         return result.stdout or ""
 
@@ -605,8 +634,8 @@ class WpCliSearchReplace:
                 run=self._run,
                 as_root=as_root,
             )
-            printed = session.wp_command("version", "cli", "version").strip()
-            session.version = printed.removeprefix(_VERSION_PREFIX)
+            printed = session.wp_command("version", "cli", "version")
+            session.version = _printed_version(printed)
             stored = StoredUrls(
                 siteurl=session.stored("siteurl"), home=session.stored("home")
             )

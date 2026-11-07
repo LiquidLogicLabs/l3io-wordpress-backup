@@ -133,3 +133,17 @@ supersedes these parts of this ADR:
 Unchanged: `age` reached only through `l3io-wordpress-database`'s `encrypt`/`decrypt`, no
 `pyrage` or `cryptography` import in this package, no key material in the Manifest, and
 the binder and CLI passphrase backends with the amendment above.
+
+## Amendment — 2026-11-07: a platform with no published binder wheel
+
+Recorded at close-out (BL-E004-041); it states behaviour the code already has and changes
+no decision. The `database` extra requires `l3io-age-passphrase`, whose wheels cover Linux
+(glibc and musl; x86_64, aarch64, armv7l), macOS (x86_64, arm64) and Windows (amd64)
+(`uv.lock`). Elsewhere the installer builds the binder from its source distribution,
+which needs a Rust toolchain; when that fails, the extra does not install, and an
+encrypted Run raises `MissingExtraError` (exit 7). When the binder is not importable,
+`auto` resolves to the CLI fallback (`adapters/crypto.py::selected_backend`), whose
+`age` ≥ 1.3 and `age-plugin-batchpass` are preflight requirements: an encrypted backup,
+an authenticated verify or a restore of an encrypted Archive refuses with
+`PreflightFailedError` (exit 7) before its first effect. The operator-facing statement
+is in the README's External tools section.

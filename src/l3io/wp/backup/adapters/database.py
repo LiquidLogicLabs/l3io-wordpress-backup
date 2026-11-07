@@ -106,6 +106,7 @@ __all__ = [
     "blocked_dump_error",
     "check_admin_tls",
     "database_location_from_db_host",
+    "database_name_is_valid",
     "locate_wp_config",
     "password_at_call_time",
     "require_wp_config_credentials",
@@ -296,6 +297,23 @@ def _tls_error(exc: BaseException, location: DatabaseLocation) -> BackupError:
 def _backup_extra(extra: str) -> str:
     """This package's extra for database's ``extra`` (review F-2)."""
     return extra if extra in _SHARED_EXTRAS else _EXTRA
+
+
+def database_name_is_valid(name: str) -> bool:
+    """Whether database's ``validate_database_name`` accepts ``name``.
+
+    The one door for that check (ADR-0015): ``adapters/staging.py`` asks here
+    instead of importing ``l3io.wp.database``. ``MissingExtraError`` without
+    the ``database`` extra (AD-8).
+    """
+    _require_extra()
+    from l3io.wp import database as wpdb
+
+    try:
+        wpdb.validate_database_name(name)
+    except wpdb.InvalidIdentifierError:
+        return False
+    return True
 
 
 def _require_extra() -> None:
@@ -851,12 +869,14 @@ class WpDatabase:
         except wpdb.RefusedError as exc:
             raise self._refusal(location, exc.verdict) from exc
         except wpdb.TransferError as exc:
-            # Structured fields only, never the dependency's text (AD-7).
+            # Structured fields only, never the dependency's text (AD-7), and
+            # no chain: database builds the TransferError's message from the
+            # tool's first stderr line, untrusted text (N-01).
             code = exc.exit_code
             reason = "the dump stopped" if code is None else f"the dump exited {code}"
             raise DumpFailedError(
                 reason, database=location.name, exit_status=code
-            ) from exc
+            ) from None
         except (
             wpdb.TlsHandshakeError,
             wpdb.TlsVerificationError,

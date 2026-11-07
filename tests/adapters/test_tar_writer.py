@@ -538,3 +538,23 @@ def test_a_file_swapped_for_a_fifo_after_collection_fails_without_hanging(
     assert len(raised) == 1
     assert isinstance(raised[0], ArchiveWriteError)
     assert "index.php" in raised[0].reason
+
+
+def test_every_written_header_carries_the_manifests_run_clock_time(
+    tmp_path: Path,
+    site_root: Path,
+    dump_file: Path,
+    manifest_builder: Builder,
+    workspace: Path,
+    cipher: object,
+) -> None:
+    """SD-01-5: no header takes the wall clock; all take ``created_at``."""
+    import tarfile
+    from datetime import datetime
+
+    members = _members(site_root, dump_file)
+    path, manifest = _write(tmp_path, members, manifest_builder, workspace, cipher)
+    stamp = datetime.fromisoformat(manifest.created_at).timestamp()
+    with tarfile.open(path, mode="r:") as outer:
+        headers = outer.getmembers()
+    assert [h.mtime for h in headers] == [stamp, stamp]

@@ -15,7 +15,9 @@ The seed treats `cli/` and `api/` as two peer composition roots. E006-S01-001 bu
 entry point makes one call to the driver the CLI calls (`drive_backup`, `drive_verify`, `drive_restore`),
 which live in `cli/`, and applies the CLI root's own exit rule to the result. Public types
 (`BackupResult`, `RestoreOutcome`, `RelocationFlags`, `RunContext`, `configure_logging`, four
-exceptions) are defined in `cli/` and re-exported. The `layers` contract lets siblings import each
+exceptions) are defined in `cli/` and re-exported. *(Amended 2026-11-07: the list predates E008; `RunWarning`
+(`cli/`), `Secret` (`domain/`), `Diagnosis` (`adapters/preflight.py`) and `doctor` (`drive_doctor`, `cli/`)
+are re-exported the same way, and `docs/api.md` states that no defining module is part of the contract.)* The `layers` contract lets siblings import each
 other, and a second contract bars `cli/` from importing `api/`, so lint passes and no document recorded
 the choice.
 
@@ -33,7 +35,9 @@ public surface, and `docs/api.md` states that the defining module is not part of
 
 - Positive: one sequence, no drift between the roots, no refactor of integration-tested code.
 - Negative: argparse-facing and library-facing code share modules; `drive_restore` prints three stderr
-  notices that a library host receives (documented in `docs/api.md`).
+  notices that a library host receives (documented in `docs/api.md`). *(Amended 2026-11-07: since
+  E008-S01-001 the notices go to the caller's `on_warning` as `RunWarning` values when one is given,
+  and to stderr only without one; each notice's WARNING record is logged either way.)*
 - **Revisit when:** the drivers, request/result types and passphrase chain are extracted to a neutral
   module both roots import (BL-E006-021), **or** a second front end (a service, a
   plugin) needs `api/` without `cli/` being importable, **or** a `cli/` change breaks a library caller.

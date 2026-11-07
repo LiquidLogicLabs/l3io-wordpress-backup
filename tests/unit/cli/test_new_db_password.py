@@ -19,11 +19,13 @@ from structlog.testing import capture_logs
 
 pytest.importorskip("l3io.wp.database")
 
+from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import restore as restore_mod
 from l3io.wp.backup.cli.credentials import (
     NEW_DB_PASSWORD_FILE_FLAG,
     NEW_DB_PASSWORD_FLAG,
+    PASSWORD_FILE_LIMIT,
     new_db_password,
 )
 from l3io.wp.backup.cli.parser import NEW_DB_PASSWORD_VAR, build_parser
@@ -169,7 +171,10 @@ class _Stop(Exception):
 
 
 def _run_restore(
-    rig: Rig, monkeypatch: pytest.MonkeyPatch, *extra: str
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    *extra: str,
+    logs: list[dict[str, Any]] | None = None,
 ) -> restore_mod.RestoreRequest:
     seen: list[restore_mod.RestoreRequest] = []
 
@@ -189,8 +194,10 @@ def _run_restore(
             *extra,
         ]
     )
-    with capture_logs(), pytest.raises(_Stop):
+    with capture_logs() as captured, pytest.raises(_Stop):
         restore_mod.run_restore(args, secrets=SecretRegistry())
+    if logs is not None:
+        logs.extend(captured)
     return seen[0]
 
 
@@ -258,3 +265,69 @@ def test_drive_restore_hands_the_spec_to_wordpress_source(
     with capture_logs():
         rig.drive(credentials=spec)
     assert specs[0] == spec
+
+
+def test_restore_pins_the_wordpress_account_to_wp_config(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E005-009 (E005 AD-7): restore's WordPress source never consults the
+    environment, so a backup's ``L3IO_WP_BACKUP_DB_*`` override cannot pick
+    another account to provision; it is handed ``environ={}``."""
+    monkeypatch.setenv("L3IO_WP_BACKUP_DB_USER", f"sentinel_{uuid.uuid4().hex[:8]}")
+    environs: list[object] = []
+    real = restore_mod.wordpress_source
+
+    def spy(given: object, **kwargs: Any) -> object:  # noqa: ANN401
+        environs.append(kwargs.get("environ"))
+        return real(given, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(restore_mod, "wordpress_source", spy)
+    with capture_logs():
+        rig.drive()
+    assert environs, "restore resolved no WordPress source"
+    assert environs[0] == {}
+
+
+def test_a_byte_order_mark_is_not_part_of_the_file_password(tmp_path: Path) -> None:
+    value = _secret("bom")
+    path = tmp_path / "pw"
+    path.write_bytes(b"\xef\xbb\xbf" + value.encode() + b"\n")
+    assert _resolve(file=path) == value
+
+
+def test_a_first_line_past_the_limit_is_refused(tmp_path: Path) -> None:
+    at_limit = _secret("limit").ljust(PASSWORD_FILE_LIMIT, "x")
+    assert _resolve(file=_file(tmp_path, at_limit + "\n")) == at_limit
+    with pytest.raises(UsageError) as caught:
+        _resolve(file=_file(tmp_path, at_limit + "y\n"))
+    assert caught.value.arguments == (NEW_DB_PASSWORD_FILE_FLAG,)
+    assert at_limit not in str(caught.value)
+
+
+def test_run_restore_warns_when_the_admin_password_is_on_argv(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    value = _secret("admin")
+    logs: list[dict[str, Any]] = []
+    _run_restore(
+        rig,
+        monkeypatch,
+        "--admin-username",
+        "root",
+        "--admin-password",
+        value,
+        logs=logs,
+    )
+    warned = [r for r in logs if r["event"] == "password_on_command_line"]
+    assert [r["flag"] for r in warned] == ["--admin-password"]
+    assert warned[0]["log_level"] == "warning"
+    assert value not in repr(logs)
+
+
+def test_run_restore_gives_no_admin_warning_from_the_variable(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ADMIN_PASSWORD_VAR, _secret("admin-env"))
+    logs: list[dict[str, Any]] = []
+    _run_restore(rig, monkeypatch, "--admin-username", "root", logs=logs)
+    assert [r for r in logs if r["event"] == "password_on_command_line"] == []

@@ -1,0 +1,102 @@
+BL-E002-008	epics.md Epic 2 ownership row: cli/* except cli/restore.py (Epic 3's); adds adapters workspace, redaction, noop and site_files
+BL-E002-016	E002-S01-002 non-goal: restore --mode is registered in Epic 2 (E002-S02-011); only its restore-side behaviour is Epic 3's
+BL-E002-023	E002-S01-006 states that E002-S01-004 extends both checks, so S01-006 merges green alone
+BL-E002-026	E002-S01-010 dated note: inner payload and outer Archive are written under WRITE_ARCHIVE; ENCRYPT is its own phase nested inside it
+BL-E002-027	E002-S01-010 old-layout AC lines now say inline that ADR-0024 supersedes them
+BL-E002-028	E002-S01-003 stale "symlinks are Epic 3's call" non-goal replaced by the skip-and-warn decision
+BL-E002-029	E002-S01-001, S01-006, S02-009, S02-012: dated notes giving the current pins (database[encryption]>=0.3.2,<0.4; config>=0.1.3,<0.2)
+BL-E002-031	E002-S01-004: run_verify resolves no passphrase or cipher for the keyless check, only for --authenticate
+BL-E002-033	E002-S01-010: publish() -> bool contract (True; the no-op store returns False)
+BL-E002-045	E002-S01-002 dev note records the DB_HOST=db.invalid substitution in test_backup_scope.py
+BL-E002-052	E002-S01-006 AC: repr omits the password; the "***" literal lives only in redaction.py
+BL-E003-004	epics.md Epic 3 row adds adapters/restore_runner and E003-S02-006's edit of cli/parser.py::NOT_YET_IMPLEMENTED
+BL-E003-007	epics.md Story 3.6 and E003-S02-006 AC cite E002-S02-011's table (the S02-004 L68 part was already gone)
+BL-E003-009	ADR-0016 dated Residual section: the v0 config member is read twice with no digest comparison (ADR-0024 dropped the digests)
+BL-E003-015	E003-S01-001 mode semantics: note that AD-18 rule 3 (staging cutover) supersedes FR-6's "drops database first"
+BL-E003-019	docs/restore.md "How a Run is driven" mermaid flow of drive_restore + executor; spine restore sequence shows the cutover at the end of LOAD_DUMP, with a dated note
+BL-E003-023	E003-S01-001: take_snapshot/load_database sentences moved from the RestoreInputs bullet to the executor bullet
+BL-E003-095	docs/restore.md "table or view" now "table, view, stored routine or event", matching core/restore.py
+BL-E003-103	docs/restore.md exit table gains 7 NOT_READY
+BL-E006-023	docs/api.md restore section "Forwarding user input" paragraph on the host-forwarding risk; docs/restore.md points to it
+BL-E004-001	epics.md Epic 4 header no longer claims domain/archive_format; the v0 classifier stays Epic 2's
+BL-E004-008	epics.md Story 4.3 superseded note under the v0.1.0 line; E004-S01-003 L30 struck through with a dated note
+BL-E004-012	plan-2026-10-27-v2.yaml phase 3 dependencies gain E004, with a comment
+BL-E004-015	E004-S01-001 both "Formerly OPEN" blocks marked as history the decision supersedes
+BL-E004-026	E004-S01-002 extract_archive signature gains payload: Path | None = None
+BL-E004-028	epics.md Stories 3.3 and 4.3 gain dated ADR-0024 notes
+BL-E004-030	ADR-0024 Consequences dated correction: AG-7 is met by decrypting the whole payload in VERIFY
+BL-E004-031	archived E004-S01-001.yaml and E004-S01-003.yaml depends_on gain E002-S01-004
+BL-E004-034	PRD glossary (Manifest) and FR-3 dated ADR-0024 amendments (payload checksum; inner-Manifest comparison on authenticate and restore)
+BL-E004-035	Spine AD-6 inline dated amendment markers on the rule line and item 2
+BL-E004-041	ADR-0014 dated amendment + README note: platforms with binder wheels, the Rust source build, and the fallback to the age CLI (exit 7 when age is missing)
+BL-E004-068	README restore claim reworded to what is tested: 0.2.21-layout Archives built by the suite, not an Archive written by a 0.2.21 install
+BL-E007-012	.gitignore gains .codex and .claude/worktrees/; diff-E007-S01-004.patch removed (git rm, staged); the review's diff: frontmatter points to `git show f1cf076`
+BL-E007-017	E007-S01-004 dated bullet records that WP_CLI_REQUIREMENT is in core/relocation.py and locate_tool is a public alias of _locate
+BL-E008-029	ADR-0025 dated amendments: Consequences notice sentence (now on_warning) and the Context type list (RunWarning, Secret, Diagnosis, doctor)
+BL-E008-030	ADR-0017 dated amendment: MANIFEST_MAX_BYTES is 256 MiB (owner decision D2 (c)), revisit via BL-E008-001
+BL-E002-111	ci.yml AD-4 step widened to case-insensitive dry_?run|what_?if with no word boundary (strips only skipped_dry_run and dry_run_adapters tokens); test_no_dry_run_outside_roots.py mirrors the step and plants 12 spellings
+BL-E003-108	same AD-4 change; test_dry_run_gate.py gains parametrized compound and camel plants
+BL-E002-037	test_archive_format_owner.py matches role prefixes at a path boundary anywhere in a constant; plants f'{root}/site-root/{rel}' and './dump/x'
+BL-E002-038	test_descriptor.py asserts PLANTED_PASSWORD is in the fixture
+BL-E002-042	test_backup_executor.py: executor-level cipher failure leaves the destination empty; a 0-byte Dump; a Site Root holding only wp-config.php end to end
+BL-E002-044	test_archive_format.py pins member_path(DUMP, DUMP_RELATIVE) and member_path(CONFIG, CONFIG_RELATIVE) to their literal names
+BL-E002-046	test_backup_executor.py spies require_wp_config_credentials: runs before any dump for db and all, not for files
+BL-E002-047	failed --mode db test runs with DatabaseUnreachableError and DumpFailedError and asserts each exit code
+BL-E002-051	test_extraction.py guard catches shutil.unpack_archive and bare unpack_archive, with plants
+BL-E002-057	test_exit_mapping.py literal-exit guard also flags SystemExit(int), sys.exit(int), exit_code assignments (tuples) and, under cli/, return <int> from -> int/ExitCode functions; with plants
+BL-E002-078	test_backup_dry_run_effects.py inspects the workspace while the Run is active (spy on NoopArchiveWriter.write): one workspace dir, empty
+BL-E002-079	same test runs with both --whatIf and --what-if before the action
+BL-E002-080	test_backup_executor.py: a Site Root collection failure happens after staging and leaves nothing at the Storage Target
+BL-E003-030	test_dry_run_restore.py drops the snapshot/journal assertions that could not fail; docstring points to the CLI --whatIf test that covers them
+BL-E003-031	test_restore_runner.py asserts the slot is handed plan.mode during LOAD_DUMP (drop/no-drop is test_staging.py's), replacing the fake checking itself
+BL-E003-042	test_restore_journal.py table test of undo_for rows for readback_failed, staging_dropped, operator-named load database, unknown-step fallback, REWRITE_CONFIG config_*, phase_undo set/unset
+BL-E003-052	test_existence_by_admin.py also triggers on AccessDenied and errno 1044; plants for both
+BL-E003-066	test_restore_cli.py asserts at least one planned phase and that every planned_action phase completed
+BL-E003-067	test_restore_root.py _named_phases catches any Name/Attribute naming RestorePhase or RESTORE_PHASE_ORDER (aliases resolved); plants iteration, list(), subscript, alias, module-qualified access
+BL-E004-021	test_v0_fixtures_reproducible.py compares decompressed bytes (zlib build no longer matters); recompressed-tar passes / edited-member fails test
+BL-E004-043	test_exclusions_pure.py also forbids os, pathlib, stat, posixpath re-exported by pathspec/pathspec.util; planted pathspec.util.os.listdir
+BL-E004-048	test_verify_cli.py: a gzipped v0 Archive with only wp-root/index.php (no directory member) verifies STRUCTURAL_ONLY
+BL-E004-050	test_crypto.py hides the binder via sys.modules + __import__ wrapper; no longer patches database's private _passphrase.binder_available
+BL-E005-009	test_new_db_password.py: with L3IO_WP_BACKUP_DB_USER set, restore's first wordpress_source call gets environ == {}
+BL-E006-002	test_api_roundtrip.py uses plain imports of l3io.wp.database and pymysql (no importorskip)
+BL-E006-003	test_api_base_install.py uses a per-probe sentinel DB_PASSWORD and checks the child's stdout/stderr do not contain it; api_consumer.py uses password="placeholder"
+BL-E006-006	test_tracing_no_sdk.py compares every phase_completed field except the named volatile ones
+BL-E007-001	test_restore_docs.py _mode_rows reads only the "## Restore Modes" section (heading asserted); a second table under another heading is planted
+BL-E005-004	PreflightFailedError gains a `minimum` field; a too-old or unknown version now says "<floor> or later is needed" (domain/preflight.py, errors.py, docs/api.md); tests in test_preflight_failed.py
+BL-E008-017	Secret.__eq__ encodes with surrogatepass, so a lone surrogate compares instead of raising; tests/unit/domain/test_secret.py
+BL-E008-019	run_bounded: dropped the dead contextlib.nullcontext() wrapper (adapters/preflight.py)
+BL-E004-051	ports/crypto.py docstring: backup binds a real cipher too; the "backup binds None until E008" clause is gone
+BL-E006-004	api.verify refuses a passphrase without authenticate=True (UsageError arguments=("passphrase","authenticate")), as backup does without encrypt=True; docs/api.md; test in test_operations.py
+BL-E006-005	api/operations.py: imports cli/verify's NO_ENVIRONMENT (renamed from _NO_ENVIRONMENT) instead of redefining it; one BackupRequest construction
+BL-E006-020	api.backup builds BackupRequest once (exclusion=default_exclusion_policy() when None)
+BL-E008-031	api/operations.py docstring typo "open or open the Run" fixed; docs/api.md Errors/entry points and spine AD-14 note document the bare TypeError
+BL-E008-006	--new-db-password-file reads at most PASSWORD_FILE_LIMIT (4096) characters of its first line and refuses a longer one (UsageError naming the flag); test in test_new_db_password.py
+BL-E008-016	--new-db-password-file is read as utf-8-sig, so a leading BOM is not part of the password; test added. The "readable only by you" help stays advice (no mode check)
+BL-E008-024	run_restore logs WARNING password_on_command_line flag=--admin-password when the admin password is on argv (not from the variable); tests in test_new_db_password.py
+BL-E007-014	adapters/wpcli.py escapes every non-printable character but newline in the wp stderr tail (after redaction) before it goes into WpCliFailedError; test in tests/adapters/test_wpcli.py
+BL-E008-007	adapters/wpcli.py reads the version from the first `WP-CLI ` line of `wp cli version` (first line otherwise), so a PHP notice printed first no longer gives a junk version; test in tests/adapters/test_wpcli.py
+BL-E007-010	core/relocation.py: a --new-site-url/--new-site-home-url whose authority holds user information (user@ or user:password@) is refused (USAGE) before it reaches argv, logs or the report; cases in tests/unit/core/test_relocation.py
+BL-E003-085	core/restore.py build_restore_plan runs the web-served snapshot_location guard whenever config_policy is OVERWRITE (the replaced wp-config.php is saved in snapshot_dir), not only when a Safety Snapshot is taken; test in tests/unit/core/test_restore_plan.py
+BL-E003-091	core/restore.py undo_for: a REWRITE_CONFIG config_* step with no saved copy (KEEP) gives the planned undo text instead of "copy None back"; the LOAD_DUMP check/readback row says "drop staging database <name> if it exists"; rows added to tests/unit/core/test_restore_journal.py
+BL-E007-004	core/restore.py NoConfigForCutoverError gains a `searched` field and names every place the target config was looked for (Site Root and one level up, or the --wp-config path alone); tests in test_snapshot_scope.py and the integration test_config_outside_root.py
+BL-E004-054	cli/restore.py prints a skipped symlink's path and target with repr, so control characters from the Archive never reach the terminal; tests/unit/cli/test_restore_symlink_notice.py
+BL-E008-009	cli/restore.py logs INFO safety_snapshot_encrypted (path) alongside the RunWarning, as the unencrypted case logs; test in tests/unit/api/test_on_warning.py
+BL-E003-090	adapters/restore_runner.py _snapshot_claim docstring: tree_bytes is a lower bound (unreadable entries are not counted), not an upper bound
+BL-E003-096	adapters/restore_runner.py snapshot_result's `bytes` parameter renamed `size` (no builtin shadowing, noqa A002 gone); call sites in cli/restore.py, tests/restore_harness.py, test_restore_runner.py updated
+BL-E003-044	adapters/staging.py _drop_staging: the drop and the staging_dropped journal write have separate try blocks; a journal failure after a successful drop logs ERROR staging_dropped_not_journaled, not staging_database_drop_failed; test in test_staging.py
+BL-E003-098	adapters/staging.py no longer imports l3io.wp.database: the load-name check goes through the new adapters/database.database_name_is_valid; AST guard test + database_name_is_valid test in test_staging.py
+BL-E003-045	adapters/journal.py CorruptJournalError message names the manual way out (inspect, repair, move the unreadable current.json aside); docs/restore.md Interrupted Runs says the same; assertion in test_run_journal.py
+BL-E002-082	domain/errors.py SiteLockedError advice says the recorded holder may be a dead one whose lock a new Run has just taken, and to try again shortly
+BL-E002-073	cli/parser.py: the "Triage E-14" history note is now the reason for INFO (python -m wpbackup2 already works: src/wpbackup2 ships); adapters/tar.py stamps the inner Manifest and both outer headers with the Manifest's created_at (the Run clock) instead of time.time(); test in tests/adapters/test_tar_writer.py
+BL-E003-061	restore --archive help says it is required with --resolve-interrupted-run too; docs/restore.md Interrupted Runs says the same; README regenerated
+BL-E003-102	restore --archive is required=True in argparse, so usage shows it as required; README regenerated
+BL-E003-107	--resolve-interrupted-run help says it resolves and then stops, restoring nothing; README regenerated
+BL-E002-087	cli/adapter_sets.py: the module-wide `ruff: noqa: ARG002` is gone; each placeholder method `del`s its arguments
+BL-E002-040	adapters/store.py LocalArchiveStore._rename docstring records the residual check-then-replace race and what the Site Lock does and does not exclude
+BL-E002-053	adapters/database.py raises DumpFailedError from None for a TransferError (its message is the tool's first stderr line); test_credential_hygiene.py's double now puts the planted password in that message (fails with the chain); test_database_backup.py asserts no chain
+BL-E003-063	cli/parser.py --admin-tls choices come from adapters/database.ADMIN_TLS_MODES (no third copy); test_database_tls.py checks _TLS_ORDER and ADMIN_TLS_MODES against database's TlsMode and the parser choices (the extra is optional, so the test is the derivation)
+BL-E004-046	docs/exclusions.md markers renamed BEGIN/END CHECKED (hand-written, compared by test_exclusions_documented.py) so they no longer claim a generator; the test keys on the new markers
+BL-E004-062	same change as BL-E004-046: no GENERATED marker remains without a generator
+BL-E003-014	domain/journal.py JournalHeader docstring says what live_database_before/load_database/staging_database hold in a files-only Mode (the names the plan would load into; unread, as there is no LOAD_DUMP)
+BL-E002-043	cli/backup.py storage_target_from_cli: text is a URL only when its scheme is followed by "/", so a relative name with a colon (site-2026T10:00.tar.gz) is a path; tests in tests/unit/api/test_operations.py
+BL-E002-076	cli/backup.py execute_backup_plan refuses (UsageError, before any effect) an exclusion policy whose source/patterns differ from the plan's, as it does a cipher/ENCRYPT mismatch; test in tests/adapters/test_backup_executor.py

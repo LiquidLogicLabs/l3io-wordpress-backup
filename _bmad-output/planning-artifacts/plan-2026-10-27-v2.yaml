@@ -48,9 +48,12 @@ phases:
   epics:
   - E006
   - E007
+  # E004 added 2026-11-07 (BL-E004-012): E006 calls Epic 4's payload cipher
+  # factory; state/archived/epic-006/epic.yaml already depends on E004.
   dependencies:
   - E002
   - E003
+  - E004
   - E005
   estimate:
     estimates_as_of: '2026-10-27T22:39:31Z'

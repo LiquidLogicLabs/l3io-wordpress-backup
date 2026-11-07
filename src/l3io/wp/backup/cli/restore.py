@@ -1472,7 +1472,7 @@ def drive_restore(
                     PurePosixPath(result.path),
                     scope=result.scope,
                     encrypted=result.encrypted,
-                    bytes=result.bytes,
+                    size=result.bytes,
                     performed=result.performed,
                 )
             )
@@ -1502,6 +1502,7 @@ def drive_restore(
                     ),
                     on_warning,
                 )
+                _log.info("safety_snapshot_encrypted", path=str(result.path))
             return taken[-1]
 
         # Step 8: the executor runs every phase.
@@ -1674,7 +1675,8 @@ def _print_outcome(
     """
     for link in outcome.skipped_links:
         print(
-            f"WARNING: symlink {link.path} -> {link.link_target} not restored: "
+            # repr: both come from the Archive and may hold control characters.
+            f"WARNING: symlink {link.path!r} -> {link.link_target!r} not restored: "
             "absolute and out-of-root symlinks are not supported",
             file=sys.stderr,
         )
@@ -1725,6 +1727,9 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
     one passphrase decrypts an encrypted Archive and encrypts the Safety
     Snapshot; with none, the snapshot is written unencrypted and said so.
     """
+    if args.admin_password is not None:
+        # RT-03: the notice ``--new-db-password`` gives, never the value.
+        _log.warning("password_on_command_line", flag="--admin-password")
     # Passthrough: copied verbatim, validated by Epic 7.
     relocation = RelocationFlags(
         new_site_url=args.new_site_url,

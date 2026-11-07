@@ -240,3 +240,16 @@ def test_a_planted_stderr_write_in_a_driver_helper_is_found(tmp_path: Path) -> N
         1,
     )
     assert _stderr_writers_reached(text) == ["drive_restore"]
+
+
+def test_an_encrypted_snapshot_is_logged_as_well_as_warned(rig: Rig) -> None:
+    with capture_logs() as logs, pytest.raises(_Stop):
+        restore_mod.drive_restore(
+            rig.request(cipher=_Cipher(), allow_unencrypted=True),
+            ctx=None,
+            secrets=None,
+            on_warning=[].append,
+        )
+    (record,) = [r for r in logs if r["event"] == "safety_snapshot_encrypted"]
+    assert record["log_level"] == "info"
+    assert record["path"]

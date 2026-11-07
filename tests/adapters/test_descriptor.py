@@ -188,6 +188,8 @@ def test_the_missing_extra_is_reported(
 
 def test_a_planted_password_never_reaches_the_manifest(tmp_path: Path) -> None:
     """Every optional key set, the projection taken from the planted fixture."""
+    # The fixture really holds the planted password, or this checks nothing.
+    assert PLANTED_PASSWORD in FIXTURE.read_text(encoding="utf-8")
     descriptor, _ = site_descriptor_from_wp_config(tmp_path, config_file=FIXTURE)
     manifest = Manifest(
         format_version=FORMAT_VERSION,

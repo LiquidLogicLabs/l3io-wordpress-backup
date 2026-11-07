@@ -869,10 +869,39 @@ def test_the_real_and_the_dry_run_plan_are_equal(rig: Rig, mode: RestoreMode) ->
     assert real == dry
 
 
+#: The phase enum and the order constant, by their exported names.
+_PHASE_NAMES = frozenset({"RestorePhase", "RESTORE_PHASE_ORDER"})
+
+
+def _annotation_nodes(tree: ast.AST) -> set[int]:
+    """Every node inside a type annotation: naming the type there lists nothing."""
+    roots: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.returns:
+            roots.append(node.returns)
+        elif isinstance(node, ast.arg | ast.AnnAssign) and node.annotation:
+            roots.append(node.annotation)
+    return {id(n) for root in roots for n in ast.walk(root)}
+
+
 def _named_phases(source: str) -> list[int]:
-    """Lines naming a ``RestorePhase`` member other than as ``X in <y>.phases``."""
+    """Lines naming ``RestorePhase``/``RESTORE_PHASE_ORDER`` other than as
+    ``RestorePhase.X in <y>.phases`` or in a type annotation.
+
+    Every spelling counts (BL-E003-067, review L-9): attribute access,
+    iteration (``for p in RestorePhase``, ``list(RestorePhase)``), subscript
+    (``RestorePhase["CLEAN"]``), an import alias (``import RestorePhase as
+    P``), module-qualified access (``restore.RestorePhase``) and the order
+    constant.
+    """
     tree = ast.parse(source)
-    allowed: set[int] = set()
+    names = set(_PHASE_NAMES)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(
+                a.asname for a in node.names if a.name in _PHASE_NAMES and a.asname
+            )
+    allowed = _annotation_nodes(tree)
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Compare)
@@ -880,16 +909,20 @@ def _named_phases(source: str) -> list[int]:
             and isinstance(node.ops[0], ast.In | ast.NotIn)
             and isinstance(node.comparators[0], ast.Attribute)
             and node.comparators[0].attr == "phases"
+            and isinstance(node.left, ast.Attribute)
         ):
-            allowed.add(id(node.left))
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "RestorePhase"
-        and id(node) not in allowed
-    ]
+            allowed.add(id(node.left.value))
+    return sorted(
+        {
+            node.lineno
+            for node in ast.walk(tree)
+            if id(node) not in allowed
+            and (
+                (isinstance(node, ast.Name) and node.id in names)
+                or (isinstance(node, ast.Attribute) and node.attr in _PHASE_NAMES)
+            )
+        }
+    )
 
 
 def test_the_root_names_no_phase_except_through_plan_phases() -> None:
@@ -897,10 +930,29 @@ def test_the_root_names_no_phase_except_through_plan_phases() -> None:
     assert _named_phases(source) == []
 
 
-def test_a_listed_phase_is_caught() -> None:
-    planted = "for p in (RestorePhase.VERIFY, RestorePhase.CLEAN): pass\n"
-    assert _named_phases(planted) == [1, 1]
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "for p in (RestorePhase.VERIFY, RestorePhase.CLEAN): pass\n",
+        "for p in RestorePhase: pass\n",
+        "phases = list(RestorePhase)\n",
+        "p = RestorePhase['CLEAN']\n",
+        "for p in RESTORE_PHASE_ORDER: pass\n",
+        "from l3io.wp.backup.domain.restore import RestorePhase as P\nx = P.CLEAN\n",
+        "from l3io.wp.backup.domain import restore\nx = restore.RestorePhase.CLEAN\n",
+        "x = RestorePhase.CLEAN in other_phases\n",
+    ],
+)
+def test_a_listed_phase_is_caught(planted: str) -> None:
+    assert _named_phases(planted), planted
+
+
+def test_a_plan_phases_check_and_an_annotation_are_allowed() -> None:
     assert _named_phases("x = RestorePhase.SNAPSHOT in plan.phases\n") == []
+    assert (
+        _named_phases("def f(p: RestorePhase) -> tuple[RestorePhase, ...]: ...\n") == []
+    )
+    assert _named_phases("y: RestorePhase\n") == []
 
 
 # --- RT-002 waiver (ADR-0016 amendment, 2026-11-06) ------------------------------

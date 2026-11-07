@@ -66,7 +66,6 @@ from l3io.wp.backup.domain.restore import (
     RestorePhase,
     SnapshotPolicy,
     clears_site_root,
-    removes_database,
     restores_database,
     restores_files,
 )
@@ -126,7 +125,16 @@ def test_each_mode_touches_exactly_its_parts(
     assert bool(methods & FILE_CALLS) is restores_files(mode)
     assert ("site_files.clean" in methods) is clears_site_root(mode)
     assert bool(methods & DATABASE_CALLS) is restores_database(mode)
-    assert ("restore_database.drop_database" in methods) is removes_database(mode)
+    # What the executor controls is the Mode it hands the slot (BL-E003-031);
+    # whether the real slot then drops the old database is test_staging.py's
+    # (E003-S02-005), not this fake slot's own decision checked against itself.
+    handed = [
+        (phase, detail)
+        for phase, port, method, detail in h.log.calls
+        if (port, method) == ("slot", "load")
+    ]
+    expected = [(P.LOAD_DUMP, h.plan().mode)] if restores_database(mode) else []
+    assert handed == expected
     assert h.slot_calls == int(restores_database(mode))
     assert not {m for m in methods if m.startswith("database.")}
     # The phases that issued commands are exactly the plan's destructive ones.
@@ -1250,7 +1258,7 @@ def test_a_not_performed_result_reads_nothing_and_would_verify(
         PurePosixPath(tmp_path / "absent.tar.gz"),
         scope=BackupScope.ALL,
         encrypted=False,
-        bytes=0,
+        size=0,
         performed=False,
     )
     assert result.performed is False
@@ -1264,7 +1272,7 @@ def test_a_performed_result_is_verified_again(tmp_path: Path) -> None:
         PurePosixPath(path),
         scope=BackupScope.ALL,
         encrypted=False,
-        bytes=path.stat().st_size,
+        size=path.stat().st_size,
         performed=True,
     )
     assert result.integrity is Integrity.VERIFIED
@@ -1283,7 +1291,7 @@ def test_a_snapshot_readable_by_others_fails_and_is_left_in_place(
             PurePosixPath(path),
             scope=BackupScope.ALL,
             encrypted=False,
-            bytes=path.stat().st_size,
+            size=path.stat().st_size,
             performed=True,
         )
     assert caught.value.path == str(path)
@@ -1298,7 +1306,7 @@ def test_an_owner_only_snapshot_passes(tmp_path: Path, mode: int) -> None:
         PurePosixPath(path),
         scope=BackupScope.ALL,
         encrypted=False,
-        bytes=path.stat().st_size,
+        size=path.stat().st_size,
         performed=True,
     )
     assert result.integrity is Integrity.VERIFIED
@@ -1311,7 +1319,7 @@ def test_a_performed_result_for_a_missing_file_fails(tmp_path: Path) -> None:
             PurePosixPath(missing),
             scope=BackupScope.FILES,
             encrypted=False,
-            bytes=1,
+            size=1,
             performed=True,
         )
     assert isinstance(caught.value.cause, ArchiveNotFoundError)
@@ -1324,7 +1332,7 @@ def test_a_structural_only_snapshot_fails_and_is_left_in_place(tmp_path: Path) -
             PurePosixPath(path),
             scope=BackupScope.ALL,
             encrypted=False,
-            bytes=1,
+            size=1,
             performed=True,
         )
     assert path.exists()
@@ -1339,7 +1347,7 @@ def test_a_damaged_snapshot_fails_and_is_left_in_place(tmp_path: Path) -> None:
             PurePosixPath(path),
             scope=BackupScope.ALL,
             encrypted=False,
-            bytes=1,
+            size=1,
             performed=True,
         )
     assert caught.value.path == str(path)

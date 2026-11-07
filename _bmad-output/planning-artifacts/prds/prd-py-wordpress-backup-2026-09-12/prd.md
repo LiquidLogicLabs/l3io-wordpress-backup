@@ -80,7 +80,7 @@ Downstream workflows and readers use these terms exactly. FRs, UJs and SMs use t
 - **Site Root** — the filesystem directory containing the WordPress installation. Contains `wp-config.php` in the default layout.
 - **Site Descriptor** — the resolved set of values identifying a Site: Site Root, site URL, site home URL, database host, database name, and a Credential Provider. Produced either by reading `wp-config.php` or by explicit construction.
 - **Archive** — a single portable file containing a Dump, the Site Root contents, and a Manifest. The unit of backup and the unit of restore.
-- **Manifest** — metadata embedded in an Archive: format version, creation time, source Site Descriptor (credentials excluded), per-member checksums, Dump checksum, and encryption parameters. Enables Verification.
+- **Manifest** — metadata embedded in an Archive: format version, creation time, source Site Descriptor (credentials excluded), per-member checksums, Dump checksum, and encryption parameters. Enables Verification. *(Amended 2026-11-07 per [ADR-0024](../../../../docs/adr/0024-one-encrypted-payload-passphrase-only.md): the Manifest carries the one payload's size and checksum, an index of the payload's members without per-file checksums, and whether the payload is encrypted — no Dump checksum and no encryption parameters.)*
 - **Dump** — the logical database export contained in an Archive.
 - **Verification** — checking an Archive against its Manifest without writing to any Site. A read-only operation.
 - **Backup Scope** — which parts of a Site a backup covers: `files`, `database`, or `all`.
@@ -125,7 +125,7 @@ An operator can restrict a backup to a Backup Scope of `files`, `database`, or `
 An operator can verify an Archive against its Manifest without writing to any Site. Verification also runs automatically before any restore. Realizes UJ-5, UJ-2.
 
 **Consequences (testable):**
-- Every Archive embeds a Manifest containing a format version, creation timestamp, per-member checksums and a Dump checksum.
+- Every Archive embeds a Manifest containing a format version, creation timestamp, per-member checksums and a Dump checksum. *(Amended 2026-11-07 per [ADR-0024](../../../../docs/adr/0024-one-encrypted-payload-passphrase-only.md): the checksum is over the one payload as stored, so keyless Verification covers every member's bytes at once; the per-member and Dump checksums are withdrawn. `verify --authenticate` and restore's `VERIFY` decrypt the payload and compare its inner Manifest with the verified outer one — ADR-0024's amendment.)*
 - A Verification command reports pass or fail and makes no filesystem or database write outside its own temporary working area.
 - A corrupted or truncated Archive fails Verification, and a restore of it aborts **before** any destructive step.
 - A missing Dump inside an Archive whose Manifest declares one is a Verification failure, not a restore-time surprise.

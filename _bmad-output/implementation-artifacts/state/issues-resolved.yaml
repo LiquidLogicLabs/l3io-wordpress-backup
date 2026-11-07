@@ -2296,3 +2296,17 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-07T21:48:14Z'
   note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
+- key: BL-E003-049
+  epic: '003'
+  sprint: '02'
+  title: ADV-5 check inspects run.ports.adapters only; a load_database slot bound to other (real) ports is not seen (review F5). E003-S02-006 root must bind the slot over run.ports
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F5)
+  resolution: fixed
+  resolved_at: '2026-11-07T22:27:14Z'
+  ref: 02b9752
+  note: tests/unit/cli/test_restore_root.py:205-206 asserts call['load_database'].keywords['ports'] is ports (the executor's run.ports), so a slot bound over other ports fails; added in 02b9752 (E003-S02-006)

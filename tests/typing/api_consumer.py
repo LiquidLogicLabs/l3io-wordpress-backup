@@ -36,7 +36,7 @@ def main(site: Path, archive: Path) -> tuple[int, bool, str, tuple[str, ...]]:
         site,
         scope=BackupScope.ALL,
         target=archive,
-        credentials=ExplicitCredentialSpec(username="wp", password="pw"),
+        credentials=ExplicitCredentialSpec(username="wp", password="placeholder"),
         exclusion=ExclusionSet.from_patterns(["*.log"], include_defaults=True),
         dry_run=False,
     )

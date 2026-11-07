@@ -321,42 +321,41 @@ def run_bounded(
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
-    with contextlib.nullcontext():
-        kept: dict[str, bytes] = {}
-        exceeded = threading.Event()
+    kept: dict[str, bytes] = {}
+    exceeded = threading.Event()
 
-        def drain(name: str, stream: IO[bytes]) -> None:
-            buffer = bytearray()
-            while chunk := stream.read(_READ_CHUNK):
-                if len(buffer) + len(chunk) > limit:
-                    exceeded.set()
-                    _kill_group(process.pid)
-                    buffer += chunk[: limit - len(buffer)]
-                    while stream.read(_READ_CHUNK):
-                        pass
-                    break
-                buffer += chunk
-            kept[name] = bytes(buffer)
-            stream.close()
+    def drain(name: str, stream: IO[bytes]) -> None:
+        buffer = bytearray()
+        while chunk := stream.read(_READ_CHUNK):
+            if len(buffer) + len(chunk) > limit:
+                exceeded.set()
+                _kill_group(process.pid)
+                buffer += chunk[: limit - len(buffer)]
+                while stream.read(_READ_CHUNK):
+                    pass
+                break
+            buffer += chunk
+        kept[name] = bytes(buffer)
+        stream.close()
 
-        readers = [
-            threading.Thread(target=drain, args=(name, stream), daemon=True)
-            for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))
-            if stream is not None
-        ]
-        for reader in readers:
-            reader.start()
-        try:
-            returncode = process.wait(timeout=timeout)
-        except BaseException:
-            # A timeout, SIGTERM's RunTerminated or Ctrl-C: the whole group
-            # goes, so no child outlives the Run that started it.
-            _kill_group(process.pid)
-            process.wait()
-            _join(readers)
-            raise
+    readers = [
+        threading.Thread(target=drain, args=(name, stream), daemon=True)
+        for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))
+        if stream is not None
+    ]
+    for reader in readers:
+        reader.start()
+    try:
+        returncode = process.wait(timeout=timeout)
+    except BaseException:
+        # A timeout, SIGTERM's RunTerminated or Ctrl-C: the whole group
+        # goes, so no child outlives the Run that started it.
         _kill_group(process.pid)
+        process.wait()
         _join(readers)
+        raise
+    _kill_group(process.pid)
+    _join(readers)
     if exceeded.is_set():
         raise ChildOutputLimitError(limit)
     return subprocess.CompletedProcess(

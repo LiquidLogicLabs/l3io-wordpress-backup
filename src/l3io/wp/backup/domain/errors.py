@@ -580,9 +580,13 @@ class SiteLockedError(BackupError):
         )
         # UX-6 (BL-E002-103): what to do next, not only who holds it.
         if holder_pid is not None:
+            # F3: the record is read without the lock, so for a moment it can
+            # still name a dead holder whose lock a new Run has just taken.
             advice = (
                 f"wait for that Run to finish, or check it with `ps -p {holder_pid}`; "
-                "a lock whose process has gone is reclaimed by the next Run"
+                "a lock whose process has gone is reclaimed by the next Run, and "
+                "if that process has gone, another Run has just taken the lock "
+                "and not yet recorded itself: try again shortly"
             )
         else:
             advice = "wait for the other Run to finish, then try again"
@@ -627,7 +631,11 @@ class RunTerminated(BackupError):
 
 
 class PreflightFailedError(BackupError):
-    """A tool the Run needs is absent or unusable."""
+    """A tool the Run needs is absent or unusable.
+
+    ``minimum`` is the version the tool must reach, set when the failure is a
+    too-old or unknown version, so the message states the floor.
+    """
 
     exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
 
@@ -638,13 +646,18 @@ class PreflightFailedError(BackupError):
         found: str,
         *,
         install_hint: str | None = None,
+        minimum: str | None = None,
     ) -> None:
         self.tool = tool
         self.needed_for = needed_for
         self.found = found
         self.install_hint = install_hint
+        self.minimum = minimum
+        floor = f"; {minimum} or later is needed" if minimum else ""
         hint = f"\ninstall: {install_hint}" if install_hint else ""
-        super().__init__(f"{tool} is needed for {needed_for}; found: {found}{hint}")
+        super().__init__(
+            f"{tool} is needed for {needed_for}; found: {found}{floor}{hint}"
+        )
 
 
 class MalformedManifestError(BackupError):

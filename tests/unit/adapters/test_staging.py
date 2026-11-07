@@ -156,6 +156,32 @@ def test_a_failed_post_load_check_is_an_orderly_failure(tmp_path: Path) -> None:
     assert not [c for c in h.log.calls if c[1] == "config"]
 
 
+class _DropNotJournaled(EntryJournal):
+    """Fails to record ``staging_dropped``; every other write lands."""
+
+    def step_completed(self, phase: RestorePhase, step: str) -> None:
+        if step == STEP_STAGING_DROPPED:
+            msg = "journal disk full"
+            raise OSError(msg)
+        super().step_completed(phase, step)
+
+
+def test_a_journal_failure_after_the_drop_is_not_logged_as_a_failed_drop(
+    tmp_path: Path,
+) -> None:
+    h, _ = _harness(tmp_path, mode=RestoreMode.DATABASE)
+    journal = _DropNotJournaled(h.log)
+    h.database.survey = NOT_WORDPRESS
+    with capture_logs() as logs, pytest.raises(StagingCheckFailedError):
+        h.run_staged(journal)
+    events = [r["event"] for r in logs]
+    assert "staging_database_drop_failed" not in events
+    assert "staging_database_dropped" in events
+    (record,) = [r for r in logs if r["event"] == "staging_dropped_not_journaled"]
+    assert (record["log_level"], record["error_type"]) == ("error", "OSError")
+    assert STEP_STAGING_DROPPED not in journal.steps()
+
+
 def test_a_read_back_failure_with_no_key_written_is_orderly(
     tmp_path: Path, credential_sentinel: CredentialSentinel
 ) -> None:
@@ -658,3 +684,33 @@ def test_a_header_without_a_pending_target_is_a_corrupt_journal(
     assert "DB_NAME" in caught.value.reason
     assert _writes(h) == []
     assert h.database.calls == []
+
+
+def test_staging_never_imports_the_database_library_itself() -> None:
+    """ADR-0015 (BL-E003-098): the name check goes through adapters/database."""
+    import ast
+    import inspect
+
+    from l3io.wp.backup.adapters import staging
+
+    tree = ast.parse(inspect.getsource(staging))
+    imported = [
+        node.module if isinstance(node, ast.ImportFrom) else alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in node.names
+    ]
+    named = [
+        f"{node.module}.{alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+        for alias in node.names
+    ]
+    assert not [m for m in imported + named if m and m.startswith("l3io.wp.database")]
+
+
+@pytest.mark.parametrize(("name", "valid"), [("wp_site", True), ("bad`name", False)])
+def test_database_name_is_valid_is_databases_check(name: str, valid: bool) -> None:
+    from l3io.wp.backup.adapters.database import database_name_is_valid
+
+    assert database_name_is_valid(name) is valid

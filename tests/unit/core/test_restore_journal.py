@@ -12,7 +12,7 @@ step added later is covered without editing a list here.
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -22,8 +22,10 @@ from l3io.wp.backup.core.restore import (
     MAX_DATABASE_NAME,
     NO_RELOCATION,
     STEP_CHECK_FAILED,
+    STEP_CONFIG_SAVED,
     STEP_CONFIG_STARTED,
     STEP_CUTOVER,
+    STEP_CUTOVER_READBACK_FAILED,
     STEP_CUTOVER_STARTED,
     STEP_LOSER_DROP_STARTED,
     STEP_LOSER_DROPPED,
@@ -243,3 +245,93 @@ def test_staging_name_fits_and_is_distinct_per_run() -> None:
         assert len(name) <= MAX_DATABASE_NAME
         assert wpdb.validate_database_name(name) == name
     assert staging_name("wp", "1234-5678-90") == "wp_l3s_12345678"
+
+
+# --------------------------------------------------------------------------
+# The failure-path and fallback rows of the undo table (BL-E003-042, R5)
+# --------------------------------------------------------------------------
+
+_HEADER = JournalHeader(
+    run_id="run-undo",
+    started_at="2026-11-03T00:00:00+00:00",
+    site_root=PurePosixPath("/srv/site"),
+    restore_mode=RestoreMode.ALL,
+    archive="/archives/a.tar.gz",
+    snapshot_path="/snapshots/s.tar.gz",
+    live_database_before="live_db",
+    staging_database="live_db_staging",
+    wp_config_path="/srv/site/wp-config.php",
+    load_database="live_db_staging",
+    cutover_keys=("DB_NAME",),
+    cutover_targets={"DB_NAME": "live_db_staging"},
+    prior_constants={"DB_NAME": "live_db"},
+    phase_undo={},
+    saved_config="/work/saved-wp-config.php",
+)
+#: The operator named the load database: no staging database was created.
+_OPERATOR_NAMED = dataclasses.replace(
+    _HEADER, staging_database=None, load_database="named_db"
+)
+_WITH_PHASE_UNDO = dataclasses.replace(
+    _HEADER,
+    phase_undo={
+        RestorePhase.REWRITE_CONFIG: "planned rewrite undo",
+        RestorePhase.SEARCH_REPLACE: "planned search-replace undo",
+    },
+)
+#: ``KEEP``: no copy of the replaced ``wp-config.php`` was saved.
+_NOTHING_SAVED = dataclasses.replace(_WITH_PHASE_UNDO, saved_config=None)
+P_LOAD, P_REWRITE, P_SR = (
+    RestorePhase.LOAD_DUMP,
+    RestorePhase.REWRITE_CONFIG,
+    RestorePhase.SEARCH_REPLACE,
+)
+
+
+@pytest.mark.parametrize(
+    ("phase", "step", "header", "files", "wanted", "unwanted"),
+    [
+        (P_LOAD, STEP_CUTOVER_READBACK_FAILED, _HEADER, False,
+         ("live site untouched",
+          "drop staging database live_db_staging if it exists"), ()),
+        (P_LOAD, None, _HEADER, False,
+         ("drop staging database live_db_staging if it exists",), ()),
+        (P_LOAD, STEP_CUTOVER_READBACK_FAILED, _HEADER, True,
+         ("files were replaced by this Run", "drop staging database"),
+         ("live site untouched",)),
+        (P_LOAD, STEP_STAGING_DROPPED, _HEADER, False,
+         ("live site untouched", "already dropped"), ("drop staging database",)),
+        (P_LOAD, STEP_CHECK_FAILED, _OPERATOR_NAMED, False,
+         ("named_db existed and was empty before this Run",),
+         ("drop staging database",)),
+        (P_LOAD, STEP_CUTOVER_READBACK_FAILED, _OPERATOR_NAMED, True,
+         ("files were replaced by this Run", "named_db existed"),
+         ("drop staging database",)),
+        (P_LOAD, "no-such-step", _HEADER, False,
+         ("unrecognised step 'no-such-step'", "/srv/site/wp-config.php"),
+         ("drop",)),
+        (P_REWRITE, STEP_CONFIG_SAVED, _HEADER, False,
+         ("copy /work/saved-wp-config.php back to /srv/site/wp-config.php",), ()),
+        (P_REWRITE, None, _HEADER, False,
+         ("/srv/site/wp-config.php unchanged",), ()),
+        (P_REWRITE, STEP_CONFIG_SAVED, _NOTHING_SAVED, False,
+         ("planned rewrite undo",), ("None", "copy")),
+        (P_REWRITE, None, _WITH_PHASE_UNDO, False, ("planned rewrite undo",), ()),
+        (P_SR, None, _HEADER, False, ("/srv/site/wp-config.php unchanged",), ()),
+        (P_SR, "anything", _WITH_PHASE_UNDO, False,
+         ("planned search-replace undo",), ()),
+    ],
+)  # fmt: skip
+def test_each_failure_and_fallback_row_says_what_undoes_it(
+    phase: RestorePhase,
+    step: str | None,
+    header: JournalHeader,
+    files: bool,
+    wanted: tuple[str, ...],
+    unwanted: tuple[str, ...],
+) -> None:
+    undo = undo_for(phase, step, header, files_changed=files)
+    for text in wanted:
+        assert text in undo, (text, undo)
+    for text in unwanted:
+        assert text not in undo, (text, undo)

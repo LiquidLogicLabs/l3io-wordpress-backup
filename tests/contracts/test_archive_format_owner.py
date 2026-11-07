@@ -4,6 +4,8 @@ No other module under ``src/`` may spell a member name or a role prefix: every
 string constant (f-string parts included) is checked against the literals
 below, the v0 (0.2.21) names included (E004-S01-002, F-10): ``database.sql``
 matched as a whole constant, ``wp-root`` exactly and as the prefix ``wp-root/``.
+A role prefix is matched at a path boundary anywhere in a constant (the start,
+or after a ``/``), so ``f"{root}/site-root/{rel}"`` and ``"./dump/x"`` count.
 Scope is ``src/`` walked for ``*.py`` files, asserted to contain the
 owner, and the walker is run over a planted tree that hides the literal in a
 nested directory and inside an f-string.
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import io
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -54,8 +57,11 @@ OWNER = SRC / "l3io" / "wp" / "backup" / "domain" / "archive_format.py"
 
 #: Member names, matched exactly.
 NAMES = ("manifest.json", "payload.tar.gz")
-#: Role prefixes, matched at the start of a constant.
+#: Role prefixes, matched at a path boundary anywhere in a constant.
 PREFIXES = ("dump/", "site-root/", "config/", "wp-root/")
+_PREFIX_AT_BOUNDARY = re.compile(
+    "(?:^|/)(?:" + "|".join(re.escape(prefix) for prefix in PREFIXES) + ")"
+)
 #: v0 member names, matched as the whole constant.
 EXACT = ("database.sql", "wp-root")
 
@@ -70,7 +76,7 @@ def _offenders(files: list[Path], owner: Path) -> list[str]:
                 continue
             value = node.value
             if (
-                value.startswith(PREFIXES)
+                _PREFIX_AT_BOUNDARY.search(value)
                 or value in EXACT
                 or any(name in value for name in NAMES)
             ):
@@ -102,20 +108,28 @@ def test_the_grep_finds_literals_hidden_deep_and_in_f_strings(tmp_path: Path) ->
         "def v0(rel):\n"
         "    return f'wp-root/{rel}'\n"
         "W = 'wp-root'\n"
-        "OK = 'a database.sql dump, not a member name'\n",
+        "OK = 'a database.sql dump, not a member name'\n"
+        "def staged(root, rel):\n"
+        "    return f'{root}/site-root/{rel}'\n"
+        "D = './dump/x'\n"
+        "NOT = 'mydump/x'\n",
         encoding="utf-8",
     )
     owner = tmp_path / "archive_format.py"
     owner.write_text("Z = 'manifest.json'\n", encoding="utf-8")
     found = _offenders(sorted(tmp_path.rglob("*.py")), owner)
-    assert sorted(found) == [
-        "leak.py:1: 'manifest.json'",
-        "leak.py:3: 'site-root/'",
-        "leak.py:4: 'payload.tar.gz.age'",
-        "leak.py:5: 'database.sql'",
-        "leak.py:7: 'wp-root/'",
-        "leak.py:8: 'wp-root'",
-    ]
+    assert sorted(found) == sorted(
+        [
+            "leak.py:1: 'manifest.json'",
+            "leak.py:3: 'site-root/'",
+            "leak.py:4: 'payload.tar.gz.age'",
+            "leak.py:5: 'database.sql'",
+            "leak.py:7: 'wp-root/'",
+            "leak.py:8: 'wp-root'",
+            "leak.py:11: '/site-root/'",
+            "leak.py:12: './dump/x'",
+        ]
+    )
 
 
 def _manifest_builder(scope: BackupScope, *, dump: bool) -> ManifestBuilder:

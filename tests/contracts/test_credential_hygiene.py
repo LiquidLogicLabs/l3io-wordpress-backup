@@ -87,7 +87,8 @@ class DatabaseDouble:
             raise wpdb.AuthenticationFailedError(msg)
         if self.transfer is not None:
             # The tool's stderr, as database hands it over: untrusted text.
-            msg = "dump failed"
+            # database builds the message from its first line (N-01).
+            msg = f"dump failed: {self.transfer.splitlines()[0]}"
             raise wpdb.TransferError(msg, wpdb.Verdict("dump", ()), 2, self.transfer)
         to.write_bytes(b"-- dump\n")
         to.chmod(stat.S_IRUSR | stat.S_IWUSR)

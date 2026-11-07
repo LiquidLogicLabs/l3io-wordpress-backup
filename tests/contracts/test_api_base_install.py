@@ -14,6 +14,9 @@ the ``database`` and ``otel`` extras looks like to an ``import``. There:
 The subprocess prints one JSON line; the asserts are here, so a child that
 crashes before printing fails rather than passes. The planted case runs the
 same probe without the block and must see the extra present.
+
+The site's ``DB_PASSWORD`` is a unique sentinel per probe, and the child's
+stdout and stderr are checked not to contain it (BL-E006-003).
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -54,12 +58,12 @@ print(json.dumps(report))
 """
 
 
-def _site(root: Path) -> Path:
+def _site(root: Path, password: str) -> Path:
     root.mkdir()
     (root / "index.php").write_text("<?php\n", encoding="utf-8")
     (root / "wp-config.php").write_text(
         "<?php\ndefine('DB_NAME', 'wptest');\ndefine('DB_USER', 'wp');\n"
-        "define('DB_PASSWORD', 'not-a-real-secret');\n"
+        f"define('DB_PASSWORD', '{password}');\n"
         "define('DB_HOST', 'db.invalid');\n$table_prefix = 'wp_';\n",
         encoding="utf-8",
     )
@@ -67,7 +71,8 @@ def _site(root: Path) -> Path:
 
 
 def _probe(mode: str, tmp_path: Path) -> dict[str, Any]:
-    site = _site(tmp_path / f"site-{mode}")
+    password = f"base-pw-{uuid.uuid4().hex}"
+    site = _site(tmp_path / f"site-{mode}", password)
     env = os.environ | {"TMPDIR": str(tmp_path)}
     ran = subprocess.run(  # noqa: S603 - this interpreter, a fixed script
         [sys.executable, "-c", PROBE, mode, str(site), str(tmp_path / "out-")],
@@ -77,6 +82,8 @@ def _probe(mode: str, tmp_path: Path) -> dict[str, Any]:
         check=False,
         timeout=120,
     )
+    leaked = password in ran.stdout or password in ran.stderr
+    assert not leaked, "the site's DB_PASSWORD reached the probe's output"
     assert ran.returncode == 0, ran.stderr[-3000:]
     report: dict[str, Any] = json.loads(ran.stdout.strip().splitlines()[-1])
     return report

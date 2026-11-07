@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
@@ -52,6 +52,9 @@ NEW_DB_PASSWORD_FLAG = "--new-db-password"  # noqa: S105 - a flag name
 NEW_DB_PASSWORD_FILE_FLAG = "--new-db-password-file"  # noqa: S105 - a flag name
 
 _log = structlog.get_logger(__name__)
+
+#: The longest password ``--new-db-password-file`` reads, in characters.
+PASSWORD_FILE_LIMIT: Final = 4096
 
 
 def _aws_spec(
@@ -138,15 +141,27 @@ def admin_source(
 
 
 def _read_password_file(path: Path) -> str:
-    """The first line of ``path``, its line ending stripped; read once."""
+    """The first line of ``path``, its line ending stripped; read once.
+
+    A leading UTF-8 byte-order mark is dropped (``utf-8-sig``), and a first
+    line longer than :data:`PASSWORD_FILE_LIMIT` characters is refused rather
+    than read whole.
+    """
     try:
-        with path.open(encoding="utf-8") as handle:
-            line = handle.readline()
+        with path.open(encoding="utf-8-sig") as handle:
+            line = handle.readline(PASSWORD_FILE_LIMIT + 1)
     except (OSError, UnicodeDecodeError) as exc:
         reason = type(exc).__name__
         msg = f"{NEW_DB_PASSWORD_FILE_FLAG}: cannot read {str(path)!r} ({reason})"
         raise UsageError(msg, arguments=(NEW_DB_PASSWORD_FILE_FLAG,)) from None
-    return line.rstrip("\r\n")
+    password = line.rstrip("\r\n")
+    if len(password) > PASSWORD_FILE_LIMIT:
+        msg = (
+            f"{NEW_DB_PASSWORD_FILE_FLAG}: the first line of {str(path)!r} is "
+            f"longer than {PASSWORD_FILE_LIMIT} characters"
+        )
+        raise UsageError(msg, arguments=(NEW_DB_PASSWORD_FILE_FLAG,))
+    return password
 
 
 def new_db_password(

@@ -198,7 +198,7 @@ backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarge
 
 Returns: `BackupResult`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`.
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature.
 
 ### `verify`
 
@@ -206,7 +206,9 @@ Check `archive` without touching a Site; returns the passing result.
 
 Keyless by default: a pass proves the checksums are consistent, not that
 the Archive is authentic (ADR-0024). `authenticate=True` resolves the
-passphrase and decrypts the payload, as `verify --authenticate` does.
+passphrase and decrypts the payload, as `verify --authenticate` does; a
+`passphrase` without `authenticate=True` is refused (`UsageError`) rather
+than ignored, as `backup` refuses one without `encrypt=True`.
 A failed verification raises `VerificationFailedError` carrying the
 result, as the CLI exits `VERIFICATION_FAILED`. `on_warning` is accepted for
 parity with `restore`; `verify` gives no notice today.
@@ -225,7 +227,7 @@ verify(archive: StorageTarget | str | os.PathLike[str], *, authenticate: bool = 
 
 Returns: `VerificationResult`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`.
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature.
 
 ### `restore`
 
@@ -245,6 +247,15 @@ relocation. A passphrase (`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE` or
 to `on_warning` as `RunWarning` values when given, else to stderr. A real
 restore whose database report does not say restored raises
 `DatabaseNotRestoredError`, as the CLI exits `FAILED`.
+
+**Forwarding user input.** `mode` and `overrides` are values, not the CLI's
+flag-combination table (AD-25): `RestoreMode.ALL_CLEAN` clears the Site Root
+and drops the losing database as one value, and an `OverrideSet` can waive one
+FR-7 refusal without the other. FR-7's guard, the Safety Snapshot, the Site
+Lock and the consent checks still run. A host that builds `RestoreMode(...)`
+or `Override(...)` from its own users' input takes on the choice the CLI makes
+the operator spell out flag by flag, so it should check that input against
+what those users may authorize.
 
 ```python
 restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, admin_tls: AdminTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> RestoreOutcome
@@ -274,7 +285,7 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 
 Returns: `RestoreOutcome`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`.
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature.
 
 ### `doctor`
 
@@ -658,6 +669,13 @@ Returns: `EventDict`.
 
 ## Exceptions
 
+A call whose arguments do not fit the entry point's signature (a missing
+required keyword such as `backup`'s `target`, an unknown keyword, too many
+positional arguments) raises Python's own `TypeError`, before anything runs and
+before a Run opens. It is not a `BackupError`, is not logged and is not wrapped
+in `UnexpectedError`: AD-14 governs the failures a call reaches, and this one
+never reaches the package.
+
 Every class below is a `BackupError`, so `except BackupError` catches them all. Each carries `exit_code` (the exit code the CLI ends a Run with for the same failure) and `snapshot_path` (the Safety Snapshot's path, or `None`), plus the typed fields listed. No field holds a credential, passphrase or secret value.
 
 ### `BackupError`
@@ -895,6 +913,9 @@ Fields: `limit`, holding the argument of the same name.
 ### `CorruptJournalError`
 
 `current.json` exists and cannot be read back (NFR-1: never absent).
+
+`--resolve-interrupted-run` cannot act on it either, since no Run ID or
+phase can be read; the message names the manual way out (R10).
 
 ```python
 CorruptJournalError(journal_path: str, reason: str)
@@ -1258,13 +1279,16 @@ Fields: `extra`, each holding the argument of the same name.
 
 A database Mode, and no `wp-config.php` will exist for the cutover.
 
+`path` is where the cutover would write; `searched` is every place a target
+`wp-config.php` was looked for (`path` alone when not given).
+
 ```python
-NoConfigForCutoverError(path: str)
+NoConfigForCutoverError(path: str, *, searched: tuple[str, ...] = ())
 ```
 
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
-Fields: `path`, each holding the argument of the same name.
+Fields: `path`, `searched`, each holding the argument of the same name.
 
 ### `NonEmptyTargetError`
 
@@ -1367,13 +1391,16 @@ Fields: `field`, each holding the argument of the same name.
 
 A tool the Run needs is absent or unusable.
 
+`minimum` is the version the tool must reach, set when the failure is a
+too-old or unknown version, so the message states the floor.
+
 ```python
-PreflightFailedError(tool: str, needed_for: str, found: str, *, install_hint: str | None = None)
+PreflightFailedError(tool: str, needed_for: str, found: str, *, install_hint: str | None = None, minimum: str | None = None)
 ```
 
 Base: `BackupError`. Exit code: `NOT_READY` (7).
 
-Fields: `tool`, `needed_for`, `found`, `install_hint`, each holding the argument of the same name.
+Fields: `tool`, `needed_for`, `found`, `install_hint`, `minimum`, each holding the argument of the same name.
 
 ### `ProvisioningFailedError`
 

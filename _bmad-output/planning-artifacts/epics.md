@@ -125,8 +125,8 @@ _Not applicable — this product has no graphical surface. It ships a CLI and an
 
 | # | Epic | Depends on | Owns exclusively | Stories |
 |---|---|---|---|---|
-| 2 | **Walking skeleton — take a backup and prove it** | Epic 1 | `domain/*` (including `domain/archive_format` and its v0 classifier), `ports/*`, `core/backup`, `cli/*`, `adapters/{tar,database,store,lock,config_writer}` | 9 |
-| 3 | **Restore without destroying it** | Epic 2 | `core/restore`, `adapters/{journal,staging}`, `cli/restore.py` | 6 |
+| 2 | **Walking skeleton — take a backup and prove it** | Epic 1 | `domain/*` (including `domain/archive_format` and its v0 classifier), `ports/*`, `core/backup`, `cli/*` except `cli/restore.py` (Epic 3's), `adapters/{tar,database,store,lock,config_writer,workspace,redaction,noop,site_files}` | 9 |
+| 3 | **Restore without destroying it** | Epic 2 | `core/restore`, `adapters/{journal,staging,restore_runner}`, `cli/restore.py`, and E003-S02-006's edit of `cli/parser.py::NOT_YET_IMPLEMENTED` | 6 |
 | 4 | **Archive lifecycle** | Epic 2 | `adapters/crypto`, `core/exclusions`, `adapters/exclusions`, the v0 fixture Archives and their tests | 3 |
 | 5 | **Credential providers and readiness** | Epic 2 | `adapters/{credential_providers,preflight}` | 2 |
 | 6 | **Embed in Python automation** | Epic 2 | `api/*`, `adapters/tracing` | 4 |
@@ -448,6 +448,8 @@ So that a bad restore is reversible.
 **Then** a Safety Snapshot Archive is written before the first destructive operation
 **And** it is verified after writing, and encrypted when encryption is configured — to the configured `age` recipients now, or under the AD-26 passphrase once `l3io-wp-database` 0.2.0 ships (ADR-0014)
 **And** its scope is derived from the Restore Mode, covering everything that mode may destroy
+
+*(ADR-0024, noted 2026-11-07: an Archive has one payload member — a gzip inner tar, encrypted as one `age` stream under the AD-26 passphrase when encryption is on; recipient/identity encryption is withdrawn. The Manifest records whether the payload is encrypted, never per-member flags. Where this story's criteria say recipients or a pending 0.2.0, read the payload and the passphrase.)*
 **And** it is written outside the Site Root and outside any web-served directory, and its path is reported
 **And** if it cannot be written and verified, the destructive restore does not proceed
 **And** opting out is explicit and recorded in the run's logs
@@ -504,7 +506,7 @@ So that the mode I typed is the mode performed and every safety step runs in ord
 
 **Given** `wpbackup2 restore --wp-dir <Site Root> --archive <Archive>` with any flag combination
 **When** it runs
-**Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S01-005's table and passed explicitly to every phase
+**Then** `(RestoreMode, OverrideSet)` is resolved once from E002-S02-011's table and passed explicitly to every phase
 **And** the Site Lock is taken and an incomplete Run Journal is refused before any Site state is read beyond canonicalising the path
 **And** the Archive is verified before the Safety Snapshot and before any destructive phase
 **And** a target with no `wp-config.php` gets its Site Descriptor from the Archive's config member
@@ -516,7 +518,7 @@ So that the mode I typed is the mode performed and every safety step runs in ord
 
 Fills three seams the skeleton left open, each behind a port it does not share.
 
-**Owns exclusively:** `adapters/crypto`, `domain/archive_format` (v0 classifier only), `core/exclusions`, `adapters/exclusions`
+**Owns exclusively:** `adapters/crypto`, `core/exclusions`, `adapters/exclusions`, the v0 fixture Archives and their tests. The v0 classifier in `domain/archive_format` is Epic 2's (Epic List ownership notes) *(corrected 2026-11-07)*
 
 ### Story 4.1: Exclude paths that should not be in a backup
 
@@ -573,6 +575,8 @@ So that a file containing every user record is not readable by whoever finds it.
 **And** no key or passphrase appears in process arguments, logs or exceptions
 **And** the passphrase resolution chain is shared verbatim by the CLI and the library (AD-26)
 **And** recipient/identity encryption builds on database v0.1.0; the passphrase path lands with database **0.2.0** (`passphrase=`), and until then a passphrase-only configuration is refused naming that release
+
+*(Superseded: the baseline is `l3io-wordpress-database` v0.2.0 or later, which carries `passphrase=`, so no passphrase-only refusal exists — E002 gate reconciliation 2026-10-27.)* *(ADR-0024, noted 2026-11-07: an Archive has one payload member — a gzip inner tar, encrypted as one `age` stream under the AD-26 passphrase when encryption is on; recipient/identity encryption is withdrawn. The Manifest records whether the payload is encrypted, never per-member flags. Where this story's criteria say per member or recipients, read the payload and the passphrase.)*
 
 ---
 

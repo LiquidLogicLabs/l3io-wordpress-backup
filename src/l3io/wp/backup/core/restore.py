@@ -254,14 +254,18 @@ class NoConfigForCutoverError(RefusedError):
 
     Refused at plan time, before ``SNAPSHOT``: the cutover's ``set()`` never
     creates a file, so it would otherwise be found only after the load.
+    ``path`` is where the cutover would write; ``searched`` is every place a
+    target ``wp-config.php`` was looked for (``path`` alone when not given).
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, searched: tuple[str, ...] = ()) -> None:
         self.path = path
+        self.searched = searched or (path,)
+        where = ", ".join(repr(place) for place in self.searched)
         super().__init__(
             f"the restore loads the database but no wp-config.php will exist at "
-            f"{path!r} for the cutover (the target has none and nothing lays one "
-            "down); nothing was changed"
+            f"{path!r} for the cutover (searched {where}: the target has none and "
+            "nothing lays one down); nothing was changed"
         )
 
 
@@ -953,7 +957,7 @@ def _load_undo(step: str | None, header: JournalHeader, *, files_changed: bool) 
         if header.staging_database is None:
             named = f"{load} existed and was empty before this Run; empty or drop it"
             return f"{untouched}; {named}" if files_changed else named
-        return f"{untouched}; drop staging database {load}"
+        return f"{untouched}; drop staging database {load} if it exists"
     if step == STEP_STAGING_DROPPED:
         return f"{untouched}; the staging database was already dropped"
     if step.startswith(STEP_CUTOVER_STARTED):
@@ -1027,8 +1031,11 @@ def undo_for(
                 )
             return _snapshot_undo(header)
         case RestorePhase.REWRITE_CONFIG:
-            if step is not None and step.startswith("config_"):
-                return f"copy {header.saved_config} back to {config}"
+            # No saved copy (``KEEP``): the relocation's own undo text, never
+            # "copy None back".
+            saved = header.saved_config
+            if step is not None and step.startswith("config_") and saved is not None:
+                return f"copy {saved} back to {config}"
             return header.phase_undo.get(interrupted) or f"{config} unchanged"
         case RestorePhase.SEARCH_REPLACE:
             return header.phase_undo.get(interrupted) or f"{config} unchanged"
@@ -1454,9 +1461,11 @@ def build_restore_plan(
     Archive; :class:`NoConfigForCutoverError` when ``mode`` loads the
     database and no ``wp-config.php`` will exist for the cutover;
     :class:`UnsafeSnapshotLocationError` when ``snapshot`` is
-    ``TAKE`` and ``snapshot_dir`` may be web-served. First of all,
-    :func:`check_target` refuses (:class:`NonEmptyTargetError`) a non-empty
-    part of ``target`` that ``overrides`` (the FR-7 waivers) does not waive;
+    ``TAKE``, or ``config_policy`` is ``OVERWRITE`` (the replaced
+    ``wp-config.php`` is saved there), and ``snapshot_dir`` may be
+    web-served. First of all, :func:`check_target` refuses
+    (:class:`NonEmptyTargetError`) a non-empty part of ``target`` that
+    ``overrides`` (the FR-7 waivers) does not waive;
     ``overrides`` changes no phase. A relocation action or undo naming an
     omitted phase, or a planned relocation phase without undo text, raises
     ``ValueError``.
@@ -1472,13 +1481,30 @@ def build_restore_plan(
     if restores_database(mode) and not _config_at_cutover(
         site, mode, view, target, relocation, config_file
     ):
-        raise NoConfigForCutoverError(str(config_file))
+        # Without --wp-config the target's config is looked for in the Site
+        # Root and one level up (FR-29); name both (F-10).
+        searched = (
+            (config_file,)
+            if relocation.config_file is not None
+            else (
+                site.site_root / CONFIG_FILE_NAME,
+                site.site_root.parent / CONFIG_FILE_NAME,
+            )
+        )
+        raise NoConfigForCutoverError(
+            str(config_file),
+            searched=tuple(dict.fromkeys(str(place) for place in searched)),
+        )
     scope = snapshot_scope(mode, target)
     location = None
-    if snapshot is SnapshotPolicy.TAKE:
-        location = snapshot_location(
+    if snapshot is SnapshotPolicy.TAKE or config_policy is ConfigPolicy.OVERWRITE:
+        # The ``OVERWRITE`` copy of the replaced ``wp-config.php`` is saved in
+        # ``snapshot_dir`` too, so the web-served guard holds without a
+        # Safety Snapshot (RT-S02-006).
+        checked = snapshot_location(
             site.site_root, PurePosixPath(config_dir), PurePosixPath(snapshot_dir)
         )
+        location = checked if snapshot is SnapshotPolicy.TAKE else None
     facts = _Facts(
         site=site,
         mode=mode,

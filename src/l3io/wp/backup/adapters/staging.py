@@ -26,9 +26,11 @@ it is handed:
 A failure before the cutover drops the staging database this Run created
 (``"staging_dropped"``); an operator-named database that already existed is
 left in place. No SQL is issued and no config byte is written here: database
-and ``adapters/config_writer`` do both. ``l3io.wp.database`` is imported only
-inside :func:`_validate_name` (AD-8), so this module imports without the
-``database`` extra; it imports nothing from ``l3io.wp.config``.
+and ``adapters/config_writer`` do both. ``l3io.wp.database`` is never
+imported here: the load name is checked through
+``adapters/database.database_name_is_valid`` (ADR-0015), so this module
+imports without the ``database`` extra; it imports nothing from
+``l3io.wp.config``.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ from l3io.wp.backup.adapters.database import (
     ADMIN_SOURCE,
     blocked_dump_error,
     database_location_from_db_host,
+    database_name_is_valid,
 )
 from l3io.wp.backup.adapters.journal import CorruptJournalError
 from l3io.wp.backup.core.restore import (
@@ -79,7 +82,6 @@ from l3io.wp.backup.domain.errors import (
     ConfigWriteFailedError,
     CredentialsError,
     DatabaseRefusedError,
-    MissingExtraError,
     ProvisioningFailedError,
     RefusedError,
     RunTerminated,
@@ -203,14 +205,8 @@ def _target(inputs: RestoreInputs) -> _Target:
 
 def _validate_name(name: str) -> None:
     """Database's ``validate_database_name``, before the first call using ``name``."""
-    try:
-        from l3io.wp import database as wpdb
-    except ImportError as exc:
-        raise MissingExtraError(extra="database") from exc
-    try:
-        wpdb.validate_database_name(name)
-    except wpdb.InvalidIdentifierError as exc:
-        raise InvalidLoadDatabaseNameError(name) from exc
+    if not database_name_is_valid(name):
+        raise InvalidLoadDatabaseNameError(name)
 
 
 def _require_password_source(inputs: RestoreInputs, ports: RestorePorts) -> None:
@@ -307,7 +303,6 @@ def _drop_staging(
     name = target.load.name
     try:
         ports.adapters.restore_database_command.drop_database(target.load, confirm=name)
-        journal.step_completed(_PHASE, STEP_STAGING_DROPPED)
     except RunTerminated:
         raise  # BL-E002-092
     except Exception as exc:  # the original error is re-raised by the caller
@@ -318,6 +313,18 @@ def _drop_staging(
         )
         return
     _log.warning("staging_database_dropped", staging_database=name)
+    # Its own try (R7): a journal that cannot record the drop is not a failed
+    # drop. The journal stays blocking, and its undo text says "if it exists".
+    try:
+        journal.step_completed(_PHASE, STEP_STAGING_DROPPED)
+    except RunTerminated:
+        raise
+    except Exception as exc:  # the original error is re-raised by the caller
+        _log.error(
+            "staging_dropped_not_journaled",
+            staging_database=name,
+            error_type=type(exc).__name__,
+        )
 
 
 def _post_load_check(

@@ -290,6 +290,7 @@ def test_a_database_mode_with_no_config_is_refused(
     assert ran.code == int(ExitCode.REFUSED), ran.err[-3000:]
     assert "NoConfigForCutoverError" in ran.err
     assert str(root.resolve() / "wp-config.php") in ran.err
+    assert str(root.resolve().parent / "wp-config.php") in ran.err
     assert hardened.site.site.checksums() == checksums
     assert hardened.site.site.databases() == databases
     assert tree(root.parent) == {"public": None}

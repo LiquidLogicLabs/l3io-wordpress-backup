@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pytest
 
+from l3io.wp.backup.adapters import database as database_adapter
 from l3io.wp.backup.adapters.database import (
+    ADMIN_TLS_MODES,
     INVALID_DATABASE_NAME,
     INVALID_DB_HOST,
     TLS_SETTINGS_UNUSABLE,
@@ -29,6 +31,7 @@ from l3io.wp.backup.adapters.database import (
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import real_adapters
+from l3io.wp.backup.cli.parser import build_parser
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.exit_codes import ExitCode
@@ -284,3 +287,20 @@ def test_an_unparseable_db_host_is_a_fixed_usage_error(
     assert str(caught.value) == expected
     assert TYPED_PORT not in str(caught.value)
     assert str(caught.value.__cause__) not in str(caught.value)
+
+
+def test_the_tls_copies_are_databases_tls_modes() -> None:
+    """L-5 (BL-E003-063): the hand-kept tuples match database's ``TlsMode``.
+
+    They cannot be derived at import (the ``database`` extra is optional), so
+    this test is the derivation: a mode database adds or renames fails here.
+    """
+    library = tuple(mode.value for mode in wpdb.TlsMode)  # type: ignore[attr-defined]
+    assert library == database_adapter._TLS_ORDER  # noqa: SLF001
+    assert tuple(m.replace("-", "_") for m in ADMIN_TLS_MODES) == library[1:]
+    base = ["restore", "--wp-dir", "/srv/site", "--archive", "a.tar.gz"]
+    for mode in ADMIN_TLS_MODES:
+        parsed = build_parser().parse_args([*base, "--admin-tls", mode])
+        assert parsed.admin_tls == mode
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*base, "--admin-tls", "off"])

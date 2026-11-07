@@ -102,6 +102,7 @@ def preflight_failure(
     with no minimum needs no version.
     """
     found: str | None = None
+    minimum: str | None = None
     if status is None or not status.present:
         found = "absent"
     elif status.error is not None:
@@ -110,8 +111,10 @@ def preflight_failure(
         pass
     elif status.version is None:
         found = UNKNOWN_VERSION
+        minimum = _version_text(requirement.minimum_version)
     elif status.version < requirement.minimum_version:
         found = _version_text(status.version)
+        minimum = _version_text(requirement.minimum_version)
     if found is None:
         return None
     return PreflightFailedError(
@@ -119,4 +122,5 @@ def preflight_failure(
         requirement.needed_for,
         found,
         install_hint=requirement.install_hint,
+        minimum=minimum,
     )

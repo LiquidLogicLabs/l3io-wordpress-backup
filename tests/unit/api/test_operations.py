@@ -458,6 +458,20 @@ def test_a_relocation_reaches_the_driver_unchanged(rig: Rig) -> None:
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("name", ["site-2026T10:00.tar.gz", "a:b", "x:y/z.tar"])
+def test_a_relative_name_with_a_colon_is_a_path_not_a_url(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = storage_target_from_cli(name)
+    assert target.scheme == "file"
+    assert str(target.path) == str(tmp_path / name)
+
+
+def test_a_file_url_is_still_a_url() -> None:
+    assert str(storage_target_from_cli("file:///srv/a%20b.tar").path) == "/srv/a b.tar"
+
+
 @pytest.mark.parametrize("text", ["file:///x?y", "file://host/x", "/srv/a\x00b"])
 def test_a_target_the_cli_refuses_is_refused(text: str) -> None:
     with pytest.raises(UsageError):
@@ -659,6 +673,16 @@ def test_a_passphrase_without_encrypt_is_refused_not_ignored(
         api.backup(
             site, scope=BackupScope.ALL, target="t.tar.gz", passphrase=passphrase
         )
+    assert calls == []
+
+
+def test_a_passphrase_without_authenticate_is_refused_not_ignored(
+    archive: Path, monkeypatch: pytest.MonkeyPatch, passphrase: str
+) -> None:
+    calls = _spy(monkeypatch, operations, "drive_verify")
+    with pytest.raises(UsageError, match="authenticate=True") as caught:
+        api.verify(archive, passphrase=passphrase)
+    assert caught.value.arguments == ("passphrase", "authenticate")
     assert calls == []
 
 

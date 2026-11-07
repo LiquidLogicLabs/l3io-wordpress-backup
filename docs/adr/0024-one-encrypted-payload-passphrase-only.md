@@ -122,7 +122,7 @@ workspace. This package adds no decryption or file-writing code.
 
 - **Positive.**
   - The libraries do every byte of extraction and decryption.
-  - E004 gate AG-1, AG-5 and AG-6 disappear, and AG-7 reduces to one header check.
+  - E004 gate AG-1, AG-5 and AG-6 disappear, and AG-7 reduces to one header check. *(Corrected 2026-11-07: AG-7 is met by the Decision's restore `VERIFY`, which decrypts the whole payload before `SNAPSHOT`; age authenticates every chunk, so a wrong passphrase, a damaged chunk or a truncated stream fails there — not by a header check alone.)*
   - E002-S01-003's per-member verification becomes one checksum.
   - The format no longer depends on the key type, so adding keys later is cheap.
 - **Negative / trade-offs accepted.**

@@ -427,6 +427,41 @@ def test_a_failing_wp_raises_with_a_redacted_tail(site_root: Path) -> None:
 
 
 @pytest.mark.usefixtures("not_root")
+def test_a_failing_wps_control_characters_are_escaped(site_root: Path) -> None:
+    def fail(argv: list[str]) -> tuple[int, str] | None:
+        noisy = "Error: \x1b[2Jcleared\x07 \u202eflipped\ttab\nnext line"
+        return (1, noisy) if "--format=count" in argv else None
+
+    fake = _one_pair_wp()
+    fake.fail = fail
+    replacer = WpCliSearchReplace(WP, secrets=SecretRegistry(), run=fake)
+    with capture_logs(), pytest.raises(WpCliFailedError) as caught:
+        replacer.relocate_content(site_root, UrlRelocation(NEW, None))
+    tail = caught.value.stderr_tail
+    assert tail.splitlines() == [
+        "Error: \\x1b[2Jcleared\\x07 \\u202eflipped\\ttab",
+        "next line",
+    ]
+    assert all(c == "\n" or c.isprintable() for c in str(caught.value))
+
+
+@pytest.mark.usefixtures("not_root")
+def test_a_php_notice_before_the_version_line_is_skipped(site_root: Path) -> None:
+    class NoisyWp(FakeWp):
+        def _stdout(self, argv: list[str]) -> str:
+            if argv[-2:] == ["cli", "version"]:
+                return "PHP Notice: Undefined index in x.php\nWP-CLI 2.12.0\n"
+            return super()._stdout(argv)
+
+    fake = NoisyWp(previews={OLD: _table([("wp_options", "option_value", 3)])})
+    fake.replaced = {OLD: 3}
+    with capture_logs() as logs:
+        _relocate(fake, site_root)
+    (done,) = [e for e in logs if e["event"] == "search_replace_completed"]
+    assert done["wp_cli_version"] == "2.12.0"
+
+
+@pytest.mark.usefixtures("not_root")
 def test_a_wp_that_cannot_start_is_a_failure(site_root: Path) -> None:
     def run(
         argv: list[str], *, cwd: Path, env: dict[str, str]

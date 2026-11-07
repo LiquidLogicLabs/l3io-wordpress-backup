@@ -636,7 +636,7 @@ def joined_snapshot(
             PurePosixPath(result.path),
             scope=result.scope,
             encrypted=result.encrypted,
-            bytes=result.bytes,
+            size=result.bytes,
             performed=result.performed,
         )
 

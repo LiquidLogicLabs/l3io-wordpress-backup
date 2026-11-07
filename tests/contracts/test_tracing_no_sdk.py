@@ -198,6 +198,13 @@ def test_a_provider_installed_after_import_is_honoured(
     assert "l3io.wp.backup.dump" in findings["spans"]
 
 
+#: Record keys whose values differ between any two Runs, traced or not.
+_VOLATILE = ("trace_id", "span_id", "duration_ms", "timestamp", "run_id")
+#: Phases whose ``bytes`` is the written Archive's size, which depends on the
+#: paths and time its Manifest records.
+_SIZED_BY_THE_RUN = frozenset({"WRITE_ARCHIVE"})
+
+
 def _phases(stderr: str) -> list[dict[str, Any]]:
     return [r for r in _records(stderr) if r["event"] == "phase_completed"]
 
@@ -212,8 +219,15 @@ def test_the_phase_records_differ_only_by_the_ids(
         {"trace_id", "span_id"}
     ] * len(plain)
     assert all(set(p) <= set(t) for p, t in zip(plain, traced, strict=True))
-    fixed = ("phase", "outcome", "exit_code")
-    assert [[p[k] for k in fixed] for p in plain] == [
-        [t[k] for k in fixed] for t in traced
-    ]
+
+    # Every value but the demonstrably volatile ones (BL-E006-006): the ids,
+    # the clock (duration_ms, timestamp), the per-Run run_id, and the written
+    # Archive's size, whose Manifest records each Run's own paths and time.
+    def stable(record: dict[str, Any]) -> dict[str, Any]:
+        volatile = set(_VOLATILE)
+        if record["phase"] in _SIZED_BY_THE_RUN:
+            volatile.add("bytes")
+        return {k: v for k, v in record.items() if k not in volatile}
+
+    assert [stable(p) for p in plain] == [stable(t) for t in traced]
     assert all({"phase", "duration_ms", "exit_code", "bytes"} <= set(p) for p in plain)

@@ -113,7 +113,14 @@ class _LocalStagedArchive:
         return self._staged.stat().st_size
 
     def _rename(self) -> int:
-        """``os.replace`` onto the final name, refusing one that now exists."""
+        """``os.replace`` onto the final name, refusing one that now exists.
+
+        Residual race (F-07): the check and the replace are two calls, so a
+        final name another process creates between them is overwritten. The
+        Site Lock serialises this package's own Runs on one Site; a writer
+        outside it (another Site's Run naming the same Archive, or any other
+        program) is not excluded.
+        """
         if _occupied(self._final):
             raise ArchiveExistsError(self._final)
         size = self._staged.stat().st_size

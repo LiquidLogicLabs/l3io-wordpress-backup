@@ -7,7 +7,8 @@ member-path rewriting.
 
 **One extraction function.** :func:`_extractors` walks every module under
 ``adapters/`` (recursively, whatever its name) and fails on any call to an
-``.extract`` or ``.extractall`` attribute outside :data:`EXTRACTOR` —
+``.extract``, ``.extractall`` or ``unpack_archive`` (attribute or bare name)
+outside :data:`EXTRACTOR` —
 ``extract_archive`` in ``adapters/tar.py``, asserted to exist. Reading a tar
 as a stream (the probe, ``read_member``, ``decrypt_payload``) writes no member
 to the filesystem and is not extraction. Not covered: an extraction reached
@@ -70,8 +71,10 @@ from tests.archive_fixtures import archive_files
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "adapters"
 
-#: Calls that write members to the filesystem.
-FILESYSTEM_EXTRACT_CALLS = frozenset({"extract", "extractall"})
+#: Calls that write members to the filesystem. ``unpack_archive`` is
+#: ``shutil``'s, matched as an attribute (``shutil.unpack_archive``) and as a
+#: bare name (``from shutil import unpack_archive``).
+FILESYSTEM_EXTRACT_CALLS = frozenset({"extract", "extractall", "unpack_archive"})
 #: The one function allowed to make them: module path under ``adapters/``,
 #: function name. Asserted to exist.
 EXTRACTOR = ("tar.py", "extract_archive")
@@ -120,6 +123,15 @@ def _site_files_fields() -> frozenset[str]:
     return fields
 
 
+def _callee(call: ast.Call) -> str | None:
+    """The called attribute's or bare name's identifier."""
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
+
+
 def _extracts(module: Path, allowed: str | None) -> list[str]:
     tree = ast.parse(module.read_text(encoding="utf-8"))
     allowed_lines = set() if allowed is None else _function_lines(tree, allowed)
@@ -128,11 +140,11 @@ def _extracts(module: Path, allowed: str | None) -> list[str]:
         f"{module}:{node.lineno}"
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in FILESYSTEM_EXTRACT_CALLS
+        and _callee(node) in FILESYSTEM_EXTRACT_CALLS
         and node.lineno not in allowed_lines
         and not (
-            node.func.attr == "extract"
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "extract"
             and isinstance(node.func.value, ast.Attribute)
             and node.func.value.attr in ports
         )
@@ -176,6 +188,8 @@ def test_only_the_extractor_extracts() -> None:
         ("runner.py", "def f(a):\n    c = a.site_files_command\n    c.extract('m')\n"),
         ("runner.py", "def f(a):\n    a.site_files_command.extractall('d')\n"),
         ("runner.py", "def f(a):\n    a.site_files.extract('m')\n"),
+        ("unpack.py", "import shutil\ndef f(p):\n    shutil.unpack_archive(p, 'd')\n"),
+        ("unpack.py", "from shutil import unpack_archive\nunpack_archive('a', 'd')\n"),
     ],
 )
 def test_the_guard_sees_extraction_anywhere_else(

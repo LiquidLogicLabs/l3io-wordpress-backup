@@ -18,11 +18,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
+# Plain imports, not importorskip (BL-E006-002): CI syncs --all-extras, so a
+# broken extra must fail this file, not skip it; DB_HOST alone gates the tier.
+import l3io.wp.database  # noqa: F401 - the database extra must be installed
+import pymysql  # noqa: F401 - the live tier's driver, from that extra
 import pytest
-
-pytest.importorskip("l3io.wp.database")
-pytest.importorskip("pymysql")
-
 from structlog.testing import capture_logs
 
 from l3io.wp.backup import api

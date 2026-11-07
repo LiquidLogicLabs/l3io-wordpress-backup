@@ -2,22 +2,24 @@
 
 A WordPress account's own login failure (MySQL ``1045``,
 ``AuthenticationFailedError``) cannot tell "database absent" from "account
-absent", so no database- or account-existence fact may be derived from one
+absent", and its access-denied failure (MySQL ``1044``, ``AccessDeniedError``)
+is returned whether or not the database exists (BL-E003-052), so no
+database- or account-existence fact may be derived from either
 (FR-9, E003-S02-004). Existence comes only from database's ``survey`` as the
 administrator, through ``WpDatabase.survey_target``.
 
 **What it sees.** An AST scan of every ``*.py`` under the package. A handler
 is *authentication-shaped* when its ``except`` clause names a class whose
-name contains ``AuthenticationFailed`` (bare, dotted, or in a tuple), or its
-body compares with the constant ``1045``; an ``if`` whose test compares with
-``1045`` is the same. Inside such a block it fails on an *existence fact*:
-an assignment or keyword argument, or a dict key, whose name contains
-``exist``; a ``DatabaseTargetState(...)`` construction; or any ``return``
-from a function whose name contains ``exist``.
+name contains ``AuthenticationFailed`` or ``AccessDenied`` (bare, dotted, or
+in a tuple), or its body compares with the constant ``1045`` or ``1044``; an
+``if`` whose test compares with either is the same. Inside such a block it
+fails on an *existence fact*: an assignment or keyword argument, or a dict
+key, whose name contains ``exist``; a ``DatabaseTargetState(...)``
+construction; or any ``return`` from a function whose name contains ``exist``.
 
 **What it does not see — this is a heuristic, not a proof.** A fact derived
 in a helper the handler calls; a flag named without ``exist`` and turned into
-existence later; a ``1045`` held in a named constant; a login failure caught
+existence later; a ``1045``/``1044`` held in a named constant; a login failure caught
 as a broad ``Exception``. The integration tests in
 ``tests/integration/test_database_restore_report.py`` (a fresh server and an
 account-only server, each reported from the administrator's survey) are the
@@ -38,8 +40,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
 
-_AUTH_CLASS = "AuthenticationFailed"
-_LOGIN_ERRNO = 1045
+#: Login and access-denied failures: neither can tell absent from forbidden.
+_AUTH_CLASSES = ("AuthenticationFailed", "AccessDenied")
+_LOGIN_ERRNOS = frozenset({1045, 1044})
 _EXISTENCE = "exist"
 _STATE_TYPE = "DatabaseTargetState"
 
@@ -59,7 +62,8 @@ def _mentions_errno(nodes: list[ast.stmt] | ast.expr) -> bool:
     return any(
         isinstance(n, ast.Compare)
         and any(
-            isinstance(c, ast.Constant) and c.value == _LOGIN_ERRNO for c in ast.walk(n)
+            isinstance(c, ast.Constant) and c.value in _LOGIN_ERRNOS
+            for c in ast.walk(n)
         )
         for root in roots
         for n in ast.walk(root)
@@ -74,7 +78,7 @@ def _auth_blocks(tree: ast.Module) -> list[tuple[list[ast.stmt], str]]:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             function = node.name
         if isinstance(node, ast.ExceptHandler) and (
-            any(_AUTH_CLASS in name for name in _names(node.type))
+            any(cls in name for cls in _AUTH_CLASSES for name in _names(node.type))
             or _mentions_errno(node.body)
         ):
             blocks.append((node.body, function))
@@ -178,11 +182,24 @@ def test_planted_inferences_are_seen_wherever_and_however_written(
         "    return True\n",
         encoding="utf-8",
     )
+    (tmp_path / "f.py").write_text(
+        "try:\n"
+        "    connect()\n"
+        "except wpdb.AccessDeniedError:\n"
+        "    database_exists = False\n"
+        "def g(exc):\n"
+        "    if exc.errno == 1044:\n"
+        "        return {'database_exists': False}\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
     assert inferred_existence(tmp_path) == [
         "adapters/deep/a.py:4",
         "b.py:5",
         "c.py:3",
         "d.py:5",
+        "f.py:4",
+        "f.py:7",
     ]
 
 

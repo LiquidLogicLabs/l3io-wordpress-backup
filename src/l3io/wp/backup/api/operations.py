@@ -11,11 +11,10 @@ nothing itself; ``drive_restore``'s safety notices go to the caller's
 ``on_warning`` or, without one, to stderr (AD-26 wants the
 unauthenticated-archive warning outside the log; see **Notices**).
 
-**One sequence (AD-16).** The drivers canonicalise the Site Root, open or
-open the Run (a Run already active in this thread raises
-``RunContextActiveError``; there is no public way to join one, owner decision
-2026-11-07, BL-E006-024), take the
-Site Lock (AD-19), read the Site Descriptor from ``wp-config.php`` (AD-3) and
+**One sequence (AD-16).** The drivers canonicalise the Site Root, open the
+Run (a Run already active in this thread raises ``RunContextActiveError``;
+there is no public way to join one, owner decision 2026-11-07, BL-E006-024),
+take the Site Lock (AD-19), read the Site Descriptor from ``wp-config.php`` (AD-3) and
 bind the adapter set — the Dry Run's no-op set for ``dry_run=True`` (AD-4).
 Nothing here repeats any of those steps.
 
@@ -56,9 +55,8 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
-from types import MappingProxyType
 from typing import Final
 
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
@@ -71,6 +69,7 @@ from l3io.wp.backup.api.errors import public_boundary
 from l3io.wp.backup.cli.backup import (
     BackupRequest,
     BackupResult,
+    default_exclusion_policy,
     drive_backup,
     storage_target_from_cli,
 )
@@ -91,7 +90,7 @@ from l3io.wp.backup.cli.restore import (
     drive_restore,
     require_database_restored,
 )
-from l3io.wp.backup.cli.verify import VerifyRequest, drive_verify
+from l3io.wp.backup.cli.verify import NO_ENVIRONMENT, VerifyRequest, drive_verify
 from l3io.wp.backup.core.exclusions import ExclusionSet
 from l3io.wp.backup.domain.archive_format import VerificationResult
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -114,7 +113,6 @@ __all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "restore", "verify"]
 #: What a library Run's ``safety_snapshot_skipped`` record names as having
 #: chosen ``SnapshotPolicy.SKIP`` (BL-E003-050): the argument, not the CLI flag.
 SNAPSHOT_SKIPPED_BY: Final = "snapshot=SnapshotPolicy.SKIP"
-_NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 
 
 def _registry() -> SecretRegistry:
@@ -183,29 +181,18 @@ def backup(
     site_root = Path(site)
     stated = None if wp_config is None else Path(wp_config)
     archive = _target(target)
-    request = (
-        BackupRequest(
-            site_root=site_root,
-            scope=scope,
-            target=archive,
-            wp_config=stated,
-            credentials=credentials,
-            cipher=cipher,
-            dry_run=dry_run,
-            extra_tools=extra_tools,
-        )
-        if exclusion is None
-        else BackupRequest(
-            site_root=site_root,
-            scope=scope,
-            target=archive,
-            wp_config=stated,
-            credentials=credentials,
-            cipher=cipher,
-            exclusion=_exclusion(exclusion),
-            dry_run=dry_run,
-            extra_tools=extra_tools,
-        )
+    request = BackupRequest(
+        site_root=site_root,
+        scope=scope,
+        target=archive,
+        wp_config=stated,
+        credentials=credentials,
+        cipher=cipher,
+        exclusion=(
+            default_exclusion_policy() if exclusion is None else _exclusion(exclusion)
+        ),
+        dry_run=dry_run,
+        extra_tools=extra_tools,
     )
     return drive_backup(
         request,
@@ -229,11 +216,18 @@ def verify(
 
     Keyless by default: a pass proves the checksums are consistent, not that
     the Archive is authentic (ADR-0024). ``authenticate=True`` resolves the
-    passphrase and decrypts the payload, as ``verify --authenticate`` does.
+    passphrase and decrypts the payload, as ``verify --authenticate`` does; a
+    ``passphrase`` without ``authenticate=True`` is refused (``UsageError``)
+    rather than ignored, as ``backup`` refuses one without ``encrypt=True``.
     A failed verification raises ``VerificationFailedError`` carrying the
     result, as the CLI exits ``VERIFICATION_FAILED``.
     """
     del on_warning  # verify gives no notice today (see **Notices**)
+    if passphrase is not None and not authenticate:
+        msg = (
+            "a passphrase was given but authenticate=True was not: nothing would use it"
+        )
+        raise UsageError(msg, arguments=("passphrase", "authenticate"))
     registry = _registry()
     request = VerifyRequest(archive=_target(archive), authenticate=authenticate)
     result = drive_verify(
@@ -243,7 +237,7 @@ def verify(
         secrets=registry,
         command_args=None,
         passphrase=passphrase,
-        environ=os.environ if authenticate else _NO_ENVIRONMENT,
+        environ=os.environ if authenticate else NO_ENVIRONMENT,
         prompt=prompt,
     )
     if not result.passed:

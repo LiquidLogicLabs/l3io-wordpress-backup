@@ -46,7 +46,10 @@ class Secret:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Secret):
             return NotImplemented
-        return hmac.compare_digest(self._value.encode(), other._value.encode())
+        return hmac.compare_digest(
+            self._value.encode("utf-8", "surrogatepass"),
+            other._value.encode("utf-8", "surrogatepass"),
+        )
 
     def __reduce__(self) -> NoReturn:
         msg = "a Secret is never pickled; pass the text and wrap it again"

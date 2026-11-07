@@ -138,23 +138,85 @@ def _int_literal(node: ast.AST) -> bool:
     )
 
 
+#: Calls whose integer argument is a process exit status.
+_EXITING_CALLS = frozenset({"ExitCode", "SystemExit", "exit"})
+#: Return annotations that make ``return <int>`` an exit status under ``cli/``.
+_EXIT_RETURNS = frozenset({"int", "ExitCode"})
+
+
+def _assigned_exit_codes(node: ast.AST) -> bool:
+    """``exit_code = <int>``, ``exit_code: T = <int>``, or a tuple target."""
+    if isinstance(node, ast.AnnAssign):
+        pairs = [(node.target, node.value)]
+    elif isinstance(node, ast.Assign):
+        pairs = []
+        for target in node.targets:
+            if isinstance(target, ast.Tuple) and isinstance(node.value, ast.Tuple):
+                pairs.extend(zip(target.elts, node.value.elts, strict=False))
+            else:
+                pairs.append((target, node.value))
+    else:
+        return False
+    return any(
+        isinstance(target, ast.Name | ast.Attribute)
+        and ast.unparse(target).rsplit(".", 1)[-1] == "exit_code"
+        and value is not None
+        and _int_literal(value)
+        for target, value in pairs
+    )
+
+
+def _literal_returns(tree: ast.AST) -> list[int]:
+    """``return <int>`` in a function annotated ``-> int`` or ``-> ExitCode``."""
+    lines: list[int] = []
+    for func in ast.walk(tree):
+        if not isinstance(func, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if func.returns is None:
+            continue
+        if ast.unparse(func.returns).rsplit(".", 1)[-1] not in _EXIT_RETURNS:
+            continue
+        lines.extend(
+            node.lineno
+            for node in ast.walk(func)
+            if isinstance(node, ast.Return)
+            and node.value is not None
+            and _int_literal(node.value)
+        )
+    return lines
+
+
 def literal_exit_codes(root: Path, *, skip: Path | None = None) -> list[str]:
-    """``ExitCode(<int>)``, or ``exit_code=<int>``, anywhere under ``root``."""
+    """An exit status built from an integer literal, anywhere under ``root``.
+
+    ``ExitCode(<int>)``, ``SystemExit(<int>)``, ``sys.exit(<int>)``,
+    ``exit_code=<int>`` keywords, ``exit_code`` assignments (tuple targets
+    included), and, under ``cli/``, ``return <int>`` from a function annotated
+    ``-> int`` or ``-> ExitCode``.
+    """
     found: list[str] = []
     for path in sorted(root.rglob("*.py")):
         if skip is not None and path == skip:
             continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        relative = path.relative_to(root)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        lines: set[int] = set()
+        for node in ast.walk(tree):
+            if _assigned_exit_codes(node):
+                lines.add(node.lineno)
             if not isinstance(node, ast.Call):
                 continue
             name = ast.unparse(node.func).rsplit(".", 1)[-1]
-            if name == "ExitCode" and any(_int_literal(a) for a in node.args):
-                found.append(f"{path.relative_to(root)}:{node.lineno}")
-            found.extend(
-                f"{path.relative_to(root)}:{node.lineno}"
+            if name in _EXITING_CALLS and any(_int_literal(a) for a in node.args):
+                lines.add(node.lineno)
+            lines.update(
+                node.lineno
                 for kw in node.keywords
                 if kw.arg == "exit_code" and _int_literal(kw.value)
             )
+        if relative.parts[:1] == ("cli",) or root.name == "cli":
+            lines.update(_literal_returns(tree))
+        found.extend(f"{relative}:{line}" for line in sorted(lines))
     return found
 
 
@@ -210,6 +272,39 @@ def test_the_literal_guard_sees_a_new_sub_directory(tmp_path: Path) -> None:
         "cli/later/x.py:1",
         "cli/later/x.py:2",
         "cli/later/x.py:3",
+    ]
+
+
+def test_the_literal_guard_sees_every_shape_the_old_code_used(tmp_path: Path) -> None:
+    """F-05: the shapes the pre-ExitCode code used, each on its own line."""
+    (tmp_path / "cli").mkdir()
+    (tmp_path / "adapters").mkdir()
+    (tmp_path / "adapters" / "phase.py").write_text(
+        'outcome, exit_code = "failed", 1\n'
+        "self.exit_code = 2\n"
+        "exit_code: int = 3\n"
+        "ok, exit_code = 'ok', ExitCode.OK\n"
+        "def count() -> int:\n    return 4\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "cli" / "main.py").write_text(
+        "import sys\n"
+        "def main() -> int:\n    return 1\n"
+        "def run() -> ExitCode:\n    return 2\n"
+        "def width():\n    return 80\n"
+        "raise SystemExit(3)\n"
+        "sys.exit(8)\n"
+        "def fine() -> int:\n    return int(ExitCode.OK)\n",
+        encoding="utf-8",
+    )
+    assert literal_exit_codes(tmp_path) == [
+        "adapters/phase.py:1",
+        "adapters/phase.py:2",
+        "adapters/phase.py:3",
+        "cli/main.py:3",
+        "cli/main.py:5",
+        "cli/main.py:8",
+        "cli/main.py:9",
     ]
 
 

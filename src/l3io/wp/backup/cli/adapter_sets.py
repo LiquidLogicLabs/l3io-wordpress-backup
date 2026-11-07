@@ -1,4 +1,3 @@
-# ruff: noqa: ARG002 - each placeholder method raises before reading its arguments
 """ADR-0016/AD-4 — the constructors of an ``AdapterSet``, in the composition-root layer.
 
 :func:`real_adapters` binds the real adapters. :func:`dry_run_adapters` is the
@@ -84,6 +83,7 @@ class UnboundSearchReplace:
     def relocate_content(
         self, site_root: Path, urls: UrlRelocation
     ) -> SearchReplaceReport:
+        del site_root, urls  # raises before reading them
         _unbound("SearchReplaceCommand.relocate_content", SEARCH_REPLACE_SUPPLIER)
 
 
@@ -93,24 +93,30 @@ class UnboundRunJournal:
     __slots__ = ()
 
     def incomplete(self, site_root: PurePosixPath) -> JournalRecord | None:
+        del site_root  # raises before reading them
         _unbound("RunJournalQuery.incomplete", JOURNAL_SUPPLIER)
 
     def begin_run(self, header: JournalHeader) -> None:
+        del header  # raises before reading them
         _unbound("RunJournalCommand.begin_run", JOURNAL_SUPPLIER)
 
     def phase_started(self, phase: RestorePhase, target: str) -> None:
+        del phase, target  # raises before reading them
         _unbound("RunJournalCommand.phase_started", JOURNAL_SUPPLIER)
 
     def step_completed(self, phase: RestorePhase, step: str) -> None:
+        del phase, step  # raises before reading them
         _unbound("RunJournalCommand.step_completed", JOURNAL_SUPPLIER)
 
     def phase_completed(self, phase: RestorePhase) -> None:
+        del phase  # raises before reading them
         _unbound("RunJournalCommand.phase_completed", JOURNAL_SUPPLIER)
 
     def finish_run(self) -> None:
         _unbound("RunJournalCommand.finish_run", JOURNAL_SUPPLIER)
 
     def resolve(self, run_id: str, resolved_by: str) -> None:
+        del run_id, resolved_by  # raises before reading them
         _unbound("RunJournalCommand.resolve", JOURNAL_SUPPLIER)
 
 

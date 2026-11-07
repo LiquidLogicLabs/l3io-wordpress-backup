@@ -42,7 +42,8 @@ from typing import Any
 import pytest
 
 from l3io.wp.backup import adapters as adapters_package
-from l3io.wp.backup.adapters import tar
+from l3io.wp.backup.adapters import noop, tar
+from l3io.wp.backup.adapters.workspace import WORKSPACE_PREFIX
 from l3io.wp.backup.cli import adapter_sets, main
 from l3io.wp.backup.cli import backup as backup_cli
 from l3io.wp.backup.domain.exit_codes import ExitCode
@@ -132,7 +133,9 @@ def opened(site: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return seen
 
 
+@pytest.mark.parametrize("spelling", ["--whatIf", "--what-if"])
 def test_a_dry_run_changes_nothing_and_reads_no_site_content(
+    spelling: str,
     site: Path,
     tmp_path: Path,
     workdir: Path,
@@ -141,7 +144,21 @@ def test_a_dry_run_changes_nothing_and_reads_no_site_content(
     opened: list[str],
     capsys: pytest.CaptureFixture[str],
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """``--what-if`` before the action is the same Dry Run (BL-E002-079); the
+    workspace is observed while the Run is active, after the no-op dump and
+    when the no-op writer runs (BL-E002-078)."""
+    while_active: list[list[str]] = []
+    real_write = noop.NoopArchiveWriter.write
+
+    def write(self: noop.NoopArchiveWriter, *args: object, **kwargs: object) -> object:
+        while_active.append(
+            sorted(p.relative_to(workdir).as_posix() for p in workdir.rglob("*"))
+        )
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(noop.NoopArchiveWriter, "write", write)
     (site / "wp-content").mkdir()
     (site / "wp-content" / "big.bin").write_bytes(b"\x00" * 4096)
     out = tmp_path / "out"
@@ -151,7 +168,7 @@ def test_a_dry_run_changes_nothing_and_reads_no_site_content(
     opened.clear()
 
     code = main(
-        ["--whatIf", "backup", "--wp-dir", str(site), "--archive", str(out / "a")]
+        [spelling, "backup", "--wp-dir", str(site), "--archive", str(out / "a")]
     )
     logs = pipeline_events(caplog)
 
@@ -161,6 +178,9 @@ def test_a_dry_run_changes_nothing_and_reads_no_site_content(
     assert _snapshot(site) == before_site
     assert _snapshot(out) == before_out
     assert list(workdir.iterdir()) == []  # the workspace was made and removed
+    # While active it existed and the no-op commands wrote nothing into it.
+    ((workspace,),) = while_active
+    assert workspace.startswith(WORKSPACE_PREFIX), workspace
     assert set(touched) <= {"wp-config.php"}, touched
     assert spies == {"write_archive": [], "collect_site_root": [], "verify": []}
     assert fake_database.calls == []

@@ -182,6 +182,8 @@ def test_no_flag_is_valid_in_every_mode() -> None:
         ("https://:8443", "host"),
         ("https://@", "host"),
         ("https://user@", "host"),
+        ("https://user:sentinel-5a-pw@x.example", "user information"),
+        ("https://user@x.example:8443/blog", "user information"),
         ("https://x.example/", "end with '/'"),
         ("https://x.example/sub/", "end with '/'"),
     ],
@@ -204,6 +206,7 @@ def test_each_url_rule(name: str, value: str, rule: str) -> None:
         "https://x.example/blog",
         "https://bücher.example/straße",
         "https://x.example/?p=1&q=$2",
+        "https://x.example/@author",
     ],
 )
 def test_a_valid_url_passes(value: str) -> None:

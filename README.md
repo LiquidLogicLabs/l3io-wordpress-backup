@@ -25,7 +25,7 @@ pip install l3io-wordpress-backup
 
 Requirements: Python 3.11 or newer. Extracting an archive also needs a Python with the June 2025 `tarfile` security fixes (3.11.13+, 3.12.11+, 3.13.4+; CVE-2025-4517); on an older one extraction is refused — upgrade Python.
 
-Upgrading from 0.2.21: that release can no longer be installed from PyPI, because two of its dependencies (`wpconfigr`, `chesney`) were removed from there. You do not need it: this package reads 0.2.21 Archives itself (`wpbackup2 verify --archive <file>` reports them as `STRUCTURAL_ONLY`, and `restore` restores them).
+Upgrading from 0.2.21: that release can no longer be installed from PyPI, because two of its dependencies (`wpconfigr`, `chesney`) were removed from there. You do not need it: this package reads 0.2.21 Archives itself (`wpbackup2 verify --archive <file>` reports them as `STRUCTURAL_ONLY`, and `restore` restores them). The restore side is tested with Archives in 0.2.21's layout built by the test suite and by extracting the committed 0.2.21-layout fixtures; no test restores an Archive written by a 0.2.21 install.
 
 ### External tools
 
@@ -39,6 +39,8 @@ A Run checks every external tool its plan needs before its first effect, and sto
 | `wp` | 2.12.0 | WP-CLI, which relocation runs to rewrite the Site's URLs | SEARCH_REPLACE: serialization-safe content URL rewrite for --new-site-url/--new-site-home-url (FR-12) | https://wp-cli.org/#installing |
 | MySQL/MariaDB client tools | client 8.4+, MariaDB 11.4+ | the database dump and load | checked per Site by l3io-wordpress-database (`check_dump`/`check_load`), never run by this package | your distribution's MySQL or MariaDB client package |
 <!-- END GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
+
+The `database` extra installs the `l3io-age-passphrase` binder, published as wheels for Linux (glibc and musl; x86_64, aarch64, armv7l), macOS (x86_64, arm64) and Windows (amd64). On any other platform the installer builds it from its source distribution, which needs a Rust toolchain; if that build fails, the extra does not install. When the binder is not importable, the passphrase backend falls back to the `age` command line (`L3IO_AGE_PASSPHRASE_BACKEND=auto`, the default), so `age` 1.3 or newer and `age-plugin-batchpass` must be on `PATH`, or an encrypted Run stops with exit 7 (`NOT_READY`) before its first effect. `L3IO_AGE_PASSPHRASE_BACKEND=cli` selects that backend explicitly.
 
 ## Usage
 
@@ -163,7 +165,7 @@ database credentials:
 
 ```text
 $ wpbackup2 restore --help
-usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files,db,all}]
+usage: wpbackup2 restore [-h] --wp-dir WP_DIR --archive ARCHIVE [--mode {files,db,all}]
                          [--cleanfirst] [--drop-database] [--force] [--whatIf] [--wp-config PATH]
                          [--overwrite-wp-config] [--reset-existing-db-user] [--no-safety-snapshot]
                          [--require-encrypted] [--snapshot-dir PATH]
@@ -180,7 +182,8 @@ usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files
 options:
   -h, --help            show this help message and exit
   --wp-dir WP_DIR       Path to the root of the WordPress directory
-  --archive ARCHIVE     Path or file: URL of the archive to restore from
+  --archive ARCHIVE     Path or file: URL of the archive to restore from (required, --resolve-
+                        interrupted-run included)
 
 restore mode:
   Together these select one Restore Mode; any other combination is refused.
@@ -224,7 +227,8 @@ restore options:
                         host but localhost, 127.0.0.1 and ::1; never lowered)
   --admin-tls-ca FILE   CA bundle that verifies the database server (default: the system store)
   --resolve-interrupted-run RUN_ID
-                        Resolve the journal left by the interrupted Run with this ID
+                        Resolve the journal left by the interrupted Run with this ID, then stop:
+                        nothing is restored (run the restore again afterwards)
   --admin-username USER
                         Database administrator username (give --admin-password with it)
   --admin-password PASSWORD

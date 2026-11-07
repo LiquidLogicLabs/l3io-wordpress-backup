@@ -97,11 +97,20 @@ jobs:
       # AD-4 — Dry Run is adapter selection. A conditional anywhere outside a
       # composition root is the defect this gate exists to catch. The exemption
       # is anchored to the two roots by path: --exclude-dir would match a
-      # directory named cli/ or api/ at any depth.
+      # directory named cli/ or api/ at any depth. The pattern is
+      # case-insensitive with no word boundary, so compound and camel spellings
+      # (self._dry_run, dry_run_flag, isDryRun, whatIf) are caught too.
+      # Hyphenated `--dry-run` is not an identifier (wp-cli's own flag) and is
+      # not matched. Two whole tokens are allowed outside the roots: the
+      # persisted phase outcome value `skipped_dry_run` (adapters/phase.py) and
+      # the root function `dry_run_adapters` named in docstrings; the sed strips
+      # only those tokens, so any other spelling on the same line still fires.
       - name: AD-4 no dry-run conditionals
         run: |
-          if grep -rnE '\b(dry_run|what_if)\b' src/l3io/wp/backup --include='*.py' \
-               | grep -vE '^src/l3io/wp/backup/(cli|api)/'; then
+          if grep -rniE 'dry_?run|what_?if' src/l3io/wp/backup --include='*.py' \
+               | grep -vE '^src/l3io/wp/backup/(cli|api)/' \
+               | sed -E 's/\b(skipped_dry_run|dry_run_adapters)\b//g' \
+               | grep -iE 'dry_?run|what_?if'; then
             echo "::error::AD-4 — dry-run conditional outside a composition root"
             exit 1
           fi

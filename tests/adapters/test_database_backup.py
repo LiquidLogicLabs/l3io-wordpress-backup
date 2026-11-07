@@ -139,7 +139,10 @@ def test_a_transfer_error_is_a_dump_failure(
     monkeypatch.setattr(wpdb, "dump", broken)
     with pytest.raises(DumpFailedError) as caught:
         database.dump_to(LOCATION, tmp_path / "dump.sql")
-    assert isinstance(caught.value.__cause__, wpdb.TransferError)
+    # No chain (BL-E002-053): the TransferError's text is the tool's stderr.
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__
+    assert caught.value.exit_status == -9
 
 
 @pytest.mark.parametrize(

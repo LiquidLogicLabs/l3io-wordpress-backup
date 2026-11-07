@@ -433,10 +433,18 @@ def execute_backup_plan(
     ``stage()`` discards the staged Archive before it propagates.
     ``database`` is ``None`` exactly when the plan has no ``DUMP`` step: a
     ``files`` backup binds no database and resolves no credential (FR-2).
+    ``exclusion`` must be the set the plan records (source and patterns), as
+    ``cipher`` must match its ``ENCRYPT`` step; either mismatch is a
+    ``UsageError`` before any effect.
     """
     encrypted = BackupStep.ENCRYPT in plan.steps
     if encrypted != (cipher is not None):
         msg = "the plan's ENCRYPT step and the cipher binding disagree"
+        raise UsageError(msg, arguments=())
+    # R8: the Manifest records the plan's set, the writer applies the policy.
+    planned = (plan.exclusion_source, plan.exclusion_patterns)
+    if planned != (exclusion.source, tuple(exclusion.patterns)):
+        msg = "the plan's exclusion set and the exclusion policy disagree"
         raise UsageError(msg, arguments=())
     dumps = BackupStep.DUMP in plan.steps
     if dumps != (database is not None):
@@ -531,13 +539,15 @@ def execute_backup_plan(
 def storage_target_from_cli(text: str) -> StorageTarget:
     """The Storage Target ``--archive`` names, never silently rewritten.
 
-    A bare path is taken as given — ``#`` and ``?`` are file-name characters
-    there. Only text with a scheme is a URL: its path is percent-decoded, and a
-    host other than ``localhost``, a query or a fragment is refused rather than
-    dropped.
+    A bare path is taken as given — ``#``, ``?`` and ``:`` are file-name
+    characters there. Only text whose scheme is followed by ``/`` is a URL
+    (``file:/x``, ``file:///x``), so a relative name such as
+    ``site-2026T10:00.tar.gz`` stays a path (R-04). A URL's path is
+    percent-decoded, and a host other than ``localhost``, a query or a fragment
+    is refused rather than dropped.
     """
     parts = urlsplit(text)
-    if not parts.scheme:
+    if not parts.scheme or not text[len(parts.scheme) + 1 :].startswith("/"):
         target = parse_storage_target("", text)
     else:
         if parts.netloc not in _LOCAL_HOSTS or parts.query or parts.fragment:

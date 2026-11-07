@@ -143,6 +143,11 @@ def test_each_mode_end_to_end(
         if str(r["phase"]) in order
     ]
     assert phases == sorted(phases, key=order.index)
+    # Not vacuous (BL-E003-066): every phase the plan names completed, and no
+    # completed phase is missing from the order.
+    planned = {str(r["phase"]) for r in ran.events("planned_action")}
+    assert planned, "no planned phase"
+    assert planned <= set(phases), sorted(planned - set(phases))
     # The Safety Snapshot: the target was populated, so one was taken.
     (written,) = ran.events("safety_snapshot_written")
     snapshot = Path(written["path"])

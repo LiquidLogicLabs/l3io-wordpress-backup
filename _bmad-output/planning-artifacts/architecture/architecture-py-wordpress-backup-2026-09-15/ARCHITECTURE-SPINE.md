@@ -101,10 +101,10 @@ graph TD
 
 - **Binds:** FR-1, FR-3, FR-4, FR-10, and the §8 archive-format contract
 - **Prevents:** backup and restore drifting on the one thing they must agree on. Today `DB_DUMP_ARCNAME` and `WP_DIR_ARCNAME` are duplicated literals in two modules
-- **Rule:** one module in `domain/` owns member roles, the Manifest schema, the format version and which members are encrypted. Backup and restore both import from it; neither defines a member name. The layout is fixed:
+- **Rule:** one module in `domain/` owns member roles, the Manifest schema, the format version and which members are encrypted *(amended 2026-10-29, [ADR-0024](../../../../docs/adr/0024-one-encrypted-payload-passphrase-only.md): whether the one payload is encrypted — see the note under 3)*. Backup and restore both import from it; neither defines a member name. The layout is fixed:
 
   1. an **unencrypted tar container**;
-  2. `manifest.json` as its **first member, never encrypted** — it carries the format version, the member index, which members are encrypted and the checksums, so an Archive can be identified, version-gated and verified *before* any key exists. It carries no key material and no KDF parameters: an encrypted member is a standard `age` file with its own header ([ADR-0014](../../../../docs/adr/0014-age-encryption-via-database.md)).
+  2. `manifest.json` as its **first member, never encrypted** — it carries the format version, the member index, which members are encrypted and the checksums *(amended 2026-10-29, ADR-0024: the payload's size and checksum, and whether it is encrypted — see the note under 3)*, so an Archive can be identified, version-gated and verified *before* any key exists. It carries no key material and no KDF parameters: an encrypted member is a standard `age` file with its own header ([ADR-0014](../../../../docs/adr/0014-age-encryption-via-database.md)).
   3. per-member payloads, each encrypted independently as `age` when encryption is on, through `l3io-wp-database` (ADR-0014). A member swapped in from another Archive under the same key is caught by the checksums, which are over the stored ciphertext.
      *(Amended 2026-10-29 — [ADR-0024](../../../../docs/adr/0024-one-encrypted-payload-passphrase-only.md): rule 3 is replaced by one payload member, a gzip inner tar encrypted as a single `age` stream when encryption is on; the Manifest carries the payload's size and checksum, and no per-member checksums or `encrypted` flags.)*
 
@@ -182,7 +182,7 @@ graph TD
 
 - **Binds:** FR-23, all three packages
 - **Prevents:** callers importing a dependency to catch our failures, and a dependency swap becoming a breaking change. Today `WpSite.from_wp_config` raises `wpdatabase2`'s `InvalidArgumentsError`, and a missing archive surfaces as a bare `FileNotFoundError`
-- **Rule:** each package defines its own exception hierarchy under a single base. An exception from a dependency or from the stdlib is caught at the boundary and re-raised as a package-owned type with `raise ... from`. Exceptions carry structured fields, not only a formatted message. No exception message contains a credential.
+- **Rule:** each package defines its own exception hierarchy under a single base. An exception from a dependency or from the stdlib is caught at the boundary and re-raised as a package-owned type with `raise ... from`. Exceptions carry structured fields, not only a formatted message. No exception message contains a credential. *(Noted 2026-11-07, E008 arch drift AD-8: one deliberate exception — a library call whose arguments do not fit the entry point's signature raises Python's own `TypeError` before anything runs, because the call never reaches the package (`api/errors.py::public_boundary`); `docs/api.md`'s Exceptions section states it.)*
 
 ### AD-15 — The three packages release in dependency order behind a resolvability gate
 
@@ -426,12 +426,15 @@ sequenceDiagram
     Arc-->>Root: unwritable or unverifiable → abort
     Root->>Jrn: journal each phase, before and after (AD-18)
     Root->>Arc: CLEAN / EXTRACT — filter='data' (AD-11)
-    Root->>Sql: LOAD_DUMP into a staging database (AD-18)
-    Root->>Cfg: REWRITE_CONFIG — os.replace, atomic cutover (AD-18)
+    Root->>Cfg: REWRITE_CONFIG — relocation constants other than DB_* (AD-18)
+    Root->>Sql: LOAD_DUMP into a staging database, checked (AD-18)
+    Root->>Cfg: LOAD_DUMP's last step — DB_* cutover, os.replace, atomic (AD-18)
     Root->>Root: SEARCH_REPLACE via wp --path (ADR-0005)
     Root->>Lock: release in finally
     Note over Jrn,Cfg: the live database changes only at the atomic<br/>config write, so a kill before it leaves the site intact
 ```
+
+*(Diagram corrected 2026-11-07 to match AD-17's amendments of 2026-10-20 and 2026-10-27 and AD-18 rule 3: the cutover is the last journaled step of `LOAD_DUMP`, not `REWRITE_CONFIG`. The operator-facing flow of `drive_restore` and the executor is in [`docs/restore.md`](../../../../docs/restore.md#how-a-run-is-driven).)*
 
 ## Capability → Architecture Map
 

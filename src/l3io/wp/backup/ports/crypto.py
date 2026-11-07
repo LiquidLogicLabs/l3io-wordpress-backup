@@ -3,9 +3,8 @@
 Applied once to the whole payload, streaming from a reader to a writer (AD-21).
 A transform, neither query nor command. Epic 4's passphrase-only
 ``adapters/crypto.PassphraseCipher`` implements it (E004-S01-003), built only by
-``adapters/crypto.build_payload_cipher``. ``restore`` and ``verify
---authenticate`` bind a real cipher whenever a passphrase resolves; ``backup``
-binds ``None`` until the encryption flag ships (E008).
+``adapters/crypto.build_payload_cipher``. ``backup``, ``restore`` and ``verify
+--authenticate`` bind a real cipher whenever a passphrase resolves.
 """
 
 from __future__ import annotations

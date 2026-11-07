@@ -549,8 +549,9 @@ def _device(path: Path) -> int:
 def _snapshot_claim(run: _Run) -> SpaceClaim | None:
     """ADV-6: what the Safety Snapshot will write to its directory.
 
-    The Site Root's current file bytes when the scope holds ``files``: an
-    uncompressed upper bound for the Archive. The live database's dump size
+    The Site Root's current file bytes when the scope holds ``files``: the
+    uncompressed size of what the Archive holds, and a lower bound, since
+    ``tree_bytes`` does not count an entry it cannot read. The live database's dump size
     is not knowable before the dump, so a database-only scope claims ``0``.
     """
     scope, path = run.plan.snapshot_scope, run.inputs.header.snapshot_path
@@ -673,7 +674,7 @@ def snapshot_result(
     *,
     scope: BackupScope,
     encrypted: bool,
-    bytes: int,  # noqa: A002 - the BackupResult field it carries
+    size: int,
     performed: bool,
 ) -> SnapshotResult:
     """The :class:`SnapshotResult` of a joined backup, verified after publish.
@@ -725,7 +726,7 @@ def snapshot_result(
         path=path,
         scope=scope,
         encrypted=encrypted,
-        bytes=bytes,
+        bytes=size,
         integrity=Integrity.VERIFIED,
         performed=True,
     )

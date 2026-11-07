@@ -165,6 +165,19 @@ and `verify --authenticate` authenticates.
 would be an opt-in flag, for example `--require-authenticated`, added without changing the
 default.
 
+## Residual — 2026-11-07: the no-config path reads the config member twice, with no digest comparison
+
+Recorded at close-out (BL-E003-009); it records built behaviour and changes no decision.
+The 2026-10-27 amendment says `VERIFY` compares the config member's stored digest with the
+digest of the bytes used to plan. That comparison was never built: ADR-0024 withdrew
+per-member digests, so there is no stored digest to compare. The member is read twice
+instead — once by the root to build the Site Descriptor (`cli/restore.py::_archive_config`)
+and once to lay it down (`adapters/restore_runner.py::_archive_config`). Both reads, and
+`VERIFY`, use the Run's own `0600` copy of the Archive, made before the probe, so the bytes
+cannot change between them (RT-001 above), and `VERIFY`'s payload checksum covers the
+member as stored in that copy (with `age` authentication when the Archive is encrypted).
+What remains is that nothing asserts the two reads returned equal bytes.
+
 ## Amendment — 2026-11-07: a passphrase means an encrypted Archive is expected (Shawn, E004 D1 option b)
 
 The 2026-11-06 waiver (an unauthenticated Archive restores with a warning) is narrowed in one

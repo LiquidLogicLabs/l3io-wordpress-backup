@@ -24,7 +24,9 @@ removal drops no database.
 `--mode all` is the default, so `--cleanfirst --drop-database` alone selects
 `all-clean`. The Mode names are what the log (`restore_mode`), refusals
 ("Restore Mode files") and the completion line use; the flags are what you
-type. Note the one spelling difference: the flag value `db` is the Mode
+type. A library host passes the Mode and its overrides as values, without this
+flag table: see [`api.md`](api.md#restore) before forwarding user input into
+`RestoreMode` or `Override`. Note the one spelling difference: the flag value `db` is the Mode
 `database`. Adding `--force` to any row keeps its Mode and only waives the
 non-empty-target refusal for the parts that Mode restores (see below). Any
 other combination (for example `--mode db --cleanfirst`) exits 2 `USAGE` and
@@ -75,6 +77,7 @@ live part is cut to 51 characters, so a name never exceeds MySQL's 64.
 | 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made |
 | 4    | `CREDENTIALS`         | a Mode that touches the database has no administrator credentials                           |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
+| 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, or the Site Lock's state directory is unusable |
 | 8    | `VERIFICATION_FAILED` | the Archive is malformed or corrupt, or a passphrase is wrong                                |
 | 9    | `LOCKED`              | another Run holds this Site's lock                                                          |
 
@@ -85,7 +88,7 @@ is planned, each part the Mode restores is checked:
 
 - **files** — the Site Root holds any entry;
 - **database** — the live database (or the `--new-db-name` database) exists
-  with at least one table or view. The live database is always surveyed by the
+  with at least one table, view, stored routine or event. The live database is always surveyed by the
   administrator in a Mode that restores the database; "not looked at" is never
   taken as empty.
 
@@ -355,7 +358,8 @@ refused (exit 3), naming the interrupted Run, its phase, how to undo it and the
 journal's path. `--resolve-interrupted-run RUN_ID` acknowledges it (completing
 an interrupted `wp-config.php` cutover first) and stops: resolving and
 restoring are never one command. A different ID is refused, naming the
-journal's.
+journal's. `--archive` is still required alongside it, even though resolving
+reads nothing from the Archive when `wp-config.php` is present.
 
 Before completing a cutover, resolution surveys the database the interrupted
 Run was switching to. If it no longer exists or is not a WordPress database,
@@ -365,6 +369,48 @@ restore from the Safety Snapshot, then resolve again. When `wp-config.php`
 already holds its pre-Run values (no key landed, or you set them back), there
 is nothing to complete: resolution writes nothing, logs the WARNING
 `cutover_abandoned`, and acknowledges the Run.
+
+A journal that cannot be read back (`CorruptJournalError`, exit 3) names no
+Run to resolve, so `--resolve-interrupted-run` cannot clear it. Inspect the
+Site and the journal file the refusal names, repair the Site if needed, then
+move that file aside (for example rename it with a `.corrupt` suffix) before
+restoring again.
+
+## How a Run is driven
+
+`drive_restore` (in `cli/restore.py`) is the one driver both the CLI and the
+library call. Everything before the executor only reads; the executor
+(`execute_restore`, in `adapters/restore_runner.py`) runs the plan's phases in
+order, and the live database changes only at the `wp-config.php` cutover that
+ends `LOAD_DUMP`.
+
+```mermaid
+flowchart TD
+    A[Site Lock and the Run: Run ID, workspace, registry] --> B[Run Journal query]
+    B --> C[Site Descriptor, credential sources, the one adapter bind]
+    C --> D{--resolve-interrupted-run?}
+    D -- yes --> D1[resolve the interrupted Run, complete its cutover if needed] --> Z[stop: nothing restored]
+    D -- no --> E{journal from an incomplete Run?}
+    E -- yes --> E1[refuse: exit 3, naming the Run and its phase]
+    E -- no --> F[probe the Archive]
+    F --> G[build the plan: Mode, FR-7 non-empty guard]
+    G --> H[journal header and inputs]
+    H --> X
+    subgraph X [execute_restore]
+        P[PREFLIGHT: tools, passphrase backend, tarfile fix, size and free space, database checks] --> V[VERIFY: checksums, decrypt the payload]
+        V --> S[SNAPSHOT: Safety Snapshot, unless skipped]
+        S --> CL[CLEAN: files-clean and all-clean only]
+        CL --> EX[EXTRACT]
+        EX --> RC[REWRITE_CONFIG: relocation constants other than DB_*]
+        RC --> L[LOAD_DUMP: load into a staging database, check it, then the atomic DB_* cutover]
+        L --> SR[SEARCH_REPLACE: relocation only]
+    end
+    X --> O[outcome and report]
+```
+
+Every phase is journaled before it starts and after it completes. Only the
+phases the plan holds run: a `files` Mode has no `LOAD_DUMP`, a `database`
+Mode no `EXTRACT`, and `--no-safety-snapshot` removes `SNAPSHOT`.
 
 ## Before anything is changed
 

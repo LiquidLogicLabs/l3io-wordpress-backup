@@ -4,7 +4,8 @@ Each claim checked here is derived from its source of truth, never retyped:
 
 - the Modes table's Flags column is ``FLAG_MAP``'s combination without
   ``--force`` for each Mode, rendered by ``cli/restore.py::render_flags``, and
-  every ``RestoreMode`` has a row;
+  every ``RestoreMode`` has a row; only the table under the ``## Restore
+  Modes`` heading is read, so another table's rows cannot stand in for it;
 - every ``$ wpbackup2 ...`` command in the document parses with the real
   parser, so a documented spelling (``restore --whatIf``) cannot drift from
   what the CLI accepts;
@@ -30,6 +31,8 @@ from l3io.wp.backup.domain.flag_map import FLAG_MAP, FlagRejection
 from l3io.wp.backup.domain.restore import RestoreMode
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "restore.md"
+#: The heading whose section holds the Modes table.
+MODES_HEADING = "## Restore Modes"
 #: The Run ID characters ``staging_name`` keeps.
 RUN_CHARS = 8
 
@@ -38,10 +41,22 @@ def _text() -> str:
     return DOC.read_text(encoding="utf-8")
 
 
+def _modes_section(text: str) -> list[str]:
+    """The lines under :data:`MODES_HEADING`, up to the next heading of its level."""
+    lines = text.splitlines()
+    assert MODES_HEADING in lines, f"{DOC.name} has no {MODES_HEADING!r} heading"
+    start = lines.index(MODES_HEADING) + 1
+    end = next(
+        (i for i in range(start, len(lines)) if re.match(r"^#{1,2} ", lines[i])),
+        len(lines),
+    )
+    return lines[start:end]
+
+
 def _mode_rows(text: str) -> dict[str, str]:
     """``{mode: flags}`` from the Modes table's first two columns."""
     rows: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in _modes_section(text):
         match = re.match(r"^\|\s*`([a-z-]+)`\s*\|\s*`([^`]+)`\s*\|", line)
         if match:
             rows[match.group(1)] = match.group(2)
@@ -66,10 +81,27 @@ def test_the_modes_table_maps_every_mode_to_its_flags() -> None:
 
 
 def test_a_wrong_flags_cell_is_caught() -> None:
-    planted = "| `database-clean` | `--mode db --cleanfirst` | no |\n"
+    planted = (
+        f"{MODES_HEADING}\n\n| `database-clean` | `--mode db --cleanfirst` | no |\n"
+    )
     assert _mode_rows(planted) != {
         "database-clean": _selecting_flags()["database-clean"]
     }
+
+
+def test_a_table_outside_the_modes_section_is_not_read() -> None:
+    """BL-E007-001: a second table elsewhere cannot add or replace a row."""
+    planted = (
+        "# Restore\n\n"
+        f"{MODES_HEADING}\n\n"
+        "| `files` | `--mode files` | yes |\n\n"
+        "### A sub-heading keeps the section\n\n"
+        "| `all` | `--mode all` | yes |\n\n"
+        "## Relocation\n\n"
+        "| `files` | `--wrong` | no |\n"
+        "| `database` | `--mode db` | no |\n"
+    )
+    assert _mode_rows(planted) == {"files": "--mode files", "all": "--mode all"}
 
 
 def _commands(text: str) -> list[list[str]]:

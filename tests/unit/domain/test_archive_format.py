@@ -11,6 +11,8 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from l3io.wp.backup.domain.archive_format import (
+    CONFIG_RELATIVE,
+    DUMP_RELATIVE,
     ENCRYPTED_PAYLOAD_MEMBER,
     FORMAT_VERSION,
     INNER_MANIFEST_MEMBER,
@@ -162,6 +164,12 @@ def test_member_path_prefixes_the_role(
     role: MemberRole, relative: str, expected: str
 ) -> None:
     assert member_path(role, relative) == expected
+
+
+def test_the_dump_and_config_member_names_are_golden() -> None:
+    """A rename of DUMP_RELATIVE or CONFIG_RELATIVE changes the format: fail."""
+    assert member_path(MemberRole.DUMP, DUMP_RELATIVE) == "dump/database.sql"
+    assert member_path(MemberRole.CONFIG, CONFIG_RELATIVE) == "config/wp-config.php"
 
 
 @pytest.mark.parametrize(

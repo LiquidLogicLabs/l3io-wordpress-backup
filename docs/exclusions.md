@@ -25,14 +25,14 @@ constant differ in content or order. It is deliberately conservative: nothing
 under `wp-content/uploads/`, `wp-content/plugins/` or `wp-content/themes/` is
 matched.
 
-<!-- BEGIN GENERATED: default-exclusions (core/exclusions.py DEFAULT_EXCLUSIONS) -->
+<!-- BEGIN CHECKED: default-exclusions (hand-written; test_exclusions_documented.py compares it with core/exclusions.py DEFAULT_EXCLUSIONS) -->
 | Pattern | Why it is left out |
 |---|---|
 | `wp-content/cache/` | Object and page caches; rebuilt by the Site. |
 | `wp-content/upgrade/` | Core's update scratch directory. |
 | `wp-content/upgrade-temp-backup/` | Core's rollback copies from an update. |
 | `wp-content/debug.log` | WordPress's own debug log. |
-<!-- END GENERATED: default-exclusions -->
+<!-- END CHECKED: default-exclusions -->
 
 The set is enumerable at runtime (`enumerate_defaults()`) and replaceable or
 extendable: an operator's patterns follow the defaults, or replace them when

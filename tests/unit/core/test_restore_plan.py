@@ -16,6 +16,7 @@ from l3io.wp.backup.core.restore import (
     ArchiveHasNoConfigError,
     RestorePlan,
     RestoreRelocation,
+    UnsafeSnapshotLocationError,
     build_restore_plan,
 )
 from l3io.wp.backup.domain.errors import ArchiveHasNoDumpError, ExitCode
@@ -32,6 +33,7 @@ from tests.restore_builders import (
     POPULATED,
     RELOCATIONS,
     SITE,
+    SITE_ROOT,
     SNAPSHOTS,
     URL_ONLY,
     WAIVED,
@@ -291,3 +293,16 @@ def test_a_plan_that_relocates_nothing_does_not_name_wp() -> None:
     text = _preflight_text(relocation=NO_RELOCATION, extra_tools=())
     assert WP_CLI_REQUIREMENT.name not in text.split()
     assert f"{WP_CLI_REQUIREMENT.name} >=" not in text
+
+
+def test_a_web_served_snapshot_dir_is_refused_for_the_saved_config_too() -> None:
+    inside = SITE_ROOT / "snapshots"
+    with pytest.raises(UnsafeSnapshotLocationError):
+        plan(
+            RestoreMode.ALL,
+            snapshot=SnapshotPolicy.SKIP,
+            config_policy=ConfigPolicy.OVERWRITE,
+            snapshot_dir=inside,
+        )
+    built = plan(RestoreMode.ALL, snapshot=SnapshotPolicy.SKIP, snapshot_dir=inside)
+    assert P.SNAPSHOT not in built.phases

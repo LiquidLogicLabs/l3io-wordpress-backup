@@ -18,6 +18,7 @@ import importlib.util
 import inspect
 import io
 import os
+import sys
 import typing
 import uuid
 from collections.abc import Iterator
@@ -198,6 +199,12 @@ def test_a_relative_path_entry_does_not_matter_to_the_binder_backend(
 
 
 def _hide_the_binder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``import l3io_age_passphrase`` fail, through public seams only.
+
+    ``sys.modules[name] = None`` makes any later import raise ImportError, and
+    the ``__import__`` wrapper covers a first import; database's private
+    ``_passphrase.binder_available`` is not patched (BL-E004-050).
+    """
     import builtins
 
     real = builtins.__import__
@@ -208,7 +215,7 @@ def _hide_the_binder(monkeypatch: pytest.MonkeyPatch) -> None:
         return real(name, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(builtins, "__import__", without)
-    monkeypatch.setattr("l3io.wp.database._passphrase.binder_available", lambda: False)
+    monkeypatch.setitem(sys.modules, "l3io_age_passphrase", None)
 
 
 def test_the_binder_backend_without_the_binder_is_a_missing_extra(

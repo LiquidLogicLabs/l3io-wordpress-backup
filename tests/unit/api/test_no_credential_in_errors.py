@@ -174,7 +174,9 @@ def test_a_failed_verification_through_the_api_carries_no_secret(
     archive = seal_archive(credential_sentinel.workdir, credential_sentinel.passphrase)
     damaged = _damage_a_member(archive)
     with capture_logs(), pytest.raises(VerificationFailedError) as caught:
-        api.verify(damaged, passphrase=credential_sentinel.passphrase)
+        api.verify(
+            damaged, authenticate=True, passphrase=credential_sentinel.passphrase
+        )
     assert caught.value.result.failures
     assert _leaks(caught.value, credential_sentinel.secrets) == []
 

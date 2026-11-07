@@ -58,10 +58,10 @@ import os
 import posixpath
 import stat
 import tarfile
-import time
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import IO, BinaryIO, Final, Literal, cast
@@ -490,11 +490,12 @@ def _add(inner: tarfile.TarFile, member: ArchiveMemberSource) -> ManifestMember:
     )
 
 
-def _add_inner_manifest(inner: tarfile.TarFile, text: bytes) -> None:
+def _add_inner_manifest(inner: tarfile.TarFile, sealed: tuple[bytes, float]) -> None:
+    text, mtime = sealed
     header = tarfile.TarInfo(INNER_MANIFEST_MEMBER)
     header.size = len(text)
     header.mode = _STAGED_MODE
-    header.mtime = time.time()
+    header.mtime = mtime
     inner.addfile(header, io.BytesIO(text))
 
 
@@ -502,9 +503,12 @@ def _write_payload(
     destination: Path,
     members: Iterable[ArchiveMemberSource],
     *,
-    seal: Callable[[tuple[ManifestMember, ...]], bytes] | None,
+    seal: Callable[[tuple[ManifestMember, ...]], tuple[bytes, float]] | None,
 ) -> tuple[tuple[ManifestMember, ...], _HashingWriter]:
-    """Write the gzip inner tar; ``seal`` returns the inner Manifest, written last."""
+    """Write the gzip inner tar; ``seal`` gives the inner Manifest and its mtime.
+
+    The inner Manifest is written last.
+    """
     ordered = sorted(members, key=lambda member: _ROLE_ORDER[member.role])
     with destination.open("xb") as raw:
         hashed = _HashingWriter(raw)
@@ -537,7 +541,8 @@ def _outer_header(name: str, size: int, mtime: float) -> tarfile.TarInfo:
 
 def _write_outer(out: IO[bytes], manifest: Manifest, payload: Path) -> None:
     text = manifest_to_json(manifest).encode("utf-8")
-    mtime = time.time()
+    # The Run clock's time, as the Manifest records it (SD-01-5).
+    mtime = datetime.fromisoformat(manifest.created_at).timestamp()
     with tarfile.open(fileobj=out, mode="w|") as outer:
         manifest_header = _outer_header(MANIFEST_MEMBER, len(text), mtime)
         outer.addfile(manifest_header, io.BytesIO(text))
@@ -572,14 +577,15 @@ def write_archive(
     writing = plain
     built: list[Manifest] = []
 
-    def seal(index: tuple[ManifestMember, ...]) -> bytes:
+    def seal(index: tuple[ManifestMember, ...]) -> tuple[bytes, float]:
         pending = dataclasses.replace(
             manifest_builder(index),
             encrypted=True,
             payload=ManifestPayload(name=ENCRYPTED_PAYLOAD_MEMBER, size=0, sha256=""),
         )
         built.append(pending)
-        return inner_manifest_bytes(pending)
+        stamp = datetime.fromisoformat(pending.created_at).timestamp()
+        return inner_manifest_bytes(pending), stamp
 
     try:
         index, hashed = _write_payload(
