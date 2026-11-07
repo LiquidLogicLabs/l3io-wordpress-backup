@@ -24,8 +24,10 @@ which the failure AD-27 describes is actually observable.
 from __future__ import annotations
 
 import tarfile
+import tomllib
 import zipfile
-from pathlib import Path
+from collections.abc import Iterable
+from pathlib import Path, PurePosixPath
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC = PROJECT_ROOT / "src"
@@ -35,6 +37,35 @@ NAMESPACE_LEVELS = ("l3io", "l3io/wp")
 
 #: The one ``__init__.py`` this distribution does ship, and the marker beside it.
 DISTRIBUTION_ROOT = "l3io/wp/backup"
+
+#: AD-27: the mypy settings that resolve ``l3io.wp`` as a namespace. Without
+#: them ``mypy --strict`` advises adding exactly the ``__init__.py`` that
+#: breaks the siblings.
+MYPY_NAMESPACE_SETTINGS = {
+    "namespace_packages": True,
+    "explicit_package_bases": True,
+    "mypy_path": "src",
+}
+
+
+def implicit_namespace_directories(files: Iterable[str], root: str) -> list[str]:
+    """Directories at or below ``root`` on a ``.py`` path, lacking ``__init__.py``.
+
+    Below the distribution root every directory is a regular package (E006-S01-003),
+    so mypy's module resolution and the wheel's file list agree. Every ancestor
+    of a ``.py`` file is examined, not only its parent: a directory holding only
+    subpackages and no marker is an implicit namespace package too.
+    """
+    names = {PurePosixPath(f) for f in files}
+    under = [n for n in names if n.suffix == ".py" and n.is_relative_to(root)]
+    directories = {d for n in under for d in n.parents if d.is_relative_to(root)}
+    return sorted(str(d) for d in directories if d / "__init__.py" not in names)
+
+
+def _source_files() -> list[str]:
+    return [
+        p.relative_to(SRC).as_posix() for p in (SRC / DISTRIBUTION_ROOT).rglob("*.py")
+    ]
 
 
 def test_no_package_marker_at_either_namespace_level_in_the_source_tree() -> None:
@@ -102,3 +133,50 @@ def test_the_installed_namespace_is_not_a_regular_package() -> None:
     assert l3io.wp.__file__ is None, (
         f"AD-27 — `l3io.wp` resolved to a regular package at {l3io.wp.__file__}"
     )
+
+
+def test_every_directory_below_the_distribution_root_is_a_regular_package() -> None:
+    files = _source_files()
+    assert f"{DISTRIBUTION_ROOT}/api/__init__.py" in files, (
+        "the walk did not reach api/"
+    )
+    assert implicit_namespace_directories(files, DISTRIBUTION_ROOT) == []
+
+
+def test_a_subdirectory_without_a_package_marker_is_caught() -> None:
+    planted = [*_source_files(), f"{DISTRIBUTION_ROOT}/api/planted/module.py"]
+    assert implicit_namespace_directories(planted, DISTRIBUTION_ROOT) == [
+        f"{DISTRIBUTION_ROOT}/api/planted"
+    ]
+
+
+def test_a_directory_holding_only_subpackages_without_a_marker_is_caught() -> None:
+    """The scope: a marker-less directory with no ``.py`` of its own."""
+    planted = [
+        *_source_files(),
+        f"{DISTRIBUTION_ROOT}/api/ns/inner/__init__.py",
+        f"{DISTRIBUTION_ROOT}/api/ns/inner/module.py",
+    ]
+    assert implicit_namespace_directories(planted, DISTRIBUTION_ROOT) == [
+        f"{DISTRIBUTION_ROOT}/api/ns"
+    ]
+
+
+def test_every_directory_below_the_distribution_root_is_a_regular_package_in_the_wheel(
+    built_distributions: tuple[Path, Path],
+) -> None:
+    wheel, _ = built_distributions
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+    assert f"{DISTRIBUTION_ROOT}/api/__init__.py" in names, (
+        f"scope error: the wheel {wheel.name} has no api/ package"
+    )
+    assert implicit_namespace_directories(names, DISTRIBUTION_ROOT) == []
+
+
+def test_mypy_keeps_the_namespace_settings() -> None:
+    with (PROJECT_ROOT / "pyproject.toml").open("rb") as handle:
+        mypy = tomllib.load(handle)["tool"]["mypy"]
+    assert {
+        key: mypy.get(key) for key in MYPY_NAMESPACE_SETTINGS
+    } == MYPY_NAMESPACE_SETTINGS

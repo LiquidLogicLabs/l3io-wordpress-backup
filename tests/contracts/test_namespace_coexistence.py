@@ -45,6 +45,14 @@ assert l3io.wp.__file__ is None, f"l3io.wp is a regular package at {l3io.wp.__fi
 print("OK", backup.__version__, stub.MARKER)
 for entry in l3io.wp.__path__:
     print("PATH", entry)
+
+# The public module a caller actually imports (E006-S01-003), beside the sibling.
+import l3io.wp.backup.api as api
+
+assert api.__all__, "l3io.wp.backup.api.__all__ is empty"
+missing = [name for name in api.__all__ if not hasattr(api, name)]
+assert not missing, f"l3io.wp.backup.api.__all__ names {missing}, which do not resolve"
+print("API", api.__file__, len(api.__all__))
 """
 
 
@@ -106,6 +114,35 @@ def test_two_distributions_on_two_path_entries_both_import(
         assert str(expected) in merged, (
             f"AD-27 — {expected} was not merged into l3io.wp.__path__: {merged}"
         )
+
+    # The public API came from this distribution's entry, not the editable
+    # install the test interpreter also carries.
+    assert _api_origin_defect(result.stdout, ours) is None
+
+
+def _api_origin_defect(stdout: str, ours: Path) -> str | None:
+    """Why the probe's ``API`` line does not show ``api`` loaded from ``ours``."""
+    lines = [line.split() for line in stdout.splitlines() if line.startswith("API ")]
+    if len(lines) != 1:
+        return f"expected one API line: {stdout!r}"
+    _, api_file, count = lines[0]
+    if not Path(api_file).is_relative_to(ours):
+        return f"l3io.wp.backup.api resolved to {api_file}, not to {ours}"
+    if int(count) == 0:
+        return "l3io.wp.backup.api.__all__ is empty"
+    return None
+
+
+def test_the_api_origin_check_would_catch_a_shadowed_api(tmp_path: Path) -> None:
+    """The teeth of the check above: an ``api`` loaded from anywhere else fails."""
+    ours = tmp_path / "site-ours"
+    elsewhere = tmp_path / "src" / "l3io" / "wp" / "backup" / "api" / "__init__.py"
+    assert _api_origin_defect(f"API {elsewhere} 109\n", ours) == (
+        f"l3io.wp.backup.api resolved to {elsewhere}, not to {ours}"
+    )
+    assert _api_origin_defect("OK 0.0.1 stub\n", ours) is not None
+    good = ours / "l3io" / "wp" / "backup" / "api" / "__init__.py"
+    assert _api_origin_defect(f"API {good} 109\n", ours) is None
 
 
 def test_the_check_would_catch_the_violation(

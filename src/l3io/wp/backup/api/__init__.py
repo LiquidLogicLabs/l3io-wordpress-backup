@@ -19,6 +19,21 @@ from ``api/errors.py``: ``except BackupError`` catches them all, and each
 subclass carries typed fields and its ``exit_code``. A non-package exception
 reaching an entry point arrives as ``UnexpectedError`` with the original on
 ``__cause__``.
+
+**The public surface (FR-24).** A name is public if and only if it is in
+``l3io.wp.backup.__all__`` (``__version__``) or in this module's ``__all__``;
+each has a heading in ``docs/api.md``, and each class and callable a
+docstring. A re-exported class's
+defining module is not part of the contract: import it from here. Every
+module under the internal layers (``domain/``, ``ports/``, ``core/``,
+``adapters/``, ``cli/``) is internal whatever its name, and so are
+``api/operations.py`` and ``api/errors.py``, whose public names are the ones
+re-exported here. Before v1.0 the surface is unstable (PRD §10); from v1.0 a
+change to a listed name is a version event. ``cli/`` never imports this
+package (import-linter's ``FR-24`` contract in ``pyproject.toml``).
+``tests/contracts/test_public_surface.py`` and
+``tests/contracts/test_api_docs.py`` enforce the layer classification, the
+docstrings and the headings; the instability is policy.
 """
 
 from __future__ import annotations

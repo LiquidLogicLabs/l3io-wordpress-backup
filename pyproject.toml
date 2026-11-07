@@ -395,3 +395,12 @@ layers = [
   "l3io.wp.backup.core",
   "l3io.wp.backup.domain",
 ]
+
+# FR-24 (E006-S01-003): the layers contract lets the `cli : api` siblings import
+# each other, but cli/ must never import api/ — the library root would become a
+# CLI dependency, and the cycle would break a cold `import l3io.wp.backup.api`.
+[[tool.importlinter.contracts]]
+name = "FR-24 — cli/ never imports api/"
+type = "forbidden"
+source_modules = ["l3io.wp.backup.cli"]
+forbidden_modules = ["l3io.wp.backup.api"]
