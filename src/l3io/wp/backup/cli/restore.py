@@ -721,8 +721,8 @@ class RestoreExtensionFactory(Protocol):
     ) -> RestoreExtension: ...
 
 
-#: Epic 7 replaces this one line with its static import (the ownership grant).
-RESTORE_EXTENSION: RestoreExtensionFactory | None = None
+#: Epic 7's static import (the ownership grant, E007-S01-001).
+from l3io.wp.backup.adapters.wpcli import restore_extension as RESTORE_EXTENSION  # noqa: E402, I001
 
 
 class _NoExtension:
@@ -1151,7 +1151,7 @@ def drive_restore(
             f"Restore Mode {request.mode.value} restores none"
         )
         raise UsageError(msg)
-    factory = RESTORE_EXTENSION
+    factory: RestoreExtensionFactory | None = RESTORE_EXTENSION
     if factory is None and not request.relocation.is_empty:
         named = ", ".join(request.relocation.given)
         msg = f"relocation ({named}) is not available in this build: " + (

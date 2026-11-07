@@ -134,7 +134,7 @@ CASES: dict[type, list[tuple[Call, type | None]]] = {
         ),
         (
             lambda a, s: a.replace_file(
-                s / "wp-config.php", s.parent / "new.php", keep={"DB_HOST": None}
+                s / "wp-config.php", "<?php\n", keep={"DB_HOST": None}
             ),
             ConfigWriteResult,
         ),

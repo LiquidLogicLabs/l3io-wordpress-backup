@@ -554,12 +554,12 @@ class NoopConfigWriter:
     def replace_file(
         self,
         config_file: Path,
-        source: Path,
+        content: str,
         *,
         keep: Mapping[str, ConstantValue],
     ) -> ConfigWriteResult:
-        """Nothing replaced; the keys of ``keep`` are recorded."""
-        del source
+        """Nothing replaced and nothing written; the keys of ``keep`` are recorded."""
+        del content
         self._skipped("replace_file", config_file, keep.keys())
         return ConfigWriteResult(changed=(), performed=False)
 

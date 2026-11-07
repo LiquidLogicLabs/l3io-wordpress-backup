@@ -3,6 +3,7 @@ next:
   '003': 117
   '004': 70
   '005': 14
+  '007': 2
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -1804,18 +1805,6 @@ backlog:
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md ADV-10. The --overwrite-wp-config half is fixed in E003-S02-006.
   story: E007-S01-002
   scheduled_at: '2026-11-06T12:13:20Z'
-- key: BL-E003-057
-  epic: '003'
-  sprint: '02'
-  title: 'SD-01-1 remainder: tree-member wp-config still written by a raw os.open, not through a config port; needs a ConfigCommand port change (remaining part of BL-E003-038)'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1. Needs a story granted ports/config.py and adapters/tar.py.
-  story: E007-S01-001
-  scheduled_at: '2026-11-06T12:13:21Z'
 - key: BL-E003-061
   epic: '003'
   sprint: '02'
@@ -2606,3 +2595,13 @@ backlog:
   kind: spec-proposal
   ref: _bmad-output/implementation-artifacts/epic-004/epic-closure/spec-proposals/AD-1.md
   description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md.'
+- key: BL-E007-001
+  epic: '007'
+  sprint: '01'
+  title: tests/contracts/test_restore_docs.py::_mode_rows reads every table in docs/restore.md, not only the Modes table; scope it to the Modes heading and plant a second table
+  source: code-review (E007-S01-001)
+  source_phase: code-review
+  source_ref: E007-S01-001
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-001.md (L1). E007-S01-001 swapped its relocation table's columns to avoid the regex; the test file is outside its scope.

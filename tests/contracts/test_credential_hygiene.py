@@ -855,7 +855,11 @@ def test_the_config_writer_emits_no_credential(
     write_wp_config(replacement, password="replacement-password-0")
     s.add_repr(
         "replace_file result",
-        writer.replace_file(s.config, replacement, keep={"DB_PASSWORD": s.password}),
+        writer.replace_file(
+            s.config,
+            replacement.read_text(encoding="utf-8"),
+            keep={"DB_PASSWORD": s.password},
+        ),
     )
     s.add_repr("save_copy result", writer.save_copy(s.config, s.workdir / "saved.php"))
     with pytest.raises(ConfigWriteFailedError) as caught:

@@ -11,9 +11,10 @@ imports ``l3io.wp.config``; :func:`read_defined` is the reader
 mode and owner and fsyncs the file and its directory before returning. The
 module's own writes are the two ``--overwrite-wp-config`` effects, which that
 package has no call for: ``save_copy`` (a ``0600`` fsynced copy) and
-``replace_file`` (the source's text with ``keep`` applied in memory through
-``WpConfigString.set``, written beside the config, fsynced and moved over it).
-Both read and write with ``newline=""``, so CRLF stays CRLF byte for byte.
+``replace_file`` (the Archive copy's text, handed over in memory, with
+``keep`` applied through ``WpConfigString.set``, written beside the config,
+fsynced and moved over it). Neither translates a newline, so CRLF stays CRLF
+byte for byte.
 
 Every ``DB_PASSWORD`` value this module is handed or reads is registered with
 the Run's ``SecretRegistry`` before anything else happens to it; records name
@@ -41,6 +42,7 @@ from l3io.wp.backup.domain.errors import (
     CredentialsError,
     MissingExtraError,
 )
+from l3io.wp.backup.ports.config import WHOLE_FILE
 
 if TYPE_CHECKING:
     from l3io.wp.config import WpConfigString
@@ -52,8 +54,6 @@ _log = structlog.get_logger(__name__)
 _EXTRA: Final = "database"
 _NS_PER_MS: Final = 1_000_000
 _PASSWORD_KEY: Final = "DB_PASSWORD"  # noqa: S105 - a constant name
-#: The ``key`` of a ``ConfigWriteFailedError`` about the file, not one constant.
-WHOLE_FILE: Final = "(whole file)"
 _TMP_SUFFIX: Final = ".l3io-tmp"
 #: The text ``l3io-wordpress-config`` raises with when the owner cannot be kept.
 _OWNER_MARKER: Final = "cannot keep the file's owner"
@@ -274,13 +274,15 @@ class WpConfigWriter:
     def replace_file(
         self,
         config_file: Path,
-        source: Path,
+        content: str,
         *,
         keep: Mapping[str, ConstantValue],
     ) -> ConfigWriteResult:
-        """Replace ``config_file`` with ``source``'s text, ``keep`` applied first.
+        """Replace ``config_file`` with the text ``content``, ``keep`` applied first.
 
-        ``keep`` is set into the text in memory, so the source's values for
+        ``content`` arrives in memory, so no intermediate copy of the Archive's
+        config is ever written (BL-E003-057). ``keep`` is set into the text in
+        memory, so the replacement's values for
         those keys are never written anywhere. A ``keep`` value of ``None`` (a
         constant the target does not define) cannot be kept and is refused.
         The temp file takes the original's owner and mode — refusing rather
@@ -310,9 +312,8 @@ class WpConfigWriter:
             )
             raise ConfigWriteFailedError(config_file, WHOLE_FILE, missing) from exc
         try:
-            with source.open(encoding="utf-8", newline="") as handle:
-                working = WpConfigString(handle.read())
-        except (OSError, ValueError) as exc:
+            working = WpConfigString(content)
+        except ValueError as exc:
             unread = f"the replacement could not be read: {type(exc).__name__}"
             raise ConfigWriteFailedError(config_file, WHOLE_FILE, unread) from exc
         self._register(

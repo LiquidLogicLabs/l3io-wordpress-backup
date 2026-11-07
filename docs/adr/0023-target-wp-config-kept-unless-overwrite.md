@@ -59,11 +59,13 @@ also replaces salts and paths.
 1. Copy the target's current config, mode `0600`, into the Run's journal directory (the
    per-Site state directory, ADR-0021), as `<run_id>-wp-config.php`. That copy is the undo.
    Journaled as step `"config_saved"`.
-2. Read the Archive's config member with `ArchiveProbe.read_member` into the workspace.
+2. Read the Archive's config member with `ArchiveProbe.read_member` into memory (amended
+   2026-11-06: never into a workspace file).
 3. Read the target's four `DB_*` values through `ConfigQuery.read_constants`. The
    `DB_PASSWORD` is registered with the Run's `SecretRegistry`, held in memory only until
    the write, and never journaled.
-4. `ConfigCommand.replace_file(config_file, source, keep=<those four values>)` applies `keep`
+4. `ConfigCommand.replace_file(config_file, content, keep=<those four values>)` (amended
+   2026-11-06: `content` is the member's text, not a path) applies `keep`
    to the Archive's config text **in memory**, with `l3io-wordpress-config`'s public
    `WpConfigString.set` (v0.1.2 or later: earlier versions raise on CRLF content), reading
    and writing with `newline=""` so the file's line endings are kept, then writes a temp
@@ -116,3 +118,26 @@ the file on disk carried the source's connection values. Applying `keep` in memo
 the atomic replace (step 4) removes the window without any `DB_*` write before the load.
 Shawn's stated invariant, that the site never points at the source's database, holds
 throughout.
+
+## Amendment — 2026-11-06: the Archive's config never touches disk before the replace (Shawn, option a)
+
+BL-E003-057 (E003 sprint-01 closure SD-01-1): step 2 read the Archive's tree-member
+`wp-config.php` and wrote it into the Run workspace with a raw `os.open`, outside every port,
+so a Dry Run wrote a credential-bearing file. Owner decision O1 (a), 2026-11-06, granted
+E007-S01-001 the fix:
+
+- Step 2 reads either member — the `config`-role file or the tree's — with
+  `ArchiveProbe.read_member` into memory. No intermediate file exists.
+- Step 4's `ConfigCommand.replace_file` takes the member's text (`content: str`) instead of
+  a source path. The executor decodes the member as UTF-8 without newline translation, so
+  CRLF is still kept byte for byte, and content that is not UTF-8 is `ConfigWriteFailedError`
+  before any write. Text rather than bytes keeps AD-21's port rule (no port signature is
+  `bytes`, `tests/contracts/test_port_types.py`) without a second exemption. The no-op twin
+  records the `keep` keys and writes nothing.
+- A Dry Run under `--overwrite-wp-config` therefore writes no config file anywhere.
+  `tests/unit/adapters/test_restore_runner.py` asserts it, and an AST check there finds no
+  `os.open` in `adapters/restore_runner.py`.
+
+Not covered by that check: `cli/restore.py::_archive_config` still writes the Archive's config
+into the workspace when the target has none, to build the Site Descriptor, as ADR-0016's
+2026-10-27 amendment prescribes. That write is the composition root's, not the executor's.

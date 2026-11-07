@@ -4,7 +4,9 @@
 ``prior_constants``); it does not build a Site Descriptor, which stays
 ``adapters/database.py``'s (AD-3). :class:`ConfigCommand` holds the file
 effects of a restore: rewriting constants, and the two of
-``--overwrite-wp-config`` — saving a copy and replacing the file. The real
+``--overwrite-wp-config`` — saving a copy and replacing the file with the
+Archive's copy, handed over as text so no intermediate file exists and a Dry
+Run's no-op twin writes nothing (BL-E003-057, ADR-0023 amendment). The real
 adapter is E002-S02-009's; it alone imports ``l3io.wp.config``.
 
 ``set_constants`` may receive a ``DB_PASSWORD`` value (relocation): the real
@@ -16,11 +18,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Final, Protocol, runtime_checkable
 
 from l3io.wp.backup.domain.config import ConfigWriteResult, ConstantValue
 
-__all__ = ["ConfigCommand", "ConfigQuery"]
+__all__ = ["WHOLE_FILE", "ConfigCommand", "ConfigQuery"]
+
+#: The ``key`` of a ``ConfigWriteFailedError`` about the file, not one constant.
+WHOLE_FILE: Final = "(whole file)"
 
 
 class ConfigQuery(Protocol):
@@ -50,13 +55,14 @@ class ConfigCommand(Protocol):
     def replace_file(
         self,
         config_file: Path,
-        source: Path,
+        content: str,
         *,
         keep: Mapping[str, ConstantValue],
     ) -> ConfigWriteResult:
-        """Replace ``config_file`` with ``source``, ``keep`` applied first.
+        """Replace ``config_file`` with ``content``, ``keep`` applied first.
 
-        ``keep`` is applied to ``source``'s text in memory before anything is
+        ``content`` is the Archive's ``wp-config.php`` text, decoded without
+        newline translation. ``keep`` is applied to it in memory before anything is
         written; the new file is written beside ``config_file``, fsynced and
         moved over it with ``os.replace``, keeping mode and owner.
         """

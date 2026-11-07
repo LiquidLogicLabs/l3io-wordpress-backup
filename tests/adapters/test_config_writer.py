@@ -378,10 +378,10 @@ def written(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return seen
 
 
-def _source(tmp_path: Path, eol: str) -> Path:
-    path = tmp_path / "archive-wp-config.php"
-    path.write_bytes(_config(eol, **SOURCE_VALUES).encode())
-    return path
+def _source(tmp_path: Path, eol: str) -> str:
+    """The Archive's config as ``replace_file`` receives it: text, no file."""
+    del tmp_path
+    return _config(eol, **SOURCE_VALUES)
 
 
 @pytest.mark.parametrize("eol", ["\r\n", "\n"])
@@ -397,7 +397,7 @@ def test_replace_file_keeps_line_endings_and_writes_only_the_kept_values(
     result = writer.replace_file(config, source, keep=TARGET_KEEP)
     assert result.performed
     assert set(result.changed) == set(TARGET_KEEP)
-    expected = source.read_bytes()
+    expected = source.encode()
     for old, new in zip(SOURCE_VALUES.values(), TARGET_KEEP.values(), strict=True):
         expected = expected.replace(f"'{old}'".encode(), f"'{new}'".encode())
     assert config.read_bytes() == expected

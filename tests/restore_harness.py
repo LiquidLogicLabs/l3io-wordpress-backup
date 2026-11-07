@@ -301,7 +301,7 @@ class FakeConfig:
         return ConfigWriteResult(changed=(), performed=True)
 
     def replace_file(
-        self, config_file: Path, source: Path, *, keep: Mapping[str, Any]
+        self, config_file: Path, content: str, *, keep: Mapping[str, Any]
     ) -> ConfigWriteResult:
         self.log.add("config", "replace_file", dict(keep))
         self.values = {**ARCHIVE_DB, **keep}

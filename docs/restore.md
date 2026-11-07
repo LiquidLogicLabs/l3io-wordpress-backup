@@ -147,6 +147,76 @@ rights on its own database only, and restore only Archives from a source you
 trust, or encrypted ones, whose payload `age` authenticates (ADR-0022
 amendment, 2026-11-06).
 
+## Relocation: a new URL, database host, name or account
+
+A restore can stand a Site up somewhere other than where it was backed up from,
+for example staging from a production Archive:
+
+```
+wpbackup2 restore --wp-dir /srv/staging --archive site.tar.gz --mode all \
+  --new-db-host db.staging:3307 --new-db-name staging_wp \
+  --new-db-user staging_wp --new-db-password '...' \
+  --new-site-url https://staging.example.com \
+  --new-site-home-url https://staging.example.com
+```
+
+Each flag is optional; a constant whose flag is absent keeps its value. Which
+phase writes which `wp-config.php` constant:
+
+| Constant | Flag | Written by |
+|---|---|---|
+| `WP_SITEURL` | `--new-site-url` | `REWRITE_CONFIG` |
+| `WP_HOME` | `--new-site-home-url` | `REWRITE_CONFIG` |
+| `DB_HOST` | `--new-db-host` | the cutover at the end of `LOAD_DUMP` |
+| `DB_NAME` | `--new-db-name` | the cutover at the end of `LOAD_DUMP` |
+| `DB_USER` | `--new-db-user` | the cutover at the end of `LOAD_DUMP` |
+| `DB_PASSWORD` | `--new-db-password` | the cutover at the end of `LOAD_DUMP` |
+
+The four `DB_*` constants are written together, by the journaled cutover, only
+after the Dump has loaded and been checked, so the Site never points at a
+half-loaded database. `REWRITE_CONFIG` writes only the two URL constants. Each
+constant is written by its own atomic write, read back before it replaces the
+file: a mismatch fails the Run (exit 1) and leaves `wp-config.php` as it was
+before that constant. Constants written earlier in the same phase stay written,
+and the journal names them; for `REWRITE_CONFIG` the undo text gives each URL
+constant's prior value.
+
+- **`--new-db-host`** is `host` or `host:port` (port 1 to 65535); a socket
+  path is not accepted. With `--new-db-name` alone, the Site's own host is used; with
+  `--new-db-host` alone, the Dump is loaded into a staging database on the new
+  host, as described above.
+- **`--new-db-name`** loads the Dump straight into that database, which is
+  provisioned when absent; `DB_NAME` ends as that name, not a staging name.
+- **`--new-db-user` and `--new-db-password`** go together: one without the
+  other exits 2 `USAGE`, since keeping half from the Archive would mix two
+  accounts. The account is provisioned with rights on the load database, and
+  **the Dump is loaded as that account**, with whatever rights it holds (see
+  "What the Dump can reach"). The password is visible in the process list; it
+  is redacted from every log record and message, and is never journaled.
+- **`--new-site-url` and `--new-site-home-url`** must start with `http://` or
+  `https://`, name a host, hold no whitespace, control character, quote or
+  backslash, and not end with `/` (WordPress stores them without one). Anything
+  else exits 2 `USAGE` naming the flag and the rule. In this build they set the
+  two constants only; rewriting the old URL inside the database's content is
+  not part of it yet.
+
+**Modes.** Every `--new-*` flag needs a Mode that restores the database
+(`database`, `database-clean`, `all`, `all-clean`). With `files` or
+`files-clean` any of them exits 2 `USAGE` before anything is changed: such a
+Mode has no cutover, so the value would be accepted and silently discarded.
+
+**A non-empty load database** (the `--new-db-name` database, or the Site's name
+on the `--new-db-host` server) is refused like any non-empty target: exit 3
+`REFUSED`, before anything is changed. `--force` waives that check, but the
+load itself still never loads over a database that holds tables: the database
+checks at `PREFLIGHT` refuse it (exit 3), still before anything is changed.
+Only when the Site's account cannot see that database does the refusal come
+later, at `LOAD_DUMP`, after the Safety Snapshot, journaled.
+
+The Run logs `relocation_planned` once, with the constants each phase writes,
+the relocated host, port and database name, and whether each URL changes; never
+a URL value or the password. A Dry Run prints the same plan, naming the keys.
+
 ## TLS to the database
 
 A restore's database connections use verified TLS (`verify-identity`, against
@@ -347,7 +417,9 @@ Archive's, keeping the target's own `DB_HOST`, `DB_USER`, `DB_PASSWORD` and
 original is saved first (mode `0600`) beside the Run Journal, and the Run logs
 the WARNING `wp_config_overwritten`. An Archive without a `wp-config.php` is
 refused with this flag (exit 3; omit it to keep the target's), as is one whose
-`wp-config.php` is larger than 1 MiB, before anything is changed.
+`wp-config.php` is larger than 1 MiB, before anything is changed. The
+Archive's copy is read into memory and written only once, over the target's
+file; no other copy of it is written, and a Dry Run writes none.
 
 ## Symlinks
 

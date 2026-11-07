@@ -239,18 +239,17 @@ restore options:
   --only-appointed-in-asg
                         Removed; accepted only to say so (not available in this build)
   --new-site-url NEW_SITE_URL
-                        Relocate the Site to this URL (not available in this build)
+                        Relocate the Site to this URL
   --new-site-home-url NEW_SITE_HOME_URL
-                        Relocate the Site's home URL (not available in this build)
+                        Relocate the Site's home URL
   --new-db-host NEW_DB_HOST
-                        Relocate to this database host (not available in this build)
+                        Relocate to this database host
   --new-db-name NEW_DB_NAME
-                        Relocate to this database name (not available in this build)
+                        Relocate to this database name
   --new-db-user NEW_DB_USER
-                        Relocate to this database user (not available in this build)
+                        Relocate to this database user
   --new-db-password NEW_DB_PASSWORD
-                        Password of --new-db-user. The value is visible in the process list (not
-                        available in this build)
+                        Password of --new-db-user. The value is visible in the process list
 
 database credentials:
   --db-credentials-aws-secret-id ID

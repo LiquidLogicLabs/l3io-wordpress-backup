@@ -8,7 +8,9 @@ E003-S02-005's).
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import inspect
 import os
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
@@ -49,6 +51,7 @@ from l3io.wp.backup.domain.archive_format import (
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
+    ConfigWriteFailedError,
     DatabaseRefusedError,
     ExitCode,
     ExtractionRefusedError,
@@ -234,32 +237,176 @@ def test_db_keys_are_written_only_in_the_cutover(
     assert all(ARCHIVE_DB["DB_PASSWORD"] != v for v in h.config.values.values())
 
 
-def test_overwrite_reads_the_archives_config_into_the_workspace(
+def _workspace_files(h: Harness) -> list[str]:
+    return sorted(
+        str(p.relative_to(h.workspace)) for p in h.workspace.rglob("*") if p.is_file()
+    )
+
+
+def test_overwrite_hands_the_archives_config_over_in_memory(
     tmp_path: Path, archive: Path
+) -> None:
+    """BL-E003-057: the Archive's config reaches ``replace_file`` in memory."""
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.FILES, config_policy=ConfigPolicy.OVERWRITE
+    )
+    seen: list[tuple[bytes, list[str]]] = []
+    real_replace = h.config.replace_file
+
+    def replace_file(config_file: Path, content: str, *, keep: object) -> object:
+        seen.append((content, _workspace_files(h)))
+        return real_replace(config_file, content, keep=keep)  # type: ignore[arg-type]
+
+    h.config.replace_file = replace_file  # type: ignore[method-assign]
+    with capture_logs() as logs:
+        h.run()
+    ((content, workspace),) = seen
+    assert isinstance(content, str)
+    assert ARCHIVE_DB["DB_NAME"] in content
+    # No credential-bearing copy exists, not even while the replace runs.
+    assert workspace == []
+    warning = next(e for e in logs if e["event"] == "wp_config_overwritten")
+    assert warning["log_level"] == "warning"
+
+
+def test_an_archive_config_that_is_not_utf8_fails_before_the_replace(
+    tmp_path: Path, archive: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     h = _harness(
         tmp_path, archive, mode=RestoreMode.FILES, config_policy=ConfigPolicy.OVERWRITE
     )
-    seen: list[tuple[str, int]] = []
-    real_replace = h.config.replace_file
-
-    def replace_file(config_file: Path, source: Path, *, keep: object) -> object:
-        seen.append((source.read_text(encoding="utf-8"), source.stat().st_mode))
-        return real_replace(config_file, source, keep=keep)  # type: ignore[arg-type]
-
-    h.config.replace_file = replace_file  # type: ignore[method-assign]
-    stale = h.workspace / "archive-wp-config.php"
-    stale.write_text("stale", encoding="utf-8")
-    stale.chmod(0o644)
-    with capture_logs() as logs:
+    monkeypatch.setattr(
+        type(h.probe), "read_member", lambda *_a, **_k: b"<?php\n\xff\xfe\n"
+    )
+    with pytest.raises(ConfigWriteFailedError, match="could not be read"):
         h.run()
-    ((text, mode),) = seen
-    assert ARCHIVE_DB["DB_NAME"] in text
-    assert mode & 0o777 == 0o600
-    # ADV-11: the credential-bearing copy is gone once the replace is done.
-    assert not stale.exists()
-    warning = next(e for e in logs if e["event"] == "wp_config_overwritten")
-    assert warning["log_level"] == "warning"
+    assert [c for c in h.log.calls if c[2] == "replace_file"] == []
+    assert _workspace_files(h) == []
+
+
+def test_a_dry_run_overwrite_writes_no_config_file(
+    tmp_path: Path, archive: Path
+) -> None:
+    """BL-E003-057: under the no-op adapters nothing lands in the workspace."""
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.FILES, config_policy=ConfigPolicy.OVERWRITE
+    )
+    before = h.config_path.read_bytes()
+    dry = dry_run_adapters(h.adapters())
+    during: list[list[str]] = []
+    noop = dry.config_command
+
+    class _Watching:
+        """The no-op command half, noting the workspace at ``replace_file``."""
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(noop, name)
+
+        def replace_file(
+            self, config_file: Path, content: str, *, keep: object
+        ) -> object:
+            during.append(_workspace_files(h))
+            return noop.replace_file(config_file, content, keep=keep)  # type: ignore[arg-type]
+
+    h.run(adapters=dataclasses.replace(dry, config_command=_Watching()))  # type: ignore[arg-type]
+    assert during == [[]], "the Archive's config was written during a Dry Run"
+    assert _workspace_files(h) == []
+    assert h.config_path.read_bytes() == before
+
+
+#: Callable names that open or write a file, however reached (``os.open``,
+#: ``Path(...).open``, ``shutil.copyfile``, ``tempfile.mkstemp``, ...).
+_FILE_WRITERS = frozenset(
+    {
+        "open",
+        "fdopen",
+        "write_bytes",
+        "write_text",
+        "copy",
+        "copy2",
+        "copyfile",
+        "copyfileobj",
+        "copytree",
+        "mkstemp",
+        "NamedTemporaryFile",
+        "TemporaryFile",
+        "SpooledTemporaryFile",
+    }
+)
+#: Modules whose import of one of those names is itself a finding.
+_FILE_MODULES = frozenset({"os", "io", "builtins", "shutil", "tempfile", "pathlib"})
+
+
+def _file_calls(source: str) -> list[str]:
+    """Every call or import in ``source`` that can open or write a file.
+
+    An AST check, not a grep: a call whose callee is named (``open(...)``) or
+    reached as an attribute (``os.open``, ``Path(p).write_bytes``,
+    ``shutil.copyfile``), and a ``from os import open``-style import of such a
+    name. Not covered: a writer reached dynamically (``getattr``), or through
+    a helper function defined in another module and called here by another
+    name — the behavioural Dry Run tests above are the guard for those.
+    """
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr
+                if isinstance(func, ast.Attribute)
+                else None
+            )
+            if name in _FILE_WRITERS:
+                found.append(ast.unparse(node))
+        elif isinstance(node, ast.ImportFrom) and node.module in _FILE_MODULES:
+            found.extend(
+                f"from {node.module} import {alias.name}"
+                for alias in node.names
+                if alias.name in _FILE_WRITERS
+            )
+    return found
+
+
+def test_the_executor_opens_no_file_itself() -> None:
+    """BL-E003-057: ``adapters/restore_runner.py`` opens and writes no file itself.
+
+    Every file effect goes through a port. The scope is the executor module,
+    read from its own ``__file__``. Not covered: ``cli/restore.py``'s
+    ``_archive_config``, which writes the Archive's config into the workspace
+    when the target has none, to build the Site Descriptor — the composition
+    root's write, which ADR-0016's 2026-10-27 amendment prescribes; and what
+    :func:`_file_calls` states it cannot see.
+    """
+    source = Path(inspect.getfile(restore_runner)).read_text(encoding="utf-8")
+    assert _file_calls(source) == []
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "os.open(p, os.O_WRONLY)",
+        "open(p, 'wb')",
+        "Path(p).write_bytes(b)",
+        "Path(p).write_text(t)",
+        "Path(p).open('wb')",
+        "os.fdopen(fd, 'wb')",
+        "shutil.copyfile(a, b)",
+        "tempfile.mkstemp()",
+        "tempfile.NamedTemporaryFile()",
+    ],
+)
+def test_each_planted_file_write_is_caught(planted: str) -> None:
+    source = f"def f(p, a, b, t, fd):\n    return {planted}\n"
+    assert _file_calls(source) == [planted]
+
+
+def test_an_imported_writer_is_caught() -> None:
+    assert _file_calls("from os import open\n") == ["from os import open"]
+    assert _file_calls("from shutil import copyfile as cp\n") == [
+        "from shutil import copyfile"
+    ]
 
 
 def test_a_symlinked_site_root_still_keeps_the_targets_config(
@@ -276,14 +423,25 @@ def test_a_symlinked_site_root_still_keeps_the_targets_config(
 def test_an_overwrite_lays_a_config_role_member_down_through_the_port(
     tmp_path: Path,
 ) -> None:
-    """The Archive's config reaches the workspace by ``extract``, not a raw write."""
+    """BL-E003-057: a ``config``-role member is read into memory, never laid down."""
     archive = write_v1(tmp_path, config_role=True)
     h = _harness(
         tmp_path, archive, mode=RestoreMode.FILES, config_policy=ConfigPolicy.OVERWRITE
     )
+    seen: list[str] = []
+    real_replace = h.config.replace_file
+
+    def replace_file(config_file: Path, content: str, *, keep: object) -> object:
+        seen.append(content)
+        return real_replace(config_file, content, keep=keep)  # type: ignore[arg-type]
+
+    h.config.replace_file = replace_file  # type: ignore[method-assign]
     h.run()
     laid = [c for c in h.log.calls if c[2] == "extract" and c[3][1] == ["config"]]
-    assert [c[3][0] for c in laid] == [str(h.workspace / "archive-config")]
+    assert laid == []
+    assert len(seen) == 1
+    assert ARCHIVE_DB["DB_NAME"] in seen[0]
+    assert _workspace_files(h) == []
 
 
 def test_a_lay_down_extracts_the_config_role_first(tmp_path: Path) -> None:
@@ -765,6 +923,58 @@ def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
     assert [e["integrity"] for e in planned] == ["would verify"]
     done = [e for e in logs if e["event"] == "phase_completed"]
     assert "snapshot" in [e["phase"] for e in done]
+
+
+def test_a_relocating_dry_run_changes_nothing_and_plans_keys_only(
+    tmp_path: Path, archive: Path
+) -> None:
+    """E007-S01-001: under the no-op adapters, a relocation writes and loads nothing."""
+    pytest.importorskip("l3io.wp.database")
+    from l3io.wp.backup.adapters.redaction import SecretRegistry
+    from l3io.wp.backup.adapters.wpcli import restore_extension
+    from l3io.wp.backup.cli.restore import RelocationFlags
+
+    secret = "e007-dry-run-password-0"
+    flags = dataclasses.replace(
+        RelocationFlags.none(),
+        new_site_url="https://staging.e007.example",
+        new_home_url="https://www.staging.e007.example",
+        new_db_host="db.e007.example:3310",
+        new_db_name="e007_staging",
+        new_db_user="e007_user",
+        new_db_password=secret,
+    )
+    probe = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL)
+    relocation = restore_extension(flags, secrets=SecretRegistry()).resolve(
+        site_root=probe.site_root,
+        site=probe.site,
+        view=probe.view,
+        files=LocalSiteFiles(),
+        mode=RestoreMode.ALL,
+    )
+    h = StagedHarness(
+        work=tmp_path,
+        archive_path=archive,
+        mode=RestoreMode.ALL,
+        relocation=relocation,
+        password=secret,
+    )
+    h.take_snapshot = _snapshot_of(  # type: ignore[method-assign]
+        h, performed=False, integrity=None, bytes=0
+    )
+    before = h.config_path.read_bytes()
+    plan = h.plan()
+    h.run_staged(adapters=dry_run_adapters(h.adapters()))
+    assert h.config_path.read_bytes() == before
+    effects = {"set_constants", "save_copy", "replace_file", "ensure", "load"}
+    assert [c for c in h.log.calls if c[2] in effects] == []
+    texts = [a.text for a in plan.actions]
+    assert any("set WP_SITEURL, WP_HOME in" in t for t in texts), texts
+    assert any(
+        "the cutover sets DB_HOST, DB_USER, DB_PASSWORD, DB_NAME" in t for t in texts
+    ), texts
+    for value in (secret, "https://staging.e007.example", "e007_user"):
+        assert all(value not in t for t in texts)
 
 
 def test_every_phase_is_a_check_the_snapshot_or_destroying() -> None:

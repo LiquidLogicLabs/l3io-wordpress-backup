@@ -101,8 +101,8 @@ from l3io.wp.backup.domain.archive_format import (
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
-    ArchiveWriteError,
     BackupError,
+    ConfigWriteFailedError,
     MemberReadRefusedError,
     PayloadDamagedError,
     RefusedError,
@@ -120,6 +120,7 @@ from l3io.wp.backup.domain.restore import (
     restores_files,
 )
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport
+from l3io.wp.backup.ports.config import WHOLE_FILE
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
@@ -139,10 +140,6 @@ _log = structlog.get_logger(__name__)
 _CHECK_PHASES: Final = frozenset({RestorePhase.PREFLIGHT, RestorePhase.VERIFY})
 #: The largest Archive ``wp-config.php`` ``--overwrite-wp-config`` reads.
 CONFIG_MAX_BYTES: Final = 1024 * 1024
-#: Where the Archive's config is copied in the Run workspace (``0600``).
-_ARCHIVE_CONFIG: Final = "archive-wp-config.php"
-_ARCHIVE_CONFIG_DIR: Final = "archive-config"
-_CONFIG_MODE: Final = 0o600
 #: BL-E003-076: a published Safety Snapshot is readable by its owner only.
 _SNAPSHOT_MODE: Final = 0o600
 #: The relative path ``CLEAN`` keeps and ``EXTRACT`` excludes under ``KEEP``.
@@ -788,27 +785,20 @@ def _same_dir(left: Path, right: Path) -> bool:
     return os.path.realpath(left) == os.path.realpath(right)
 
 
-def _archive_config(run: _Run) -> Path:
-    """The Archive's config, in the Run workspace at mode ``0600``.
+def _archive_config(run: _Run) -> str:
+    """The Archive's config text, read into memory (BL-E003-057).
 
-    A ``config``-role member is laid down by ``site_files_command`` so a Dry
-    Run's no-op half writes nothing. A config that lives in the tree is read
-    and written here (a port to extract one member is E003-S02-006's).
+    Whichever member :func:`config_member` names — the ``config``-role file or
+    the tree's — is read through the archive query; no copy is written to the
+    Run workspace, so a Dry Run writes nothing and no credential-bearing
+    intermediate file exists. ``ConfigCommand.replace_file`` takes the text,
+    decoded as UTF-8 with no newline translation (CRLF stays CRLF); content
+    that is not UTF-8 is :class:`ConfigWriteFailedError` before any write.
     """
     inputs = run.inputs
     member = config_member(inputs.view)
     if member is None:
         raise ArchiveHasNoConfigError(str(inputs.archive.path))
-    if member.role is MemberRole.CONFIG:
-        directory = Path(inputs.workspace) / _ARCHIVE_CONFIG_DIR
-        run.ports.adapters.site_files_command.extract(
-            inputs.archive,
-            directory,
-            inputs.view,
-            roles=frozenset({MemberRole.CONFIG}),
-            payload=run.payload,
-        )
-        return directory / CONFIG_FILE_NAME
     body = run.ports.adapters.archive_probe.read_member(
         inputs.archive,
         inputs.view,
@@ -816,19 +806,11 @@ def _archive_config(run: _Run) -> Path:
         max_bytes=CONFIG_MAX_BYTES,
         payload=run.payload,
     )
-    path = Path(inputs.workspace) / _ARCHIVE_CONFIG
-    # ADV-11: a stale file is never reused; the new one is created, mode set
-    # on the descriptor before the first byte, and removed after the replace.
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     try:
-        path.unlink(missing_ok=True)
-        fd = os.open(path, flags, _CONFIG_MODE)
-        with os.fdopen(fd, "wb") as out:
-            os.fchmod(out.fileno(), _CONFIG_MODE)
-            out.write(body)
-    except OSError as exc:
-        raise ArchiveWriteError(path, exc.strerror or type(exc).__name__) from exc
-    return path
+        return body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        reason = "the replacement could not be read: UnicodeDecodeError"
+        raise ConfigWriteFailedError(run.config_file, WHOLE_FILE, reason) from exc
 
 
 def _rewrite_config(run: _Run) -> None:
@@ -843,11 +825,8 @@ def _rewrite_config(run: _Run) -> None:
         adapters.config_command.save_copy(config_file, Path(saved))
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_SAVED)
         prior = adapters.config_query.read_constants(config_file, CUTOVER_KEYS)
-        source = _archive_config(run)
-        try:
-            adapters.config_command.replace_file(config_file, source, keep=dict(prior))
-        finally:
-            source.unlink(missing_ok=True)
+        content = _archive_config(run)
+        adapters.config_command.replace_file(config_file, content, keep=dict(prior))
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_REPLACED)
         _log.warning("wp_config_overwritten", path=str(config_file), saved=saved)
     rewrite = inputs.relocation.rewrite_values

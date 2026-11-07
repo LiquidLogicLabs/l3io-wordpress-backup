@@ -727,3 +727,19 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-06T18:14:52Z'
   ref: E004-S01-003
+- key: BL-E003-057
+  epic: '003'
+  sprint: '02'
+  title: 'SD-01-1 remainder: tree-member wp-config still written by a raw os.open, not through a config port; needs a ConfigCommand port change (remaining part of BL-E003-038)'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md SD-01-1. Needs a story granted ports/config.py and adapters/tar.py.
+  story: E007-S01-001
+  scheduled_at: '2026-11-06T12:13:21Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T01:53:30Z'
+  ref: E007-S01-001
+  note: "ConfigCommand.replace_file takes the Archive config's text (content: str); restore_runner reads either member with ArchiveProbe.read_member into memory and opens no file (AST guard in tests/unit/adapters/test_restore_runner.py); Dry Run writes no config file. ADR-0023 amended 2026-11-06 (owner decision O1 a)."

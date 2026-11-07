@@ -53,6 +53,8 @@ __all__ = [
     "DumpFailedError",
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
+    "IncompleteRelocationCredentialsError",
+    "InvalidRelocationValueError",
     "InvalidSiteDescriptorError",
     "LoadFailedError",
     "MalformedManifestError",
@@ -65,6 +67,7 @@ __all__ = [
     "PreflightFailedError",
     "ProvisioningFailedError",
     "RefusedError",
+    "RelocationNeedsDatabaseRestoreError",
     "RunContextActiveError",
     "RunTerminated",
     "SiteLockLocationError",
@@ -131,6 +134,50 @@ class PassphraseUnavailableError(UsageError):
         super().__init__(
             f"no usable passphrase: {reason} (pass passphrase=, set {variable}, "
             "or run on a terminal so it can be prompted for)"
+        )
+
+
+class InvalidRelocationValueError(UsageError):
+    """FR-11 — a relocation flag's value breaks a rule.
+
+    ``flag`` and ``rule`` name it; the value is never echoed.
+    """
+
+    def __init__(self, flag: str, rule: str) -> None:
+        self.flag = flag
+        self.rule = rule
+        super().__init__(f"{flag} {rule}")
+
+
+class IncompleteRelocationCredentialsError(UsageError):
+    """FR-11 — half of the relocated account was given.
+
+    Keeping the other half from the Archive would mix two accounts.
+    """
+
+    def __init__(self, *, given: str, missing: str) -> None:
+        self.given = given
+        self.missing = missing
+        super().__init__(
+            f"{given} needs {missing}: the relocated account is a user and "
+            "password pair, and keeping one half from the Archive would mix "
+            "two accounts"
+        )
+
+
+class RelocationNeedsDatabaseRestoreError(UsageError):
+    """FR-11 — relocation flags with a Restore Mode that restores no database.
+
+    Such a Mode has no cutover, so every ``--new-*`` value would be accepted
+    and discarded. ``mode`` is the Restore Mode's CLI spelling.
+    """
+
+    def __init__(self, *, flags: tuple[str, ...], mode: str) -> None:
+        self.flags = flags
+        self.mode = mode
+        super().__init__(
+            f"{', '.join(flags)} need a Restore Mode that restores the database; "
+            f"Restore Mode {mode} restores none"
         )
 
 

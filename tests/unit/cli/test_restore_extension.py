@@ -18,6 +18,7 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.wpcli import restore_extension
 from l3io.wp.backup.cli import restore as restore_mod
 from l3io.wp.backup.cli.parser import RELOCATION_UNAVAILABLE
 from l3io.wp.backup.cli.restore import RelocationFlags
@@ -180,7 +181,12 @@ def _wpcli_lines(source: str) -> list[str]:
 def test_only_the_extension_line_may_name_adapters_wpcli() -> None:
     source = Path(inspect.getfile(restore_mod)).read_text(encoding="utf-8")
     assert _wpcli_lines(source) == []
-    assert "RESTORE_EXTENSION: RestoreExtensionFactory | None = None" in source
+    grant = (
+        "from l3io.wp.backup.adapters.wpcli import restore_extension"
+        " as RESTORE_EXTENSION"
+    )
+    assert [line for line in source.splitlines() if line.startswith(grant)] != []
+    assert restore_mod.RESTORE_EXTENSION is restore_extension
 
 
 def test_a_second_wpcli_reference_is_caught() -> None:
