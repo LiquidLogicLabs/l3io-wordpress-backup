@@ -944,3 +944,4 @@
 {"cause": "set-status", "epic": "003", "event": "issue_resolved", "key": "BL-E003-056", "ref": "E007-S01-002", "resolution": "fixed", "session": null, "ts": "2026-11-07T05:04:48Z"}
 {"agent": "l3io-pm-story", "epic": "E007", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E007-S01-002", "ts": "2026-11-07T05:05:06Z"}
 {"epic": "E007", "event": "actual", "from": null, "key": "E007-S01-002", "node": "story", "session": null, "sprint": "S01", "to": null, "ts": "2026-11-07T05:31:07Z"}
+{"agent": "l3io-pm-story", "epic": "E006", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E006-S01-004", "ts": "2026-11-07T06:22:37Z"}

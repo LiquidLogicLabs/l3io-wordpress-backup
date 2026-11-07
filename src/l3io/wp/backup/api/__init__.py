@@ -7,13 +7,18 @@ frozen value or raises a package exception. Nothing here configures logging:
 a host that wants this package's renderer calls ``configure_logging`` itself.
 
 Every other name is re-exported by identity, never redefined: the values the
-entry points take and return, and ``enumerate_defaults`` (the library's
-``backup --list-default-excludes``), which opens no Run.
+entry points take and return, ``enumerate_defaults`` (the library's
+``backup --list-default-excludes``), which opens no Run, and ``add_trace_ids``,
+the structlog processor that puts flat ``trace_id``/``span_id`` on records
+while a span is recording (AD-24): pass it as
+``configure_logging(level, fmt, trace_processors=(add_trace_ids,))``, or add
+it to a chain the host configures itself.
 """
 
 from __future__ import annotations
 
 from l3io.wp.backup.adapters.database import AdminTls
+from l3io.wp.backup.adapters.tracing import add_trace_ids
 from l3io.wp.backup.api.operations import backup, restore, verify
 from l3io.wp.backup.cli.backup import BackupResult
 from l3io.wp.backup.cli.context import RunContext
@@ -58,6 +63,7 @@ __all__: list[str] = [
     "SnapshotPolicy",
     "StorageTarget",
     "VerificationResult",
+    "add_trace_ids",
     "backup",
     "configure_logging",
     "enumerate_defaults",
