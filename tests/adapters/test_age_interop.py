@@ -22,6 +22,7 @@ import select
 import shutil
 import signal
 import subprocess
+import termios
 import time
 import uuid
 from pathlib import Path
@@ -37,6 +38,8 @@ MINIMUM = (1, 3)
 #: Each prompt names the passphrase and ends at a colon.
 PROMPT = re.compile(rb"passphrase[^:\n]*:", re.IGNORECASE)
 TIMEOUT_S = 60.0
+#: How long ``age`` may take, after printing a prompt, to switch echo off.
+ECHO_OFF_TIMEOUT_S = 10.0
 
 
 def _age_version() -> tuple[int, ...] | None:
@@ -82,6 +85,31 @@ def passphrase() -> str:
     return f"interop-pp-{uuid.uuid4().hex}"
 
 
+def _echo_is_on(fd: int) -> bool:
+    """The terminal's ECHO flag; on Linux the master reports the slave's termios."""
+    return bool(termios.tcgetattr(fd)[3] & termios.ECHO)
+
+
+def _await_echo_off(pid: int, fd: int, seen: bytes) -> None:
+    """Block until ``age`` has switched echo off, or kill it and fail.
+
+    ``age`` prints its prompt and only then turns echo off. Typing in that gap
+    has the kernel's line discipline echo the passphrase, which is the test
+    racing ``age`` and not ``age`` leaking it. Waiting closes the gap without
+    hiding a real echo: the assertion on the output still sees anything shown
+    once echo is off.
+    """
+    deadline = time.monotonic() + ECHO_OFF_TIMEOUT_S
+    while _echo_is_on(fd):
+        if time.monotonic() >= deadline:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            pytest.fail(
+                f"age prompted but left echo on for {ECHO_OFF_TIMEOUT_S}s: {seen!r}"
+            )
+        time.sleep(0.001)
+
+
 def _drive_age(argv: list[str], passphrase: str) -> tuple[int, bytes]:
     """Run ``age`` on a fresh terminal, answering every passphrase prompt."""
     pid, fd = pty.fork()
@@ -102,6 +130,7 @@ def _drive_age(argv: list[str], passphrase: str) -> tuple[int, bytes]:
                 break
             seen += chunk
             while len(PROMPT.findall(seen)) > answered:
+                _await_echo_off(pid, fd, seen)
                 os.write(fd, passphrase.encode() + b"\n")
                 answered += 1
         done, status = os.waitpid(pid, os.WNOHANG)
