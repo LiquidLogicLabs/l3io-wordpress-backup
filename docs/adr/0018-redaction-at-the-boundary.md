@@ -103,3 +103,27 @@ redaction could hide it.
 - **Revisit when:** a code path must put text from an untrusted or dependency source into a
   `domain/` error message verbatim. That would need redaction before the message is built
   (in the adapter raising it), not a hook in `domain/`.
+
+## Amendment — 2026-11-06: no credential shorter than the floor is accepted (Shawn, option a)
+
+Red team M-4 of the E005 closure (BL-E005-005): the registry deliberately skips values shorter
+than its 4-character floor, so a database password of 3 characters or fewer was accepted and
+never masked; and a resolved password was registered only after a successful resolve.
+
+**Decided:**
+- **Refuse short credentials.** A database password (WordPress or administrator account, from
+  any source: `wp-config.php`, `--admin-password`, the environment, AWS Secrets Manager or
+  `--new-db-password`) shorter than the registry's floor is refused at the credential boundary,
+  before any connection. It is a `CredentialsError` subclass naming the source and the minimum
+  length, never the value. The floor is one constant, the registry's, so the two cannot drift.
+- **Register before use.** A password is registered with the `SecretRegistry` as soon as it is
+  read from its source, before it is validated or used, so a failure after reading cannot print
+  it.
+
+The redaction guarantee then holds without an exception: every accepted credential is masked.
+
+**Owner:** E008-S01-001, which binds every credential source and is granted the edits this
+needs: `adapters/credential_providers.py`, `adapters/database.py`, `cli/credentials.py`,
+`domain/errors.py` (one subclass) and their tests. A test plants a 3-character password through
+each source and requires the refusal, with no connection attempted; another reads a password,
+fails afterwards, and requires that the error output masks it.
