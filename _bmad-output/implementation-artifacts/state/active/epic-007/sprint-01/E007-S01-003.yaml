@@ -3,8 +3,8 @@ epic: 'E007'
 sprint: 'S01'
 title: Rewrite content URLs without corrupting serialized data
 classification: complex
-status: ready-for-dev
-updated_at: '2026-11-06T15:21:00Z'
+status: done
+updated_at: '2026-11-07T03:23:44Z'
 estimate:
   man_hours: 15.0
   hitl_hours: 0.81
@@ -30,3 +30,53 @@ depends_on:
 - 'E003-S01-001'
 - E003-S02-006
 - 'E002-S02-012'
+completion_evidence:
+  test_runs:
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel]' --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 14
+actual:
+  elapsed_hours: 0.57
+  man_hours: 18
+  hitl_hours: 0
+  tokens_k:
+    total: 45004.06
+    input: 0.51
+    output: 285.995
+    cache_write: 1359.518
+    cache_read: 43358.038
+  cost: 37.33
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-07T03:23:44Z'

@@ -222,7 +222,7 @@ jobs:
           WP_CLI_SHA512: "be928f6b8ca1e8dfb9d2f4b75a13aa4aee0896f8a9a0a1c45cd5d2c98605e6172e6d014dda2e27f88c98befc16c040cbb2bd1bfa121510ea5cdf5f6a30fe8832"
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends mysql-client php-cli
+          sudo apt-get install -y --no-install-recommends mysql-client php-cli php-mysql php-zip
           # Pinned and checksummed (2026-10-27). The gh-pages "latest" phar moved under
           # every run, and story E007-S01-004 makes this version the supported minimum.
           # The sha512 is the release's own published value, hardcoded here because a

@@ -196,9 +196,9 @@ constant's prior value.
 - **`--new-site-url` and `--new-site-home-url`** must start with `http://` or
   `https://`, name a host, hold no whitespace, control character, quote or
   backslash, and not end with `/` (WordPress stores them without one). Anything
-  else exits 2 `USAGE` naming the flag and the rule. In this build they set the
-  two constants only; rewriting the old URL inside the database's content is
-  not part of it yet.
+  else exits 2 `USAGE` naming the flag and the rule. They set the two
+  constants, and the old URL is then rewritten inside the database's content
+  (below).
 
 **Modes.** Every `--new-*` flag needs a Mode that restores the database
 (`database`, `database-clean`, `all`, `all-clean`). With `files` or
@@ -216,6 +216,84 @@ later, at `LOAD_DUMP`, after the Safety Snapshot, journaled.
 The Run logs `relocation_planned` once, with the constants each phase writes,
 the relocated host, port and database name, and whether each URL changes; never
 a URL value or the password. A Dry Run prints the same plan, naming the keys.
+
+### Content URLs: WP-CLI `search-replace`
+
+With `--new-site-url` or `--new-site-home-url`, the last phase,
+`SEARCH_REPLACE`, rewrites the old URL across the restored database's content,
+so widgets, menus and theme options keep working. It runs after
+`REWRITE_CONFIG` and after `LOAD_DUMP`'s cutover, because WP-CLI bootstraps
+from the `wp-config.php` just written. It needs WP-CLI (`wp`) on `PATH`.
+
+- **What is replaced.** The old values are the restored database's stored
+  `siteurl` and `home` options, read with `wp option list` (not `option get`,
+  which would return the constants just written). Each is replaced by its new
+  URL; when the two stored values are equal, one replacement is made, to the
+  home URL if given (with only one of the two flags, that one replacement
+  moves both, and the Run logs WARNING `search_replace_home_moved`).
+- **Order, and when it is refused.** The replacements run one after another,
+  longer old URLs first. If one replacement's old URL occurs inside the other's
+  new URL (for example `https://example.com/wp` and `https://example.com`
+  moved to `https://example.com.au/wp` and `https://example.com.au`), the
+  second pass would rewrite the first one's result. The order is changed when
+  that avoids it; when no order does, the Run is refused (exit 3) before
+  anything is replaced. Rewrite such pairs yourself with `wp search-replace`,
+  through a temporary placeholder string.
+- **How.** `wp search-replace <old> <new> --precise --all-tables-with-prefix
+  --skip-columns=guid --report-changed-only`: every table with the Site's table
+  prefix, plugin tables included. WP-CLI unserializes PHP-serialized values,
+  replaces inside them and re-serializes them with corrected lengths; this tool
+  never edits a serialized value or runs an SQL `REPLACE`. `guid` columns are
+  left alone, as WordPress requires. Each replacement is previewed with
+  `--dry-run` first, and re-counted afterwards: any old URL left fails the Run
+  (exit 1). A replacement whose new URL contains its old URL (a move into a
+  subdirectory of the same host) cannot be re-counted that way; it is skipped,
+  with WARNING `post_check_skipped`.
+- **What is not replaced.** Only the stored value, verbatim. JSON-escaped
+  (`https:\/\/old…`), URL-encoded and protocol-relative (`//old…`) forms, a
+  bare host name and the other scheme are left as they are; run
+  `wp search-replace` for those yourself if the Site holds them.
+- **Reported.** The restore report prints
+  `content URLs: <n> replacements in <k> tables (<old> → <new>)`, and the JSON
+  report's `search_replace` holds `replacements`, `tables`, `pairs`,
+  `remaining` and `merged`. The Run logs `search_replace_completed` with the
+  same and the WP-CLI version. A Dry Run prints the planned pairs (the old URL
+  is read only after the Dump is loaded, so it shows as `<unresolved>`) and
+  says the counts are determined after `LOAD_DUMP`; it changes nothing.
+- **Interrupted or failed.** A failure after the first replacement leaves
+  earlier ones made. The journal names `SEARCH_REPLACE` and the `wp
+  search-replace` commands still owed. Check each first with `--dry-run`
+  added, and re-run only those that still find their old URL. Never re-run
+  one whose new URL contains its own old URL or the other command's old URL:
+  it would rewrite its own results. When the stored `siteurl` and `home` were
+  equal, only one of the two listed commands is owed.
+
+**What runs inside WP-CLI.** WP-CLI loads WordPress to reach the database, so
+code from the restored Site runs: `wp-config.php` itself, the mu-plugins in
+`wp-content/mu-plugins` (WP-CLI loads them even with `--skip-plugins`), and
+drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
+(`--skip-plugins --skip-themes`), nor do globally installed WP-CLI packages
+(`--skip-packages`).
+
+- **No WP-CLI config is read.** `wp` runs from a fresh owner-only directory
+  under this tool's per-user state directory, never from the Site Root or
+  `$TMPDIR`. WP-CLI reads `wp-cli.yml` and `wp-cli.local.yml` from its working
+  directory and every directory above it, and such a file can load PHP; if one
+  is found there, the Run is refused (exit 3) before `wp` runs.
+  `WP_CLI_CONFIG_PATH` names an empty file, so no `~/.wp-cli/config.yml` is
+  read either.
+- **The environment it gets.** Exactly `PATH`, `HOME`, `LC_ALL=C` and
+  `WP_CLI_CONFIG_PATH`. Nothing else is passed on: not the Archive passphrase
+  (`L3IO_WP_BACKUP_PASSPHRASE`), not any other `L3IO_WP_BACKUP_*`, `MYSQL_*` or
+  `WP_CLI_*` variable. WP-CLI reads the database password from
+  `wp-config.php`; none is passed by argument or environment. The same holds
+  for the version probes run before anything is changed. Child processes
+  started by the database library (the database client tools and `age`)
+  still inherit this tool's environment; they run no Site code.
+- **As root.** When the restore runs as root, `wp` is given `--allow-root` and
+  the Run logs WARNING `wp_cli_running_as_root`: WP-CLI then executes the
+  restored Site's `wp-config.php`, mu-plugins and drop-ins as root. Run the
+  restore as the Site's owner instead where you can.
 
 ## TLS to the database
 

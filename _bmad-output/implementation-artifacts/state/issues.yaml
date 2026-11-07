@@ -3,7 +3,8 @@ next:
   '003': 117
   '004': 70
   '005': 14
-  '007': 2
+  '007': 3
+  '006': 6
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -1615,16 +1616,6 @@ backlog:
   severity: Low
   status: backlog
   description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-4). '
-- key: BL-E002-117
-  epic: '002'
-  sprint: ''
-  title: Archive passphrase stays in os.environ for the whole Run; child processes (wp-cli, Epic 7) inherit it
-  source: epic-redteam (RT-4)
-  source_phase: epic-redteam
-  source_ref: RT-4
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-4). Deferred to Epic 7 wiring.
 - key: BL-E002-118
   epic: '002'
   sprint: ''
@@ -2605,3 +2596,63 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-001.md (L1). E007-S01-001 swapped its relocation table's columns to avoid the regex; the test file is outside its scope.
+- key: BL-E007-002
+  epic: '007'
+  sprint: '01'
+  title: "E007-S01-003 review L3 + H3.3: after the first CI run of test_search_replace.py, replay real WP-CLI 2.12.0 --dry-run/--format=count stdout as unit fixtures; add an execute_restore-level case (phase order, journal state after an injected WpCliFailedError) and assert the Dry Run's printed planned pairs"
+  source: code-review (E007-S01-003)
+  source_phase: code-review
+  source_ref: E007-S01-003
+  severity: Low
+  status: backlog
+  description: "Deferred: the real output can only be captured where wp, php-mysql and MySQL exist (CI, from this story's ci.yml change); see _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-003.md (L3, H3 item 3)"
+- key: BL-E006-001
+  epic: '006'
+  sprint: '01'
+  title: api.restore copies run_restore's new_db_password registration and its --new-db-password label (F-5)
+  source: code-review (E006-S01-001)
+  source_phase: code-review
+  source_ref: E006-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
+- key: BL-E006-002
+  epic: '006'
+  sprint: '01'
+  title: tests/integration/test_api_roundtrip.py uses importorskip, contrary to the story's no-skip rule (F-6)
+  source: code-review (E006-S01-001)
+  source_phase: code-review
+  source_ref: E006-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
+- key: BL-E006-003
+  epic: '006'
+  sprint: '01'
+  title: test_api_base_install/api_consumer use fixed passwords, not unique sentinels; probe output not checked for the password (F-7)
+  source: code-review (E006-S01-001)
+  source_phase: code-review
+  source_ref: E006-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
+- key: BL-E006-004
+  epic: '006'
+  sprint: '01'
+  title: api.verify(passphrase=...) without authenticate=True silently ignores the passphrase, unlike backup (F-8)
+  source: code-review (E006-S01-001)
+  source_phase: code-review
+  source_ref: E006-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md
+- key: BL-E006-005
+  epic: '006'
+  sprint: '01'
+  title: 'api/operations.py: duplicate _NO_ENVIRONMENT constant and two near-identical BackupRequest branches (F-9)'
+  source: code-review (E006-S01-001)
+  source_phase: code-review
+  source_ref: E006-S01-001
+  severity: Low
+  status: backlog
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-006/sprint-01/closure/review-E006-S01-001.md

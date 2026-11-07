@@ -17,8 +17,13 @@ from structlog.testing import capture_logs
 
 pytest.importorskip("l3io.wp.database")
 
+from l3io.wp.backup.adapters import wpcli
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.wpcli import WpCliRestoreExtension, restore_extension
+from l3io.wp.backup.adapters.wpcli import (
+    WpCliRestoreExtension,
+    WpCliSearchReplace,
+    restore_extension,
+)
 from l3io.wp.backup.cli.parser import (
     NOT_YET_IMPLEMENTED,
     RESTORE_COMMAND,
@@ -41,6 +46,7 @@ from l3io.wp.backup.domain.errors import (
     UsageError,
 )
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
+from l3io.wp.backup.domain.search_replace import UrlRelocation
 from tests.conftest import CredentialSentinel
 from tests.restore_builders import SITE, plan, view
 
@@ -167,7 +173,16 @@ def _check(relocation: RestoreRelocation, names: set[str], mode: RestoreMode) ->
         VALUES["new_db_user"] if "new_db_user" in names else None
     )
     assert relocation.cutover_password is ("new_db_password" in names)
-    assert relocation.search_replace is None
+    # E007-S01-003: SEARCH_REPLACE carries the new URLs iff one is supplied.
+    expected_urls = (
+        UrlRelocation(
+            site_url=VALUES["new_site_url"] if "new_site_url" in names else None,
+            home_url=VALUES["new_home_url"] if "new_home_url" in names else None,
+        )
+        if urls
+        else None
+    )
+    assert relocation.search_replace == expected_urls
     assert relocation.required_tools == ()
     # Every supplied DB_* value reaches the cutover instead of REWRITE_CONFIG.
     keys = planned_cutover_keys(relocation)
@@ -186,6 +201,19 @@ def _check(relocation: RestoreRelocation, names: set[str], mode: RestoreMode) ->
     # The built planner accepts it, and REWRITE_CONFIG appears iff a URL does.
     planned = plan(mode, relocation=relocation)
     assert (RestorePhase.REWRITE_CONFIG in planned.phases) is bool(urls)
+    assert (RestorePhase.SEARCH_REPLACE in planned.phases) is bool(urls)
+    if RestorePhase.SEARCH_REPLACE in planned.phases:
+        # AD-17: wp bootstraps from the config REWRITE_CONFIG and the cutover
+        # just wrote, so SEARCH_REPLACE is last of the three.
+        order = list(planned.phases)
+        at = order.index(RestorePhase.SEARCH_REPLACE)
+        assert at > order.index(RestorePhase.REWRITE_CONFIG)
+        assert at > order.index(RestorePhase.LOAD_DUMP)
+        undo = dict(relocation.undo)[RestorePhase.SEARCH_REPLACE]
+        assert "search-replace" in undo
+        assert "--skip-columns=guid" in undo
+        for _, value in urls:
+            assert value in undo
     for action in planned.actions:
         assert PASSWORD not in action.text
 
@@ -312,3 +340,35 @@ def test_a_host_only_relocation_logs_no_database_name() -> None:
         "name": None,
     }
     assert record["load_target"] == "a staging database"
+
+
+# --------------------------------------------------------------------------
+# E007-S01-003: search_replace() binds WpCliSearchReplace
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("combo", SUBSETS, ids=lambda c: "+".join(c) or "none")
+@pytest.mark.parametrize("found", ["/opt/bin/wp", None])
+def test_search_replace_is_bound_iff_a_url_and_wp(
+    combo: tuple[str, ...], found: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    names = {ATTRIBUTE[f] for f in combo}
+    if ("new_db_user" in names) != ("new_db_password" in names):
+        return
+    lookups: list[str] = []
+
+    def which(name: str) -> str | None:
+        lookups.append(name)
+        return found
+
+    monkeypatch.setattr(wpcli.shutil, "which", which)
+    extension = restore_extension(_from(combo), secrets=SecretRegistry())
+    url = bool(names & {"new_site_url", "new_home_url"})
+    assert lookups == (["wp"] if url else [])
+    bound = extension.search_replace()
+    if url and found is not None:
+        assert isinstance(bound, WpCliSearchReplace)
+        assert repr(bound) == f"WpCliSearchReplace({found!r})"
+        assert extension.search_replace() is bound, "one instance per extension"
+    else:
+        assert bound is None

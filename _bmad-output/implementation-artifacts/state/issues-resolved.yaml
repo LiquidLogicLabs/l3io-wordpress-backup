@@ -743,3 +743,17 @@ resolved:
   resolved_at: '2026-11-07T01:53:30Z'
   ref: E007-S01-001
   note: "ConfigCommand.replace_file takes the Archive config's text (content: str); restore_runner reads either member with ArchiveProbe.read_member into memory and opens no file (AST guard in tests/unit/adapters/test_restore_runner.py); Dry Run writes no config file. ADR-0023 amended 2026-11-06 (owner decision O1 a)."
+- key: BL-E002-117
+  epic: '002'
+  sprint: ''
+  title: Archive passphrase stays in os.environ for the whole Run; child processes (wp-cli, Epic 7) inherit it
+  source: epic-redteam (RT-4)
+  source_phase: epic-redteam
+  source_ref: RT-4
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-4). Deferred to Epic 7 wiring.
+  resolution: fixed
+  resolved_at: '2026-11-07T03:23:02Z'
+  ref: E007-S01-003
+  note: "Owner decision O3 (a): every child process this package starts gets an explicit minimal env (adapters/wpcli.py: PATH, HOME, LC_ALL=C, WP_CLI_CONFIG_PATH; adapters/preflight.py probes: PATH, HOME, LC_ALL=C). Enforced by tests/contracts/test_child_env_explicit.py (AST guard over every module found by walking src/l3io/wp/backup, cross-checked against pkgutil; refuses missing/None env, env built from os.environ/getenv, value references, star imports; planted violations incl. a new module) and the sentinel leak tests in tests/adapters/test_wpcli.py (recording runner and the real run_child). The passphrase is NOT removed from os.environ. RESIDUAL: l3io-wordpress-database's own children (mysqldump, mysql, the age CLI backend) inherit the process environment; they run no site code (see BL-E004-055)."

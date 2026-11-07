@@ -17,9 +17,15 @@ import pytest
 from l3io.wp.backup.core.relocation import (
     RELOCATION_FLAGS,
     RelocationRequest,
+    nested,
+    pairs_merged,
     relocation_actions,
     relocation_undo,
+    replacement_pairs,
+    requires_search_replace,
     rewrite_values,
+    safe_order,
+    url_relocation,
     validate_relocation,
     validate_relocation_values,
 )
@@ -30,12 +36,14 @@ from l3io.wp.backup.core.restore import (
 )
 from l3io.wp.backup.domain.errors import (
     IncompleteRelocationCredentialsError,
+    InterferingReplacementsError,
     InvalidRelocationValueError,
     RelocationNeedsDatabaseRestoreError,
     UsageError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
+from l3io.wp.backup.domain.search_replace import Replacement, StoredUrls, UrlRelocation
 
 #: One distinct, valid value per attribute, so a leak names its source.
 VALUES = {
@@ -292,3 +300,154 @@ def test_the_mode_independent_rules_need_no_mode() -> None:
     with pytest.raises(IncompleteRelocationCredentialsError):
         validate_relocation_values(_request(new_db_user="u"))
     validate_relocation_values(_request(new_db_name="e007_db"))
+
+
+# --------------------------------------------------------------------------
+# E007-S01-003: SEARCH_REPLACE's pairs
+# --------------------------------------------------------------------------
+
+#: The URL attributes of ``RelocationRequest``, from ``dataclasses.fields``.
+_URL_NAMES = ("new_site_url", "new_home_url")
+
+
+@pytest.mark.parametrize("combo", _subsets(), ids=lambda c: "+".join(c) or "none")
+def test_requires_search_replace_iff_a_url_is_supplied(combo: tuple[str, ...]) -> None:
+    names = {f.name for f in dataclasses.fields(_Request)} - {"wp_config"}
+    assert set(combo) <= names
+    request = _request(**{name: VALUES[name] for name in combo})
+    wanted = bool(set(combo) & set(_URL_NAMES))
+    assert requires_search_replace(request) is wanted
+    urls = url_relocation(request)
+    if not wanted:
+        assert urls is None
+        return
+    assert urls == UrlRelocation(
+        site_url=VALUES["new_site_url"] if "new_site_url" in combo else None,
+        home_url=VALUES["new_home_url"] if "new_home_url" in combo else None,
+    )
+
+
+OLD_SITE = "https://old.e007.example/wp"
+OLD_HOME = "https://old.e007.example"
+NEW_SITE = "https://new.e007.example/wp"
+NEW_HOME = "https://new.e007.example"
+
+
+def test_pairs_are_longest_old_first() -> None:
+    stored = StoredUrls(siteurl=OLD_HOME, home=OLD_SITE)
+    pairs = replacement_pairs(
+        stored, UrlRelocation(site_url=NEW_HOME, home_url=NEW_SITE)
+    )
+    assert pairs == (Replacement(OLD_SITE, NEW_SITE), Replacement(OLD_HOME, NEW_HOME))
+    stored = StoredUrls(siteurl=OLD_SITE, home=OLD_HOME)
+    pairs = replacement_pairs(
+        stored, UrlRelocation(site_url=NEW_SITE, home_url=NEW_HOME)
+    )
+    assert [len(p.old) for p in pairs] == sorted(
+        (len(p.old) for p in pairs), reverse=True
+    )
+    assert pairs[0] == Replacement(OLD_SITE, NEW_SITE)
+
+
+def test_identity_pairs_are_dropped() -> None:
+    stored = StoredUrls(siteurl=OLD_SITE, home=OLD_HOME)
+    urls = UrlRelocation(site_url=OLD_SITE, home_url=NEW_HOME)
+    assert replacement_pairs(stored, urls) == (Replacement(OLD_HOME, NEW_HOME),)
+    same = UrlRelocation(site_url=OLD_SITE, home_url=OLD_HOME)
+    assert replacement_pairs(stored, same) == ()
+
+
+@pytest.mark.parametrize(
+    ("site_url", "home_url", "new", "merged"),
+    [
+        (NEW_SITE, NEW_HOME, NEW_HOME, True),
+        (NEW_SITE, None, NEW_SITE, False),
+        (None, NEW_HOME, NEW_HOME, False),
+    ],
+)
+def test_equal_stored_values_make_one_pair(
+    site_url: str | None, home_url: str | None, new: str, merged: bool
+) -> None:
+    stored = StoredUrls(siteurl=OLD_HOME, home=OLD_HOME)
+    urls = UrlRelocation(site_url=site_url, home_url=home_url)
+    assert replacement_pairs(stored, urls) == (Replacement(OLD_HOME, new),)
+    assert pairs_merged(stored, urls) is merged
+
+
+@pytest.mark.parametrize(
+    ("site_url", "home_url", "expected"),
+    [
+        (NEW_SITE, None, (Replacement(OLD_SITE, NEW_SITE),)),
+        (None, NEW_HOME, (Replacement(OLD_HOME, NEW_HOME),)),
+    ],
+)
+def test_only_the_supplied_url_is_paired(
+    site_url: str | None, home_url: str | None, expected: tuple[Replacement, ...]
+) -> None:
+    stored = StoredUrls(siteurl=OLD_SITE, home=OLD_HOME)
+    urls = UrlRelocation(site_url=site_url, home_url=home_url)
+    assert replacement_pairs(stored, urls) == expected
+    assert pairs_merged(stored, urls) is False
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "is_nested"),
+    [
+        ("https://a.example", "https://a.example/blog", True),
+        ("https://a.example", "https://a.example", True),
+        ("https://a.example/blog", "https://a.example", False),
+        ("https://a.example", "https://b.example", False),
+    ],
+)
+def test_nested(old: str, new: str, is_nested: bool) -> None:
+    assert nested(Replacement(old, new)) is is_nested
+
+
+def _apply(text: str, pairs: tuple[Replacement, ...]) -> str:
+    """Sequential passes, as WP-CLI runs them: each pair over the whole text."""
+    for pair in pairs:
+        text = text.replace(pair.old, pair.new)
+    return text
+
+
+@pytest.mark.parametrize(
+    ("stored", "urls"),
+    [
+        (
+            ("https://example.com/wp", "https://example.com"),
+            ("https://example.com.au/wp", "https://example.com.au"),
+        ),
+        (
+            ("https://a.test/wp", "https://a.test"),
+            ("https://a.test/blog", "https://b.test"),
+        ),
+    ],
+    ids=["cctld", "home-moves-host"],
+)
+def test_interfering_pairs_have_no_safe_order(
+    stored: tuple[str, str], urls: tuple[str, str]
+) -> None:
+    pairs = replacement_pairs(StoredUrls(*stored), UrlRelocation(*urls))
+    # Without the check the passes corrupt: shown, then refused.
+    content = f"{stored[0]}/x {stored[1]}/y"
+    assert _apply(content, pairs) != f"{urls[0]}/x {urls[1]}/y"
+    with pytest.raises(InterferingReplacementsError) as caught:
+        safe_order(pairs)
+    assert caught.value.exit_code is ExitCode.REFUSED
+
+
+def test_a_safe_order_is_kept_or_found() -> None:
+    a = Replacement("https://a.test/wp", "https://b.test/wp")
+    b = Replacement("https://b.test", "https://c.test")
+    assert safe_order((a, b)) == (b, a)
+    assert _apply("https://a.test/wp https://b.test", (b, a)) == (
+        "https://b.test/wp https://c.test"
+    )
+    longest = replacement_pairs(
+        StoredUrls(OLD_SITE, OLD_HOME),
+        UrlRelocation("https://n.test/wp", "https://n.test"),
+    )
+    assert safe_order(longest) == longest
+    nested_pair = (Replacement(OLD_HOME, OLD_HOME + "/blog"),)
+    assert safe_order(nested_pair) == nested_pair
+    assert safe_order(()) == ()

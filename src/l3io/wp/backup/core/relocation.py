@@ -17,7 +17,13 @@ derives the parts of it that are pure value work, for
   2026-10-27), carried by ``RestoreRelocation.cutover_*``;
 * :func:`relocation_actions` and :func:`relocation_undo` — the plan's extra
   action line (keys only) and the journal's undo text (the URL keys with
-  their prior values, which nothing else records).
+  their prior values, which nothing else records);
+* :func:`url_relocation`, :func:`requires_search_replace`,
+  :func:`replacement_pairs`, :func:`safe_order`, :func:`pairs_merged` and
+  :func:`nested` — what
+  ``SEARCH_REPLACE`` rewrites (E007-S01-003): the pairs WP-CLI's
+  ``search-replace`` is run with, derived from the stored ``siteurl``/``home``
+  and the new URLs. No serialized value is read or written here.
 
 The new database password never enters this module beyond the fact that it
 was supplied: :func:`validate_relocation` reads whether it is ``None`` or
@@ -26,6 +32,7 @@ empty, and nothing here stores, renders or returns it.
 
 from __future__ import annotations
 
+import itertools
 import unicodedata
 from collections.abc import Mapping
 from pathlib import PurePath
@@ -39,18 +46,26 @@ from l3io.wp.backup.core.restore import (
 )
 from l3io.wp.backup.domain.errors import (
     IncompleteRelocationCredentialsError,
+    InterferingReplacementsError,
     InvalidRelocationValueError,
     RelocationNeedsDatabaseRestoreError,
 )
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
+from l3io.wp.backup.domain.search_replace import Replacement, StoredUrls, UrlRelocation
 
 __all__ = [
     "RELOCATION_FLAGS",
     "URL_SCHEMES",
     "RelocationRequest",
+    "nested",
+    "pairs_merged",
     "relocation_actions",
     "relocation_undo",
+    "replacement_pairs",
+    "requires_search_replace",
     "rewrite_values",
+    "safe_order",
+    "url_relocation",
     "validate_relocation",
     "validate_relocation_values",
 ]
@@ -254,3 +269,98 @@ def relocation_undo(
         return ()
     steps = "; ".join(_restore_step(key, prior.get(key)) for key in keys)
     return ((RestorePhase.REWRITE_CONFIG, f"in {CONFIG_FILE_NAME}: {steps}"),)
+
+
+# --------------------------------------------------------------------------
+# SEARCH_REPLACE (E007-S01-003): the pairs, never the serialized values
+# --------------------------------------------------------------------------
+
+
+def url_relocation(request: RelocationRequest) -> UrlRelocation | None:
+    """The URLs ``SEARCH_REPLACE`` moves the content to, or ``None`` for neither."""
+    if not requires_search_replace(request):
+        return None
+    return UrlRelocation(site_url=request.new_site_url, home_url=request.new_home_url)
+
+
+def requires_search_replace(request: RelocationRequest) -> bool:
+    """True iff ``--new-site-url`` or ``--new-site-home-url`` is supplied."""
+    return request.new_site_url is not None or request.new_home_url is not None
+
+
+def pairs_merged(stored: StoredUrls, urls: UrlRelocation) -> bool:
+    """True when both URLs are relocated but the stored two are one value.
+
+    The content then holds one old URL, so one pair (``home_url``'s) is made
+    for both requests (:func:`replacement_pairs`), and the report says so.
+    """
+    both = urls.site_url is not None and urls.home_url is not None
+    return both and stored.siteurl == stored.home
+
+
+def replacement_pairs(
+    stored: StoredUrls, urls: UrlRelocation
+) -> tuple[Replacement, ...]:
+    """The search-replace pairs, longest ``old`` first, identities dropped.
+
+    One pair per supplied URL: ``stored.siteurl`` → ``urls.site_url`` and
+    ``stored.home`` → ``urls.home_url``. When the stored values are equal a
+    single pair is made, to ``home_url`` if supplied, else ``site_url``. The
+    order is by descending ``len(old)``, so ``https://x.test/wp`` is rewritten
+    before ``https://x.test`` would rewrite its prefix.
+    """
+    if stored.siteurl == stored.home:
+        new = urls.home_url if urls.home_url is not None else urls.site_url
+        candidates = [] if new is None else [Replacement(stored.home, new)]
+    else:
+        candidates = [
+            Replacement(old, new)
+            for old, new in (
+                (stored.siteurl, urls.site_url),
+                (stored.home, urls.home_url),
+            )
+            if new is not None
+        ]
+    kept = [pair for pair in candidates if pair.old != pair.new]
+    return tuple(sorted(kept, key=lambda pair: len(pair.old), reverse=True))
+
+
+def nested(pair: Replacement) -> bool:
+    """True when ``pair.new`` contains ``pair.old``: no zero-remaining check then.
+
+    After the replacement the new text legitimately holds the old, so a
+    re-count of ``old`` cannot be zero.
+    """
+    return pair.old in pair.new
+
+
+def _safe(order: tuple[Replacement, ...]) -> bool:
+    """No pair in ``order`` touches what an earlier one wrote or left to a later one.
+
+    For an earlier pair ``e`` and a later pair ``l``: ``l.old`` must not occur
+    in ``e.new`` (``l`` would rewrite ``e``'s output), and ``e.old`` must not
+    occur in ``l.old`` (``e`` would consume ``l``'s matches first).
+    """
+    return not any(
+        late.old in early.new or early.old in late.old
+        for i, early in enumerate(order)
+        for late in order[i + 1 :]
+    )
+
+
+def safe_order(pairs: tuple[Replacement, ...]) -> tuple[Replacement, ...]:
+    """``pairs`` in an order where no pass rewrites another's output, or a refusal.
+
+    The pairs run as separate ``wp search-replace`` passes, so a later pair
+    whose old URL occurs inside an earlier pair's new URL would rewrite it
+    (``example.com/wp`` and ``example.com`` moved to ``example.com.au``
+    would end as ``example.com.au.au``). The given order (longest ``old``
+    first) is kept when it is safe; otherwise the first safe permutation is
+    used; when none is, :class:`InterferingReplacementsError` is raised, before
+    any replacement. A pair's own nesting (``new`` containing ``old``) is not
+    interference: one pass reads each value once.
+    """
+    for order in itertools.permutations(pairs):
+        if _safe(order):
+            return order
+    raise InterferingReplacementsError(tuple((pair.old, pair.new) for pair in pairs))

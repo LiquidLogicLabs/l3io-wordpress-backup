@@ -54,6 +54,7 @@ __all__ = [
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
     "IncompleteRelocationCredentialsError",
+    "InterferingReplacementsError",
     "InvalidRelocationValueError",
     "InvalidSiteDescriptorError",
     "LoadFailedError",
@@ -70,9 +71,11 @@ __all__ = [
     "RelocationNeedsDatabaseRestoreError",
     "RunContextActiveError",
     "RunTerminated",
+    "SearchReplaceIncompleteError",
     "SiteLockLocationError",
     "SiteLockReleaseError",
     "SiteLockedError",
+    "StoredUrlMissingError",
     "UnboundAdapterError",
     "UnreadableSiteRootError",
     "UnrecognisedArchiveError",
@@ -82,6 +85,9 @@ __all__ = [
     "UnsupportedStorageSchemeError",
     "UsageError",
     "VerificationFailedError",
+    "WpCliConfigFoundError",
+    "WpCliFailedError",
+    "WpCliOutputUnrecognisedError",
     "exit_code_of",
 ]
 
@@ -694,6 +700,109 @@ class UnboundAdapterError(BackupError):
         self.supplier = supplier
         super().__init__(
             f"{port} has no implementation bound yet ({supplier} binds it)"
+        )
+
+
+class StoredUrlMissingError(BackupError):
+    """FR-12: the loaded database has no ``siteurl`` or ``home`` value to replace.
+
+    Raised before any replacement, so nothing was rewritten.
+    """
+
+    def __init__(self, option: str) -> None:
+        self.option = option
+        super().__init__(
+            f"the restored database has no {option!r} option value, so the content "
+            "URLs cannot be relocated; nothing was replaced"
+        )
+
+
+class WpCliFailedError(BackupError):
+    """FR-12: a ``wp`` call exited non-zero or could not be started.
+
+    ``stderr_tail`` is the last lines of its stderr, redacted by the adapter
+    before it is put here; ``exit_status`` is ``None`` when ``wp`` never ran.
+    """
+
+    def __init__(self, step: str, exit_status: int | None, stderr_tail: str) -> None:
+        self.step = step
+        self.exit_status = exit_status
+        self.stderr_tail = stderr_tail
+        status = "could not be run" if exit_status is None else f"exited {exit_status}"
+        tail = f": {stderr_tail}" if stderr_tail else ""
+        super().__init__(f"WP-CLI ({step}) {status}{tail}")
+
+
+class WpCliOutputUnrecognisedError(BackupError):
+    """FR-12: WP-CLI's output did not have the shape this package reads.
+
+    ``replaced_maybe`` is ``False`` for a read or preview step, which precedes
+    every replacement, and ``True`` for a ``replace`` or ``recount`` step, which
+    follows one: the replacement may have been made, and the journal says so.
+    """
+
+    def __init__(
+        self, step: str, reason: str, *, wp_cli_version: str, replaced_maybe: bool
+    ) -> None:
+        self.step = step
+        self.reason = reason
+        self.wp_cli_version = wp_cli_version
+        self.replaced_maybe = replaced_maybe
+        outcome = (
+            "the replacement may have been made; see the journal"
+            if replaced_maybe
+            else "nothing was replaced"
+        )
+        super().__init__(
+            f"WP-CLI {wp_cli_version} ({step}) printed output this tool does not "
+            f"recognise: {reason}; {outcome}"
+        )
+
+
+class InterferingReplacementsError(RefusedError):
+    """FR-12: the URL pairs would rewrite each other's output in every order.
+
+    Raised before any replacement. ``pairs`` holds (old, new) URLs, which are
+    not secrets.
+    """
+
+    def __init__(self, pairs: tuple[tuple[str, str], ...]) -> None:
+        self.pairs = pairs
+        shown = "; ".join(f"{old!r} -> {new!r}" for old, new in pairs)
+        super().__init__(
+            f"refused to rewrite content URLs: the replacements {shown} would "
+            "rewrite each other's results in any order; nothing was replaced. "
+            "Rewrite them with `wp search-replace` yourself, through a temporary "
+            "placeholder string"
+        )
+
+
+class SearchReplaceIncompleteError(BackupError):
+    """FR-12: after the replacement the old URL is still found ``remaining`` times."""
+
+    def __init__(self, old: str, new: str, remaining: int) -> None:
+        self.old = old
+        self.new = new
+        self.remaining = remaining
+        super().__init__(
+            f"{remaining} occurrence(s) of {old!r} remain after replacing it "
+            f"with {new!r}"
+        )
+
+
+class WpCliConfigFoundError(RefusedError):
+    """AD-11: a ``wp-cli.yml`` WP-CLI would read sits in an ancestor of its directory.
+
+    WP-CLI reads ``wp-cli.yml``/``wp-cli.local.yml`` from its working
+    directory and upwards, and such a file can ``require:`` PHP. Raised before
+    the ``wp`` call, so nothing was replaced by it.
+    """
+
+    def __init__(self, path: PurePath) -> None:
+        self.path = path
+        super().__init__(
+            f"refused to run WP-CLI: {str(path)!r} would configure it (it can load "
+            "PHP); remove the file or run the restore from another state directory"
         )
 
 

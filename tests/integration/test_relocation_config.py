@@ -34,6 +34,7 @@ without the database.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import shutil
 import subprocess
@@ -159,12 +160,24 @@ def _resolve(
     )
     view, _ = verify_archive_view(archive)
     assert view is not None
-    return restore_extension(flags, secrets=SecretRegistry()).resolve(
+    relocation = restore_extension(flags, secrets=SecretRegistry()).resolve(
         site_root=site.site_root,
         site=descriptor,
         view=view,
         files=LocalSiteFiles(),
         mode=mode,
+    )
+    # The content rewrite (SEARCH_REPLACE, E007-S01-003) needs a WordPress
+    # install and ``wp``; this Site Root is neither, and the rewrite is
+    # tests/integration/test_search_replace.py's. Here: the config only.
+    return dataclasses.replace(
+        relocation,
+        search_replace=None,
+        undo=tuple(
+            (phase, text)
+            for phase, text in relocation.undo
+            if phase is not RestorePhase.SEARCH_REPLACE
+        ),
     )
 
 

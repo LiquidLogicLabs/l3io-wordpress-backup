@@ -218,6 +218,8 @@ __all__ = [
     "restore_mode_from_cli",
     "restore_summary",
     "run_restore",
+    "search_replace_fields",
+    "search_replace_line",
     "snapshot_policy_from_cli",
 ]
 
@@ -1551,15 +1553,43 @@ def restore_summary(
         "database_report": (
             None if database is None else database_report_fields(database)
         ),
-        "search_replace": (
-            None if search is None else {"replacements": search.replacements}
-        ),
+        "search_replace": (None if search is None else search_replace_fields(search)),
         "snapshot_path": (
             None if outcome.snapshot_path is None else str(outcome.snapshot_path)
         ),
         "snapshot_encrypted": outcome.snapshot_encrypted,
         "wp_config_kept": outcome.wp_config_kept,
     }
+
+
+def search_replace_fields(report: SearchReplaceReport) -> dict[str, object]:
+    """FR-12: the content URL rewrite in the JSON report (URLs are not secrets).
+
+    ``replacements``, ``tables`` and ``remaining`` are ``None`` in a Dry Run:
+    unknown until the Dump is loaded, never a guessed number.
+    """
+    return {
+        "replacements": report.replacements,
+        "tables": None if report.tables is None else list(report.tables),
+        "pairs": [{"old": p.old, "new": p.new} for p in report.pairs],
+        "remaining": report.remaining,
+        "merged": report.merged,
+    }
+
+
+def search_replace_line(report: SearchReplaceReport) -> str:
+    """FR-12: ``content URLs: <n> replacements in <k> tables (<old> → <new>)``.
+
+    A Dry Run's report has no counts: its line names the planned pairs and says
+    the counts are determined after ``LOAD_DUMP``.
+    """
+    pairs = "; ".join(f"{p.old} → {p.new}" for p in report.pairs) or "none"
+    if report.replacements is None or report.tables is None:
+        return f"content URLs: planned ({pairs}); counts determined after LOAD_DUMP"
+    return (
+        f"content URLs: {report.replacements} replacements in "
+        f"{len(report.tables)} tables ({pairs})"
+    )
 
 
 def completion_line(outcome: RestoreOutcome, *, archive: str, site_root: str) -> str:
@@ -1602,7 +1632,7 @@ def _print_outcome(
     if outcome.database is not None:
         emit_database_report(outcome.database)
     if outcome.search_replace is not None:
-        emit_result(f"search-replace: {outcome.search_replace.replacements} replaced")
+        emit_result(search_replace_line(outcome.search_replace))
     if outcome.snapshot_path is not None:
         emit_result(f"safety snapshot: {outcome.snapshot_path}")
     if outcome.wp_config_kept:
