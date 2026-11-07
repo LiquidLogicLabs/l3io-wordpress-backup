@@ -1,0 +1,65 @@
+key: 'E007'
+title: 'Move a site to a new URL'
+goal: 'The largest greenfield block, and the one capability that most distinguishes this from `mysqldump | tar`. Needs Epic 3''s restore path.'
+status: done
+updated_at: '2026-11-07T07:22:14Z'
+origin: epics.md
+origin_note: goal and title taken from planning-artifacts/epics.md
+estimate:
+  man_hours_low: 43.62
+  man_hours_high: 49.57
+  hitl_hours_low: 2.5
+  hitl_hours_high: 2.84
+  elapsed_hours_low: 14.54
+  elapsed_hours_high: 16.53
+  tokens_k_min: 1021
+  tokens_k_max: 1161
+  closure_ratios:
+    man_hours: 1.0
+    hitl_hours: 1.0
+    elapsed_hours: 1.0
+    tokens_k: 1.0
+  orchestration_ratios:
+    man_hours: 0
+    hitl_hours: 0
+    elapsed_hours: 0
+    tokens_k: 0
+  cost_low: 4.21
+  cost_high: 4.79
+  model: claude-opus-5
+  confidence: medium
+depends_on:
+- 'E002'
+- 'E003'
+- 'E005'
+actual:
+  elapsed_hours: 3.39
+  man_hours: 90
+  hitl_hours: 0
+  tokens_k:
+    total: 187610.21
+    input: 2.302
+    output: 1029.886
+    cache_write: 4856.475
+    cache_read: 181721.544
+  cost: 88.18
+  model: claude-sonnet-5
+calibration_sampled_at: '2026-11-07T07:22:02Z'
+orchestration:
+  elapsed_hours: 0
+  man_hours: 0
+  hitl_hours: 0
+  tokens_k:
+    total: 0
+    input: 0
+    output: 0
+    cache_write: 0
+    cache_read: 0
+  cost: 0.0
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-11-07T07:22:02Z'
+closed:
+  date: '2026-11-07'
+retrospective:
+  summary: "E007 delivered site relocation end to end at the library level: URL and database relocation, WP-CLI search-replace over serialized data, config outside the site root, WP-CLI preflight. Epic-wide review found no critical issue; the fixes made in closure cover untrusted stored URLs, child timeout, /proc exposure, laid-down config mode and config shadowing. Preflight binding for the CLI is E008-S01-001's, now with acceptance criteria."
+  learnings: A new call site on an existing trust boundary inherits the boundary's guard list, with a test per guard; state what a security control does not cover next to what it does; apply string rules to untrusted text where it enters argv whatever its origin; give every child process a time limit and output bound; mark deferred bindings 'not yet' in user-facing docs.

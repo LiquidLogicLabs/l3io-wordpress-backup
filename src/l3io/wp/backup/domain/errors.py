@@ -76,6 +76,7 @@ __all__ = [
     "SiteLockLocationError",
     "SiteLockReleaseError",
     "SiteLockedError",
+    "StoredUrlInvalidError",
     "StoredUrlMissingError",
     "UnboundAdapterError",
     "UnreadableSiteRootError",
@@ -716,6 +717,23 @@ class StoredUrlMissingError(BackupError):
         super().__init__(
             f"the restored database has no {option!r} option value, so the content "
             "URLs cannot be relocated; nothing was replaced"
+        )
+
+
+class StoredUrlInvalidError(RefusedError):
+    """FR-12: the loaded database's ``siteurl`` or ``home`` is not a URL to replace.
+
+    The value came from the Archive and would become a ``wp search-replace``
+    argument, so it is refused before any replacement. It is not echoed: it is
+    untrusted text, and may hold terminal control characters.
+    """
+
+    def __init__(self, option: str, reason: str) -> None:
+        self.option = option
+        self.reason = reason
+        super().__init__(
+            f"the restored database's {option!r} option value is not a URL this "
+            f"tool will pass to WP-CLI ({reason}); nothing was replaced"
         )
 
 

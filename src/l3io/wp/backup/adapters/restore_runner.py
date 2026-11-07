@@ -757,14 +757,16 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
             payload=run.payload,
         )
         record.bytes += laid.bytes
+        _restrict_laid_down(config_file)
         _log_laid_down(config_file, started)
         run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG)
     if restores_files(run.plan.mode):
         # The tree's copy is excluded when the target keeps its own, or when
-        # the config-role lay-down placed one in the Site Root; a lay-down from
-        # the tree is this very extraction (``_check_config``).
-        laid_in_root = by_role and _same_dir(config_file.parent, run.site_root)
-        keeps = run.config_existed or laid_in_root
+        # the config-role lay-down placed one (in the Site Root, or above it: an
+        # Archive's own root ``wp-config.php`` must not shadow a config laid
+        # down elsewhere, which WordPress would then never read); a lay-down
+        # from the tree is this very extraction (``_check_config``).
+        keeps = run.config_existed or by_role
         run.journal.phase_started(RestorePhase.EXTRACT, str(run.site_root))
         result = adapters.site_files_command.extract(
             inputs.archive,
@@ -784,8 +786,32 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
     run.journal.phase_completed(RestorePhase.EXTRACT)
 
 
+def _restrict_laid_down(config_file: Path) -> None:
+    """Take every permission from "other" off a config just laid down.
+
+    It takes its mode from the Archive, and the cutover is about to write a
+    database password into it. The owner and group bits are kept: the web
+    server may read it as the group. WARNING ``config_mode_restricted`` (path
+    and modes only) says when the Archive's mode was wider.
+    """
+    try:
+        info = os.lstat(config_file)
+    except OSError:
+        return
+    mode = stat.S_IMODE(info.st_mode)
+    if stat.S_ISREG(info.st_mode) and mode & 0o007:
+        narrowed = mode & ~0o007
+        os.chmod(config_file, narrowed)  # noqa: PTH101
+        _log.warning(
+            "config_mode_restricted",
+            config_path=str(config_file),
+            archive_mode=f"{mode:04o}",
+            mode=f"{narrowed:04o}",
+        )
+
+
 def _log_laid_down(config_file: Path, started: float) -> None:
-    """FR-29: ``config_laid_down`` with the file's mode; WARNING if others can read it.
+    """FR-29: ``config_laid_down`` with the file's mode.
 
     The file holds ``DB_PASSWORD``: its path and mode are logged, never its
     content. Nothing is logged when no file was written (a no-op extraction).
@@ -800,10 +826,6 @@ def _log_laid_down(config_file: Path, started: float) -> None:
         mode=f"{mode:04o}",
         duration_ms=(time.monotonic() - started) * 1000,
     )
-    if mode & stat.S_IROTH:
-        _log.warning(
-            "config_world_readable", config_path=str(config_file), mode=f"{mode:04o}"
-        )
 
 
 def _same_dir(left: Path, right: Path) -> bool:

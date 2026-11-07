@@ -465,9 +465,15 @@ def test_a_lay_down_extracts_the_config_role_first(tmp_path: Path) -> None:
     ]
 
 
-@pytest.mark.parametrize("mode", [0o640, 0o644], ids=["private", "world-readable"])
-def test_a_lay_down_logs_the_file_s_mode(tmp_path: Path, mode: int) -> None:
-    """E007-S01-002: ``config_laid_down`` (path, octal mode); WARNING if others read."""
+@pytest.mark.parametrize(
+    ("archive_mode", "laid_mode"),
+    [(0o640, 0o640), (0o644, 0o640), (0o666, 0o660), (0o604, 0o600)],
+    ids=["private", "world-readable", "world-writable", "other-only"],
+)
+def test_a_lay_down_takes_other_permissions_off_and_logs_the_mode(
+    tmp_path: Path, archive_mode: int, laid_mode: int
+) -> None:
+    """E007 closure RT-4: the Archive's "other" bits never survive the lay-down."""
     archive = write_v1(tmp_path, config_role=True)
     relocation = dataclasses.replace(RELOCATIONS["url-only"], lay_down_config=True)
     h = _harness(
@@ -479,7 +485,7 @@ def test_a_lay_down_logs_the_file_s_mode(tmp_path: Path, mode: int) -> None:
     def extract(self: LocalSiteFiles, *args: object, **kwargs: object) -> object:
         result = real_extract(self, *args, **kwargs)  # type: ignore[arg-type]
         if h.config_path.exists():
-            h.config_path.chmod(mode)
+            h.config_path.chmod(archive_mode)
         return result
 
     with pytest.MonkeyPatch.context() as mp:
@@ -488,22 +494,43 @@ def test_a_lay_down_logs_the_file_s_mode(tmp_path: Path, mode: int) -> None:
             h.run()
     (laid,) = [e for e in logs if e["event"] == "config_laid_down"]
     assert laid["config_path"] == str(h.config_path)
-    assert laid["mode"] == f"{mode:04o}"
+    assert laid["mode"] == f"{laid_mode:04o}"
     assert laid["duration_ms"] >= 0
-    warned = [e for e in logs if e["event"] == "config_world_readable"]
-    if mode & 0o004:
-        assert warned == [
+    narrowed = [e for e in logs if e["event"] == "config_mode_restricted"]
+    if archive_mode == laid_mode:
+        assert narrowed == []
+    else:
+        assert narrowed == [
             {
-                "event": "config_world_readable",
+                "event": "config_mode_restricted",
                 "log_level": "warning",
                 "config_path": str(h.config_path),
-                "mode": f"{mode:04o}",
+                "archive_mode": f"{archive_mode:04o}",
+                "mode": f"{laid_mode:04o}",
             }
         ]
-    else:
-        assert warned == []
     body = h.config_path.read_text(encoding="utf-8")
     assert all(body not in repr(e) for e in logs)
+
+
+def test_a_config_laid_down_above_the_root_excludes_the_trees_own(
+    tmp_path: Path,
+) -> None:
+    """E007 closure RT-3: an Archive's root ``wp-config.php`` cannot shadow it."""
+    from pathlib import PurePosixPath
+
+    archive = write_v1(tmp_path, config_role=True)
+    parent = PurePosixPath(tmp_path / "wp-config.php")
+    relocation = dataclasses.replace(
+        RELOCATIONS["url-only"], lay_down_config=True, config_file=parent
+    )
+    h = _harness(tmp_path, archive, mode=RestoreMode.ALL, relocation=relocation)
+    h.config_path.unlink()
+    Path(parent).unlink()  # the Archive's source file sat there: the target has none
+    h.run()
+    extracts = [c for c in h.log.calls if c[2] == "extract"]
+    assert extracts[0][3] == (str(tmp_path), ["config"], [])
+    assert extracts[1][3] == (str(h.site_root), ["site-root"], ["wp-config.php"])
 
 
 def test_a_lay_down_of_an_in_root_config_arrives_with_the_tree(

@@ -41,6 +41,7 @@ from l3io.wp.backup.domain.errors import (
     InterferingReplacementsError,
     RefusedError,
     SearchReplaceIncompleteError,
+    StoredUrlInvalidError,
     StoredUrlMissingError,
     WpCliConfigFoundError,
     WpCliFailedError,
@@ -717,3 +718,103 @@ def test_one_url_over_equal_stored_values_warns_home_moved(
         _relocate(_one_pair_wp(), site_root, urls)
     moved = [e for e in logs if e["event"] == "search_replace_home_moved"]
     assert bool(moved) is warned
+
+
+# --------------------------------------------------------------------------
+# Epic closure (E007): stored URLs are untrusted; the child is bounded and
+# cannot read its parent's /proc entries
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("not_root")
+@pytest.mark.parametrize("option", ["siteurl", "home"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "--require=/tmp/x.php",
+        "--export=/tmp/out.sql",
+        "ftp://old.example.com",
+        "http://old.example.com/\x1b]0;x\x07",
+        "http://old.example.com/a b",
+        'http://old.example.com/"',
+    ],
+    ids=["require", "export", "scheme", "control", "space", "quote"],
+)
+def test_a_stored_url_that_is_not_a_url_is_refused_before_any_wp_replace(
+    site_root: Path, option: str, value: str
+) -> None:
+    """RT-5/AR-4: the Archive's own value never becomes a ``wp`` argument."""
+    fake = FakeWp(**{option: value})  # type: ignore[arg-type]
+    with pytest.raises(StoredUrlInvalidError) as caught:
+        _relocate(fake, site_root)
+    assert isinstance(caught.value, RefusedError)
+    assert caught.value.option == option
+    assert value not in str(caught.value)
+    sent = "\0".join("\0".join(c.argv) for c in fake.calls)
+    assert value not in sent
+    assert "preview" not in fake.steps()
+    assert "replace" not in fake.steps()
+
+
+@pytest.mark.usefixtures("not_root")
+def test_a_stored_url_with_a_trailing_slash_is_still_replaced(site_root: Path) -> None:
+    fake = _one_pair_wp()
+    fake.siteurl = fake.home = f"{OLD}/"
+    _relocate(fake, site_root)
+    assert "replace" in fake.steps()
+
+
+@pytest.mark.usefixtures("not_root")
+def test_a_wp_child_that_times_out_is_a_failed_call_not_a_hang(
+    site_root: Path,
+) -> None:
+    """RT-2/AR-3: ``TimeoutExpired`` becomes ``WpCliFailedError``, step named."""
+
+    def hang(
+        argv: list[str], *, cwd: Path, env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(argv, 1)
+
+    replacer = WpCliSearchReplace(WP, secrets=SecretRegistry(), run=hang)
+    with pytest.raises(WpCliFailedError) as caught:
+        replacer.relocate_content(site_root, UrlRelocation(NEW, NEW))
+    assert caught.value.step == "version"
+    assert "timed out" in caught.value.stderr_tail
+
+
+def test_the_real_runner_kills_a_child_that_outlives_the_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wpcli, "CHILD_TIMEOUT_S", 0.5)
+    code = "import time; time.sleep(60)"
+    with pytest.raises(subprocess.TimeoutExpired):
+        wpcli.run_child(
+            [sys.executable, "-I", "-c", code],
+            cwd=tmp_path,
+            env={"PATH": os.environ["PATH"]},
+        )
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or os.geteuid() == 0,
+    reason="/proc/<pid>/environ is guarded by the dumpable flag for a non-root user",
+)
+def test_the_child_cannot_read_the_parents_proc_environ(tmp_path: Path) -> None:
+    """RT-1: same-user restored PHP could read the passphrase from /proc/<ppid>."""
+    code = (
+        "import os, sys\n"
+        "try:\n"
+        "    open(f'/proc/{os.getppid()}/environ', 'rb').read(1)\n"
+        "except PermissionError:\n"
+        "    sys.exit(7)\n"
+    )
+    argv = [sys.executable, "-I", "-c", code]
+    env = {"PATH": os.environ["PATH"]}
+    # Control: without the guard the read succeeds, so the test can tell.
+    plain = subprocess.run(argv, cwd=tmp_path, env=env, check=False)  # noqa: S603
+    assert plain.returncode == 0
+    guarded = wpcli.run_child(argv, cwd=tmp_path, env=env)
+    assert guarded.returncode == 7
+    # The flag is put back afterwards.
+    again = subprocess.run(argv, cwd=tmp_path, env=env, check=False)  # noqa: S603
+    assert again.returncode == 0

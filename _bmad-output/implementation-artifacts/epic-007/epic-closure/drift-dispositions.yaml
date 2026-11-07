@@ -1,0 +1,10 @@
+review: _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: 'Shipped state: a URL-relocating restore through the CLI or the API cannot get past PREFLIGHT, and neither the docs nor any guard says so. The six `--new-site-*` and `--new-db-*` flags and `--wp-config` were deleted from `NOT_YET_IMPLEMENTED`, and docs/restore.md documents `--new-site-url` as working ("It needs WP-CLI (`wp`) on `PATH`"). The restore root binds `DumpReadinessPreflight`, which returns `version=None` for every non-dump tool. `preflight_failure` fails any requirement with a stated minimum when the version is `None`, and `WP_CLI_REQUIREMENT` has `minimum_version=(2,12,0)`. So even with a current `wp` installed, the run exits 7 with "unusable/version unknown". Story S01-004 (C5) and `cli/preflight.py:18` acknowledge this and defer the fix to E008-S01-001 (`RootPreflight`).'
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:

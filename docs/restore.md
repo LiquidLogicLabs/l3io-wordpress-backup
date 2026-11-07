@@ -225,12 +225,23 @@ so widgets, menus and theme options keep working. It runs after
 `REWRITE_CONFIG` and after `LOAD_DUMP`'s cutover, because WP-CLI bootstraps
 from the `wp-config.php` just written. It needs WP-CLI (`wp`) on `PATH`.
 
+> **Known gap until E008-S01-001.** The restore command's preflight does not
+> yet read tool versions, so a restore with `--new-site-url` or
+> `--new-site-home-url` stops at `PREFLIGHT` with exit 7 and "unusable
+> (version unknown)" for `wp`, even with WP-CLI 2.12 installed. Until the
+> composition roots bind the version-reading preflight, restore without those
+> two flags and run `wp search-replace` yourself.
+
 - **What is replaced.** The old values are the restored database's stored
   `siteurl` and `home` options, read with `wp option list` (not `option get`,
   which would return the constants just written). Each is replaced by its new
   URL; when the two stored values are equal, one replacement is made, to the
   home URL if given (with only one of the two flags, that one replacement
-  moves both, and the Run logs WARNING `search_replace_home_moved`).
+  moves both, and the Run logs WARNING `search_replace_home_moved`). A stored
+  value is the Archive's own text, so it must pass the same string rules as a
+  `--new-site-url` (an `http://` or `https://` URL, no leading `-`, no
+  whitespace, control character or quote; a trailing `/` is allowed): one that
+  does not exits 3 `REFUSED` before anything is replaced, without printing it.
 - **Order, and when it is refused.** The replacements run one after another,
   longer old URLs first. If one replacement's old URL occurs inside the other's
   new URL (for example `https://example.com/wp` and `https://example.com`
@@ -281,15 +292,29 @@ drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
   directory and every directory above it, and such a file can load PHP; if one
   is found there, the Run is refused (exit 3) before `wp` runs.
   `WP_CLI_CONFIG_PATH` names an empty file, so no `~/.wp-cli/config.yml` is
-  read either.
+  read either. **Not yet covered:** the `wp cli version` probe that preflight
+  runs is started from the Run workspace under `$TMPDIR`, and a `wp-cli.yml`
+  above it is not looked for; the probe is not on the CLI's restore path until
+  E008-S01-001 binds it.
 - **The environment it gets.** Exactly `PATH`, `HOME`, `LC_ALL=C` and
   `WP_CLI_CONFIG_PATH`. Nothing else is passed on: not the Archive passphrase
   (`L3IO_WP_BACKUP_PASSPHRASE`), not any other `L3IO_WP_BACKUP_*`, `MYSQL_*` or
   `WP_CLI_*` variable. WP-CLI reads the database password from
   `wp-config.php`; none is passed by argument or environment. The same holds
-  for the version probes run before anything is changed. Child processes
+  for the version probes run before anything is changed. This keeps the
+  variables from being *inherited*; it does not hide them from the restored
+  code, which runs as your user and could read this process's own
+  `/proc/<pid>/environ` and `/proc/<pid>/cmdline`. On Linux, the process
+  therefore marks itself non-dumpable (`prctl(PR_SET_DUMPABLE, 0)`) while a
+  `wp` child runs, which makes its `environ` unreadable to that child; as
+  root, and on other systems, this does nothing, and `cmdline` (which holds
+  `--admin-password` and `--new-db-password` when you pass them) stays world
+  readable. Child processes
   started by the database library (the database client tools and `age`)
   still inherit this tool's environment; they run no Site code.
+- **A time limit.** A `wp` call is killed after four hours and the Run fails
+  (exit 1) with the step named, so restored code that never returns does not
+  hold the Site Lock for ever. Its output is not size-limited.
 - **As root.** When the restore runs as root, `wp` is given `--allow-root` and
   the Run logs WARNING `wp_cli_running_as_root`: WP-CLI then executes the
   restored Site's `wp-config.php`, mu-plugins and drop-ins as root. Run the
@@ -543,9 +568,13 @@ one level up after the checks and before the lay-down is not detected, and the
 lay-down overwrites it; it is in neither the pre-restore checks nor the Safety
 Snapshot.
 
-The laid-down file's mode is logged (INFO `config_laid_down`), with the
-WARNING `config_world_readable` when other users can read it: it holds
-`DB_PASSWORD`.
+The laid-down file's mode is logged (INFO `config_laid_down`). It holds
+`DB_PASSWORD`, so every "other" permission bit is taken off it straight after
+it is written, whatever the Archive's mode was, with WARNING
+`config_mode_restricted` (path, the Archive's mode and the new mode) when that
+changed anything. Owner and group bits are kept. When the config is laid down
+by itself, the Archive's own `wp-config.php` in the Site Root tree is not
+extracted, so it cannot shadow the one WordPress is meant to read.
 
 ## Symlinks
 

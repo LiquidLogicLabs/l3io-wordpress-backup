@@ -3,7 +3,7 @@ next:
   '003': 117
   '004': 70
   '005': 14
-  '007': 7
+  '007': 21
   '006': 8
 backlog:
 - key: BL-E002-004
@@ -2706,3 +2706,151 @@ backlog:
   description: See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-004.md finding 3
   story: E008-S01-001
   scheduled_at: '2026-11-07T07:06:32Z'
+- key: BL-E007-007
+  epic: '007'
+  sprint: '01'
+  title: wp cli version preflight probe runs under $TMPDIR and reads wp-cli.yml from ancestors (not yet on the restore path; becomes reachable when E008-S01-001 binds BinaryPreflight)
+  source: epic-adversarial (AR-1)
+  source_phase: epic-adversarial
+  source_ref: AR-1
+  severity: High
+  status: scheduled
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+- key: BL-E007-008
+  epic: '007'
+  sprint: '01'
+  title: wp-cli.yml ancestor refusal and wp state-directory prepare happen at SEARCH_REPLACE, after the site is wiped and loaded; move to PREFLIGHT
+  source: epic-adversarial (AR-2)
+  source_phase: epic-adversarial
+  source_ref: AR-2
+  severity: Medium
+  status: scheduled
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+- key: BL-E007-009
+  epic: '007'
+  sprint: '01'
+  title: wp child output is captured unbounded in memory (timeout added in E007 closure); bound it
+  source: epic-redteam (RT-2)
+  source_phase: epic-redteam
+  source_ref: RT-2
+  severity: Medium
+  status: scheduled
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+- key: BL-E007-010
+  epic: '007'
+  sprint: '01'
+  title: --new-site-url with userinfo (https://user:pw@host) passes validation and reaches argv, logs and JSON report
+  source: epic-adversarial (AR-6)
+  source_phase: epic-adversarial
+  source_ref: AR-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+- key: BL-E007-011
+  epic: '007'
+  sprint: '01'
+  title: dead factory-is-None branch, RELOCATION_UNAVAILABLE and mid-file import under noqa in cli/restore.py
+  source: epic-adversarial (AR-7)
+  source_phase: epic-adversarial
+  source_ref: AR-7
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+- key: BL-E007-012
+  epic: '007'
+  sprint: '01'
+  title: 919-line generated diff-E007-S01-004.patch committed; .codex and .claude/worktrees not in .gitignore
+  source: epic-adversarial (AR-8)
+  source_phase: epic-adversarial
+  source_ref: AR-8
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+- key: BL-E007-013
+  epic: '007'
+  sprint: '01'
+  title: wp child gets unfiltered PATH while the checked wp was found over absolute entries only
+  source: epic-redteam (RT-6)
+  source_phase: epic-redteam
+  source_ref: RT-6
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
+- key: BL-E007-014
+  epic: '007'
+  sprint: '01'
+  title: wp stderr tail goes into the exception message with control characters unstripped
+  source: epic-redteam (RT-7)
+  source_phase: epic-redteam
+  source_ref: RT-7
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
+- key: BL-E007-015
+  epic: '007'
+  sprint: '01'
+  title: Archive Manifest config_path=../wp-config.php creates a file in the parent of the Site Root (designed FR-29; bounded)
+  source: epic-redteam (RT-8)
+  source_phase: epic-redteam
+  source_ref: RT-8
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
+- key: BL-E007-016
+  epic: '007'
+  sprint: '01'
+  title: preflight/wpcli docstrings claim the binary checked is the binary run; false until RootPreflight binds BinaryPreflight
+  source: epic-arch-review (ED-2)
+  source_phase: epic-arch-review
+  source_ref: ED-2
+  severity: Low
+  status: scheduled
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+- key: BL-E007-017
+  epic: '007'
+  sprint: '01'
+  title: WP_CLI_REQUIREMENT lives in core/relocation.py, not domain/preflight.py as S01-004 pinned; locate_tool aliases a private function
+  source: epic-arch-review (ED-3)
+  source_phase: epic-arch-review
+  source_ref: ED-3
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+- key: BL-E007-018
+  epic: '007'
+  sprint: '01'
+  title: config-placement decision logic (_config_file) sits in the adapter, not core/config_location.py
+  source: epic-arch-review (ED-4)
+  source_phase: epic-arch-review
+  source_ref: ED-4
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+- key: BL-E007-019
+  epic: '007'
+  sprint: '01'
+  title: adapters/wpcli.py ~900 lines mixes runner, session, owed text and the restore extension; imports across adapters
+  source: epic-arch-review (ED-5)
+  source_phase: epic-arch-review
+  source_ref: ED-5
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+- key: BL-E007-020
+  epic: '007'
+  sprint: '01'
+  title: RunFacts is hidden shared mutable state between resolve and the replacer's log
+  source: epic-arch-review (ED-7)
+  source_phase: epic-arch-review
+  source_ref: ED-7
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md

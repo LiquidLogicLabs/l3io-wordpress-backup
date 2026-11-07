@@ -58,12 +58,14 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import ctypes
 import dataclasses
 import json
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
@@ -96,6 +98,7 @@ from l3io.wp.backup.core.relocation import (
     required_tools,
     rewrite_values,
     safe_order,
+    stored_url_rule_broken,
     url_relocation,
     validate_relocation,
     validate_relocation_values,
@@ -113,6 +116,7 @@ from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.errors import (
     ConfigLocationConflictError,
     SearchReplaceIncompleteError,
+    StoredUrlInvalidError,
     StoredUrlMissingError,
     UsageError,
     WpCliConfigFoundError,
@@ -247,21 +251,69 @@ class ChildRunner(Protocol):
     ) -> subprocess.CompletedProcess[str]: ...
 
 
+#: The longest one ``wp`` child may run, in seconds. Generous: a ``--precise``
+#: replace unserializes every row. It exists so restored code that never returns
+#: cannot hold the Site Lock for ever.
+CHILD_TIMEOUT_S: Final = 4 * 60 * 60
+#: ``prctl(2)``'s ``PR_SET_DUMPABLE`` and ``PR_GET_DUMPABLE`` option numbers.
+_PR_SET_DUMPABLE: Final = 4
+_PR_GET_DUMPABLE: Final = 3
+
+
+@contextlib.contextmanager
+def _unreadable_by_the_child() -> Iterator[None]:
+    """Make this process's ``/proc/<pid>`` entries unreadable to its own children.
+
+    The child runs the restored Site's PHP as the same user, and a same-user
+    process can read ``/proc/<ppid>/environ``: the passphrase and the admin
+    credentials this process was started with. A non-dumpable process's entries
+    belong to root. The flag is reset by ``execve``, so the child itself is not
+    affected, and it is put back afterwards. Linux only; elsewhere, or if the
+    call fails, it does nothing (``docs/restore.md`` says so).
+    """
+    previous = _set_dumpable(0)
+    try:
+        yield
+    finally:
+        if previous:
+            _set_dumpable(1)  # PR_SET_DUMPABLE takes 0 or 1 only
+
+
+def _set_dumpable(value: int) -> int:
+    """Set ``PR_SET_DUMPABLE`` and return the previous value; ``0`` if unsupported."""
+    if not sys.platform.startswith("linux"):
+        return 0
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        previous = int(libc.prctl(_PR_GET_DUMPABLE, 0, 0, 0, 0))
+        if previous < 0 or libc.prctl(_PR_SET_DUMPABLE, value, 0, 0, 0) != 0:
+            return 0
+    except (OSError, AttributeError):
+        return 0
+    return previous
+
+
 def run_child(
     argv: list[str], *, cwd: Path, env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    """``subprocess.run`` with exactly ``env``, no shell, no stdin, text output."""
-    return subprocess.run(  # noqa: S603 - a fixed list argv, never a shell
-        argv,
-        cwd=cwd,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    """``subprocess.run`` with exactly ``env``, no shell, no stdin, text output.
+
+    Killed after :data:`CHILD_TIMEOUT_S` (``subprocess.TimeoutExpired``). Runs
+    with this process non-dumpable, so the child cannot read its ``/proc``.
+    """
+    with _unreadable_by_the_child():
+        return subprocess.run(  # noqa: S603 - a fixed list argv, never a shell
+            argv,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=CHILD_TIMEOUT_S,
+        )
 
 
 class RunFacts:
@@ -337,6 +389,8 @@ class _Session:
         try:
             result = self.run(argv, cwd=self.cwd, env=wp_cli_environment(self.config))
             status = result.returncode
+        except subprocess.TimeoutExpired as exc:
+            raise WpCliFailedError(step, None, "timed out and was killed") from exc
         except OSError as exc:
             reason = self.secrets.redact(f"{type(exc).__name__}: {exc.strerror or exc}")
             raise WpCliFailedError(step, None, reason) from exc
@@ -399,6 +453,9 @@ class _Session:
             if row.get("option_name") == option:
                 value = row.get("option_value")
                 if isinstance(value, str) and value:
+                    broken = stored_url_rule_broken(value)
+                    if broken is not None:
+                        raise StoredUrlInvalidError(option, broken)
                     return value
                 break
         raise StoredUrlMissingError(option)

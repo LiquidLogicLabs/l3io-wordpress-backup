@@ -74,6 +74,7 @@ __all__ = [
     "requires_search_replace",
     "rewrite_values",
     "safe_order",
+    "stored_url_rule_broken",
     "url_relocation",
     "validate_relocation",
     "validate_relocation_values",
@@ -138,8 +139,12 @@ def _authority(rest: str) -> str:
     return rest[:cut]
 
 
-def _url_rule_broken(value: str) -> str | None:
-    """The first URL string rule ``value`` breaks, or ``None``. No ``urllib``."""
+def _url_rule_broken(value: str, *, stored: bool = False) -> str | None:
+    """The first URL string rule ``value`` breaks, or ``None``. No ``urllib``.
+
+    ``stored`` is for a value read back from a restored database, which WordPress
+    may hold with a trailing ``/``; every other rule applies to it unchanged.
+    """
     if value.startswith("-"):
         return "must not start with '-'"
     if not value.startswith(URL_SCHEMES):
@@ -154,9 +159,20 @@ def _url_rule_broken(value: str) -> str | None:
     authority = _authority(value.split("://", 1)[1])
     if not authority or authority.startswith((":", "@")) or authority.endswith("@"):
         return "must name a host after the scheme"
-    if value.endswith("/"):
+    if value.endswith("/") and not stored:
         return "must not end with '/' (WordPress stores its URLs without one)"
     return None
+
+
+def stored_url_rule_broken(value: str) -> str | None:
+    """The first rule a ``siteurl``/``home`` read from the restored database breaks.
+
+    The value is untrusted (it came from the Archive) and becomes a positional
+    ``wp search-replace`` argument, so the string rules for a ``--new-*`` URL
+    apply: not a leading ``-``, an http(s) scheme, no whitespace, control or
+    format character, no quote.
+    """
+    return _url_rule_broken(value, stored=True)
 
 
 def _given(request: RelocationRequest) -> tuple[str, ...]:

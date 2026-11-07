@@ -3,8 +3,8 @@ epic: 'E006'
 sprint: 'S01'
 title: Catch typed failures
 classification: complex
-status: in-progress
-updated_at: '2026-11-07T06:24:05Z'
+status: done
+updated_at: '2026-11-07T07:12:52Z'
 estimate:
   man_hours: 24.92
   hitl_hours: 0.0
@@ -32,3 +32,47 @@ depends_on:
 - 'E002-S01-010'
 - 'E002-S02-011'
 - 'E007-S01-001'
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check .
+    exit_code: 0
+  - command: uv run ruff format --check .
+    exit_code: 0
+  - command: uv run mypy --strict src
+    exit_code: 0
+  - command: uv run lint-imports
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv run pytest tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run pytest -q -m 'not integration' (pre-fix, 6 failures)
+    exit_code: 1
+  - command: uv run pytest -q
+    exit_code: 0
+  - command: UV_PROJECT_ENVIRONMENT=<isolated py3.14 venv> uv run --python 3.14 pytest -q -m 'not integration'
+    exit_code: 0
+  tests_passing: false
+  fix_iterations: 1
+  files_changed: 33
+actual:
+  elapsed_hours: 0.8
+  man_hours: 22
+  hitl_hours: 0
+  tokens_k:
+    total: 32211.34
+    input: 0.346
+    output: 164.031
+    cache_write: 974.39
+    cache_read: 31072.57
+  cost: 25.73
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-07T07:12:47Z'
