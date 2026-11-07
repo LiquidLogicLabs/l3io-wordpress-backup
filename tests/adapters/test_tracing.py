@@ -488,7 +488,10 @@ def test_a_recording_span_states_the_command_line_only_redacted(
     assert phase.attributes["error.type"] == "RuntimeError"
     assert phase.attributes["process.exit.code"] == 1
     assert phase.status.status_code is StatusCode.ERROR
-    assert phase.status.description == secrets.inner.redact(f"failed near {SENTINEL}")
+    assert phase.status.description == (
+        "RuntimeError (message withheld: not a package error)"
+    )
+    assert SENTINEL not in str(phase.status.description)
     assert root.status.status_code is StatusCode.ERROR
     assert "redact_argv" in secrets.calls
     assert _leaks(spans) == []

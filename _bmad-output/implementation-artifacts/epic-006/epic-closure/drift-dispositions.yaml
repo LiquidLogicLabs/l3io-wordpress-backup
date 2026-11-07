@@ -1,0 +1,26 @@
+review: _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
+findings:
+  AD-1:
+    severity: MAJOR
+    title: "`api/` is not an independent composition root. It imports the CLI's drivers (`drive_backup/restore/verify`, `BackupRequest`, `RestoreRequest`, `require_database_restored`), `cli.passphrase`, `cli.logging`, `cli.exit.RUN_ID_ATTR`, and re-exports public types defined in `cli/` (`BackupResult`, `RestoreOutcome`, `RelocationFlags`, `RunContext`, `configure_logging`, 4 CLI exception classes). The layers contract `cli : api` only forbids neither direction at the sibling level (a sibling may import a sibling), so the lint passes; the one-way `FR-24` contract forbids only cli->api. No ADR or spine text records \"api composes through cli/ drivers\"; the seed and AD-22 describe two peers, and ADR-0016 only says `api/` drivers \"consume\" the Run Context. Consequence: the public contract's real defining modules are CLI-internal (the docs have to say \"the defining module is not part of the contract\"), and any CLI change (printing, argparse types) is a library-surface change. Reachable: every public entry point goes through it (verified by reading `operations.py` and `lint-imports`)."
+    disposition: adr-justified
+    spec:
+    adr: docs/adr/0025-api-composes-through-the-cli-drivers.md
+    commit:
+    issue:
+  AD-2:
+    severity: MAJOR
+    title: '`api.restore()` runs `drive_restore`, which calls `print(..., file=sys.stderr)` for the unauthenticated-archive warning (unencrypted archive, no `--require-encrypted`), the "safety snapshot is NOT encrypted" notice and the "safety snapshot is encrypted with the passphrase" notice. The docstring promises no printing and `docs/api.md` does not mention stderr output from `restore`. AD-26 does require the warning not be log-only, so the behaviour may be right; the claim is wrong. A host using stderr as a protocol channel is surprised. Verified by reading the call path (the three prints are inside `drive_restore`, which `restore` calls); not executed.'
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:
+  AD-3:
+    severity: MAJOR
+    title: "When any non-package exception escapes an entry point, the package itself logs `unexpected_exception` with the original exception's full traceback and text. Redaction is applied only if the host used `configure_logging` (`redact_event` in the chain); a host that configures nothing gets structlog defaults, which print the record to stdout with no redaction (the docs say so). Verified: with a plain structlog chain, `verify()` whose driver raised `RuntimeError(\"SENTINEL-pw-123\")` logged a record whose `exception` field contained the traceback and the sentinel-bearing message, and `__cause__` held the raw exception. ADR-0018 places redaction \"where text leaves the program\"; this record leaves the program unredacted by default, and a dependency exception (pymysql, boto3, subprocess) is exactly the text most likely to carry a credential. The documented caveat covers other records but not this one, which the package chooses to enrich with a traceback."
+    disposition: resolved-in-code
+    spec:
+    adr:
+    commit:
+    issue:

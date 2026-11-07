@@ -175,6 +175,7 @@ closure:
       - 0.0734
       - 0.1264
       - 0.0505
+      - 0.0263
     man_hours:
       samples:
       - 1.619
@@ -194,6 +195,7 @@ closure:
       - 0.5161
       - 0.4669
       - 0.0907
+      - 0.1167
     man_hours:
       samples:
       - 5.8003
@@ -207,6 +209,7 @@ closure:
       - 60.1428
       - 127.5146
       - 85.2937
+      - 58.5979
     hitl_hours:
       samples:
       - 0.8511
@@ -234,8 +237,10 @@ orchestration:
       - 0.0249
       - 0.0243
       - 0.0
+      - 1.1829
     man_hours:
       samples:
+      - 0.0
       - 0.0
       - 0.0
       - 0.0
@@ -246,6 +251,7 @@ orchestration:
       - 0.0
       - 0.0049
       - 0.0
+      - 2.1325
     hitl_hours:
       samples:
       - 0.0
@@ -256,8 +262,10 @@ orchestration:
       - 0.0041
       - 0.0203
       - 0.0
+      - 0.0599
     man_hours:
       samples:
+      - 0.0
       - 0.0
       - 0.0
       - 0.0
@@ -268,6 +276,7 @@ orchestration:
       - 0.0
       - 0.0046
       - 0.0
+      - 0.0154
     hitl_hours:
       samples:
       - 0.0

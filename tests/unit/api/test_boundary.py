@@ -135,7 +135,7 @@ def test_a_foreign_exception_arrives_as_unexpected_error(
     assert records[0]["log_level"] == "error"
     assert records[0]["cause_type"] == _qualified(original)
     assert records[0]["api_function"] == "backup"
-    assert records[0]["exc_info"] is original
+    assert "exc_info" not in records[0]
     assert "run_id" not in records[0]
 
 
@@ -288,3 +288,24 @@ def test_the_boundary_wraps_a_plain_function_and_keeps_its_signature() -> None:
     with capture_logs(), pytest.raises(api.UnexpectedError) as caught:
         entry(1)
     assert caught.value.cause_type == "builtins.LookupError"
+
+
+def test_the_unexpected_record_carries_frames_and_never_the_original_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, site: Path
+) -> None:
+    """The Run's registry is closed when this record is written, so it cannot redact.
+
+    A dependency's exception text (here a unique sentinel standing for a
+    password the driver echoed) must not reach the host's log, in the message
+    or in the formatted traceback; the frames and the class name must.
+    """
+    sentinel = "SENTINEL-E006-CLOSURE-8c41d7f2"
+    original = RuntimeError(f"driver echoed password={sentinel}")
+    with capture_logs() as logs, pytest.raises(api.UnexpectedError) as caught:
+        _call(monkeypatch, "backup", original, tmp_path, site)
+    [record] = [e for e in logs if e["event"] == "unexpected_exception"]
+    assert sentinel not in repr(record)
+    assert sentinel not in str(caught.value)
+    assert "RuntimeError" in record["traceback"]
+    assert "Traceback (most recent call last)" in record["traceback"]
+    assert caught.value.__cause__ is original

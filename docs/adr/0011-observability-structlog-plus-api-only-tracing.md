@@ -1,6 +1,6 @@
 # ADR-0011: Structured logging with structlog; tracing API-only and inert by default
 
-- **Status:** Proposed
+- **Status:** Proposed (built in E006-S01-004; amended 2026-11-06 and 2026-11-07; acceptance is the owner's)
 - **Date:** 2026-09-16
 - **Deciders:** Sanderson
 - **Epic:** n/a
@@ -45,3 +45,24 @@ The honest framing: for the operator running this from cron, tracing buys nothin
 - Positive: no configuration burden, no collector, no `grpcio`; correct behaviour in both audiences; reversible, since API-only instrumentation is deletable in an afternoon.
 - Negative: ~30 lines of instrumentation earning nothing for the majority audience, and a dependency added for a benefit we cannot yet measure.
 - **Revisit when:** evidence arrives that users embed the library in traced pipelines (which this step is designed to make cheap to discover), **or** a tool in the subprocess chain starts reading `TRACEPARENT`, **or** the OTel logs signal reaches Stable — any of which changes the arithmetic.
+
+## Amendment — 2026-11-06: this package's span attributes are `l3io.*` (Shawn, option a)
+
+E006 owner decision O-2 (a). The package's own span attributes are `l3io.run_id`, `l3io.phase`,
+`l3io.archive.bytes` and the root's `attributes` mapping set verbatim. Semantic-convention keys keep
+their names (`db.name`, `error.type`, `process.exit.code`, `process.executable.name`,
+`process.command_args`). The architecture spine's AD-24 carries the same text.
+
+## Amendment — 2026-11-07: what a span may carry, and the beta exporter (E006 closure)
+
+- **Status descriptions.** A span's status description is the redacted message of a package error;
+  for any other exception it is the class name with the message withheld (red team RT-2). A
+  dependency's text is untrusted and the registry removes only the secrets it knows.
+- **Not covered.** `l3io-wordpress-database`'s own spans nest under ours and record the exception
+  message and stack trace as an `exception` event with no redaction (red team RT-3). This package
+  cannot change that; `docs/api.md` tells a host to scrub them and BL-E006-010 carries the request to
+  that package's owner.
+- **`opentelemetry-exporter-otlp-json-file` is a beta (0.x) package** in the `otel` extra and the dev
+  group (Core §8). Accepted because it is optional, pure Python, and the only exporter that avoids
+  `grpcio`. **Revisit when** a GA exporter without `grpcio` exists, or the base install gains the
+  extra.

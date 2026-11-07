@@ -26,7 +26,12 @@ free-text value — ``db.name``, ``process.command_args``, a status
 description — goes through the Run's registry (``secrets``, the one
 implementation in ``adapters.redaction``); only enum values, booleans and
 integers are set raw. No exception event is recorded (``record_exception``
-is off), so no stack trace or chained dependency text reaches a span.
+is off), so none of *this package's* spans carries a stack trace, and the
+status description of a non-package exception names its class only. The
+database dependency's own ``l3io.wp.database.*`` spans nest under ours and are
+**not** covered: they record the exception's message and stack trace as an
+``exception`` event with no redaction (BL-E006-010 tracks it with that package;
+``docs/api.md`` tells a host to scrub them).
 Attribute values are computed only while ``span.is_recording()``: a
 non-recording span costs no redaction call.
 
@@ -52,6 +57,7 @@ from opentelemetry.trace import Span, Status, StatusCode
 from structlog.typing import EventDict, WrappedLogger
 
 from l3io.wp.backup import __version__
+from l3io.wp.backup.domain.errors import BackupError
 from l3io.wp.backup.ports.tracing import PhaseSpan, Redactor, RunSpan, SpanAttributes
 
 __all__ = [
@@ -88,7 +94,20 @@ def _current_span(name: str) -> Iterator[Span]:
 
 
 def _fail(span: Span, exc: BaseException, secrets: Redactor) -> None:
-    span.set_status(Status(StatusCode.ERROR, secrets.redact(str(exc))))
+    """Mark ``span`` failed; only a ``BackupError`` says why.
+
+    A ``BackupError``'s message is built from its own fields. Any other
+    exception is named by class and its text is withheld: a dependency's text
+    is untrusted, the registry removes only the secrets it knows, and a span
+    leaves the program for a backend outside the host's log controls. This is
+    the rule ``cli.exit`` applies to the traceback it prints.
+    """
+    description = (
+        secrets.redact(str(exc))
+        if isinstance(exc, BackupError)
+        else f"{type(exc).__name__} (message withheld: not a package error)"
+    )
+    span.set_status(Status(StatusCode.ERROR, description))
 
 
 class _RunSpan:

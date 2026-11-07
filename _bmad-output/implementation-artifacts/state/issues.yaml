@@ -4,7 +4,7 @@ next:
   '004': 70
   '005': 14
   '007': 21
-  '006': 8
+  '006': 24
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -2854,3 +2854,163 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+- key: BL-E006-008
+  epic: '006'
+  sprint: ''
+  title: 'api: restore prints safety notices to stderr; add a caller-supplied warning sink (amends AD-26)'
+  source: epic-arch-review (AD-2)
+  source_phase: epic-arch-review
+  source_ref: AD-2
+  severity: Medium
+  status: backlog
+  description: Documented in docs/api.md; owner decision OD-2. See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
+- key: BL-E006-009
+  epic: '006'
+  sprint: ''
+  title: 'api: secrets are plain str in traceback frames; consider an opaque Secret wrapper for passphrase and ExplicitCredentialSpec.password'
+  source: epic-adversarial (AR-4)
+  source_phase: epic-adversarial
+  source_ref: AR-4
+  severity: Medium
+  status: backlog
+  description: Documented in docs/api.md; owner decision OD-4. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
+- key: BL-E006-010
+  epic: '006'
+  sprint: ''
+  title: l3io-wordpress-database spans record exception message and stack trace unredacted under our phase spans; ask that package's owner
+  source: epic-redteam (RT-3)
+  source_phase: epic-redteam
+  source_ref: RT-3
+  severity: Medium
+  status: backlog
+  description: Documented in docs/api.md and ADR-0011 amendment. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
+- key: BL-E006-011
+  epic: '006'
+  sprint: ''
+  title: backup(target=None) writes the archive to the host's current directory; make target required for the library
+  source: epic-redteam (RT-6)
+  source_phase: epic-redteam
+  source_ref: RT-6
+  severity: Low
+  status: backlog
+  description: Owner decision OD-3. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
+- key: BL-E006-012
+  epic: '006'
+  sprint: ''
+  title: 'api: context= is public but no public opener exists; remove the parameter or export the opener'
+  source: epic-adversarial (AR-12)
+  source_phase: epic-adversarial
+  source_ref: AR-12
+  severity: Low
+  status: backlog
+  description: Owner decision OD-5. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
+- key: BL-E006-013
+  epic: '006'
+  sprint: ''
+  title: Stale docstrings claim nothing below a root reads os.environ (cli/verify.py, cli/passphrase.py); consider an environ parameter on drive_backup/drive_restore
+  source: epic-adversarial (AR-6)
+  source_phase: epic-adversarial
+  source_ref: AR-6
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+- key: BL-E006-014
+  epic: '006'
+  sprint: ''
+  title: A joined dry-run context with dry_run=False silently becomes a rehearsal; refuse it with UsageError
+  source: epic-adversarial (AR-7)
+  source_phase: epic-adversarial
+  source_ref: AR-7
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+- key: BL-E006-015
+  epic: '006'
+  sprint: ''
+  title: UsageError.arguments mixes CLI flag spellings and parameter names on library paths; fix one vocabulary
+  source: epic-adversarial (AR-8)
+  source_phase: epic-adversarial
+  source_ref: AR-8
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+- key: BL-E006-016
+  epic: '006'
+  sprint: ''
+  title: 'Passphrase edge cases: empty explicit passphrase falls through to the environment; verify ignores passphrase without authenticate'
+  source: epic-adversarial (AR-9)
+  source_phase: epic-adversarial
+  source_ref: AR-9
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+- key: BL-E006-017
+  epic: '006'
+  sprint: ''
+  title: ExplicitCredentialSpec, RelocationFlags and PassphraseCipher pickle and asdict plain-str secrets; add __reduce__ guard like SecretRegistry
+  source: epic-adversarial (AR-10)
+  source_phase: epic-adversarial
+  source_ref: AR-10
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+- key: BL-E006-018
+  epic: '006'
+  sprint: ''
+  title: Library misuse (wrong-typed scope or mode) surfaces as UnexpectedError, a defect; validate argument types at the API edge
+  source: epic-adversarial (AR-11)
+  source_phase: epic-adversarial
+  source_ref: AR-11
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+- key: BL-E006-019
+  epic: '006'
+  sprint: ''
+  title: structlog contextvars run_id and dry_run overwrite a host's same-named keys during a call; namespace them
+  source: epic-adversarial (AR-13)
+  source_phase: epic-adversarial
+  source_ref: AR-13
+  severity: Low
+  status: backlog
+  description: Documented in docs/api.md. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
+- key: BL-E006-020
+  epic: '006'
+  sprint: ''
+  title: backup() builds BackupRequest twice in near-identical blocks
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md'
+- key: BL-E006-021
+  epic: '006'
+  sprint: ''
+  title: Move api composition off cli/ drivers into a neutral module (ADR-0025 revisit)
+  source: epic-arch-review (AD-1)
+  source_phase: epic-arch-review
+  source_ref: AD-1
+  severity: Low
+  status: backlog
+  description: ADR-0025 accepts the current layering. See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
+- key: BL-E006-022
+  epic: '006'
+  sprint: ''
+  title: 'Supply chain: family dependencies resolve from TestPyPI in tool.uv.sources; claim the names on PyPI before first release'
+  source: epic-redteam (RT-10)
+  source_phase: epic-redteam
+  source_ref: RT-10
+  severity: Low
+  status: backlog
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md'
+- key: BL-E006-023
+  epic: '006'
+  sprint: ''
+  title: 'restore mode/overrides accepted without the AD-25 flag table: document the host-forwarding risk in docs/restore.md'
+  source: epic-redteam (RT-9)
+  source_phase: epic-redteam
+  source_ref: RT-9
+  severity: Low
+  status: backlog
+  description: Observation. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md

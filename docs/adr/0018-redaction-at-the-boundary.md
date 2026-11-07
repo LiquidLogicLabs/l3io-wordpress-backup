@@ -127,3 +127,14 @@ needs: `adapters/credential_providers.py`, `adapters/database.py`, `cli/credenti
 `domain/errors.py` (one subclass) and their tests. A test plants a 3-character password through
 each source and requires the refusal, with no connection attempted; another reads a password,
 fails afterwards, and requires that the error output masks it.
+
+## Amendment — 2026-11-07: the library boundary logs frames, never a dependency's text (E006 closure)
+
+`api/errors.py::public_boundary` logs `unexpected_exception` after the Run, when the Run's registry is
+already closed, so the record cannot be redacted (red team RT-1, adversarial AR-2, arch AD-3).
+
+**Decided:** that record carries the traceback **frames** with the message of every non-package
+exception withheld (`cli.exit.render_failure`, the rule the CLI's failure report applies), and never
+`exc_info`. The original, message included, is on `__cause__` for the host. Secrets held in the frames'
+local variables are not covered by redaction (stated in `docs/api.md`); a wrapper type for secret
+arguments is BL-E006-009.

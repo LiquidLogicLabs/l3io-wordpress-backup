@@ -88,6 +88,48 @@ boundary's `unexpected_exception` record names it. A call that joined an
 enclosing Run through `context=` writes no `run_finished` of its own, and the
 enclosing Run, if it records the failure, sees `UnexpectedError`.
 
+The boundary's `unexpected_exception` record carries the original's class
+(`cause_type`), the entry point, the `run_id` when known, and a `traceback`
+field of the frames with the original's **message withheld**: a dependency's
+text is untrusted, and the Run's secret registry is already closed when the
+boundary logs, so the record could not be redacted. The original, message
+included, stays on `__cause__` for you to handle.
+
+**Secrets and what holds them.** The package keeps secrets out of its own
+exceptions, `repr`s, log records and spans. It cannot keep them out of
+memory you can reach. A `passphrase=` or `ExplicitCredentialSpec(password=...)`
+is a plain `str`, so it is a local variable in every frame of an exception that
+escapes a call, and `dataclasses.asdict()` or `pickle` of a spec exposes it. A
+tool that captures locals (an error tracker's local-variable option, rich or
+`dict_tracebacks(show_locals=True)` tracebacks, `pytest --showlocals`) will
+record it. Prefer `prompt=` or the environment to `passphrase=` where such a
+tool runs, and scrub locals in it. Span status descriptions name a
+non-package exception by class only. The database dependency's own
+`l3io.wp.database.*` spans, which nest under this package's phase spans, record
+the failure's message and stack trace as an `exception` event and in the status
+with no redaction; a host that exports traces should scrub `exception.*`
+events and the status of those spans.
+
+**Process state and output.** A call does not configure logging, install a
+signal handler or change the working directory, `os.environ` or the tracer
+provider. It does three things to the host process that you should know:
+
+- During a call it binds `run_id` and `dry_run` in structlog's context
+  variables, and restores them afterwards; a host key of the same name is
+  hidden for the call.
+- While a `wp` child runs during a restore, the whole process is marked
+  non-dumpable (`PR_SET_DUMPABLE`, Linux), so the child cannot read this
+  process's `/proc` entries. For that time (up to four hours per child) the
+  process has no core dump and no same-user `ptrace`. Overlapping calls share
+  one toggle, restored when the last child is done.
+- `restore` writes safety notices to **stderr** (the archive is not
+  authenticated; whether the Safety Snapshot is encrypted). The snapshot path
+  is in `RestoreOutcome.snapshot_path`.
+
+Every package error survives `pickle` and `copy` with its fields, so a worker
+pool or task queue delivers the real exception. `__cause__` and the traceback
+do not travel.
+
 **Types you meet but do not import.** Some fields and parameters below are
 typed with internal classes, for example `Integrity`, `BackupPlan`,
 `RestorePhase` or `SecretRegistry`. Those classes are not public. Read such a

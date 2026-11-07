@@ -67,6 +67,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path, PurePosixPath
@@ -260,6 +261,37 @@ _PR_SET_DUMPABLE: Final = 4
 _PR_GET_DUMPABLE: Final = 3
 
 
+class _DumpableGuard:
+    """Reference-counts the process-wide ``PR_SET_DUMPABLE`` toggle.
+
+    The flag belongs to the process, not to a thread, so two overlapping
+    ``wp`` children (a library host running two restores) must share one
+    toggle: it drops on the first holder and is put back only when the last
+    one is done. Without the count the first thread to finish re-enabled
+    ``/proc`` access while the other's child was still running.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._holders = 0
+        self._previous = 0
+
+    def enter(self) -> None:
+        with self._lock:
+            if self._holders == 0:
+                self._previous = _set_dumpable(0)
+            self._holders += 1
+
+    def leave(self) -> None:
+        with self._lock:
+            self._holders -= 1
+            if self._holders == 0 and self._previous:
+                _set_dumpable(1)  # PR_SET_DUMPABLE takes 0 or 1 only
+
+
+_DUMPABLE = _DumpableGuard()
+
+
 @contextlib.contextmanager
 def _unreadable_by_the_child() -> Iterator[None]:
     """Make this process's ``/proc/<pid>`` entries unreadable to its own children.
@@ -268,15 +300,16 @@ def _unreadable_by_the_child() -> Iterator[None]:
     process can read ``/proc/<ppid>/environ``: the passphrase and the admin
     credentials this process was started with. A non-dumpable process's entries
     belong to root. The flag is reset by ``execve``, so the child itself is not
-    affected, and it is put back afterwards. Linux only; elsewhere, or if the
-    call fails, it does nothing (``docs/restore.md`` says so).
+    affected, and it is put back once the last overlapping child is done
+    (:class:`_DumpableGuard`). Linux only; elsewhere, or if the call fails, it
+    does nothing (``docs/restore.md`` says so). While a child runs the whole
+    host process is non-dumpable: no core dump, no same-user ``ptrace``.
     """
-    previous = _set_dumpable(0)
+    _DUMPABLE.enter()
     try:
         yield
     finally:
-        if previous:
-            _set_dumpable(1)  # PR_SET_DUMPABLE takes 0 or 1 only
+        _DUMPABLE.leave()
 
 
 def _set_dumpable(value: int) -> int:

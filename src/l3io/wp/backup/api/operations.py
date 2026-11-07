@@ -6,7 +6,10 @@ arguments into the frozen request the CLI builds, makes **one** call to the
 driver the CLI calls (``drive_backup``, ``drive_verify``, ``drive_restore``),
 and applies the CLI root's own exit rule to what the driver returns
 (``VerificationFailedError``; ``require_database_restored``). It never
-prints, never configures logging and never installs a signal handler (AD-10).
+configures logging and never installs a signal handler (AD-10). It prints
+nothing itself, but ``drive_restore`` writes three safety notices to stderr
+(AD-26 wants the unauthenticated-archive warning outside the log); that is
+stated in ``docs/api.md`` and BL-E006-008 tracks a caller-supplied sink.
 
 **One sequence (AD-16).** The drivers canonicalise the Site Root, open or
 join the Run (``context=None`` opens one; a ``RunContext`` is joined, and a

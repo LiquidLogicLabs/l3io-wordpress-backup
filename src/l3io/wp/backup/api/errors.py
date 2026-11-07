@@ -13,8 +13,15 @@ and arrives as :class:`UnexpectedError` with the original on ``__cause__``.
 A ``BackupError`` this module does not export (a private class) is wrapped
 the same way, so no undocumented type reaches a caller.
 ``BaseException``s that are not ``Exception`` (``KeyboardInterrupt``,
-``SystemExit``) belong to the host and pass through. Nothing here redacts
-(ADR-0018): no message is built from a dependency's text.
+``SystemExit``) belong to the host and pass through.
+
+Nothing here redacts (ADR-0018), because nothing here writes a dependency's
+text: the ``unexpected_exception`` record carries the traceback **frames**
+with every non-package exception's message withheld (``cli.exit.render_failure``,
+the rule the CLI's own failure report applies), never ``exc_info``. The Run's
+registry is closed by the time this boundary logs, so a record that carried the
+original's text could not be redacted. The original is still on ``__cause__``,
+for the host, and so are its frames' local variables (``docs/api.md``).
 """
 
 from __future__ import annotations
@@ -42,7 +49,7 @@ from l3io.wp.backup.adapters.staging import (
     InvalidLoadDatabaseNameError,
     StagingCheckFailedError,
 )
-from l3io.wp.backup.cli.exit import RUN_ID_ATTR
+from l3io.wp.backup.cli.exit import RUN_ID_ATTR, render_failure
 from l3io.wp.backup.cli.restore import (
     ArchiveIdentityUnconfirmedError,
     DatabaseNotRestoredError,
@@ -238,6 +245,11 @@ class UnexpectedError(BackupError):
 BOUNDARY_MARK = "__l3io_public_boundary__"
 
 
+def _as_is(text: str) -> str:
+    """No redaction step: :func:`render_failure` returns no dependency text here."""
+    return text
+
+
 def _exported(cls: type[BaseException]) -> bool:
     """``cls`` is a class this module exports, by identity."""
     return globals().get(cls.__name__) is cls and cls.__name__ in __all__
@@ -271,7 +283,7 @@ def public_boundary(fn: Callable[_P, _R]) -> Callable[_P, _R]:
                 "unexpected_exception",
                 cause_type=cause_type,
                 api_function=name,
-                exc_info=exc,
+                traceback=render_failure(exc, redact=_as_is, with_traceback=True),
                 **run_fields,
             )
             raise UnexpectedError(cause_type, api_function=name) from exc

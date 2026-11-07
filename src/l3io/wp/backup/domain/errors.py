@@ -26,6 +26,7 @@ changes. :func:`exit_code_of` reads the attribute for any exception.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import PurePath
 from typing import TYPE_CHECKING, ClassVar, Literal
 
@@ -112,6 +113,28 @@ class BackupError(Exception):
     #: Set by the restore driver on any error escaping after the Safety
     #: Snapshot completed, so the failure output names it.
     snapshot_path: PurePath | None = None
+
+    def __reduce__(self) -> tuple[Callable[..., BackupError], tuple[object, ...]]:
+        """Pickle (and ``copy``) by state, not by calling ``__init__`` again.
+
+        ``BaseException`` rebuilds with ``cls(*self.args)``, and ``args`` is
+        the one formatted message; a class whose constructor takes fields
+        (``DumpFailedError(..., database=...)``) cannot be rebuilt from that.
+        A worker pool or task queue would lose the error and surface a
+        ``TypeError`` or ``BrokenProcessPool`` instead. ``__cause__`` and the
+        traceback do not travel, as with any exception.
+        """
+        return (_rebuild_error, (type(self), self.args, dict(self.__dict__)))
+
+
+def _rebuild_error(
+    cls: type[BackupError], message: tuple[object, ...], state: dict[str, object]
+) -> BackupError:
+    """The inverse of :meth:`BackupError.__reduce__`: no ``__init__`` call."""
+    error = cls.__new__(cls)
+    Exception.__init__(error, *message)
+    error.__dict__.update(state)
+    return error
 
 
 class RefusedError(BackupError):
