@@ -173,7 +173,7 @@ def _lock_request(
         return None
     if site_root is None or site_lock is None:
         msg = "a Site Lock needs both site_root and site_lock"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("site_root", "site_lock"))
     return site_root, site_lock
 
 
@@ -334,7 +334,7 @@ def join_or_open(
                 f"a Dry Run {operation} cannot join Run {ctx.run_id}, which is "
                 "not a Dry Run"
             )
-            raise UsageError(msg)
+            raise UsageError(msg, arguments=("dry_run", "context"))
         with ExitStack() as held:
             if request is not None and (
                 ctx.site_lock is None or ctx.site_lock.site_root != request[0]

@@ -13,12 +13,20 @@ the structlog processor that puts flat ``trace_id``/``span_id`` on records
 while a span is recording (AD-24): pass it as
 ``configure_logging(level, fmt, trace_processors=(add_trace_ids,))``, or add
 it to a chain the host configures itself.
+
+**Errors (AD-14).** Every exception class the package raises is exported here
+from ``api/errors.py``: ``except BackupError`` catches them all, and each
+subclass carries typed fields and its ``exit_code``. A non-package exception
+reaching an entry point arrives as ``UnexpectedError`` with the original on
+``__cause__``.
 """
 
 from __future__ import annotations
 
 from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.tracing import add_trace_ids
+from l3io.wp.backup.api import errors as _errors
+from l3io.wp.backup.api.errors import *  # noqa: F403 - AD-14: the exception set
 from l3io.wp.backup.api.operations import backup, restore, verify
 from l3io.wp.backup.cli.backup import BackupResult
 from l3io.wp.backup.cli.context import RunContext
@@ -70,3 +78,4 @@ __all__: list[str] = [
     "restore",
     "verify",
 ]
+__all__ += _errors.__all__

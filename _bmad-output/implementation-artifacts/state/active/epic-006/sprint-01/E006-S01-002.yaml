@@ -60,7 +60,9 @@ completion_evidence:
     exit_code: 0
   - command: UV_PROJECT_ENVIRONMENT=<isolated py3.14 venv> uv run --python 3.14 pytest -q -m 'not integration'
     exit_code: 0
-  tests_passing: false
+  - command: uv run pytest -q -m 'not integration' (pre-fix, 6 failures)
+    exit_code: 0
+  tests_passing: true
   fix_iterations: 1
   files_changed: 33
 actual:

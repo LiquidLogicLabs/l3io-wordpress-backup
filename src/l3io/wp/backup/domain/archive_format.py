@@ -392,23 +392,23 @@ def _loads(text: str) -> object:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         msg = f"not JSON: {exc.msg} at line {exc.lineno}"
-        raise MalformedManifestError(msg) from exc
+        raise MalformedManifestError(msg, field=None) from exc
     except (ValueError, RecursionError) as exc:
         msg = f"not readable JSON: {type(exc).__name__}"
-        raise MalformedManifestError(msg) from exc
+        raise MalformedManifestError(msg, field=None) from exc
 
 
 def _object(value: object, where: str) -> dict[str, object]:
     if not isinstance(value, dict):
         msg = f"{where} must be an object"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=where)
     return cast("dict[str, object]", value)
 
 
 def _list(value: object, where: str) -> list[object]:
     if not isinstance(value, list):
         msg = f"{where} must be an array"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=where)
     return cast("list[object]", value)
 
 
@@ -416,7 +416,7 @@ def _str(doc: Mapping[str, object], key: str) -> str:
     value = doc.get(key)
     if not isinstance(value, str):
         msg = f"{key} must be a string"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=key)
     return value
 
 
@@ -428,7 +428,7 @@ def _int(doc: Mapping[str, object], key: str) -> int:
     value = doc.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         msg = f"{key} must be an integer"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=key)
     return value
 
 
@@ -436,7 +436,7 @@ def _size(doc: Mapping[str, object], key: str) -> int:
     value = _int(doc, key)
     if value < 0:
         msg = f"{key} must not be negative"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=key)
     return value
 
 
@@ -444,7 +444,7 @@ def _bool(doc: Mapping[str, object], key: str) -> bool:
     value = doc.get(key)
     if not isinstance(value, bool):
         msg = f"{key} must be a boolean"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=key)
     return value
 
 
@@ -454,18 +454,18 @@ def _source_value(key: str, value: object) -> SourceValue:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     msg = f"source.{key} must be a string, an integer or null"
-    raise MalformedManifestError(msg)
+    raise MalformedManifestError(msg, field=f"source.{key}")
 
 
 def _payload(doc: Mapping[str, object]) -> ManifestPayload:
     name = _str(doc, "name")
     if name not in _PAYLOAD_NAMES:
         msg = f"payload.name {name!r} is not a payload member name"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="payload.name")
     digest = _str(doc, "sha256")
     if len(digest) != _SHA256_HEX_LENGTH or not set(digest) <= _HEX_DIGITS:
         msg = "payload.sha256 must be 64 lowercase hex digits"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="payload.sha256")
     return ManifestPayload(name=name, size=_size(doc, "size"), sha256=digest)
 
 
@@ -475,7 +475,7 @@ def _enum(kind: type[_E], doc: Mapping[str, object], key: str) -> _E:
         return kind(value)
     except ValueError as exc:
         msg = f"{key} {value!r} is not a known {kind.__name__}"
-        raise MalformedManifestError(msg) from exc
+        raise MalformedManifestError(msg, field=key) from exc
 
 
 def _member(doc: Mapping[str, object]) -> ManifestMember:
@@ -486,13 +486,13 @@ def _member(doc: Mapping[str, object]) -> ManifestMember:
     path = _str(doc, "path")
     if (kind is MemberKind.SYMLINK) != (target is not None):
         msg = f"member {path!r}: link_target is set exactly when kind is symlink"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="link_target")
     if kind is not MemberKind.FILE and size != 0:
         msg = f"member {path!r}: a {kind.value} has size 0"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="size")
     if kind is MemberKind.DIR and role is not MemberRole.SITE_ROOT:
         msg = f"member {path!r}: a dir belongs to the site-root role"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="role")
     return ManifestMember(
         path=path, role=role, kind=kind, size=size, link_target=target
     )
@@ -526,11 +526,11 @@ def _exclusions(value: object) -> ManifestExclusions | None:
     source = _str(doc, "source")
     if source not in _EXCLUSION_SOURCES:
         msg = f"exclusions.source {source!r} is not one of {_EXCLUSION_SOURCES}"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="exclusions.source")
     patterns = _list(doc.get("patterns"), "exclusions.patterns")
     if not all(isinstance(p, str) for p in patterns):
         msg = "exclusions.patterns must be strings"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field="exclusions.patterns")
     excluded = []
     for item in _list(doc.get("excluded"), "exclusions.excluded"):
         entry = _object(item, "exclusions.excluded[]")
@@ -884,7 +884,7 @@ def _found(names: tuple[str, ...]) -> tuple[str, ...]:
 def _classify_v1(text: str | None) -> ArchiveView:
     if text is None:
         msg = "the Manifest is unreadable, not UTF-8 or larger than the cap"
-        raise MalformedManifestError(msg)
+        raise MalformedManifestError(msg, field=None)
     version = _int(_object(_loads(text), "manifest"), "format_version")
     if version not in SUPPORTED_FORMAT_VERSIONS:
         raise UnsupportedFormatVersionError(found=version)

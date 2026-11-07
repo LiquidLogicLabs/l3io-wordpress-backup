@@ -855,7 +855,7 @@ class WpCliRestoreExtension:
                     f"{in_parent}), so WP-CLI could not rewrite its URLs from "
                     "it; nothing was changed"
                 )
-                raise UsageError(msg)
+                raise UsageError(msg, arguments=("--wp-config",))
             _log.info(
                 "config_located",
                 config_path=os.path.realpath(stated),

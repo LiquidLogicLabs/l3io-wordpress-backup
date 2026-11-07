@@ -155,6 +155,7 @@ from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     PassphraseRequiredError,
     RefusedError,
+    UnknownInterruptedRunError,
     UsageError,
 )
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
@@ -487,10 +488,12 @@ class NonEmptyTargetRefusal(NonEmptyTargetError):
     """FR-7's refusal, worded in the flags the operator types (BL-E003-039).
 
     The same fields as :class:`NonEmptyTargetError`; ``flags`` is the CLI
-    spelling of ``authorizing``. Names paths and ``host:port/name`` only.
+    spelling of ``authorizing``, and ``original`` the refusal it rewords.
+    Names paths and ``host:port/name`` only.
     """
 
     def __init__(self, original: NonEmptyTargetError) -> None:
+        self.original = original
         super().__init__(
             original.mode,
             parts=original.parts,
@@ -609,13 +612,13 @@ def parse_archive_database(text: str) -> tuple[str, DatabaseLocation]:
     host, slash, name = rest.rpartition("/")
     if not (at and user and slash and host and name):
         msg = "--archive-database: expected USER@HOST[:PORT]/NAME"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("--archive-database",))
     if ":" in user:
         msg = (
             "--archive-database: the user part holds ':'; give USER@HOST[:PORT]/NAME "
             "with no password"
         )
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("--archive-database",))
     return user, database_location_from_db_host(host, name)
 
 
@@ -990,11 +993,7 @@ def _incomplete(
     record = query.incomplete(PurePosixPath(site_root))
     if record is None:
         if resolve_run_id is not None:
-            msg = (
-                f"no interrupted run {resolve_run_id} is recorded for this Site; "
-                "nothing was resolved"
-            )
-            raise RefusedError(msg)
+            raise UnknownInterruptedRunError(resolve_run_id, recorded_run_id=None)
         return None
     if resolve_run_id == record.header.run_id:
         return record
@@ -1154,14 +1153,14 @@ def drive_restore(
             "--overwrite-wp-config needs a mode that restores files; "
             f"Restore Mode {request.mode.value} restores none"
         )
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("--overwrite-wp-config",))
     factory: RestoreExtensionFactory | None = RESTORE_EXTENSION
     if factory is None and not request.relocation.is_empty:
         named = ", ".join(request.relocation.given)
         msg = f"relocation ({named}) is not available in this build: " + (
             RELOCATION_UNAVAILABLE
         )
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=request.relocation.given)
     if request.archive_database is not None:
         parse_archive_database(request.archive_database)
     site_root = _canonical(request.site_root)

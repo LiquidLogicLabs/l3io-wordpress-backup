@@ -358,7 +358,7 @@ def _exclusions(
             f"exclusion policy source {plan.exclusion_source!r} is not "
             f"{_EXCLUSION_SOURCES}"
         )
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("exclusion",))
     return ManifestExclusions(
         source=cast("Literal['default', 'custom', 'none']", plan.exclusion_source),
         patterns=plan.exclusion_patterns,
@@ -370,7 +370,7 @@ def _publish(staged: StagedArchive | None) -> bool:
     """``VERIFY`` and ``PUBLISH``, both emitted from inside ``publish()``."""
     if staged is None:
         msg = "VERIFY before WRITE_ARCHIVE"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=())
     return staged.publish()
 
 
@@ -400,11 +400,11 @@ def execute_backup_plan(
     encrypted = BackupStep.ENCRYPT in plan.steps
     if encrypted != (cipher is not None):
         msg = "the plan's ENCRYPT step and the cipher binding disagree"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=())
     dumps = BackupStep.DUMP in plan.steps
     if dumps != (database is not None):
         msg = "the plan's DUMP step and the database binding disagree"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=())
     _log.info("backup_started", backup_scope=plan.scope.value)
     if cipher is not None:
         cipher.check()
@@ -465,7 +465,7 @@ def execute_backup_plan(
         raise
     if manifest is None:
         msg = "the plan wrote no Archive"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=())
     final = Path(plan.target.path)
     size = final.stat().st_size if performed else manifest.payload.size
     kinds = Counter(member.kind.value for member in manifest.members)
@@ -505,11 +505,11 @@ def storage_target_from_cli(text: str) -> StorageTarget:
     else:
         if parts.netloc not in _LOCAL_HOSTS or parts.query or parts.fragment:
             msg = f"--archive {text!r}: a host, query or fragment is not supported"
-            raise UsageError(msg)
+            raise UsageError(msg, arguments=("--archive",))
         target = parse_storage_target(parts.scheme, unquote(parts.path))
     if "\x00" in str(target.path):
         msg = f"--archive {text!r}: a path may not contain a NUL"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("--archive",))
     return dataclasses.replace(target, path=PurePosixPath(Path(target.path).absolute()))
 
 

@@ -996,3 +996,4 @@
 {"epic": "E007", "event": "actual", "from": null, "key": "E007", "node": "epic", "session": null, "sprint": null, "to": null, "ts": "2026-11-07T07:22:02Z"}
 {"epic": "E007", "event": "status", "from": "in-progress", "key": "E007", "node": "epic", "session": null, "sprint": null, "to": "done", "ts": "2026-11-07T07:22:13Z"}
 {"agent": "l3io-pm-epic-closure", "epic": "E007", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "ts": "2026-11-07T07:35:54Z"}
+{"agent": "l3io-pm-story", "epic": "E006", "event": "dispatch_close", "session": "b74a242a-6a71-45d8-8ece-7b06b152e53c", "sprint": "S01", "story": "E006-S01-002", "ts": "2026-11-07T07:57:16Z"}

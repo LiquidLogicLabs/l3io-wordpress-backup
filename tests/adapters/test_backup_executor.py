@@ -70,7 +70,7 @@ class FakeDatabase:
         self.calls.append((location, destination))
         if self.fail:
             msg = "server went away"
-            raise DumpFailedError(msg)
+            raise DumpFailedError(msg, database="wp")
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(DUMP_TEXT)

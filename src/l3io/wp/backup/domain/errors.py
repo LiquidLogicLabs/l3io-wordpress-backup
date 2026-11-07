@@ -79,6 +79,7 @@ __all__ = [
     "StoredUrlInvalidError",
     "StoredUrlMissingError",
     "UnboundAdapterError",
+    "UnknownInterruptedRunError",
     "UnreadableSiteRootError",
     "UnrecognisedArchiveError",
     "UnsafeCleanTargetError",
@@ -96,7 +97,14 @@ __all__ = [
 
 
 class BackupError(Exception):
-    """The base of every error this package raises across a public boundary."""
+    """The base of every error this package raises across a public boundary.
+
+    Attributes every subclass has: ``exit_code`` (class attribute, an
+    :class:`~l3io.wp.backup.domain.exit_codes.ExitCode`) and ``snapshot_path``
+    (the Safety Snapshot's path, or ``None``). Each concrete subclass adds
+    typed, named fields carrying what its message states; its docstring names
+    them. No field ever holds a credential, passphrase or secret value.
+    """
 
     #: The process exit code this kind of failure ends a Run with.
     exit_code: ClassVar[ExitCode] = ExitCode.FAILED
@@ -107,34 +115,53 @@ class BackupError(Exception):
 
 
 class RefusedError(BackupError):
-    """A check found a reason not to act, so nothing was done."""
+    """A check found a reason not to act, so nothing was done.
+
+    A grouping base: it is raised only as one of its subclasses, each of
+    which carries its own fields.
+    """
 
     exit_code: ClassVar[ExitCode] = ExitCode.REFUSED
 
 
 class UsageError(BackupError):
-    """The caller supplied an invalid combination of arguments."""
+    """The caller supplied an invalid combination of arguments.
+
+    ``arguments`` names the flags or parameters at fault, never their values.
+    Where the CLI has a flag for it, the flag's spelling is used, whichever
+    surface the caller used (``--admin-tls`` for the library's
+    ``admin_tls=``); otherwise the Python parameter name (``site_root``). It is
+    empty where no single argument is at fault: a combination, or an
+    internal invariant that is a defect rather than a caller's mistake.
+    """
 
     exit_code: ClassVar[ExitCode] = ExitCode.USAGE
+
+    def __init__(self, message: str, *, arguments: tuple[str, ...]) -> None:
+        self.arguments = arguments
+        super().__init__(message)
 
 
 class FlagCombinationRejectedError(UsageError):
     """AD-25 — restore flags that express no Restore Mode.
 
     The message is the flag table's own entry: why the combination was
-    rejected and the combination that would express a real Mode.
+    rejected (``reason``) and the combination that would express a real Mode
+    (``use_instead``). ``arguments`` is empty: the combination is at fault,
+    not one flag.
     """
 
     def __init__(self, *, reason: str, use_instead: str) -> None:
         self.reason = reason
         self.use_instead = use_instead
-        super().__init__(f"{reason}; {use_instead}")
+        super().__init__(f"{reason}; {use_instead}", arguments=())
 
 
 class PassphraseUnavailableError(UsageError):
     """AD-26 — passphrase encryption was requested and no usable one resolved.
 
-    ``variable`` is the environment variable consulted, never its value.
+    ``variable`` is the environment variable consulted, never its value;
+    ``reason`` says why none was usable; ``arguments`` is ``("passphrase",)``.
     """
 
     def __init__(self, variable: str, *, reason: str) -> None:
@@ -142,26 +169,29 @@ class PassphraseUnavailableError(UsageError):
         self.reason = reason
         super().__init__(
             f"no usable passphrase: {reason} (pass passphrase=, set {variable}, "
-            "or run on a terminal so it can be prompted for)"
+            "or run on a terminal so it can be prompted for)",
+            arguments=("passphrase",),
         )
 
 
 class InvalidRelocationValueError(UsageError):
     """FR-11 — a relocation flag's value breaks a rule.
 
-    ``flag`` and ``rule`` name it; the value is never echoed.
+    ``flag`` and ``rule`` name it; the value is never echoed. ``arguments``
+    is ``(flag,)``.
     """
 
     def __init__(self, flag: str, rule: str) -> None:
         self.flag = flag
         self.rule = rule
-        super().__init__(f"{flag} {rule}")
+        super().__init__(f"{flag} {rule}", arguments=(flag,))
 
 
 class IncompleteRelocationCredentialsError(UsageError):
     """FR-11 — half of the relocated account was given.
 
-    Keeping the other half from the Archive would mix two accounts.
+    Keeping the other half from the Archive would mix two accounts. ``given``
+    and ``missing`` name the two flags; ``arguments`` is ``(given, missing)``.
     """
 
     def __init__(self, *, given: str, missing: str) -> None:
@@ -170,7 +200,8 @@ class IncompleteRelocationCredentialsError(UsageError):
         super().__init__(
             f"{given} needs {missing}: the relocated account is a user and "
             "password pair, and keeping one half from the Archive would mix "
-            "two accounts"
+            "two accounts",
+            arguments=(given, missing),
         )
 
 
@@ -178,7 +209,8 @@ class RelocationNeedsDatabaseRestoreError(UsageError):
     """FR-11 — relocation flags with a Restore Mode that restores no database.
 
     Such a Mode has no cutover, so every ``--new-*`` value would be accepted
-    and discarded. ``mode`` is the Restore Mode's CLI spelling.
+    and discarded. ``flags`` names them, ``mode`` is the Restore Mode's CLI
+    spelling, and ``arguments`` is ``flags``.
     """
 
     def __init__(self, *, flags: tuple[str, ...], mode: str) -> None:
@@ -186,7 +218,8 @@ class RelocationNeedsDatabaseRestoreError(UsageError):
         self.mode = mode
         super().__init__(
             f"{', '.join(flags)} need a Restore Mode that restores the database; "
-            f"Restore Mode {mode} restores none"
+            f"Restore Mode {mode} restores none",
+            arguments=flags,
         )
 
 
@@ -259,10 +292,19 @@ class DatabaseUnreachableError(BackupError):
 
 
 class DumpFailedError(BackupError):
-    """The database dump started and failed."""
+    """The database dump started and failed.
 
-    def __init__(self, reason: str) -> None:
+    ``database`` is the database's name; ``exit_status`` the dump's exit
+    status when it exited, else ``None``; ``reason`` is structured (that exit
+    status or a failure class), never the dependency's text.
+    """
+
+    def __init__(
+        self, reason: str, *, database: str, exit_status: int | None = None
+    ) -> None:
         self.reason = reason
+        self.database = database
+        self.exit_status = exit_status
         super().__init__(f"database dump failed: {reason}")
 
 
@@ -355,11 +397,16 @@ class LoadFailedError(BackupError):
     """Loading a Dump started and failed, or the Dump was unreadable.
 
     ``reason`` is structured (an exit code or a failure class), never the
-    dependency's text.
+    dependency's text. ``database`` is the name of the database loaded into;
+    ``exit_status`` the load's exit status when it exited, else ``None``.
     """
 
-    def __init__(self, reason: str) -> None:
+    def __init__(
+        self, reason: str, *, database: str, exit_status: int | None = None
+    ) -> None:
         self.reason = reason
+        self.database = database
+        self.exit_status = exit_status
         super().__init__(f"database load failed: {reason}")
 
 
@@ -494,10 +541,16 @@ class PreflightFailedError(BackupError):
 
 
 class MalformedManifestError(BackupError):
-    """A Manifest's JSON is not a valid v1 Manifest."""
+    """A Manifest's JSON is not a valid v1 Manifest.
 
-    def __init__(self, reason: str) -> None:
+    ``field`` is the Manifest field at fault, as the message names it
+    (``payload.sha256``, ``size``), or ``None`` when the whole document is
+    unreadable; ``reason`` says what is wrong with it.
+    """
+
+    def __init__(self, reason: str, *, field: str | None) -> None:
         self.reason = reason
+        self.field = field
         super().__init__(f"malformed manifest: {reason}")
 
 
@@ -524,11 +577,16 @@ class PassphraseRejectedError(BackupError):
 
     ``VERIFICATION_FAILED``: the payload could not be authenticated (Shawn,
     2026-11-03). Kept distinct from :class:`PayloadDamagedError` (ADR-0014).
+    ``scheme`` names the encryption whose authentication failed (``age``):
+    the cipher raises this from a stream and holds no Archive identity, so
+    the Archive is named by the operation's own context (the Run's records
+    and the caller's argument), not by a field here.
     """
 
     exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
 
-    def __init__(self) -> None:
+    def __init__(self, *, scheme: str) -> None:
+        self.scheme = scheme
         super().__init__(
             "authentication failed: the passphrase cannot decrypt this archive"
         )
@@ -562,22 +620,26 @@ class ArchiveNotEncryptedError(UsageError):
 
     Nothing in a plain Archive can be authenticated, so passing would be the
     false reassurance BL-E002-060 removes. ``restore --require-encrypted``
-    raises it too (``required=True``) for a plain Archive.
+    raises it too (``required=True``) for a plain Archive. ``archive`` names
+    it, ``required`` says which, and ``arguments`` is the flag at fault.
     """
 
     def __init__(self, archive: str, *, required: bool = False) -> None:
         self.archive = archive
+        self.required = required
         if required:
             # ``restore --require-encrypted`` (RT-1): a plain Archive where an
             # encrypted one was expected may be a substitution.
             super().__init__(
                 f"archive {archive!r} is not encrypted, and --require-encrypted "
-                "was given; it may have been substituted for an encrypted one"
+                "was given; it may have been substituted for an encrypted one",
+                arguments=("--require-encrypted",),
             )
             return
         super().__init__(
             f"archive {archive!r} is not encrypted, so there is nothing to "
-            "authenticate; verify it without --authenticate"
+            "authenticate; verify it without --authenticate",
+            arguments=("--authenticate",),
         )
 
 
@@ -670,6 +732,29 @@ class RunContextActiveError(RefusedError):
         super().__init__(
             f"a Run is already active (run_id {active_run_id}): join it, "
             "do not open a second"
+        )
+
+
+class UnknownInterruptedRunError(RefusedError):
+    """FR-28 — an acknowledgement named a Run that is not the interrupted one.
+
+    ``run_id`` is the Run named; ``recorded_run_id`` the interrupted Run the
+    Site's journal records, or ``None`` when it records none. Nothing was
+    resolved.
+    """
+
+    def __init__(self, run_id: str, *, recorded_run_id: str | None) -> None:
+        self.run_id = run_id
+        self.recorded_run_id = recorded_run_id
+        if recorded_run_id is None:
+            super().__init__(
+                f"no interrupted run {run_id} is recorded for this Site; "
+                "nothing was resolved"
+            )
+            return
+        super().__init__(
+            f"the interrupted run is {recorded_run_id}, not {run_id}; "
+            "nothing was resolved"
         )
 
 

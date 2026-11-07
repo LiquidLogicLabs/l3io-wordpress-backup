@@ -746,7 +746,12 @@ def test_an_undecryptable_payload_changes_nothing(
     tmp_path: Path, failure: type[Exception]
 ) -> None:
     sealed = write_v1(tmp_path, cipher=IdentityCipher())
-    cipher = IdentityCipher(failure=failure())
+    raised = (
+        PassphraseRejectedError(scheme="age")
+        if failure is PassphraseRejectedError
+        else failure()
+    )
+    cipher = IdentityCipher(failure=raised)
     h = _harness(tmp_path, sealed, cipher=cipher)
     assert h.view.encrypted
     with pytest.raises(failure) as caught:

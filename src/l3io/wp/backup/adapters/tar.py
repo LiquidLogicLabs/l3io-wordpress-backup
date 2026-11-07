@@ -263,7 +263,9 @@ def _decide(
     try:
         decision = policy.decide(PurePosixPath(relative), is_dir=is_dir)
     except Exception as exc:
-        reason = f"the exclusion policy failed deciding {relative!r}: {exc}"
+        reason = (
+            f"the exclusion policy failed deciding {relative!r}: {type(exc).__name__}"
+        )
         raise ArchiveWriteError(site_root / relative, reason) from exc
     return decision.excluded, decision.pattern
 
@@ -591,8 +593,7 @@ def write_archive(
     except BackupError:
         raise
     except (OSError, tarfile.TarError) as exc:
-        reason = getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
-        raise ArchiveWriteError(writing, reason) from exc
+        raise ArchiveWriteError(writing, _reason(exc)) from exc
     finally:
         plain.unlink(missing_ok=True)
         sealed.unlink(missing_ok=True)
@@ -666,7 +667,8 @@ def _open(path: Path) -> BinaryIO:
 
 
 def _reason(exc: BaseException) -> str:
-    return getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
+    """An ``OSError``'s errno text, else the type's name; never the message."""
+    return getattr(exc, "strerror", None) or type(exc).__name__
 
 
 class _Counter(io.RawIOBase):

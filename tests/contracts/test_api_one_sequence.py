@@ -5,17 +5,23 @@ No module under ``api/`` (found on disk, never listed) names a
 ``join_or_open``, ``bind_adapters``, ``real_adapters``, ``dry_run_adapters``
 or a Site Lock's ``acquire``: the drivers do all of those, for the CLI and the
 library alike. A violation planted deep in a copy of the tree is reported.
+
+One import from ``core.restore`` is not sequencing: an exception class
+``api/errors.py`` re-exports (AD-14, E006-S01-002). A name imported from there
+is allowed exactly when it resolves to a ``BackupError`` subclass.
 """
 
 from __future__ import annotations
 
 import ast
+import importlib
 import shutil
 from pathlib import Path
 
 import pytest
 
 from l3io.wp.backup.api import operations
+from l3io.wp.backup.domain.errors import BackupError
 from tests.qualified_names import ImportTable, module_package
 
 API = Path(operations.__file__).parent
@@ -39,6 +45,16 @@ def _last(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
+def _is_error_class(name: str) -> bool:
+    """``name`` (``module.Attr``) resolves to a ``BackupError`` subclass."""
+    module, _, attr = name.rpartition(".")
+    try:
+        obj = getattr(importlib.import_module(module), attr, None)
+    except ImportError:
+        return False
+    return isinstance(obj, type) and issubclass(obj, BackupError)
+
+
 def _violations(directory: Path, *, root_package: str = API_PACKAGE) -> list[str]:
     """Matched on the *qualified* name, so an alias or a from-import is seen."""
     found: set[str] = set()
@@ -60,7 +76,8 @@ def _violations(directory: Path, *, root_package: str = API_PACKAGE) -> list[str
         found |= {
             f"{where}:{line}: imports {name}"
             for line, name in table.imported
-            if name.startswith(FORBIDDEN_MODULES) or _last(name) in FORBIDDEN_NAMES
+            if (name.startswith(FORBIDDEN_MODULES) and not _is_error_class(name))
+            or _last(name) in FORBIDDEN_NAMES
         }
     return sorted(found)
 
@@ -81,6 +98,7 @@ def test_a_planted_resequencing_is_reported(tmp_path: Path) -> None:
     deep.mkdir(parents=True)
     (deep / "helper.py").write_text(
         "from l3io.wp.backup.core.restore import build_restore_plan\n"
+        "from l3io.wp.backup.core.restore import TargetChangedError\n"
         "def f(ctx, lock):\n"
         "    with join_or_open(None, operation='x'):\n"
         "        ctx.bind_adapters(real_adapters())\n"
