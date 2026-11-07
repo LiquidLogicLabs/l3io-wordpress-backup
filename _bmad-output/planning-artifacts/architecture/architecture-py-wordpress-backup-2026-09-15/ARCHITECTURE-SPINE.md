@@ -45,6 +45,7 @@ The pre-rewrite `wpconfigr` already separates a pure core (`WpConfigString`, ope
 
 ### AD-1 — The core computes plans; only adapters perform effects
 
+- *(Amended 2026-11-07 — [ADR-0025](../../../../docs/adr/0025-api-composes-through-the-cli-drivers.md): `api/` composes through `cli/`'s drivers rather than as a peer root, so the library and the CLI run one sequence; `cli/` never imports `api/`. A neutral driver module is revisited after the first release, BL-E006-024.)*
 - **Binds:** all three packages
 - **Prevents:** effect logic spreading into decision logic, where it cannot be tested without a live WordPress and MySQL (NFR-8), and where each new effect site becomes another place a mode flag can be forgotten
 - **Rule:** modules under `core/` and `domain/` import no I/O module and never import `ports/`, `adapters/`, `cli/` or `api/`. They return plan values; effects happen only in `adapters/`, reached through a `ports/` Protocol.
