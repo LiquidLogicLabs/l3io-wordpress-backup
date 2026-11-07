@@ -34,6 +34,7 @@ from l3io.wp.backup.domain.errors import (
     UsageError,
 )
 from l3io.wp.backup.domain.preflight import ToolRequirement
+from l3io.wp.backup.domain.secret import Secret, as_secret
 
 __all__ = [
     "EncryptionConfigError",
@@ -123,8 +124,8 @@ class PassphraseCipher:
 
     __slots__ = ("_passphrase",)
 
-    def __init__(self, passphrase: str) -> None:
-        self._passphrase = passphrase
+    def __init__(self, passphrase: Secret | str) -> None:
+        self._passphrase = as_secret(passphrase)
 
     def __repr__(self) -> str:
         return "PassphraseCipher(passphrase=<redacted>)"
@@ -157,7 +158,7 @@ class PassphraseCipher:
         except ImportError as exc:
             raise MissingExtraError(extra=_EXTRA) from exc
         try:
-            encryption.check_passphrase(self._passphrase)
+            encryption.check_passphrase(self._passphrase.reveal())
         except MissingDependencyError as exc:
             raise MissingExtraError(extra=_EXTRA) from exc
         except InvalidArgumentsError as exc:
@@ -174,7 +175,7 @@ class PassphraseCipher:
         except ImportError as exc:
             raise MissingExtraError(extra=_EXTRA) from exc
         try:
-            encryption.encrypt(reader, writer, passphrase=self._passphrase)
+            encryption.encrypt(reader, writer, passphrase=self._passphrase.reveal())
         except MissingDependencyError as exc:
             raise MissingExtraError(extra=_EXTRA) from exc
         except InvalidArgumentsError as exc:
@@ -193,7 +194,7 @@ class PassphraseCipher:
         except ImportError as exc:
             raise MissingExtraError(extra=_EXTRA) from exc
         try:
-            encryption.decrypt(reader, writer, passphrase=self._passphrase)
+            encryption.decrypt(reader, writer, passphrase=self._passphrase.reveal())
         except MissingDependencyError as exc:
             raise MissingExtraError(extra=_EXTRA) from exc
         except InvalidArgumentsError as exc:
@@ -206,16 +207,16 @@ class PassphraseCipher:
 
 @overload
 def build_payload_cipher(
-    *, passphrase: str, secrets: SecretRegistry
+    *, passphrase: str | Secret, secrets: SecretRegistry
 ) -> PassphraseCipher: ...
 @overload
 def build_payload_cipher(*, passphrase: None, secrets: SecretRegistry) -> None: ...
 @overload
 def build_payload_cipher(
-    *, passphrase: str | None, secrets: SecretRegistry
+    *, passphrase: str | Secret | None, secrets: SecretRegistry
 ) -> PassphraseCipher | None: ...
 def build_payload_cipher(
-    *, passphrase: str | None, secrets: SecretRegistry
+    *, passphrase: str | Secret | None, secrets: SecretRegistry
 ) -> PassphraseCipher | None:
     """The one way a composition root turns a resolved passphrase into a cipher.
 
@@ -227,7 +228,8 @@ def build_payload_cipher(
     """
     if passphrase is None:
         return None
-    secrets.register(passphrase, source=_REGISTRY_SOURCE)
-    cipher = PassphraseCipher(passphrase)
+    secret = as_secret(passphrase)
+    secrets.register(secret, source=_REGISTRY_SOURCE)
+    cipher = PassphraseCipher(secret)
     cipher.check()
     return cipher

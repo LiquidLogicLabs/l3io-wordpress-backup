@@ -226,6 +226,9 @@ ADDITIONS = [
     (RESTORE_COMMAND, "--archive-database"),
     (RESTORE_COMMAND, "--admin-tls"),
     (RESTORE_COMMAND, "--admin-tls-ca"),
+    # E008-S01-001 (owner decisions 2026-11-07).
+    (RESTORE_COMMAND, "--new-db-password-file"),
+    (RESTORE_COMMAND, "--allow-unencrypted"),
     (DOCTOR_COMMAND, "--wp-dir"),
     (DOCTOR_COMMAND, "--archive"),
     (DOCTOR_COMMAND, "--json"),

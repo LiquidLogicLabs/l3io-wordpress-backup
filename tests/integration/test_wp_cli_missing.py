@@ -25,6 +25,12 @@ directory holding links to the database client tools found on the original
    (unrunnable) ``wp`` never ran;
 6. a Dry Run of case 1: exit 7 with the identical message.
 
+ED-1 (E008-S01-001): with the roots' ``RootPreflight`` bound, a relocating
+Dry Run through ``wpbackup2 restore --whatIf`` and through ``api.restore``
+with a ``wp`` printing ``WP-CLI 2.12.0`` on ``PATH`` passes ``PREFLIGHT``:
+the root probes that very ``wp`` (``cli version --skip-plugins --skip-themes
+--skip-packages --no-color``) and plans ``SEARCH_REPLACE``.
+
 Needs the CI ``db`` service (``DB_HOST``/``DB_PASSWORD``); skips without it.
 """
 
@@ -43,6 +49,7 @@ from structlog.testing import capture_logs
 
 pytest.importorskip("l3io.wp.database")
 
+from l3io.wp.backup import api
 from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
 from l3io.wp.backup.adapters.journal import CURRENT
 from l3io.wp.backup.adapters.preflight import BinaryPreflight
@@ -55,9 +62,22 @@ from l3io.wp.backup.cli.preflight import require_tools
 from l3io.wp.backup.cli.restore import RelocationFlags
 from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
 from l3io.wp.backup.core.restore import RestoreRelocation
+from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.errors import ExitCode, PreflightFailedError
-from l3io.wp.backup.domain.restore import RestoreMode
+from l3io.wp.backup.domain.restore import (
+    ConfigPolicy,
+    RestoreMode,
+    RestorePhase,
+    SnapshotPolicy,
+)
 from l3io.wp.backup.ports.adapter_set import AdapterSet
+from tests.integration.live_cli import (
+    CliSite,
+    admin_account,
+    authorizing_flags,
+    cli_site,
+    run_cli,
+)
 from tests.integration.live_restore import (
     LiveSite,
     build_archive,
@@ -68,8 +88,9 @@ from tests.integration.live_restore import (
     restore,
     spec_for,
 )
+from tests.restore_root_rig import ALL_WAIVED
 
-__all__ = ["live_site"]
+__all__ = ["admin_account", "cli_site", "live_site"]
 
 pytestmark = [
     pytest.mark.integration,
@@ -227,3 +248,85 @@ def test_6_a_dry_run_refuses_identically(rig: Rig) -> None:
     assert str(dry) == str(real)
     assert WP_CLI_REQUIREMENT.install_hint is not None
     assert WP_CLI_REQUIREMENT.install_hint in str(dry)
+
+
+# --------------------------------------------------------------------------
+# ED-1 (E008-S01-001): a usable wp passes the roots' own PREFLIGHT
+# --------------------------------------------------------------------------
+
+PROBE = "cli version --skip-plugins --skip-themes --skip-packages --no-color"
+
+
+@pytest.fixture
+def wp_2_12(cli_site: CliSite, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """``PATH``: the client tools and a ``wp`` 2.12.0 recording its arguments."""
+    binaries = cli_site.site.work / "ed1-bin"
+    binaries.mkdir()
+    for name in CLIENT_TOOLS:
+        found = shutil.which(name)
+        if found is not None:
+            (binaries / name).symlink_to(found)
+    marker = cli_site.site.work / "wp-argv"
+    script = binaries / "wp"
+    script.write_text(
+        f"#!/bin/sh\necho \"$@\" >> '{marker}'\necho 'WP-CLI 2.12.0'\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(binaries))
+    return marker
+
+
+def _url_flags() -> list[str]:
+    return [
+        "--new-site-url",
+        str(URLS.new_site_url),
+        "--new-site-home-url",
+        str(URLS.new_home_url),
+    ]
+
+
+def test_ed1_a_relocating_cli_dry_run_passes_preflight(
+    cli_site: CliSite, wp_2_12: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    site = cli_site
+    before = (_tree(site.root), site.site.config.read_bytes(), site.site.checksums())
+    argv = site.argv(site.archive(), *authorizing_flags(RestoreMode.ALL), *_url_flags())
+    # A passing check's ``preflight_checked`` is DEBUG (adapters/preflight.py's
+    # ``_log_checked``); the default INFO level shows only ``preflight_passed``.
+    ran = run_cli(["--whatIf", "--log-level", "DEBUG", *argv], capsys)
+    assert ran.code == int(ExitCode.OK), ran.err[-3000:]
+    checked = [r for r in ran.events("preflight_checked") if r.get("tool") == "wp"]
+    assert [r["outcome"] for r in checked] == ["ok"]
+    assert [r["level"] for r in checked] == ["debug"]
+    assert any("wp" in r["tools"] for r in ran.events("preflight_passed"))
+    assert PROBE in wp_2_12.read_text(encoding="utf-8")
+    assert f"wp >= {MINIMUM}" in ran.out
+    assert (
+        _tree(site.root),
+        site.site.config.read_bytes(),
+        site.site.checksums(),
+    ) == before
+
+
+def test_ed1_a_relocating_api_dry_run_passes_preflight(
+    cli_site: CliSite, wp_2_12: Path
+) -> None:
+    site = cli_site
+    with capture_logs():
+        outcome = api.restore(
+            site.root,
+            archive=site.archive(),
+            mode=RestoreMode.ALL,
+            overrides=ALL_WAIVED,
+            snapshot=SnapshotPolicy.TAKE,
+            config_policy=ConfigPolicy.KEEP,
+            snapshot_dir=site.snapshots,
+            admin=ExplicitCredentialSpec(site.admin_user, site.admin_password),
+            relocation=URLS,
+            dry_run=True,
+        )
+    assert outcome.dry_run
+    assert RestorePhase.PREFLIGHT in outcome.phases
+    assert RestorePhase.SEARCH_REPLACE in {a.phase for a in outcome.actions}
+    assert PROBE in wp_2_12.read_text(encoding="utf-8")

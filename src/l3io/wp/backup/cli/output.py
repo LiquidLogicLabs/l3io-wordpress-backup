@@ -7,21 +7,61 @@ class — a failure before the Run opened included — and, unless that stream i
 JSON, the plain ``wpbackup2: ...`` line too, so ``--log-format json`` stderr
 stays one JSON object per line. The text is redacted here as well as by the
 pipeline, whose registry the root re-opens for the report.
+
+:class:`RunWarning` is an operator notice a driver gives besides its WARNING
+log record (owner decision 2026-11-07, E006 closure decision 2):
+:func:`emit_warning` hands it to the caller's sink when there is one (the
+library's ``on_warning``) and otherwise writes its message to stderr, as the
+CLI always has. A sink's exception propagates, unchanged, to the caller.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 
 import structlog
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.logging import configured_format
 
-__all__ = ["emit_failure", "emit_result"]
+__all__ = ["RunWarning", "WarningSink", "emit_failure", "emit_result", "emit_warning"]
 
 _log = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class RunWarning:
+    """An operator notice: what the CLI writes to stderr, as a value.
+
+    ``code`` is the notice's WARNING event name (``archive_unauthenticated``,
+    ``safety_snapshot_unencrypted``, ``safety_snapshot_encrypted``),
+    ``message`` the line the CLI prints and ``fields`` its structured values
+    (paths, the integrity level). It never carries a secret.
+    """
+
+    code: str
+    message: str
+    fields: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+
+
+#: Where a library caller takes notices instead of stderr (``on_warning``).
+WarningSink = Callable[[RunWarning], None]
+
+
+def emit_warning(warning: RunWarning, sink: WarningSink | None) -> None:
+    """``warning`` to ``sink``, or its message on stderr when there is none.
+
+    The structured WARNING record is the caller's, logged either way. An
+    exception the sink raises propagates.
+    """
+    if sink is not None:
+        sink(warning)
+        return
+    print(warning.message, file=sys.stderr)
 
 
 def emit_result(text: str) -> None:

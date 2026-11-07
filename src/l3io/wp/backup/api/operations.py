@@ -7,24 +7,25 @@ driver the CLI calls (``drive_backup``, ``drive_verify``, ``drive_restore``),
 and applies the CLI root's own exit rule to what the driver returns
 (``VerificationFailedError``; ``require_database_restored``). It never
 configures logging and never installs a signal handler (AD-10). It prints
-nothing itself, but ``drive_restore`` writes three safety notices to stderr
-(AD-26 wants the unauthenticated-archive warning outside the log); that is
-stated in ``docs/api.md`` and BL-E006-008 tracks a caller-supplied sink.
+nothing itself; ``drive_restore``'s safety notices go to the caller's
+``on_warning`` or, without one, to stderr (AD-26 wants the
+unauthenticated-archive warning outside the log; see **Notices**).
 
 **One sequence (AD-16).** The drivers canonicalise the Site Root, open or
-join the Run (``context=None`` opens one; a ``RunContext`` is joined, and a
-Run already active without one raises ``RunContextActiveError``), take the
+open the Run (a Run already active in this thread raises
+``RunContextActiveError``; there is no public way to join one, owner decision
+2026-11-07, BL-E006-024), take the
 Site Lock (AD-19), read the Site Descriptor from ``wp-config.php`` (AD-3) and
 bind the adapter set — the Dry Run's no-op set for ``dry_run=True`` (AD-4).
 Nothing here repeats any of those steps.
 
-**Secrets (AD-26).** With ``context=None`` each call creates one
+**Secrets (AD-26).** Each call creates one
 ``SecretRegistry`` before anything else, resolves the passphrase into it
 through ``cli/passphrase.py``'s chain (the argument, then
 ``L3IO_WP_BACKUP_PASSPHRASE``, then ``prompt``; the library never binds a
 terminal prompt itself), builds the cipher with
 ``adapters/crypto.build_payload_cipher`` and hands the registry to the
-driver, whose Run adopts it. Given a ``context``, its registry is used. The
+driver, whose Run adopts it. The
 library reads ``os.environ`` only to hand it to that chain's module (the
 chain itself, ``note_unused_passphrase`` for an unencrypted backup, and
 ``drive_verify`` when authenticating); the drivers hand it to the credential
@@ -38,6 +39,12 @@ joined Run opens no root of its own). No command line is placed on a span
 (``command_args=None``): a library call has none of its own. The CLI binds
 the no-op tracer.
 
+**Notices.** ``restore``'s operator notices (an unauthenticated Archive, the
+Safety Snapshot's encryption) go to ``on_warning`` as ``RunWarning`` values
+when it is given, and to stderr when it is not; their WARNING log records
+are written either way, and an exception the callback raises propagates.
+``backup`` and ``verify`` take the same parameter and give no notice today.
+
 **Errors (AD-14).** Each entry point is wrapped in ``api/errors.py``'s
 ``public_boundary``: a package exception passes through unchanged, and any
 other ``Exception`` arrives as ``UnexpectedError`` from the original.
@@ -47,6 +54,7 @@ Pruning is FR-17 (v1.1): the CLI has no prune operation, so neither has this.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -56,6 +64,7 @@ from typing import Final
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy
+from l3io.wp.backup.adapters.preflight import Diagnosis
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.tracing import OpenTelemetryTracer
 from l3io.wp.backup.api.errors import public_boundary
@@ -65,8 +74,11 @@ from l3io.wp.backup.cli.backup import (
     drive_backup,
     storage_target_from_cli,
 )
-from l3io.wp.backup.cli.context import RunContext
+from l3io.wp.backup.cli.credentials import new_db_password
+from l3io.wp.backup.cli.doctor import drive_doctor
+from l3io.wp.backup.cli.output import WarningSink
 from l3io.wp.backup.cli.passphrase import (
+    note_short_restore_passphrase,
     note_unused_passphrase,
     require_passphrase,
     resolve_passphrase,
@@ -92,11 +104,12 @@ from l3io.wp.backup.domain.restore import (
     RestoreMode,
     SnapshotPolicy,
 )
+from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
-__all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "restore", "verify"]
+__all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "restore", "verify"]
 
 #: What a library Run's ``safety_snapshot_skipped`` record names as having
 #: chosen ``SnapshotPolicy.SKIP`` (BL-E003-050): the argument, not the CLI flag.
@@ -104,9 +117,9 @@ SNAPSHOT_SKIPPED_BY: Final = "snapshot=SnapshotPolicy.SKIP"
 _NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 
 
-def _registry(context: RunContext | None) -> SecretRegistry:
-    """The Run's registry: the joined Run's, or a new one the opened Run adopts."""
-    return SecretRegistry() if context is None else context.secrets
+def _registry() -> SecretRegistry:
+    """A new registry, which the Run the driver opens adopts."""
+    return SecretRegistry()
 
 
 def _target(value: StorageTarget | str | os.PathLike[str]) -> StorageTarget:
@@ -128,21 +141,22 @@ def backup(
     site: str | os.PathLike[str],
     *,
     scope: BackupScope,
-    target: StorageTarget | str | os.PathLike[str] | None = None,
+    target: StorageTarget | str | os.PathLike[str],
     wp_config: str | os.PathLike[str] | None = None,
     credentials: CredentialSpec | None = None,
     exclusion: ExclusionPolicy | None = None,
     encrypt: bool = False,
-    passphrase: str | None = None,
+    passphrase: Secret | str | None = None,
     prompt: Callable[[str], str] | None = None,
     dry_run: bool = False,
-    context: RunContext | None = None,
+    on_warning: WarningSink | None = None,
 ) -> BackupResult:
     """Back up the Site whose root is ``site``; returns what was published.
 
-    ``scope`` has no default (AD-5). ``target=None`` is the CLI's default
-    Archive name in the current directory. ``exclusion=None`` is the set the
-    CLI applies with no exclusion flag. ``encrypt=True`` requires a passphrase
+    ``scope`` and ``target`` have no default (AD-5; owner decision
+    2026-11-07): the CLI's default Archive name is the CLI's alone.
+    ``exclusion=None`` is the set the CLI applies with no exclusion flag.
+    ``encrypt=True`` requires a passphrase
     (``passphrase``, ``L3IO_WP_BACKUP_PASSPHRASE``, then ``prompt``) and
     refuses with ``PassphraseUnavailableError`` before the Site is read; a
     ``passphrase`` without ``encrypt=True`` is refused (``UsageError``) rather
@@ -151,7 +165,8 @@ def backup(
     (``passphrase_ignored``).
     ``dry_run=True`` plans, checks and writes nothing.
     """
-    registry = _registry(context)
+    del on_warning  # backup gives no notice today (see **Notices**)
+    registry = _registry()
     cipher: PayloadCipher | None = None
     extra_tools: tuple[ToolRequirement, ...] = ()
     if encrypt:
@@ -167,7 +182,7 @@ def backup(
         note_unused_passphrase(os.environ)
     site_root = Path(site)
     stated = None if wp_config is None else Path(wp_config)
-    archive = None if target is None else _target(target)
+    archive = _target(target)
     request = (
         BackupRequest(
             site_root=site_root,
@@ -194,7 +209,7 @@ def backup(
     )
     return drive_backup(
         request,
-        ctx=context,
+        ctx=None,
         tracer=OpenTelemetryTracer(),
         secrets=registry,
         command_args=None,
@@ -206,9 +221,9 @@ def verify(
     archive: StorageTarget | str | os.PathLike[str],
     *,
     authenticate: bool = False,
-    passphrase: str | None = None,
+    passphrase: Secret | str | None = None,
     prompt: Callable[[str], str] | None = None,
-    context: RunContext | None = None,
+    on_warning: WarningSink | None = None,
 ) -> VerificationResult:
     """Check ``archive`` without touching a Site; returns the passing result.
 
@@ -218,11 +233,12 @@ def verify(
     A failed verification raises ``VerificationFailedError`` carrying the
     result, as the CLI exits ``VERIFICATION_FAILED``.
     """
-    registry = _registry(context)
+    del on_warning  # verify gives no notice today (see **Notices**)
+    registry = _registry()
     request = VerifyRequest(archive=_target(archive), authenticate=authenticate)
     result = drive_verify(
         request,
-        ctx=context,
+        ctx=None,
         tracer=OpenTelemetryTracer(),
         secrets=registry,
         command_args=None,
@@ -251,11 +267,12 @@ def restore(
     reset_existing_db_user: bool = False,
     relocation: RelocationFlags | None = None,
     require_encrypted: bool = False,
-    passphrase: str | None = None,
+    allow_unencrypted: bool = False,
+    passphrase: Secret | str | None = None,
     prompt: Callable[[str], str] | None = None,
     resolve_run_id: str | None = None,
     dry_run: bool = False,
-    context: RunContext | None = None,
+    on_warning: WarningSink | None = None,
 ) -> RestoreOutcome:
     """Restore ``archive`` into the Site at ``site_root``; returns what was done.
 
@@ -264,13 +281,28 @@ def restore(
     is resolved on every call: it decrypts an encrypted Archive and encrypts
     the Safety Snapshot. ``admin_tls=None`` is the policy default
     (``AdminTls(mode=None, ca_file=None)``), ``relocation=None`` no
-    relocation. A real restore whose database report does not say restored
-    raises ``DatabaseNotRestoredError``, as the CLI exits ``FAILED``.
+    relocation. A passphrase (``passphrase``, ``L3IO_WP_BACKUP_PASSPHRASE``
+    or ``prompt``) means an encrypted Archive is expected: a plain one is
+    refused (``ArchiveNotEncryptedError``) unless ``allow_unencrypted=True``,
+    as ``--allow-unencrypted`` (ADR-0016 amendment 2026-11-07). A real
+    restore whose database report does not say restored raises
+    ``DatabaseNotRestoredError``, as the CLI exits ``FAILED``.
     """
-    registry = _registry(context)
+    registry = _registry()
     flags = RelocationFlags.none() if relocation is None else relocation
-    if flags.new_db_password:
-        registry.register(flags.new_db_password, source="--new-db-password")
+    # The CLI's chain without its file flag: the argument, then
+    # L3IO_WP_BACKUP_NEW_DB_PASSWORD (only with new_db_user); registered and
+    # held to the ADR-0018 floor as it is read.
+    password = new_db_password(
+        explicit=flags.new_db_password,
+        file=None,
+        environ=os.environ,
+        secrets=registry,
+        user_given=flags.new_db_user is not None,
+        explicit_source="RelocationFlags.new_db_password",
+    )
+    if password != flags.new_db_password:
+        flags = dataclasses.replace(flags, new_db_password=password)
     resolved = resolve_passphrase(
         explicit=passphrase,
         environ=os.environ,
@@ -278,6 +310,7 @@ def restore(
         secrets=registry,
         label=RESTORE_PROMPT,
     )
+    note_short_restore_passphrase(resolved)
     cipher = build_payload_cipher(
         passphrase=None if resolved is None else resolved.value, secrets=registry
     )
@@ -300,13 +333,36 @@ def restore(
         dry_run=dry_run,
         opted_out_by=SNAPSHOT_SKIPPED_BY,
         require_encrypted=require_encrypted,
+        allow_unencrypted=allow_unencrypted,
     )
     outcome = drive_restore(
         request,
-        ctx=context,
+        ctx=None,
         tracer=OpenTelemetryTracer(),
         secrets=registry,
         command_args=None,
+        on_warning=on_warning,
     )
     require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
     return outcome
+
+
+@public_boundary
+def doctor(
+    *,
+    site: str | os.PathLike[str] | None = None,
+    archive: StorageTarget | str | os.PathLike[str] | None = None,
+) -> Diagnosis:
+    """FR-27: whether this host is ready, as ``wpbackup2 doctor`` reports it.
+
+    Returns the ``Diagnosis`` (``ready``, the tools found, the platform, the
+    extras, the passphrase backend by name, the archive target and, with
+    ``site``, that Site's dump readiness); it raises nothing for what it
+    reports. Changes nothing and takes no Site Lock.
+    """
+    return drive_doctor(
+        site_root=None if site is None else Path(site),
+        target=None if archive is None else _target(archive),
+        secrets=SecretRegistry(),
+        tracer=OpenTelemetryTracer(),
+    )

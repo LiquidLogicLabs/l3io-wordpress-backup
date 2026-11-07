@@ -20,16 +20,20 @@ stops the chain). They write no chain and no source of their own, call no
 The environment step is included when either of its two variables is present
 in ``environ``; database's ``Environment`` then reads ``os.environ`` when the
 chain resolves, so the composition root passes ``os.environ``. A variable set
-to ``""`` counts as set: database passes the empty value on and the account
-fails authentication (``CREDENTIALS``). The one built exception is
-``cli/credentials.py::admin_spec``'s ``--admin-password`` fallback, which reads
-an empty ``L3IO_WP_BACKUP_ADMIN_PASSWORD`` as unset. One variable of a pair set
+to ``""`` counts as set, and its empty password is refused like any password
+shorter than ``adapters/redaction.MIN_SECRET_LENGTH``: ``CredentialTooShortError``
+(``CREDENTIALS``), raised by ``adapters/database.py``'s wrapper when the chain
+resolves, before any connection (ADR-0018 amendment, BL-E005-005). The one
+built exception is ``cli/credentials.py::admin_spec``'s ``--admin-password``
+fallback, which reads an empty ``L3IO_WP_BACKUP_ADMIN_PASSWORD`` as unset. One
+variable of a pair set
 without its partner is a failure, never an absence, so it does not fall
 through to ``wp-config.php``.
 
 An explicit spec's password is registered with the Run's ``SecretRegistry``
-when its source is built; every password the chain resolves is registered by
-``adapters/database.py``'s wrapper, the only caller of these builders.
+when its source is built, and a short one refused there; every password the
+chain resolves is registered by ``adapters/database.py``'s wrapper, the only
+caller of these builders.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from typing import TYPE_CHECKING, Final, Literal
 
 import structlog
 
+from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH
 from l3io.wp.backup.domain.credentials import (
     ADMIN_CREDENTIAL_PRECEDENCE,
     WORDPRESS_CREDENTIAL_PRECEDENCE,
@@ -46,6 +51,7 @@ from l3io.wp.backup.domain.credentials import (
     CredentialOrigin,
     CredentialSpec,
 )
+from l3io.wp.backup.domain.errors import CredentialTooShortError
 
 if TYPE_CHECKING:
     from l3io.wp.database import CredentialSource
@@ -96,8 +102,13 @@ def _explicit_step(
 
     if isinstance(spec, AwsSecretCredentialSpec):
         return wpdb.AwsSecretsManager(spec.secret_id, spec.region)
-    secrets.register(spec.password, source="explicit")
-    return wpdb.Explicit(spec.username, spec.password)
+    secrets.register(spec.secret, source="explicit")
+    if len(spec.secret) < MIN_SECRET_LENGTH:
+        # ADR-0018 amendment (BL-E005-005): refused as it is read.
+        label = "explicit"
+        raise CredentialTooShortError(label, minimum=MIN_SECRET_LENGTH)
+    # Handed to l3io-wordpress-database: the one place it is revealed here.
+    return wpdb.Explicit(spec.username, spec.secret.reveal())
 
 
 def _environment_step(

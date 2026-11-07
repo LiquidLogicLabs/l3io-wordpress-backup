@@ -60,7 +60,7 @@ import stat
 import tarfile
 import time
 import zlib
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -94,6 +94,7 @@ from l3io.wp.backup.domain.archive_format import (
     VerificationResult,
     format_label,
     inner_manifest_bytes,
+    manifest_size,
     manifest_to_json,
     member_path,
     member_relative,
@@ -104,6 +105,7 @@ from l3io.wp.backup.domain.errors import (
     ArchiveWriteError,
     BackupError,
     ExtractionRefusedError,
+    ManifestTooLargeError,
     MemberReadRefusedError,
     PassphraseRejectedError,
     PayloadDamagedError,
@@ -600,6 +602,47 @@ def write_archive(
     return manifest
 
 
+#: Upper bounds for the payload fields only known once it is written.
+_LARGEST_SIZE: Final = 2**63 - 1
+_A_SHA256: Final = "f" * 64
+
+
+def _refuse_oversized_manifest(
+    build: Callable[[tuple[ManifestMember, ...]], Manifest],
+    members: Sequence[ArchiveMemberSource],
+    *,
+    encrypted: bool,
+) -> None:
+    """BL-E004-053: ``ManifestTooLargeError`` before anything is written.
+
+    The Manifest is built from the collected members with the same builder
+    and measured with the same serialiser; only the payload's size and
+    sha256 are not known yet, so their longest forms stand in: the size is an
+    upper bound, never an estimate by hand.
+    """
+    index = tuple(
+        ManifestMember(
+            path=m.path,
+            role=m.role,
+            kind=m.kind,
+            size=m.size if m.kind is MemberKind.FILE else 0,
+            link_target=m.link_target,
+        )
+        for m in members
+    )
+    name = ENCRYPTED_PAYLOAD_MEMBER if encrypted else PAYLOAD_MEMBER
+    bound = dataclasses.replace(
+        build(index),
+        encrypted=encrypted,
+        payload=ManifestPayload(name=name, size=_LARGEST_SIZE, sha256=_A_SHA256),
+    )
+    size = manifest_size(bound)
+    if size > MANIFEST_MAX_BYTES:
+        raise ManifestTooLargeError(
+            members=len(index), size=size, limit=MANIFEST_MAX_BYTES
+        )
+
+
 class TarArchiveWriter:
     """``ArchiveWriterCommand``: collection, encryption and the write (ADR-0019).
 
@@ -641,6 +684,7 @@ class TarArchiveWriter:
         def build(index: tuple[ManifestMember, ...]) -> Manifest:
             return manifest_builder(index, excluded)
 
+        _refuse_oversized_manifest(build, members, encrypted=cipher is not None)
         with phase(BackupStep.WRITE_ARCHIVE.value) as record:
             manifest = write_archive(
                 out, build, members, workspace=workspace, cipher=cipher

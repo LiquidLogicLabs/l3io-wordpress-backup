@@ -1280,6 +1280,9 @@ class _Facts:
     location: PurePosixPath | None
     config_file: PurePosixPath
     config_policy: ConfigPolicy
+    #: The binaries the plan's requirements name (``extra_tools``, which
+    #: carries relocation's ``WP_CLI_REQUIREMENT``), for the PREFLIGHT line.
+    tools: tuple[ToolRequirement, ...] = ()
 
 
 def _kept(facts: _Facts, phase: RestorePhase) -> bool:
@@ -1316,7 +1319,18 @@ def _line(facts: _Facts, phase: RestorePhase) -> tuple[str, dict[str, object]]:
             checks = "required tools, the interpreter's tarfile fixes, free space"
             if restores_database(facts.mode):
                 checks += " and the database checks"
-            return f"preflight: {checks}", {}
+            # BL-E007-006: each binary named with its floor, from the plan's
+            # own requirements (WP-CLI's is core/relocation.WP_CLI_REQUIREMENT).
+            named = [
+                tool.name
+                if tool.minimum_version is None
+                else f"{tool.name} >= {'.'.join(map(str, tool.minimum_version))}"
+                for tool in facts.tools
+                if tool.name != DUMP_REQUIREMENT.name
+            ]
+            if named:
+                checks += f" ({', '.join(named)})"
+            return f"preflight: {checks}", {"tools": named} if named else {}
         case RestorePhase.VERIFY:
             decrypt = " and decrypt its payload" if view.encrypted else ""
             return f"verify {facts.archive.path}{decrypt}", {
@@ -1477,6 +1491,7 @@ def build_restore_plan(
         location=location,
         config_file=config_file,
         config_policy=config_policy,
+        tools=merge_requirements(relocation.required_tools, extra_tools),
     )
     phases = tuple(p for p in RESTORE_PHASE_ORDER if _kept(facts, p))
     _require_relocation_text(relocation, phases)

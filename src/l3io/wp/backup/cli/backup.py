@@ -42,8 +42,14 @@ file beside its final name and becomes visible only through the store's
 ``publish()``, after the verifier passes (AD-20); any failure before that
 discards the staged file.
 
-Encryption binds ``None`` until
-E008-S01-001 binds Epic 4's cipher.
+**Bindings (E008-S01-001).** :func:`run_backup` resolves the passphrase only
+with ``--encrypt-with-passphrase`` (``cli/passphrase.require_passphrase``),
+builds the cipher with ``adapters/crypto.build_payload_cipher`` and passes its
+``required_tools()`` as ``extra_tools``; it builds the exclusion set from
+``--exclude``/``--no-default-excludes`` (``ExclusionSet.from_patterns``,
+wrapped in ``LoggedExclusionPolicy``), and with no exclusion flag the request
+takes :func:`default_exclusion_policy`. ``--list-default-excludes`` prints
+``enumerate_defaults()`` and returns without a Run.
 """
 
 from __future__ import annotations
@@ -61,12 +67,14 @@ from urllib.parse import unquote, urlsplit
 
 import structlog
 
+from l3io.wp.backup.adapters.crypto import PassphraseCipher, build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
     locate_wp_config,
     require_wp_config_credentials,
     site_descriptor_from_wp_config,
 )
+from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import (
@@ -77,10 +85,15 @@ from l3io.wp.backup.cli.adapter_sets import (
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import wordpress_source, wordpress_spec
 from l3io.wp.backup.cli.output import emit_result
-from l3io.wp.backup.cli.passphrase import note_unused_passphrase
-from l3io.wp.backup.cli.preflight import DumpReadinessPreflight, require_tools
+from l3io.wp.backup.cli.passphrase import (
+    note_unused_passphrase,
+    require_passphrase,
+    terminal_prompt,
+)
+from l3io.wp.backup.cli.preflight import require_tools, root_preflight
 from l3io.wp.backup.cli.scope import backup_scope_from_cli
 from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
+from l3io.wp.backup.core.exclusions import ExclusionSet, enumerate_defaults
 from l3io.wp.backup.domain.archive_format import (
     DUMP_RELATIVE,
     FORMAT_VERSION,
@@ -100,11 +113,7 @@ from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     UsageError,
 )
-from l3io.wp.backup.domain.exclusion import (
-    INCLUDE_EVERYTHING,
-    ExcludedEntry,
-    ExclusionDecision,
-)
+from l3io.wp.backup.domain.exclusion import ExcludedEntry, ExclusionDecision
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -212,10 +221,11 @@ def default_exclusion_policy() -> ExclusionPolicy:
     """The one place the default exclusion set is resolved (AD-26 reasoning).
 
     The CLI with no exclusion flag and a library :class:`BackupRequest` built
-    without ``exclusion`` both land here. ``INCLUDE_EVERYTHING`` until
-    E008-S01-001 binds Epic 4's ``ExclusionSet.default()``.
+    without ``exclusion`` both land here: Epic 4's ``ExclusionSet.default()``,
+    its decisions logged (``LoggedExclusionPolicy``). A fresh policy per call,
+    since the logged wrapper announces itself once.
     """
-    return INCLUDE_EVERYTHING
+    return LoggedExclusionPolicy(ExclusionSet.default())
 
 
 @dataclass(frozen=True, slots=True)
@@ -531,8 +541,8 @@ def backup(
     Every keyword without a default is required: a Safety Snapshot states its
     encryption, exclusion and origin, never inherits them by omission. The
     final-name check and preflight (AD-13) — both queries — run before the
-    first command adapter is called. ``preflight=None`` binds
-    ``DumpReadinessPreflight`` over the set's ``database_query``.
+    first command adapter is called. ``preflight=None`` binds the roots' one
+    ``RootPreflight`` (``cli.preflight.root_preflight``).
     """
     plan = plan_backup(
         site, scope, target, cipher=cipher, exclusion=exclusion, extra_tools=extra_tools
@@ -540,10 +550,8 @@ def backup(
     adapters = ctx.adapters
     if adapters.archive_store_query.exists(target):
         raise ArchiveExistsError(target.path)
-    checker = preflight or DumpReadinessPreflight(
-        adapters.database_query,
-        site.database_location(),
-        credential_source=site.credential_source,
+    checker = preflight or root_preflight(
+        ctx, site, credential_source=site.credential_source
     )
     require_tools(checker, plan.required_tools)
     return execute_backup_plan(
@@ -646,11 +654,7 @@ def drive_backup(
             exclusion=request.exclusion,
             origin=None,
             extra_tools=request.extra_tools,
-            preflight=DumpReadinessPreflight(
-                run.adapters.database_query,
-                site.database_location(),
-                credential_source=credentials.source,
-            ),
+            preflight=root_preflight(run, site, credential_source=credentials.source),
         )
         run.run_span.set_attributes(archive_bytes=result.bytes)
         return dataclasses.replace(
@@ -659,16 +663,38 @@ def drive_backup(
 
 
 def _cipher(
-    *, environ: Mapping[str, str], secrets: SecretRegistry
-) -> PayloadCipher | None:
+    *, encrypt: bool, environ: Mapping[str, str], secrets: SecretRegistry
+) -> PassphraseCipher | None:
     """The cipher the flags ask for, its passphrase resolved into ``secrets``.
 
-    No flag requests passphrase encryption yet (E002-S02-011), so the AD-26
-    chain is not consulted and nothing is prompted: a set variable is noted.
+    Without ``--encrypt-with-passphrase`` the AD-26 chain is not consulted and
+    nothing is prompted: a set variable is noted. With it, the passphrase must
+    resolve and meet the encryption floor, or the root refuses before anything
+    is read (``require_passphrase``).
     """
-    del secrets
-    note_unused_passphrase(environ)
-    return None
+    if not encrypt:
+        note_unused_passphrase(environ)
+        return None
+    resolved = require_passphrase(
+        explicit=None, environ=environ, prompt=terminal_prompt(), secrets=secrets
+    )
+    return build_payload_cipher(passphrase=resolved.value, secrets=secrets)
+
+
+def _exclusion(
+    exclude: Sequence[str] | None, *, no_default_excludes: bool
+) -> ExclusionPolicy | None:
+    """The set ``--exclude``/``--no-default-excludes`` ask for; ``None`` for none.
+
+    ``None`` leaves the request's default (:func:`default_exclusion_policy`).
+    An invalid pattern is ``InvalidExclusionPatternError`` (``USAGE``).
+    """
+    patterns = tuple(exclude or ())
+    if not patterns and not no_default_excludes:
+        return None
+    return LoggedExclusionPolicy(
+        ExclusionSet.from_patterns(patterns, include_defaults=not no_default_excludes)
+    )
 
 
 def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
@@ -678,15 +704,32 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     reports a failure through it (ADR-0018). A ``--whatIf`` Run that is
     refused prints the actions it had planned on stdout before the failure
     propagates, so its plan does not depend on ``--log-level``.
+    ``--list-default-excludes`` prints the default set, one pattern per line,
+    and returns ``OK`` with no Run and nothing read.
     """
+    if args.list_default_excludes:
+        emit_result("\n".join(enumerate_defaults()))
+        return ExitCode.OK
+    exclusion = _exclusion(
+        args.exclude, no_default_excludes=bool(args.no_default_excludes)
+    )
+    cipher = _cipher(
+        encrypt=bool(args.encrypt_with_passphrase), environ=os.environ, secrets=secrets
+    )
+    extra_tools = () if cipher is None else cipher.required_tools()
     request = BackupRequest(
         site_root=Path(args.wp_dir),
         scope=backup_scope_from_cli(args.mode),
         target=None if not args.archive else storage_target_from_cli(args.archive),
         wp_config=None if args.wp_config is None else Path(args.wp_config),
-        credentials=wordpress_spec(aws_secret_id=None, aws_region=None),
-        cipher=_cipher(environ=os.environ, secrets=secrets),
+        credentials=wordpress_spec(
+            aws_secret_id=args.db_credentials_aws_secret_id,
+            aws_region=args.db_credentials_aws_region,
+        ),
+        cipher=cipher,
+        exclusion=default_exclusion_policy() if exclusion is None else exclusion,
         dry_run=bool(getattr(args, "what_if", False)),
+        extra_tools=extra_tools,
     )
     planned: list[str] = []
     try:

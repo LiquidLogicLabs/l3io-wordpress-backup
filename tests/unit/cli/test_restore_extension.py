@@ -140,7 +140,7 @@ def test_its_wordpress_spec_becomes_the_relocated_source(
     assert rig.adapter_calls[-1]["restore_wordpress_source"] is relocated[0]
     cutover = rig.executions[-1]["ports"].cutover_credentials
     assert cutover is not None
-    assert cutover() == extension.spec.password
+    assert cutover() == extension.spec.secret.reveal()
 
 
 def test_its_relocation_reaches_build_restore_plan(

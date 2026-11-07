@@ -20,6 +20,7 @@ from l3io.wp.backup.domain.credentials import (  # noqa: E402
     ExplicitCredentialSpec,
 )
 from l3io.wp.backup.domain.errors import CredentialsError, UsageError  # noqa: E402
+from l3io.wp.backup.domain.secret import Secret  # noqa: E402
 
 PASSWORD = "explicit-pw-value"
 WP_PASSWORD = "wp-config-pw-value"
@@ -61,7 +62,7 @@ def test_an_explicit_wordpress_password_is_registered_before_return(
     source = wordpress_source(
         EXPLICIT, wp_config=wp_config, environ={}, secrets=secrets
     )
-    assert secrets.seen == [PASSWORD]
+    assert secrets.seen == [Secret(PASSWORD)]
     assert source.resolve().password == PASSWORD  # explicit precedes wp-config
     assert PASSWORD not in repr(source)
 
@@ -77,7 +78,7 @@ def test_a_wp_config_password_is_registered_when_resolved(wp_config: object) -> 
 def test_an_admin_password_is_registered_before_return() -> None:
     secrets = SpyRegistry()
     source = admin_source(EXPLICIT, environ={}, secrets=secrets)
-    assert secrets.seen == [PASSWORD]
+    assert secrets.seen == [Secret(PASSWORD)]
     assert source is not None
     assert source.resolve().username == "admin"
 

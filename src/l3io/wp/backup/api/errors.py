@@ -27,6 +27,7 @@ for the host, and so are its frames' local variables (``docs/api.md``).
 from __future__ import annotations
 
 import functools
+import inspect
 from collections.abc import Callable
 from typing import ParamSpec, TypeVar
 
@@ -39,6 +40,7 @@ from l3io.wp.backup.adapters.database import (
     DatabaseTlsVerificationError,
 )
 from l3io.wp.backup.adapters.journal import CorruptJournalError, JournalWriteError
+from l3io.wp.backup.adapters.preflight import ChildOutputLimitError
 from l3io.wp.backup.adapters.restore_runner import (
     ArchiveChangedError,
     TargetConfigMissingError,
@@ -83,6 +85,7 @@ from l3io.wp.backup.domain.errors import (
     ConfigLocationConflictError,
     ConfigWriteFailedError,
     CredentialsError,
+    CredentialTooShortError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
@@ -94,10 +97,13 @@ from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     LoadFailedError,
     MalformedManifestError,
+    ManifestTooLargeError,
     MemberReadRefusedError,
     MissingExtraError,
+    PassphraseMismatchError,
     PassphraseRejectedError,
     PassphraseRequiredError,
+    PassphraseTooShortError,
     PassphraseUnavailableError,
     PayloadDamagedError,
     PreflightFailedError,
@@ -142,11 +148,13 @@ __all__: list[str] = [
     "ArchiveReadError",
     "ArchiveWriteError",
     "BackupError",
+    "ChildOutputLimitError",
     "CleanFailedError",
     "ConfigCutoverError",
     "ConfigLocationConflictError",
     "ConfigWriteFailedError",
     "CorruptJournalError",
+    "CredentialTooShortError",
     "CredentialsError",
     "CutoverTargetUnusableError",
     "DatabaseAuthPluginRefusedError",
@@ -172,13 +180,16 @@ __all__: list[str] = [
     "JournalWriteError",
     "LoadFailedError",
     "MalformedManifestError",
+    "ManifestTooLargeError",
     "MemberReadRefusedError",
     "MissingExtraError",
     "NoConfigForCutoverError",
     "NonEmptyTargetError",
     "NonEmptyTargetRefusal",
+    "PassphraseMismatchError",
     "PassphraseRejectedError",
     "PassphraseRequiredError",
+    "PassphraseTooShortError",
     "PassphraseUnavailableError",
     "PayloadDamagedError",
     "PreflightFailedError",
@@ -266,11 +277,17 @@ def public_boundary(fn: Callable[_P, _R]) -> Callable[_P, _R]:
     ``UnexpectedError(...) from`` it. The record carries the failed Run's
     ``run_id`` when one was stamped on the exception; it follows the Run's
     ``run_finished``, which ``open_run`` wrote as the exception left it.
+
+    Arguments that do not fit ``fn``'s signature (a missing required keyword
+    such as ``backup``'s ``target``) are the caller's mistake, not a defect:
+    the ``TypeError`` is raised as Python raises it, before anything runs.
     """
     name = fn.__name__
+    signature = inspect.signature(fn)
 
     @functools.wraps(fn)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        signature.bind(*args, **kwargs)
         try:
             return fn(*args, **kwargs)
         except Exception as exc:

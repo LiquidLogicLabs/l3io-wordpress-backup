@@ -24,6 +24,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
 OWNER = PACKAGE / "adapters" / "redaction.py"
 MARKER = "***"
+#: ``Secret``'s own ``repr`` is ``Secret('***')`` (owner decision 2026-11-07):
+#: it hides a value it holds, it redacts no text. Exempt by path, nothing else.
+SECRET_REPR = frozenset({PACKAGE / "domain" / "secret.py"})
 
 
 def _is_declaration(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -66,7 +69,7 @@ def _violations(root: Path, owner: Path) -> list[str]:
     return sorted(
         f"{path.relative_to(root)} {offence}"
         for path in root.rglob("*.py")
-        if path != owner
+        if path != owner and path not in SECRET_REPR
         for offence in _offences(path)
     )
 

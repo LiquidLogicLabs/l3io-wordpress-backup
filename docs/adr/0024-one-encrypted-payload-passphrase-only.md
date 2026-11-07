@@ -238,3 +238,18 @@ minimum and never the value. An interactive prompt asks for the passphrase twice
 mismatch. The floor is one constant, `MIN_ENCRYPTION_PASSPHRASE_LENGTH = 12`.
 **Decryption is unaffected:** restoring or verifying an existing Archive accepts any passphrase,
 so Archives made before this change stay readable. **Owner:** E008-S01-001.
+
+**Implemented (E008-S01-001, 2026-11-07).** `cli/passphrase.require_passphrase`, which the CLI
+`backup` and the library `backup(encrypt=True)` call, holds the passphrase to
+`MIN_ENCRYPTION_PASSPHRASE_LENGTH` and asks a prompt twice (`PassphraseMismatchError`).
+**Deviation, the Safety Snapshot:** a restore resolves one passphrase that both decrypts the
+Archive and encrypts the Safety Snapshot. Holding it to the floor would make an Archive encrypted
+with a shorter passphrase unrestorable with a snapshot, which the "decryption is unaffected" rule
+forbids; so the snapshot is encrypted with that passphrase, no weaker than the Archive it copies,
+and the restore logs WARNING `passphrase_below_encryption_floor` (length only).
+
+**Addendum 2026-11-07 (Shawn, BL-E008-004 option a):** the 12-character floor applies to
+encrypting a *new* Archive. A restore's Safety Snapshot is encrypted with the restore's own
+passphrase whatever its length (it protects a copy of the same site that passphrase already
+protects), and a WARNING says so when it is under 12, so Archives made with a shorter
+passphrase stay restorable with a snapshot.

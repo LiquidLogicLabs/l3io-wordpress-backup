@@ -53,6 +53,7 @@ from l3io.wp.backup.domain.errors import (  # noqa: E402
     CredentialsError,
     MissingExtraError,
 )
+from l3io.wp.backup.domain.secret import Secret  # noqa: E402
 from tests.conftest import CredentialSentinel  # noqa: E402
 
 MODULE = Path(credential_providers.__file__)
@@ -369,7 +370,10 @@ def test_an_explicit_password_is_registered_once_at_construction(
     ):
         registry = SpyRegistry()
         build(ExplicitCredentialSpec("u", "explicit-value"), registry)
-        assert registry.seen == ["explicit-value"]
+        # Registered as the Secret it is held as (owner decision 2026-11-07).
+        assert [v.reveal() if isinstance(v, Secret) else v for v in registry.seen] == [
+            "explicit-value"
+        ]
 
 
 def test_an_environment_password_is_registered_when_resolved(
@@ -718,3 +722,175 @@ def test_every_database_extra_maps_to_an_extra_this_package_offers() -> None:
     mapped = {database._backup_extra(extra) for extra in theirs}  # noqa: SLF001
     assert mapped <= ours, sorted(mapped - ours)
     assert database._backup_extra("aws") == "aws"  # noqa: SLF001
+
+
+# --------------------------------------------------------------------------
+# E008-S01-001 (BL-E005-005, ADR-0018 amendment): short passwords refused
+# --------------------------------------------------------------------------
+
+SHORT = "a7Q"  # 3 characters: below MIN_SECRET_LENGTH
+
+
+def _short_wp_config(tmp_path: Path) -> CredentialSource:
+    config = tmp_path / "short" / "wp-config.php"
+    config.parent.mkdir()
+    config.write_text(
+        "<?php\ndefine('DB_NAME', 'w');\ndefine('DB_USER', 'wp-user');\n"
+        f"define('DB_PASSWORD', '{SHORT}');\ndefine('DB_HOST', 'h');\n",
+        encoding="utf-8",
+    )
+    return wpdb.WpConfigFile(config)
+
+
+@pytest.fixture
+def no_connection(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Any attempt to connect is recorded (and fails)."""
+    pymysql = pytest.importorskip("pymysql")
+    calls: list[object] = []
+
+    def connect(*args: object, **kwargs: object) -> object:
+        calls.append(args)
+        msg = "no connection may be attempted"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(pymysql, "connect", connect)
+    return calls
+
+
+def _refused(source: CredentialSource, label_part: str) -> None:
+    from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH
+    from l3io.wp.backup.domain.errors import CredentialTooShortError
+
+    with pytest.raises(CredentialTooShortError) as caught:
+        source.resolve()
+    assert caught.value.minimum == MIN_SECRET_LENGTH
+    assert label_part in caught.value.source
+    assert str(MIN_SECRET_LENGTH) in str(caught.value)
+    assert SHORT not in str(caught.value)
+    assert isinstance(caught.value, CredentialsError)
+
+
+def test_a_short_explicit_password_is_refused_as_it_is_read(
+    wp_config: CredentialSource, no_connection: list[object]
+) -> None:
+    from l3io.wp.backup.domain.errors import CredentialTooShortError
+
+    for build in (
+        lambda r: wordpress_source(
+            ExplicitCredentialSpec("u", SHORT),
+            wp_config=wp_config,
+            environ={},
+            secrets=r,
+        ),
+        lambda r: admin_source(
+            ExplicitCredentialSpec("u", SHORT), environ={}, secrets=r
+        ),
+    ):
+        with pytest.raises(CredentialTooShortError) as caught:
+            build(SecretRegistry())
+        assert caught.value.source == "explicit"
+        assert SHORT not in str(caught.value)
+    assert no_connection == []
+
+
+def test_a_short_environment_password_is_refused(
+    wp_config: CredentialSource,
+    monkeypatch: pytest.MonkeyPatch,
+    no_connection: list[object],
+) -> None:
+    monkeypatch.setenv(WORDPRESS_USER_VAR, "env-user")
+    monkeypatch.setenv(WORDPRESS_PASSWORD_VAR, SHORT)
+    source = wordpress_source(
+        None, wp_config=wp_config, environ=_environ(), secrets=SecretRegistry()
+    )
+    _refused(source, "environment")
+    monkeypatch.setenv(ADMIN_USER_VAR, "env-admin")
+    monkeypatch.setenv(ADMIN_PASSWORD_VAR, SHORT)
+    admin = admin_source(None, environ=_environ(), secrets=SecretRegistry())
+    assert admin is not None
+    _refused(admin, "environment")
+    assert no_connection == []
+
+
+def test_an_empty_environment_password_is_refused_too(
+    wp_config: CredentialSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(WORDPRESS_USER_VAR, "env-user")
+    monkeypatch.setenv(WORDPRESS_PASSWORD_VAR, "")
+    from l3io.wp.backup.domain.errors import CredentialTooShortError
+
+    source = wordpress_source(
+        None, wp_config=wp_config, environ=_environ(), secrets=SecretRegistry()
+    )
+    with pytest.raises(CredentialTooShortError):
+        source.resolve()
+
+
+def test_a_short_wp_config_password_is_refused(
+    tmp_path: Path, no_connection: list[object]
+) -> None:
+    source = wordpress_source(
+        None,
+        wp_config=_short_wp_config(tmp_path),
+        environ={},
+        secrets=SecretRegistry(),
+    )
+    _refused(source, "wp-config")
+    assert no_connection == []
+
+
+def test_a_short_wp_config_password_never_reaches_a_dump(
+    tmp_path: Path, no_connection: list[object]
+) -> None:
+    from l3io.wp.backup.domain.errors import CredentialTooShortError
+
+    registry = SecretRegistry()
+    source = wordpress_source(
+        None, wp_config=_short_wp_config(tmp_path), environ={}, secrets=registry
+    )
+    database = WpDatabase(source, secrets=registry)
+    with pytest.raises(CredentialTooShortError):
+        database.dump_to(LOCATION, tmp_path / "dump.sql")
+    assert no_connection == []
+    assert not (tmp_path / "dump.sql").exists()
+
+
+def test_a_short_aws_password_is_refused(
+    stub_aws: Callable[..., None],
+    wp_config: CredentialSource,
+    no_connection: list[object],
+) -> None:
+    stub_aws(payload=json.dumps({"username": "aws-user", "password": SHORT}))
+    _refused(_aws_source(SecretRegistry(), wp_config), "aws-secrets-manager")
+    assert no_connection == []
+
+
+def test_a_password_read_is_registered_before_the_refusal(
+    wp_config: CredentialSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read password is masked in what follows, whatever then happens."""
+    password = f"sentinel-pw-{uuid.uuid4().hex}"
+    monkeypatch.setenv(WORDPRESS_USER_VAR, "env-user")
+    monkeypatch.setenv(WORDPRESS_PASSWORD_VAR, password)
+    registry = SpyRegistry()
+    resolved = wordpress_source(
+        None, wp_config=wp_config, environ=_environ(), secrets=registry
+    ).resolve()
+    assert registry.seen == [password]
+    failure = f"authentication failed for {resolved.username} with {password}"
+    assert password not in registry.redact(failure)
+
+
+def test_the_admin_required_message_names_every_way_to_give_one() -> None:
+    from l3io.wp.backup.adapters.database import ADMIN_FLAGS, ADMIN_SOURCE
+    from l3io.wp.backup.domain.errors import AdminCredentialsRequiredError
+
+    message = str(AdminCredentialsRequiredError(ADMIN_SOURCE, flags=ADMIN_FLAGS))
+    for name in (
+        "--admin-username",
+        "--admin-password",
+        "--admin-credentials-aws-secret-id",
+        ADMIN_USER_VAR,
+        ADMIN_PASSWORD_VAR,
+    ):
+        assert name in message

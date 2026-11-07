@@ -199,10 +199,11 @@ def test_a_stale_unbound_key_fails() -> None:
         _scope(build_parser(), not_yet)
 
 
-def test_binding_doctor_requires_an_api_function() -> None:
-    """When E008-S01-001 removes ``doctor`` from the mapping, CI fails here."""
-    not_yet = {k: v for k, v in NOT_YET_IMPLEMENTED.items() if k != "doctor"}
-    assert _missing(_scope(build_parser(), not_yet), api) == ["doctor"]
+def test_doctor_is_bound_and_has_its_api_function() -> None:
+    """E008-S01-001 bound ``doctor``; its library twin is ``api.doctor``."""
+    assert "doctor" not in NOT_YET_IMPLEMENTED
+    assert "doctor" in _scope(build_parser(), NOT_YET_IMPLEMENTED)
+    assert _missing(_scope(build_parser(), NOT_YET_IMPLEMENTED), api) == []
 
 
 class _Hidden:

@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, TypeAlias
 
+from l3io.wp.backup.domain.secret import Secret, as_secret
+
 __all__ = [
     "ADMIN_CREDENTIAL_PRECEDENCE",
     "WORDPRESS_CREDENTIAL_PRECEDENCE",
@@ -55,10 +57,22 @@ ADMIN_CREDENTIAL_PRECEDENCE: Final = (
 
 @dataclass(frozen=True, slots=True)
 class ExplicitCredentialSpec:
-    """A username and password given directly. ``repr`` omits the password."""
+    """A username and password given directly. ``repr`` omits the password.
+
+    ``password`` accepts a ``str`` or a :class:`~l3io.wp.backup.domain.secret.Secret`
+    and is always held as a ``Secret`` (a ``str`` is wrapped at once).
+    """
 
     username: str
-    password: str
+    password: Secret | str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "password", as_secret(self.password))
+
+    @property
+    def secret(self) -> Secret:
+        """``password``, typed as the ``Secret`` it always is."""
+        return as_secret(self.password)
 
     def __repr__(self) -> str:
         return f"ExplicitCredentialSpec(username={self.username!r})"

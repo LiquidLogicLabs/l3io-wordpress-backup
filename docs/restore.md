@@ -155,7 +155,7 @@ for example staging from a production Archive:
 ```
 wpbackup2 restore --wp-dir /srv/staging --archive site.tar.gz --mode all \
   --new-db-host db.staging:3307 --new-db-name staging_wp \
-  --new-db-user staging_wp --new-db-password '...' \
+  --new-db-user staging_wp --new-db-password-file ~/.staging-db-password \
   --new-site-url https://staging.example.com \
   --new-site-home-url https://staging.example.com
 ```
@@ -191,8 +191,14 @@ constant's prior value.
   other exits 2 `USAGE`, since keeping half from the Archive would mix two
   accounts. The account is provisioned with rights on the load database, and
   **the Dump is loaded as that account**, with whatever rights it holds (see
-  "What the Dump can reach"). The password is visible in the process list; it
-  is redacted from every log record and message, and is never journaled.
+  "What the Dump can reach"). Give the password with
+  `--new-db-password-file PATH` (its first line; make the file readable only
+  by you) or the `L3IO_WP_BACKUP_NEW_DB_PASSWORD` variable (read only with
+  `--new-db-user`) rather than `--new-db-password`, whose value is visible in
+  the process list and which logs WARNING `password_on_command_line`. The
+  first given wins: the flag, then the file, then the variable. The password
+  is redacted from every log record and message, is never journaled, and one
+  shorter than 4 characters is refused (exit 4).
 - **`--new-site-url` and `--new-site-home-url`** must start with `http://` or
   `https://`, name a host, hold no whitespace, control character, quote or
   backslash, and not end with `/` (WordPress stores them without one). Anything
@@ -225,12 +231,10 @@ so widgets, menus and theme options keep working. It runs after
 `REWRITE_CONFIG` and after `LOAD_DUMP`'s cutover, because WP-CLI bootstraps
 from the `wp-config.php` just written. It needs WP-CLI (`wp`) on `PATH`.
 
-> **Known gap until E008-S01-001.** The restore command's preflight does not
-> yet read tool versions, so a restore with `--new-site-url` or
-> `--new-site-home-url` stops at `PREFLIGHT` with exit 7 and "unusable
-> (version unknown)" for `wp`, even with WP-CLI 2.12 installed. Until the
-> composition roots bind the version-reading preflight, restore without those
-> two flags and run `wp search-replace` yourself.
+`PREFLIGHT` checks that `wp` is at least 2.12.0, and the printed plan's
+preflight line names it (`wp >= 2.12.0`). Before any effect the restore also
+prepares the owner-only state directory `wp` will run from and refuses (exit 3)
+if a `wp-cli.yml` sits in it or above it.
 
 - **What is replaced.** The old values are the restored database's stored
   `siteurl` and `home` options, read with `wp option list` (not `option get`,
@@ -292,10 +296,11 @@ drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
   directory and every directory above it, and such a file can load PHP; if one
   is found there, the Run is refused (exit 3) before `wp` runs.
   `WP_CLI_CONFIG_PATH` names an empty file, so no `~/.wp-cli/config.yml` is
-  read either. **Not yet covered:** the `wp cli version` probe that preflight
-  runs is started from the Run workspace under `$TMPDIR`, and a `wp-cli.yml`
-  above it is not looked for; the probe is not on the CLI's restore path until
-  E008-S01-001 binds it.
+  read either. The `wp cli version` probe that preflight runs starts from the
+  Run workspace under `$TMPDIR`; a `wp-cli.yml` in it or above it (the path
+  as given and resolved) refuses the Run (exit 3) before the probe runs, and
+  the probe also gets `--skip-plugins --skip-themes --skip-packages
+  --no-color`.
 - **The environment it gets.** Exactly `PATH`, `HOME`, `LC_ALL=C` and
   `WP_CLI_CONFIG_PATH`. Nothing else is passed on: not the Archive passphrase
   (`L3IO_WP_BACKUP_PASSPHRASE`), not any other `L3IO_WP_BACKUP_*`, `MYSQL_*` or
@@ -314,7 +319,9 @@ drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
   still inherit this tool's environment; they run no Site code.
 - **A time limit.** A `wp` call is killed after four hours and the Run fails
   (exit 1) with the step named, so restored code that never returns does not
-  hold the Site Lock for ever. Its output is not size-limited.
+  hold the Site Lock for ever. Its output is capped at 8 MiB on each of
+  stdout and stderr; past that its whole process group is killed and the Run
+  fails (exit 1).
 - **As root.** When the restore runs as root, `wp` is given `--allow-root` and
   the Run logs WARNING `wp_cli_running_as_root`: WP-CLI then executes the
   restored Site's `wp-config.php`, mu-plugins and drop-ins as root. Run the

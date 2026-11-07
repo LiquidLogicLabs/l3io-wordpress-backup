@@ -58,6 +58,7 @@ from l3io.wp.backup.domain.errors import (
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
 from l3io.wp.backup.domain.search_replace import Replacement, StoredUrls, UrlRelocation
+from l3io.wp.backup.domain.secret import Secret
 
 __all__ = [
     "RELOCATION_FLAGS",
@@ -100,7 +101,7 @@ class RelocationRequest(Protocol):
     def new_db_user(self) -> str | None: ...
 
     @property
-    def new_db_password(self) -> str | None: ...
+    def new_db_password(self) -> Secret | str | None: ...
 
     @property
     def wp_config(self) -> PurePath | None: ...
@@ -203,7 +204,7 @@ def validate_relocation_values(request: RelocationRequest) -> None:
             raise InvalidRelocationValueError(RELOCATION_FLAGS[name], broken)
     user, password = request.new_db_user, request.new_db_password
     for name, value in (("new_db_user", user), ("new_db_password", password)):
-        if value == "":
+        if value is not None and len(value) == 0:
             flag = RELOCATION_FLAGS[name]
             raise InvalidRelocationValueError(flag, "must not be empty")
     if (user is None) != (password is None):

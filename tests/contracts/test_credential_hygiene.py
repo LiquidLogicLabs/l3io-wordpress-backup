@@ -403,7 +403,7 @@ def test_a_passphrase_in_the_environment_is_never_emitted(
         explicit=None, environ=os.environ, prompt=None, secrets=registry
     )
     assert resolved is not None
-    same = resolved.value == passphrase
+    same = resolved.value.reveal() == passphrase
     assert same, "the environment step did not supply the planted passphrase"
     redacted = registry.redact(passphrase) == REDACTED
     assert redacted, "the passphrase was not registered"
@@ -547,7 +547,7 @@ def test_a_passphrase_leak_on_the_authenticate_path_is_caught(
     if plant == "error from the cipher":
 
         def leaky(self: crypto.PassphraseCipher, *_: object) -> None:
-            raise LookupError(self._passphrase)
+            raise LookupError(self._passphrase.reveal())
 
         monkeypatch.setattr(crypto.PassphraseCipher, "decrypt", leaky)
         with pytest.raises(LookupError) as raised:
@@ -555,7 +555,7 @@ def test_a_passphrase_leak_on_the_authenticate_path_is_caught(
         credential_sentinel.add_exception("verify driver", raised.value)
     else:
         monkeypatch.setattr(
-            crypto.PassphraseCipher, "__repr__", lambda self: self._passphrase
+            crypto.PassphraseCipher, "__repr__", lambda self: self._passphrase.reveal()
         )
         credential_sentinel.watch(verify_cli, "decrypt_payload")
         argv = ["--log-level", "DEBUG", "verify", "--archive", str(sealed)]

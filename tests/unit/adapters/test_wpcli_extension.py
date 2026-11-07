@@ -51,6 +51,17 @@ from l3io.wp.backup.domain.search_replace import UrlRelocation
 from tests.conftest import CredentialSentinel
 from tests.restore_builders import SITE, plan, view
 
+#: The real BL-E007-008 check, before the autouse fixture replaces it.
+_REAL_STATE_CHECK = wpcli._check_wp_cli_directory  # noqa: SLF001
+
+
+@pytest.fixture(autouse=True)
+def _no_state_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``resolve``'s BL-E007-008 check reads the real state directory; these
+    cases use a synthetic Site Root. The check has its own tests below."""
+    monkeypatch.setattr(wpcli, "_check_wp_cli_directory", lambda site_root: None)
+
+
 PASSWORD = "e007-relocated-password-0"
 VALUES = {
     "new_site_url": "https://staging.e007.example",
@@ -77,6 +88,8 @@ def _new_flags() -> set[str]:
         for action in _restore_parser()._actions  # noqa: SLF001
         for option in action.option_strings
         if option.startswith("--new-")
+        # A source of --new-db-password's value, not a relocation field.
+        and option != "--new-db-password-file"
     }
 
 
@@ -389,3 +402,80 @@ def test_search_replace_is_bound_iff_a_url_and_wp(
         assert extension.search_replace() is bound, "one instance per extension"
     else:
         assert bound is None
+
+
+# --------------------------------------------------------------------------
+# E008-S01-001: BL-E007-008 (checked before any effect) and BL-E007-009 (cap)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", wpcli.WP_CLI_CONFIG_FILES)
+def test_a_wp_cli_config_above_the_state_directory_refuses_before_any_effect(
+    tmp_path: Path, name: str
+) -> None:
+    from l3io.wp.backup.adapters.journal import journal_directory
+
+    site_root = tmp_path / "www"
+    site_root.mkdir()
+    state = journal_directory(site_root)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    planted = state.parent / name
+    planted.write_text("require: [x.php]\n", encoding="utf-8")
+    with pytest.raises(wpcli.WpCliConfigFoundError) as caught:
+        _REAL_STATE_CHECK(site_root)
+    assert caught.value.path == planted
+    assert int(caught.value.exit_code) == 3
+
+
+def test_the_state_directory_is_prepared_or_the_run_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site_root = tmp_path / "www"
+    site_root.mkdir()
+    _REAL_STATE_CHECK(site_root)  # prepared, nothing above it
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocker))
+    with pytest.raises(wpcli.WpCliFailedError) as caught:
+        _REAL_STATE_CHECK(site_root)
+    assert int(caught.value.exit_code) == 1
+
+
+def test_resolve_runs_the_state_check_only_for_a_url_relocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checked: list[Path] = []
+    monkeypatch.setattr(wpcli, "_check_wp_cli_directory", checked.append)
+    for flags, expected in (
+        (_flags(new_site_url="https://new.example"), 1),
+        (_flags(new_db_name="e008_db"), 0),
+    ):
+        checked.clear()
+        _resolve(flags, RestoreMode.ALL_CLEAN)
+        assert len(checked) == expected, flags
+
+
+def test_a_wp_child_printing_past_the_cap_is_killed_and_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E007-009: the output is bounded; past it the call fails."""
+    monkeypatch.setattr(wpcli, "CHILD_OUTPUT_LIMIT", 4096)
+    script = tmp_path / "wp"
+    script.write_text("#!/bin/sh\nyes WP-CLI 2.12.0\n", encoding="utf-8")
+    script.chmod(0o755)
+    with pytest.raises(wpcli.ChildOutputLimitError, match="4096"):
+        wpcli.run_child([str(script)], cwd=tmp_path, env={"PATH": "/usr/bin:/bin"})
+    config = tmp_path / "config.yml"
+    config.write_text("", encoding="utf-8")
+    session = wpcli._Session(  # noqa: SLF001
+        wp=str(script),
+        site_root=tmp_path,
+        cwd=tmp_path,
+        config=config,
+        secrets=SecretRegistry(),
+        run=wpcli.run_child,
+        as_root=False,
+    )
+    with pytest.raises(wpcli.WpCliFailedError) as caught:
+        session.call("version", [str(script)])
+    assert "4096" in str(caught.value)

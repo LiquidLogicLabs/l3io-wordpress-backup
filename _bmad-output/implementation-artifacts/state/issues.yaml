@@ -4,8 +4,8 @@ next:
   '004': 70
   '005': 14
   '007': 21
-  '006': 25
-  '008': 2
+  '006': 26
+  '008': 10
 backlog:
 - key: BL-E002-004
   epic: '002'
@@ -1347,16 +1347,6 @@ backlog:
   severity: Low
   status: backlog
   description: F4 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
-- key: BL-E002-084
-  epic: '002'
-  sprint: '02'
-  title: cli/parser.py keeps its own copy of the L3IO_WP_BACKUP_ADMIN_PASSWORD name; E005-S01-001 owns the constant
-  source: code-review (E002-S02-011)
-  source_phase: code-review
-  source_ref: E002-S02-011
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
 - key: BL-E002-085
   epic: '002'
   sprint: '02'
@@ -2255,16 +2245,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-002.md F6
-- key: BL-E005-003
-  epic: '005'
-  sprint: '01'
-  title: diagnose() logs absent-but-not-required known tools as preflight_checked at ERROR while reporting ready
-  source: code-review (E005-S01-002)
-  source_phase: code-review
-  source_ref: E005-S01-002
-  severity: Low
-  status: backlog
-  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-002.md L1. The story fixes that diagnose emits only check's records; E008-S01-001 (wpbackup2 doctor) should decide the level for a tool no plan requires.
 - key: BL-E005-004
   epic: '005'
   sprint: '01'
@@ -2275,16 +2255,6 @@ backlog:
   severity: Low
   status: backlog
   description: "Story E005-S01-002 edge case: 'age 1.2.1 found; 1.3 or later is needed'. The built preflight_failure gives found='<version>' only and domain/preflight.py was consume-only for this story. Either the requirement author includes the floor in needed_for (E004-S01-003, E007-S01-004) or the domain message gains it."
-- key: BL-E005-005
-  epic: '005'
-  sprint: '01'
-  title: 'Redaction does not cover passwords of 3 characters or fewer, and registers only after a successful resolve (redteam M-4); owner decision: refuse short passwords or accept'
-  source: epic-redteam (M-4)
-  source_phase: epic-redteam
-  source_ref: M-4
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/redteam-report.md. redaction.py:60. Owner is the ADR-0018 owner.
 - key: BL-E005-006
   epic: '005'
   sprint: '01'
@@ -2395,26 +2365,6 @@ backlog:
   severity: Low
   status: backlog
   description: Stale prose; the one PayloadCipher is adapters/crypto.PassphraseCipher, built by build_payload_cipher.
-- key: BL-E004-052
-  epic: '004'
-  sprint: ''
-  title: 'RT-5: encryption passphrase floor is the redaction minimum (4 chars) and backup prompts once; set an encryption floor and confirm-on-entry when --encrypt-with-passphrase ships (E008-S01-001)'
-  source: epic-redteam (RT-5)
-  source_phase: epic-redteam
-  source_ref: RT-5
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
-- key: BL-E004-053
-  epic: '004'
-  sprint: ''
-  title: 'RT-3: writer can emit an Archive whose Manifest exceeds MANIFEST_MAX_BYTES (~92k members), failing the backup at the final verify; refuse early with a named error or raise the cap (owner decision)'
-  source: epic-redteam (RT-3)
-  source_phase: epic-redteam
-  source_ref: RT-3
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
 - key: BL-E004-054
   epic: '004'
   sprint: ''
@@ -2565,16 +2515,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
-- key: BL-E004-069
-  epic: '004'
-  sprint: ''
-  title: "Spec proposal: FR-5 is met only through an injected policy (`tests/integration/test_backup_exclusions.py`). A shipped backup excludes nothing, so caches, `upgrade/` scratch and `debug.log` all go into every Archive. The wiring is E008-S01-001's, by story text. Nothing mechanical forces it: `test_secret_registry_order.py:102,128` compare `request.exclusion == default_exclusion_policy()`, which stays true while the default is `INCLUDE_EVERYTHING`. `docs/exclusions.md` L16 states the deferral honestly, so this is reach, not overstatement. Same shape as E005 AD-1."
-  source: spec-sync (AD-1)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-004/epic-closure/spec-proposals/AD-1.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md.'
 - key: BL-E007-001
   epic: '007'
   sprint: '01'
@@ -2695,54 +2635,6 @@ backlog:
   severity: Low
   status: backlog
   description: "See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-002.md. Deferred: refactor touching domain/archive_format, adapters/database and core/restore, outside this story's files."
-- key: BL-E007-006
-  epic: '007'
-  sprint: '01'
-  title: Restore plan's PREFLIGHT line does not render required tools (wp >= 2.12.0 needed for SEARCH_REPLACE)
-  source: code-review (E007-S01-004) — core/restore.py::_line is outside E007-S01-004's Files in scope; the gate must render it there or move the observability bullet to E008-S01-001
-  source_phase: code-review
-  source_ref: E007-S01-004
-  severity: Medium
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-004.md finding 3
-  story: E008-S01-001
-  scheduled_at: '2026-11-07T07:06:32Z'
-- key: BL-E007-007
-  epic: '007'
-  sprint: '01'
-  title: wp cli version preflight probe runs under $TMPDIR and reads wp-cli.yml from ancestors (not yet on the restore path; becomes reachable when E008-S01-001 binds BinaryPreflight)
-  source: epic-adversarial (AR-1)
-  source_phase: epic-adversarial
-  source_ref: AR-1
-  severity: High
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
-  story: E008-S01-001
-  scheduled_at: '2026-11-07T07:18:48Z'
-- key: BL-E007-008
-  epic: '007'
-  sprint: '01'
-  title: wp-cli.yml ancestor refusal and wp state-directory prepare happen at SEARCH_REPLACE, after the site is wiped and loaded; move to PREFLIGHT
-  source: epic-adversarial (AR-2)
-  source_phase: epic-adversarial
-  source_ref: AR-2
-  severity: Medium
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
-  story: E008-S01-001
-  scheduled_at: '2026-11-07T07:18:48Z'
-- key: BL-E007-009
-  epic: '007'
-  sprint: '01'
-  title: wp child output is captured unbounded in memory (timeout added in E007 closure); bound it
-  source: epic-redteam (RT-2)
-  source_phase: epic-redteam
-  source_ref: RT-2
-  severity: Medium
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
-  story: E008-S01-001
-  scheduled_at: '2026-11-07T07:18:48Z'
 - key: BL-E007-010
   epic: '007'
   sprint: '01'
@@ -2803,18 +2695,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
-- key: BL-E007-016
-  epic: '007'
-  sprint: '01'
-  title: preflight/wpcli docstrings claim the binary checked is the binary run; false until RootPreflight binds BinaryPreflight
-  source: epic-arch-review (ED-2)
-  source_phase: epic-arch-review
-  source_ref: ED-2
-  severity: Low
-  status: scheduled
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-  story: E008-S01-001
-  scheduled_at: '2026-11-07T07:18:48Z'
 - key: BL-E007-017
   epic: '007'
   sprint: '01'
@@ -2855,16 +2735,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-- key: BL-E006-008
-  epic: '006'
-  sprint: ''
-  title: 'api: restore prints safety notices to stderr; add a caller-supplied warning sink (amends AD-26)'
-  source: epic-arch-review (AD-2)
-  source_phase: epic-arch-review
-  source_ref: AD-2
-  severity: Medium
-  status: backlog
-  description: Documented in docs/api.md; owner decision OD-2. See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
 - key: BL-E006-009
   epic: '006'
   sprint: ''
@@ -3029,3 +2899,66 @@ backlog:
   source: owner-decision (ADR-0025)
   severity: Low
   status: backlog
+- key: BL-E006-025
+  epic: '006'
+  sprint: ''
+  title: 'With BL-E006-024 (post-v1 neutral library module): add a public open_run() and restore the public context= parameter on api.backup/restore/verify, backed by that module (owner, 2026-11-07; context= removed before v1 by E008-S01-001)'
+  source: owner-decision (E006 closure 5)
+  severity: Low
+  status: backlog
+- key: BL-E008-002
+  epic: '008'
+  sprint: '01'
+  title: Any local user can plant /tmp/wp-cli.yml and make every URL-relocating restore (and its wp probe) refuse with exit 3; refusing is the safe side (WP-CLI would read the file), but the probe could run from an owner-only directory instead
+  source: code-review
+  severity: Medium
+  status: backlog
+  description: 'See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-4. Fix: probe wp from an owner-only directory under the per-user state dir, as _Session does.'
+- key: BL-E008-003
+  epic: '008'
+  sprint: '01'
+  title: Manifest cap is enforced at WRITE_ARCHIVE (after collection, before the write), not at plan time; a Dry Run never checks it; the 256 MiB verify-memory test is scaled down
+  source: code-review
+  severity: Medium
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-5. The plan reads nothing (ADR-0019), so plan-time needs a pre-walk; owner to decide whether the write-time refusal suffices.
+- key: BL-E008-005
+  epic: '008'
+  sprint: '01'
+  title: An empty --new-db-password or empty password file counts as not given and falls through to L3IO_WP_BACKUP_NEW_DB_PASSWORD instead of being refused
+  source: code-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+- key: BL-E008-006
+  epic: '008'
+  sprint: '01'
+  title: --new-db-password-file is read with no size limit (readline)
+  source: code-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+- key: BL-E008-007
+  epic: '008'
+  sprint: '01'
+  title: wp version is read from the first stdout line only; a PHP notice printed first gives version unknown
+  source: code-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+- key: BL-E008-008
+  epic: '008'
+  sprint: '01'
+  title: On native Windows adapters/lock.py imports fcntl at module import, so commands crash before the platform refusal
+  source: code-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+- key: BL-E008-009
+  epic: '008'
+  sprint: '01'
+  title: RunWarning code safety_snapshot_encrypted has no matching WARNING/INFO log record
+  source: code-review
+  severity: Low
+  status: backlog
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.

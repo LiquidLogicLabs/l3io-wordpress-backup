@@ -47,6 +47,8 @@ import structlog
 from structlog.processors import format_exc_info
 from structlog.typing import EventDict, WrappedLogger
 
+from l3io.wp.backup.domain.secret import Secret
+
 __all__ = [
     "MIN_SECRET_LENGTH",
     "REDACTED",
@@ -93,8 +95,10 @@ class SecretRegistry:
         msg = "a SecretRegistry is never pickled"
         raise TypeError(msg)
 
-    def register(self, value: str, *, source: str = "unspecified") -> None:
+    def register(self, value: str | Secret, *, source: str = "unspecified") -> None:
         """Add ``value``; an empty or too-short one is refused with a WARNING."""
+        if isinstance(value, Secret):
+            value = value.reveal()
         if len(value) < MIN_SECRET_LENGTH:
             _log.warning("secret_too_short_to_redact", source=source)
             return

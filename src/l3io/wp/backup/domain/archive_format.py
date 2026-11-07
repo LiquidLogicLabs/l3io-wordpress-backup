@@ -105,6 +105,7 @@ __all__ = [
     "inner_manifest_bytes",
     "is_safe_member_path",
     "manifest_from_json",
+    "manifest_size",
     "manifest_to_json",
     "member_path",
     "member_relative",
@@ -116,8 +117,10 @@ FORMAT_VERSION: Final = 1
 #: Archives are the evidence it is right (``test_supported_formats.py``).
 #: v0 has no ``format_version`` and is detected by shape, not through this.
 SUPPORTED_FORMAT_VERSIONS: Final[frozenset[int]] = frozenset({1})
-#: The one member read whole; anything larger is ``UNREADABLE`` (AD-11).
-MANIFEST_MAX_BYTES: Final = 16 * 1024 * 1024
+#: The one member read whole; anything larger is ``UNREADABLE`` (AD-11). A
+#: backup whose Manifest would be larger is refused before the Archive is
+#: written (owner decision E004 D2 (c), 2026-11-07; BL-E004-053).
+MANIFEST_MAX_BYTES: Final = 256 * 1024 * 1024
 MANIFEST_MEMBER: Final = "manifest.json"
 PAYLOAD_MEMBER: Final = "payload.tar.gz"
 ENCRYPTED_PAYLOAD_MEMBER: Final = "payload.tar.gz.age"
@@ -560,6 +563,11 @@ _LEFT_OUT_SIZE: Final = 0
 _LEFT_OUT_SHA256: Final = "0" * _SHA256_HEX_LENGTH
 #: :func:`check_inner_manifest`'s answer for an inner document it cannot read.
 INNER_UNPARSABLE: Final = "<unparsable>"
+
+
+def manifest_size(manifest: Manifest) -> int:
+    """The size in bytes of ``manifest`` as :func:`manifest_to_json` writes it."""
+    return len(manifest_to_json(manifest).encode("utf-8"))
 
 
 def inner_manifest_bytes(manifest: Manifest) -> bytes:

@@ -2,7 +2,7 @@
 
 It changes nothing, so a Dry Run runs it for real. Until Epic 5 supplies the
 generic ``adapters/preflight`` (``shutil.which`` and a version probe), the
-backup root binds ``cli.preflight.DumpReadinessPreflight``.
+roots bind ``cli.preflight.RootPreflight`` (``root_preflight``).
 """
 
 from __future__ import annotations

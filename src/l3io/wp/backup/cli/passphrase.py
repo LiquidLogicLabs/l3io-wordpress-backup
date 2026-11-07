@@ -12,8 +12,12 @@ the Run's ``SecretRegistry`` before it is returned, so it is redactable before
 ``run_started`` and before any request holding it exists. ``api/`` imports
 :func:`resolve_passphrase` from here; there is no second chain.
 
-A backup root calls the chain only when passphrase encryption is requested; a
-restore root calls it on every restore (ADR-0024), with its own ``label``
+A backup root calls the chain only when passphrase encryption is requested,
+through :func:`require_passphrase`, which holds an **encrypting** passphrase
+to :data:`MIN_ENCRYPTION_PASSPHRASE_LENGTH` (``PassphraseTooShortError``) and
+asks a prompt twice (``PassphraseMismatchError``) (ADR-0024 amendment
+2026-11-07, BL-E004-052). Decryption stays permissive. A restore root calls it
+on every restore (ADR-0024), with its own ``label``
 saying the passphrase also encrypts the Safety Snapshot and may be left empty
 (BL-E003-075).
 """
@@ -29,11 +33,18 @@ from typing import Final, Literal
 import structlog
 
 from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
-from l3io.wp.backup.domain.errors import PassphraseUnavailableError
+from l3io.wp.backup.domain.errors import (
+    PassphraseMismatchError,
+    PassphraseTooShortError,
+    PassphraseUnavailableError,
+)
+from l3io.wp.backup.domain.secret import Secret, as_secret
 
 __all__ = [
+    "MIN_ENCRYPTION_PASSPHRASE_LENGTH",
     "PASSPHRASE_ENV",
     "ResolvedPassphrase",
+    "note_short_restore_passphrase",
     "note_unused_passphrase",
     "require_passphrase",
     "resolve_passphrase",
@@ -42,6 +53,10 @@ __all__ = [
 
 PASSPHRASE_ENV: Final = "L3IO_WP_BACKUP_PASSPHRASE"  # noqa: S105 - a variable name
 _PROMPT: Final = "Archive passphrase: "
+_CONFIRM: Final = "Repeat the passphrase: "
+#: The shortest passphrase that may **encrypt** (ADR-0024 amendment, owner
+#: decision E004 D5 (a), 2026-11-07), in code points. Decryption has no floor.
+MIN_ENCRYPTION_PASSPHRASE_LENGTH: Final = 12
 
 _log = structlog.get_logger(__name__)
 
@@ -50,7 +65,7 @@ _log = structlog.get_logger(__name__)
 class ResolvedPassphrase:
     """A passphrase and which step of the chain supplied it."""
 
-    value: str
+    value: Secret
     source: Literal["argument", "environment", "prompt"]
 
     def __repr__(self) -> str:
@@ -73,7 +88,7 @@ def _prompted(prompt: Callable[[str], str], label: str) -> str:
 
 def resolve_passphrase(
     *,
-    explicit: str | None,
+    explicit: Secret | str | None,
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
     secrets: SecretRegistry,
@@ -88,13 +103,13 @@ def resolve_passphrase(
     """
     resolved: ResolvedPassphrase | None = None
     if explicit:
-        resolved = ResolvedPassphrase(explicit, "argument")
+        resolved = ResolvedPassphrase(as_secret(explicit), "argument")
     elif environ.get(PASSPHRASE_ENV):
-        resolved = ResolvedPassphrase(environ[PASSPHRASE_ENV], "environment")
+        resolved = ResolvedPassphrase(Secret(environ[PASSPHRASE_ENV]), "environment")
     elif prompt is not None:
         value = _prompted(prompt, label)
         if value:
-            resolved = ResolvedPassphrase(value, "prompt")
+            resolved = ResolvedPassphrase(Secret(value), "prompt")
     if resolved is None:
         return None
     if len(resolved.value) < MIN_SECRET_LENGTH:
@@ -105,14 +120,19 @@ def resolve_passphrase(
 
 def require_passphrase(
     *,
-    explicit: str | None,
+    explicit: Secret | str | None,
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
     secrets: SecretRegistry,
 ) -> ResolvedPassphrase:
     """:func:`resolve_passphrase` where encryption was requested: ``None`` refuses.
 
-    A backup root calls this before it reads anything from the Site.
+    A backup root calls this before it reads anything from the Site. The
+    passphrase will encrypt, so it must be at least
+    :data:`MIN_ENCRYPTION_PASSPHRASE_LENGTH` characters
+    (``PassphraseTooShortError``), and a prompted one is asked for twice and
+    must match (``PassphraseMismatchError``). Both refusals come after the
+    value is registered, and neither names it.
     """
     resolved = resolve_passphrase(
         explicit=explicit, environ=environ, prompt=prompt, secrets=secrets
@@ -122,7 +142,28 @@ def require_passphrase(
             "" if prompt is not None else " and no terminal was available to prompt"
         )
         raise PassphraseUnavailableError(PASSPHRASE_ENV, reason=reason)
+    if len(resolved.value) < MIN_ENCRYPTION_PASSPHRASE_LENGTH:
+        raise PassphraseTooShortError(minimum=MIN_ENCRYPTION_PASSPHRASE_LENGTH)
+    if resolved.source == "prompt" and prompt is not None:
+        again = Secret(_prompted(prompt, _CONFIRM))
+        if again != resolved.value:  # Secret: constant time
+            raise PassphraseMismatchError()
     return resolved
+
+
+def note_short_restore_passphrase(resolved: ResolvedPassphrase | None) -> None:
+    """One WARNING when a restore's passphrase is below the encryption floor.
+
+    A restore accepts any passphrase, so an Archive encrypted before the floor
+    existed stays restorable; the same passphrase also encrypts the Safety
+    Snapshot, which this says, by length only.
+    """
+    if resolved is not None and len(resolved.value) < MIN_ENCRYPTION_PASSPHRASE_LENGTH:
+        _log.warning(
+            "passphrase_below_encryption_floor",
+            minimum=MIN_ENCRYPTION_PASSPHRASE_LENGTH,
+            message="the Safety Snapshot is encrypted with this shorter passphrase",
+        )
 
 
 def note_unused_passphrase(environ: Mapping[str, str]) -> None:

@@ -92,6 +92,7 @@ def test_no_planted_secret_reaches_an_api_span(
             snapshot=SnapshotPolicy.SKIP,
             config_policy=ConfigPolicy.KEEP,
             admin=ExplicitCredentialSpec("root", credential_sentinel.admin_password),
+            allow_unencrypted=True,
             dry_run=True,
         )
     spans = otel_spans.get_finished_spans()

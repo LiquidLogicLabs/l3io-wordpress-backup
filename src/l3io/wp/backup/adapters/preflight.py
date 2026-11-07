@@ -20,14 +20,25 @@ requirement (``core.backup.DUMP_REQUIREMENT``) is routed by the root to
 is refused here like any other name outside :data:`KNOWN_TOOLS`.
 
 **The probe.** ``[path, *version_argv, *root_argv-if-root]`` runs in ``cwd``
-— the Run workspace, never a Site Root, so no ``wp-cli.yml`` above it is read
-— with no shell, a 10-second timeout and an ``env`` of exactly ``PATH``,
-``HOME``, ``LC_ALL=C`` plus the tool's own fixed ``probe_env`` (``wp`` gets
-``WP_CLI_CONFIG_PATH`` pointed at the empty ``os.devnull``, so no global
-WP-CLI config is read either). No credential, passphrase descriptor or
-``MYSQL_*`` variable reaches the child. A non-zero exit, a timeout or an
-``OSError`` sets ``ToolStatus.error`` (truncated to 200 characters); output
-with no version token gives ``version=None`` and no error.
+— the Run workspace, never a Site Root — with no shell, a 10-second timeout,
+in its own process group (killed whole on a timeout) and an ``env`` of
+exactly ``PATH``, ``HOME``, ``LC_ALL=C`` plus the tool's own fixed
+``probe_env``. Before ``wp`` is probed, ``cwd`` and its resolved path are
+searched upwards for a ``wp-cli.yml``/``wp-cli.local.yml``
+(:func:`find_wp_cli_config`, which WP-CLI would read and which can
+``require:`` PHP); one found raises ``WpCliConfigFoundError`` and nothing is
+run. ``wp`` also gets ``--skip-plugins --skip-themes --skip-packages
+--no-color``, ``WP_CLI_CONFIG_PATH`` pointed at the empty ``os.devnull`` (no
+global config) and ``WP_CLI_PACKAGES_DIR`` at a directory that does not exist.
+No credential, passphrase descriptor or ``MYSQL_*`` variable reaches the child.
+Each output stream is read up to :data:`PROBE_OUTPUT_LIMIT` bytes; past it the
+child is killed and the probe fails. The version is read from the first line
+of stdout only. A non-zero exit, a timeout, too much output or an ``OSError``
+sets ``ToolStatus.error``, with control characters removed and truncated to
+200 characters; a first line with no version token gives ``version=None``.
+
+:func:`run_bounded` is that bounded, process-group runner, which
+``adapters/wpcli.py`` runs ``wp`` with too (BL-E007-009).
 
 :func:`unsupported_platform` is the root's first check; :func:`diagnose`
 assembles FR-27's diagnostic data; :data:`DOCUMENTED_REQUIREMENT_SOURCES` is
@@ -37,18 +48,22 @@ where a later story registers the requirements its plans emit, so that
 
 from __future__ import annotations
 
+import contextlib
 import importlib.metadata
 import os
 import platform as _platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import IO, Final
 
 import structlog
 from packaging.requirements import InvalidRequirement, Requirement
@@ -56,7 +71,7 @@ from packaging.version import InvalidVersion, Version
 
 from l3io.wp.backup.core.relocation import WP_CLI_REQUIREMENT
 from l3io.wp.backup.domain.database import Readiness
-from l3io.wp.backup.domain.errors import BackupError
+from l3io.wp.backup.domain.errors import BackupError, WpCliConfigFoundError
 from l3io.wp.backup.domain.preflight import (
     ToolRequirement,
     ToolStatus,
@@ -71,14 +86,19 @@ __all__ = [
     "DOCUMENTED_REQUIREMENT_SOURCES",
     "KNOWN_TOOLS",
     "PASSPHRASE_BACKEND_VAR",
+    "PROBE_OUTPUT_LIMIT",
+    "WP_CLI_CONFIG_FILES",
     "BinaryPreflight",
+    "ChildOutputLimitError",
     "DatabaseClientsStatus",
     "Diagnosis",
     "ExtraStatus",
     "TargetStatus",
     "ToolInfo",
     "diagnose",
+    "find_wp_cli_config",
     "locate_tool",
+    "run_bounded",
     "unsupported_platform",
 ]
 
@@ -99,6 +119,13 @@ DATABASE_CLIENTS_CHECKED_BY: Final = (
 _PROBE_TIMEOUT_S: Final = 10
 _ERROR_LIMIT: Final = 200
 _VERSION_TOKEN: Final = re.compile(r"\d+(?:\.\d+)+")
+#: The most a version probe may print on each stream, in bytes.
+PROBE_OUTPUT_LIMIT: Final = 64 * 1024
+_READ_CHUNK: Final = 64 * 1024
+#: C0 and C1 control characters, removed before a probe's text is reported.
+_CONTROL: Final = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+#: The project config files WP-CLI reads from its working directory upwards.
+WP_CLI_CONFIG_FILES: Final = ("wp-cli.yml", "wp-cli.local.yml")
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,22 +162,58 @@ KNOWN_TOOLS: Final[Mapping[str, ToolInfo]] = MappingProxyType(
         "wp": ToolInfo(
             purpose="WP-CLI, which relocation runs to rewrite the Site's URLs",
             install_hint="https://wp-cli.org/#installing",
-            version_argv=("cli", "version"),
+            version_argv=(
+                "cli",
+                "version",
+                "--skip-plugins",
+                "--skip-themes",
+                "--skip-packages",
+                "--no-color",
+            ),
             root_argv=("--allow-root",),
-            probe_env=(("WP_CLI_CONFIG_PATH", os.devnull),),
+            probe_env=(
+                ("WP_CLI_CONFIG_PATH", os.devnull),
+                # Never created: WP-CLI then finds no installed package.
+                ("WP_CLI_PACKAGES_DIR", os.path.join(os.devnull, "wp-cli-packages")),  # noqa: PTH118
+            ),
         ),
     }
 )
 
+
+def _passphrase_backend_requirements(
+    *, environ: Mapping[str, str], needed_for: str
+) -> tuple[ToolRequirement, ...]:
+    """``adapters/crypto.passphrase_backend_requirements``, imported when called.
+
+    ``adapters/crypto.py`` imports this module, so the import is deferred.
+    """
+    from l3io.wp.backup.adapters.crypto import passphrase_backend_requirements
+
+    return passphrase_backend_requirements(environ=environ, needed_for=needed_for)
+
+
 #: Each entry returns requirements some plan can emit that a backup plan
 #: built over ``BackupScope`` does not show. ``tools/gen_tool_docs.py`` and
 #: ``tests/contracts/test_tool_requirements_documented.py`` call every entry.
-#: E007-S01-004 registers relocation's (``wp``, what
+#: E007-S01-004 registered relocation's (``wp``, what
 #: ``core/relocation.py::required_tools`` returns for a URL relocation);
-#: E008-S01-001 (crypto backends, restore modes) registers theirs here.
+#: E008-S01-001 the passphrase backend's, as the ``cli`` backend needs them
+#: (``binder`` needs none, and ``auto`` without the binder is ``cli``; ``auto``
+#: itself depends on the host, so it is not registered). A restore plan's own
+#: requirement is only ``DUMP_REQUIREMENT``, documented by the fixed MySQL row;
+#: the tripwire enumerates ``RestoreMode`` to keep that true.
 DOCUMENTED_REQUIREMENT_SOURCES: Final[
     tuple[Callable[[], tuple[ToolRequirement, ...]], ...]
-] = ((lambda: (WP_CLI_REQUIREMENT,)),)
+] = (
+    (lambda: (WP_CLI_REQUIREMENT,)),
+    (
+        lambda: _passphrase_backend_requirements(
+            environ={PASSPHRASE_BACKEND_VAR: "cli"},
+            needed_for="the encrypted payload (ENCRYPT, VERIFY)",
+        )
+    ),
+)
 
 
 class _ProbeFailedError(BackupError):
@@ -166,7 +229,22 @@ class _ProbeFailedError(BackupError):
 
 
 def _truncate(text: str) -> str:
-    return text if len(text) <= _ERROR_LIMIT else text[: _ERROR_LIMIT - 1] + "…"
+    """Control characters removed, then at most :data:`_ERROR_LIMIT` characters."""
+    clean = _CONTROL.sub(" ", text)
+    return clean if len(clean) <= _ERROR_LIMIT else clean[: _ERROR_LIMIT - 1] + "…"
+
+
+def find_wp_cli_config(directory: Path) -> Path | None:
+    """The first ``wp-cli.yml``/``wp-cli.local.yml`` in ``directory`` or above.
+
+    ``lexists``, so a dangling symlink or a directory by that name counts.
+    """
+    for candidate in (directory, *directory.parents):
+        for name in WP_CLI_CONFIG_FILES:
+            path = candidate / name
+            if os.path.lexists(path):
+                return path
+    return None
 
 
 def _probe_environment(extra: Mapping[str, str]) -> dict[str, str]:
@@ -179,34 +257,143 @@ def _probe_environment(extra: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+class ChildOutputLimitError(BackupError):
+    """A child printed more than ``limit`` bytes on one stream and was killed.
+
+    Raised by :func:`run_bounded`; each caller maps it to its own failure
+    (a probe's ``ToolStatus.error``, ``WpCliFailedError``).
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        super().__init__(f"printed more than {limit} bytes and was killed")
+
+
+def _kill_group(leader: int) -> None:
+    """``SIGKILL`` the process group ``leader`` leads; it may already be gone."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(leader, signal.SIGKILL)
+
+
+#: How long the readers may take to see end-of-file once the group is killed;
+#: a grandchild that left the group can hold a pipe open past it.
+_READER_GRACE_S: Final = 2.0
+
+
+def _join(readers: Sequence[threading.Thread]) -> None:
+    """Join the reader threads, waiting at most :data:`_READER_GRACE_S` in all.
+
+    A reader still blocked after that (a pipe held by a process outside the
+    group) is a daemon thread and is abandoned, so the call stays bounded.
+    """
+    deadline = time.monotonic() + _READER_GRACE_S
+    for reader in readers:
+        reader.join(timeout=max(0.0, deadline - time.monotonic()))
+
+
+def run_bounded(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    timeout: float,
+    limit: int,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``argv`` (no shell, no stdin) with ``env`` exactly, its output bounded.
+
+    The child leads a new process group. Each of stdout and stderr is kept up
+    to ``limit`` bytes; past that the group is killed and
+    :class:`ChildOutputLimitError` raised. After ``timeout`` seconds the group
+    is killed and ``subprocess.TimeoutExpired`` raised. Once the child exits,
+    anything left in its group is killed, so a stray grandchild cannot hold
+    the pipes open. Output is decoded as UTF-8 with replacement.
+    """
+    # Not ``with Popen``: its exit closes the pipes, which blocks while a
+    # reader is still reading one a stray grandchild holds open. Each reader
+    # closes its own pipe at end-of-file instead.
+    process = subprocess.Popen(  # noqa: S603 - a fixed list argv, never a shell
+        list(argv),
+        cwd=cwd,
+        env=dict(env),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    with contextlib.nullcontext():
+        kept: dict[str, bytes] = {}
+        exceeded = threading.Event()
+
+        def drain(name: str, stream: IO[bytes]) -> None:
+            buffer = bytearray()
+            while chunk := stream.read(_READ_CHUNK):
+                if len(buffer) + len(chunk) > limit:
+                    exceeded.set()
+                    _kill_group(process.pid)
+                    buffer += chunk[: limit - len(buffer)]
+                    while stream.read(_READ_CHUNK):
+                        pass
+                    break
+                buffer += chunk
+            kept[name] = bytes(buffer)
+            stream.close()
+
+        readers = [
+            threading.Thread(target=drain, args=(name, stream), daemon=True)
+            for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))
+            if stream is not None
+        ]
+        for reader in readers:
+            reader.start()
+        try:
+            returncode = process.wait(timeout=timeout)
+        except BaseException:
+            # A timeout, SIGTERM's RunTerminated or Ctrl-C: the whole group
+            # goes, so no child outlives the Run that started it.
+            _kill_group(process.pid)
+            process.wait()
+            _join(readers)
+            raise
+        _kill_group(process.pid)
+        _join(readers)
+    if exceeded.is_set():
+        raise ChildOutputLimitError(limit)
+    return subprocess.CompletedProcess(
+        list(argv),
+        returncode,
+        kept.get("stdout", b"").decode("utf-8", errors="replace"),
+        kept.get("stderr", b"").decode("utf-8", errors="replace"),
+    )
+
+
 def _version_output(
     argv: Sequence[str], cwd: Path, extra_env: Mapping[str, str]
 ) -> str:
-    """Run ``argv`` in ``cwd`` and return its combined output; no shell, ever."""
+    """Run ``argv`` in ``cwd`` and return the first line of its stdout."""
     try:
-        result = subprocess.run(  # noqa: S603 - fixed argv from KNOWN_TOOLS, no shell
-            list(argv),
+        result = run_bounded(
+            argv,
             cwd=cwd,
             env=_probe_environment(extra_env),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=_PROBE_TIMEOUT_S,
-            check=False,
+            limit=PROBE_OUTPUT_LIMIT,
         )
     except subprocess.TimeoutExpired as exc:
         msg = f"timed out after {_PROBE_TIMEOUT_S}s"
         raise _ProbeFailedError(msg) from exc
+    except ChildOutputLimitError as exc:
+        msg = f"its output exceeded {PROBE_OUTPUT_LIMIT} bytes"
+        raise _ProbeFailedError(msg) from exc
     except OSError as exc:
         msg = f"{type(exc).__name__}: {exc.strerror or exc}"
         raise _ProbeFailedError(msg) from exc
-    output = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0:
+        output = (result.stdout or "") + (result.stderr or "")
         first = output.strip().splitlines()[0] if output.strip() else ""
         msg = f"exit {result.returncode}" + (f": {first}" if first else "")
         raise _ProbeFailedError(msg)
-    return output
+    lines = (result.stdout or "").strip().splitlines()
+    return lines[0] if lines else ""
 
 
 def _parse_version(output: str) -> tuple[int, ...] | None:
@@ -267,10 +454,12 @@ class BinaryPreflight:
     """``Preflight`` for the binaries on :data:`KNOWN_TOOLS`: statuses only.
 
     ``cwd`` is the Run workspace the probes run in; there is deliberately no
-    default, since the current directory could be a Site Root.
+    default, since the current directory could be a Site Root. With
+    ``optional=True`` (``doctor``, where no plan requires anything) an absent
+    tool's ``preflight_checked`` is INFO rather than ERROR (BL-E005-003).
     """
 
-    __slots__ = ("_cwd", "_probe", "_which")
+    __slots__ = ("_cwd", "_optional", "_probe", "_which")
 
     def __init__(
         self,
@@ -280,8 +469,10 @@ class BinaryPreflight:
         probe: Callable[
             [Sequence[str], Path, Mapping[str, str]], str
         ] = _version_output,
+        optional: bool = False,
     ) -> None:
         self._cwd = cwd
+        self._optional = optional
         self._which = which
         self._probe = probe
 
@@ -304,7 +495,7 @@ class BinaryPreflight:
         statuses = []
         for requirement in requirements:
             status = self._status(requirement.name)
-            _log_checked(requirement, status)
+            _log_checked(requirement, status, optional=self._optional)
             statuses.append(status)
         return tuple(statuses)
 
@@ -315,6 +506,23 @@ class BinaryPreflight:
         info = KNOWN_TOOLS[name]
         if not info.version_argv:
             return ToolStatus(name=name, present=True, version=None, path=path)
+        if name == WP_CLI_REQUIREMENT.name:
+            # BL-E007-007: WP-CLI reads these from its cwd upwards, and PHP's
+            # getcwd() is the physical path, so both walks are checked.
+            found = find_wp_cli_config(self._cwd) or find_wp_cli_config(
+                self._cwd.resolve()
+            )
+            if found is not None:
+                if self._optional:
+                    # doctor reports it rather than failing on what it reports.
+                    return ToolStatus(
+                        name=name,
+                        present=True,
+                        version=None,
+                        path=path,
+                        error=_truncate(f"not probed: {found} would configure it"),
+                    )
+                raise WpCliConfigFoundError(found)
         argv = [path, *info.version_argv, *(info.root_argv if _is_root() else ())]
         try:
             output = self._probe(argv, self._cwd, dict(info.probe_env))
@@ -349,7 +557,9 @@ def _outcome(requirement: ToolRequirement, status: ToolStatus) -> str:
     return "too_old"
 
 
-def _log_checked(requirement: ToolRequirement, status: ToolStatus) -> None:
+def _log_checked(
+    requirement: ToolRequirement, status: ToolStatus, *, optional: bool = False
+) -> None:
     outcome = _outcome(requirement, status)
     fields: dict[str, object] = {
         "tool": requirement.name,
@@ -364,12 +574,16 @@ def _log_checked(requirement: ToolRequirement, status: ToolStatus) -> None:
         fields["error"] = status.error
     if outcome == "ok":
         _log.debug("preflight_checked", **fields)
+    elif outcome == "missing" and optional:
+        _log.info("preflight_checked", **fields)
     else:
         _log.error("preflight_checked", **fields)
 
 
-def unsupported_platform(platform: str = sys.platform) -> str | None:
-    """Why ``platform`` is refused, or ``None`` when it is supported."""
+def unsupported_platform(platform: str | None = None) -> str | None:
+    """Why ``platform`` (default: ``sys.platform`` now) is refused, or ``None``."""
+    if platform is None:
+        platform = sys.platform
     if platform in {"win32", "cygwin"}:
         return f"Windows ({platform}) is unsupported in v1.x"
     return None
@@ -423,7 +637,9 @@ class Diagnosis:
     platform_supported: bool
     tools: tuple[ToolStatus, ...]
     database_clients: DatabaseClientsStatus
-    passphrase_backend: str
+    #: A backend name, never a passphrase; kept out of ``repr`` all the same,
+    #: as every field whose name says passphrase is (``test_public_surface``).
+    passphrase_backend: str = field(repr=False)
     extras: tuple[ExtraStatus, ...]
     storage_target: TargetStatus | None
     ready: bool

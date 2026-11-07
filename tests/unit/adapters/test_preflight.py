@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import tomllib
 import uuid
 from collections.abc import Mapping, Sequence
@@ -35,8 +36,10 @@ from l3io.wp.backup.adapters.preflight import (
     diagnose,
     unsupported_platform,
 )
+from l3io.wp.backup.cli.exit import exit_code_for
 from l3io.wp.backup.core.backup import DUMP_REQUIREMENT
 from l3io.wp.backup.domain.database import Readiness
+from l3io.wp.backup.domain.errors import WpCliConfigFoundError
 from l3io.wp.backup.domain.preflight import (
     UNKNOWN_VERSION,
     ToolRequirement,
@@ -204,11 +207,18 @@ def test_wp_is_probed_with_its_data_argv_in_cwd(
         "/usr/bin/wp",
         "cli",
         "version",
+        "--skip-plugins",
+        "--skip-themes",
+        "--skip-packages",
+        "--no-color",
         *(["--allow-root"] if root else []),
     ]
     assert "--path" not in " ".join(argv)
     assert cwd == tmp_path
-    assert env == {"WP_CLI_CONFIG_PATH": os.devnull}
+    assert env == {
+        "WP_CLI_CONFIG_PATH": os.devnull,
+        "WP_CLI_PACKAGES_DIR": os.path.join(os.devnull, "wp-cli-packages"),  # noqa: PTH118
+    }
 
 
 @pytest.mark.parametrize("name", ["mysqldump", DUMP_REQUIREMENT.name, "zz-unknown"])
@@ -301,13 +311,13 @@ def test_the_probe_environment_is_minimal(
     ):
         monkeypatch.setenv(name, "planted")
     seen: list[dict[str, Any]] = []
-    real_run = subprocess.run
+    real_popen = subprocess.Popen
 
     def spy(*args: Any, **kwargs: Any) -> object:  # noqa: ANN401
         seen.append(kwargs)
-        return real_run(*args, **kwargs)
+        return real_popen(*args, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", spy)
+    monkeypatch.setattr(subprocess, "Popen", spy)
     age = _script(tmp_path, "age", 'echo "v1.3.1"')
     wp = _script(tmp_path, "wp", 'echo "WP-CLI 2.11.0"')
     paths = {"age": str(age), "wp": str(wp)}
@@ -316,11 +326,11 @@ def test_the_probe_environment_is_minimal(
     )
     assert [set(kw["env"]) for kw in seen] == [
         {"PATH", "HOME", "LC_ALL"},
-        {"PATH", "HOME", "LC_ALL", "WP_CLI_CONFIG_PATH"},
+        {"PATH", "HOME", "LC_ALL", "WP_CLI_CONFIG_PATH", "WP_CLI_PACKAGES_DIR"},
     ]
     assert seen[0]["env"]["LC_ALL"] == "C"
     assert all(kw.get("shell", False) is False for kw in seen)
-    assert all(kw["timeout"] == 10 and kw["cwd"] == tmp_path for kw in seen)
+    assert all(kw["start_new_session"] and kw["cwd"] == tmp_path for kw in seen)
 
 
 def test_the_known_tools_are_exactly_the_binaries_this_package_runs() -> None:
@@ -553,3 +563,182 @@ def test_the_default_lookup_ignores_relative_path_entries(
     assert _locate(name) is None
     monkeypatch.setenv("PATH", f"{planted}{os.pathsep}.")
     assert _locate(name) == str(exe)
+
+
+# --------------------------------------------------------------------------
+# E008-S01-001: the probe is reachable from every root, so it is hardened
+# --------------------------------------------------------------------------
+
+WP = ToolRequirement("wp", (2, 12), "relocation")
+
+
+@pytest.mark.parametrize("name", module.WP_CLI_CONFIG_FILES)
+@pytest.mark.parametrize("above", [True, False], ids=["above", "in-cwd"])
+def test_a_wp_cli_config_above_the_workspace_refuses_before_wp_runs(
+    tmp_path: Path, name: str, above: bool
+) -> None:
+    """BL-E007-007: WP-CLI would read it; the probe is never started."""
+    workspace = tmp_path / "state" / "run"
+    workspace.mkdir(parents=True)
+    planted = (tmp_path if above else workspace) / name
+    planted.write_text("require: [evil.php]\n", encoding="utf-8")
+    probe = Probe("WP-CLI 2.12.0")
+    with pytest.raises(WpCliConfigFoundError) as caught:
+        _check(workspace, WP, probe)
+    assert caught.value.path == planted
+    assert int(exit_code_for(caught.value)) == 3
+    assert probe.calls == []
+
+
+def test_a_wp_cli_config_behind_a_symlinked_workspace_is_found(tmp_path: Path) -> None:
+    real = tmp_path / "real" / "run"
+    real.mkdir(parents=True)
+    (tmp_path / "real" / "wp-cli.yml").write_text("x: 1\n", encoding="utf-8")
+    link = tmp_path / "elsewhere"
+    link.mkdir()
+    (link / "run").symlink_to(real)
+    probe = Probe("WP-CLI 2.12.0")
+    with pytest.raises(WpCliConfigFoundError):
+        _check(link / "run", WP, probe)
+    assert probe.calls == []
+
+
+def test_age_is_probed_whatever_wp_cli_config_is_above(tmp_path: Path) -> None:
+    (tmp_path / "wp-cli.yml").write_text("x: 1\n", encoding="utf-8")
+    status = _check(tmp_path, AGE, Probe("age v1.3.0"))
+    assert status.version == (1, 3, 0)
+
+
+def test_the_version_comes_from_the_first_stdout_line_only(tmp_path: Path) -> None:
+    age = _script(tmp_path, "age", 'echo "age (dev)"; echo "v9.9.9"; echo v9.9 >&2')
+    (status,) = BinaryPreflight(cwd=tmp_path, which=lambda n: str(age)).check([AGE])
+    assert status.version is None
+
+
+def test_control_characters_never_reach_the_error_or_the_log(tmp_path: Path) -> None:
+    age = _script(tmp_path, "age", "printf 'bad\\033[31m\\a\\rred\\n' >&2; exit 2")
+    with capture_logs() as logs:
+        (status,) = BinaryPreflight(cwd=tmp_path, which=lambda n: str(age)).check([AGE])
+    assert status.error is not None
+    assert not any(ord(c) < 32 or 127 <= ord(c) < 160 for c in status.error)
+    for record in logs:
+        assert "\x1b" not in str(record.get("error", ""))
+
+
+def test_output_past_the_limit_kills_the_probe(tmp_path: Path) -> None:
+    age = _script(tmp_path, "age", "yes v1.3.0")
+    started = time.monotonic()
+    (status,) = BinaryPreflight(cwd=tmp_path, which=lambda n: str(age)).check([AGE])
+    assert status.error is not None
+    assert str(module.PROBE_OUTPUT_LIMIT) in status.error
+    assert time.monotonic() - started < 9
+
+
+def test_a_timeout_kills_the_whole_process_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Redteam M-3: a grandchild holding the pipe is killed with its parent."""
+    marker = tmp_path / "survived"
+    age = _script(tmp_path, "age", f"(sleep 3; touch {marker}) & sleep 30")
+    monkeypatch.setattr(module, "_PROBE_TIMEOUT_S", 1)
+    started = time.monotonic()
+    (status,) = BinaryPreflight(cwd=tmp_path, which=lambda n: str(age)).check([AGE])
+    assert status.error == "timed out after 1s"
+    assert time.monotonic() - started < 5
+    time.sleep(3)
+    assert not marker.exists(), "a grandchild outlived the probe"
+
+
+def test_run_bounded_returns_both_streams(tmp_path: Path) -> None:
+    script = _script(tmp_path, "t", "echo out; echo err >&2; exit 4")
+    result = module.run_bounded(
+        [str(script)], cwd=tmp_path, env={"PATH": os.defpath}, timeout=5, limit=1024
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (4, "out\n", "err\n")
+
+
+def test_run_bounded_raises_past_the_limit_on_stderr(tmp_path: Path) -> None:
+    script = _script(tmp_path, "t", "head -c 5000 /dev/zero >&2")
+    with pytest.raises(module.ChildOutputLimitError) as caught:
+        module.run_bounded(
+            [str(script)], cwd=tmp_path, env={"PATH": os.defpath}, timeout=5, limit=1000
+        )
+    assert caught.value.limit == 1000
+
+
+def test_diagnose_logs_an_absent_tool_below_error(tmp_path: Path) -> None:
+    """BL-E005-003: nothing required it, so its absence is not an error."""
+    pre = BinaryPreflight(
+        cwd=tmp_path, which=_which({"age": None}), probe=Probe(), optional=True
+    )
+    with capture_logs() as logs:
+        diagnose(preflight=pre, environ={})
+    age = [r for r in logs if r["event"] == "preflight_checked" and r["tool"] == "age"]
+    assert [r["log_level"] for r in age] == ["info"]
+    required = BinaryPreflight(cwd=tmp_path, which=_which({"age": None}), probe=Probe())
+    with capture_logs() as logs:
+        required.check([AGE])
+    assert [r["log_level"] for r in logs if r["event"] == "preflight_checked"] == [
+        "error"
+    ]
+
+
+def test_unsupported_platform_reads_the_platform_at_call_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert unsupported_platform() is not None
+
+
+def test_an_interrupt_kills_the_child_group_at_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review H-1: SIGTERM/Ctrl-C during the wait kill the child, not wait it out."""
+    marker = tmp_path / "survived"
+    script = _script(tmp_path, "t", f"sleep 3; touch {marker}")
+    real_wait = subprocess.Popen.wait
+    calls: list[object] = []
+
+    def interrupted(self: subprocess.Popen[bytes], timeout: float | None = None) -> int:
+        if not calls:
+            calls.append(timeout)
+            raise KeyboardInterrupt
+        return real_wait(self, timeout=timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", interrupted)
+    started = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        module.run_bounded(
+            [str(script)], cwd=tmp_path, env={"PATH": os.defpath}, timeout=30, limit=64
+        )
+    assert time.monotonic() - started < 2.5
+    time.sleep(3.5)
+    assert not marker.exists(), "the child outlived the interrupted call"
+
+
+def test_a_grandchild_outside_the_group_does_not_unbound_the_timeout(
+    tmp_path: Path,
+) -> None:
+    """Review M-2: a setsid grandchild holding the pipes is abandoned, bounded."""
+    script = _script(tmp_path, "t", "setsid sleep 6 & sleep 30")
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.run_bounded(
+            [str(script)], cwd=tmp_path, env={"PATH": os.defpath}, timeout=1, limit=64
+        )
+    assert time.monotonic() - started < 4.5
+
+
+def test_doctor_reports_a_wp_cli_config_instead_of_raising(tmp_path: Path) -> None:
+    """Review M-3: diagnose with a wp-cli.yml above the workspace still reports."""
+    workspace = tmp_path / "run"
+    workspace.mkdir()
+    (tmp_path / "wp-cli.yml").write_text("x: 1\n", encoding="utf-8")
+    probe = Probe("WP-CLI 2.12.0")
+    pre = BinaryPreflight(cwd=workspace, which=_which({}), probe=probe, optional=True)
+    diagnosis = diagnose(preflight=pre, environ={})
+    (wp,) = [t for t in diagnosis.tools if t.name == "wp"]
+    assert wp.error is not None
+    assert "wp-cli.yml" in wp.error
+    assert not diagnosis.ready
+    assert all(call[0][0] != "/usr/bin/wp" for call in probe.calls)

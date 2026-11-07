@@ -49,6 +49,7 @@ __all__ = [
     "CleanFailedError",
     "ConfigLocationConflictError",
     "ConfigWriteFailedError",
+    "CredentialTooShortError",
     "CredentialsError",
     "DatabaseRefusedError",
     "DatabaseUnreachableError",
@@ -61,10 +62,13 @@ __all__ = [
     "InvalidSiteDescriptorError",
     "LoadFailedError",
     "MalformedManifestError",
+    "ManifestTooLargeError",
     "MemberReadRefusedError",
     "MissingExtraError",
+    "PassphraseMismatchError",
     "PassphraseRejectedError",
     "PassphraseRequiredError",
+    "PassphraseTooShortError",
     "PassphraseUnavailableError",
     "PayloadDamagedError",
     "PreflightFailedError",
@@ -197,6 +201,38 @@ class PassphraseUnavailableError(UsageError):
         )
 
 
+class PassphraseTooShortError(UsageError):
+    """ADR-0024 amendment (BL-E004-052): an encryption passphrase below the floor.
+
+    Raised before any effect when a passphrase that would **encrypt** (a
+    backup, the library ``backup``) is shorter than ``minimum`` code points.
+    Decryption accepts any passphrase. Never carries the value.
+    """
+
+    def __init__(self, *, minimum: int) -> None:
+        self.minimum = minimum
+        super().__init__(
+            f"passphrase refused: an encryption passphrase must be at least "
+            f"{minimum} characters",
+            arguments=("passphrase",),
+        )
+
+
+class PassphraseMismatchError(UsageError):
+    """ADR-0024 amendment: the prompted encryption passphrase was not confirmed.
+
+    The two entries differed; ``prompts`` is how many were asked (2). Never
+    carries either value.
+    """
+
+    def __init__(self, *, prompts: int = 2) -> None:
+        self.prompts = prompts
+        super().__init__(
+            "passphrase refused: the two passphrases entered did not match",
+            arguments=("passphrase",),
+        )
+
+
 class InvalidRelocationValueError(UsageError):
     """FR-11 — a relocation flag's value breaks a rule.
 
@@ -300,6 +336,45 @@ class AdminCredentialsRequiredError(CredentialsError):
         self.flags = flags
         super().__init__(
             source, reason=f"administrator credentials required: {', '.join(flags)}"
+        )
+
+
+class ManifestTooLargeError(RefusedError):
+    """BL-E004-053: the Manifest this backup would write exceeds the cap.
+
+    Raised after the Site Root is walked and before anything is written, so
+    no Archive appears. ``members`` is the member count, ``size`` the
+    Manifest's size in bytes (an upper bound) and ``limit`` the cap.
+    """
+
+    def __init__(self, *, members: int, size: int, limit: int) -> None:
+        self.members = members
+        self.size = size
+        self.limit = limit
+        super().__init__(
+            f"refused: the Manifest for {members} members would be {size} bytes, "
+            f"over the {limit}-byte limit an Archive can be read with; exclude "
+            "paths (--exclude) or back the Site up in parts"
+        )
+
+
+class CredentialTooShortError(CredentialsError):
+    """ADR-0018 amendment (BL-E005-005): a database password below the floor.
+
+    A password shorter than the redaction registry can mask
+    (``minimum``, ``adapters/redaction.MIN_SECRET_LENGTH``) is refused at the
+    credential boundary, from every source, before any connection.
+    ``source`` names the source; the value is never carried.
+    """
+
+    def __init__(self, source: str, *, minimum: int) -> None:
+        self.minimum = minimum
+        super().__init__(
+            source,
+            reason=(
+                f"the password is shorter than {minimum} characters, too short "
+                "to be kept out of logs and errors"
+            ),
         )
 
 
@@ -647,9 +722,22 @@ class ArchiveNotEncryptedError(UsageError):
     it, ``required`` says which, and ``arguments`` is the flag at fault.
     """
 
-    def __init__(self, archive: str, *, required: bool = False) -> None:
+    def __init__(
+        self, archive: str, *, required: bool = False, passphrase_supplied: bool = False
+    ) -> None:
         self.archive = archive
         self.required = required
+        self.passphrase_supplied = passphrase_supplied
+        if passphrase_supplied:
+            # ADR-0016 amendment 2026-11-07: a passphrase was given, so an
+            # encrypted Archive was expected.
+            super().__init__(
+                f"archive {archive!r} is not encrypted, but a passphrase was "
+                "given; it may have been substituted for an encrypted one. "
+                "Give --allow-unencrypted to restore it anyway",
+                arguments=("--allow-unencrypted",),
+            )
+            return
         if required:
             # ``restore --require-encrypted`` (RT-1): a plain Archive where an
             # encrypted one was expected may be a substitution.

@@ -14,9 +14,15 @@ table showing the same (stricter-wins) minimum. The one exemption is
 every relocation flag set — must be produced by a registered source, so the
 table lists it. E007-S01-004 owns that registration.
 
-**What this does NOT cover.** ``core/restore``'s plans and ``adapters/crypto``'s
-backend requirements are not enumerated here: E008-S01-001 registers them
-through ``DOCUMENTED_REQUIREMENT_SOURCES`` and extends this test to them.
+**Restore plans and the passphrase backend (E008-S01-001).** Every
+``RestoreMode``, read from the enum, is planned from test fixtures and its
+requirements checked the same way (``DUMP_REQUIREMENT`` to the fixed row); and
+what ``adapters/crypto.PassphraseCipher.required_tools()`` asks for under the
+``cli`` backend must be produced by a registered source.
+
+**What this does NOT cover.** A restore plan's ``extra_tools`` come from the
+cipher and the relocation extension, both checked above; a tool a future
+restore plan adds by itself is caught only through ``RestoreMode``.
 """
 
 from __future__ import annotations
@@ -181,6 +187,57 @@ def test_relocation_requirements_are_registered() -> None:
         relocation_violations(factory, preflight_module.DOCUMENTED_REQUIREMENT_SOURCES)
         == []
     )
+
+
+def restore_requirements() -> list[ToolRequirement]:
+    """Every requirement of a restore plan, over every ``RestoreMode``."""
+    from l3io.wp.backup.domain.restore import RestoreMode
+    from tests.restore_builders import plan as restore_plan
+
+    found: list[ToolRequirement] = []
+    for mode in RestoreMode:
+        found += restore_plan(mode).required_tools
+    return found
+
+
+def cipher_violations(
+    sources: Sequence[Callable[[], tuple[ToolRequirement, ...]]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    from l3io.wp.backup.adapters.crypto import PassphraseCipher
+    from l3io.wp.backup.domain.secret import Secret
+
+    monkeypatch.setenv("L3IO_AGE_PASSPHRASE_BACKEND", "cli")
+    needed = {r.name for r in PassphraseCipher(Secret("x" * 12)).required_tools()}
+    assert needed, "the cli backend requires no tool: the scope is empty"
+    documented = {r.name for source in sources for r in source()}
+    return sorted(needed - documented)
+
+
+def test_every_restore_plan_requirement_is_documented() -> None:
+    requirements = restore_requirements()
+    assert DUMP_REQUIREMENT.name in {r.name for r in requirements}
+    assert violations(requirements, README.read_text(encoding="utf-8")) == []
+
+
+def test_the_passphrase_backend_requirements_are_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sources = preflight_module.DOCUMENTED_REQUIREMENT_SOURCES
+    assert cipher_violations(sources, monkeypatch) == []
+
+
+def test_an_unregistered_backend_requirement_trips_the_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wp_only = preflight_module.DOCUMENTED_REQUIREMENT_SOURCES[:1]
+    assert cipher_violations(wp_only, monkeypatch) == ["age", "age-plugin-batchpass"]
+
+
+def test_a_planted_restore_requirement_fails() -> None:
+    readme = README.read_text(encoding="utf-8")
+    found = violations([*restore_requirements(), ZZ_FAKE], readme)
+    assert "zz-fake: no README row" in found
 
 
 # --- planted violations ----------------------------------------------------------

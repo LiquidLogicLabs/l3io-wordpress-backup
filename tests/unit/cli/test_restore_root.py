@@ -205,7 +205,7 @@ def test_restore_ports_is_built_once_over_ctx_adapters(
     assert call["check_database"].keywords["ports"] is ports
     assert call["load_database"].keywords["ports"] is ports
     assert call["load_database"].keywords["workspace"] == Path(call["inputs"].workspace)
-    unmet = ToolRequirement("no-such-tool-e003", None, "the test")
+    unmet = ToolRequirement("age", (999,), "the test")
     with pytest.raises(PreflightFailedError):
         ports.preflight((unmet,))
 
@@ -746,7 +746,10 @@ def test_an_encrypted_snapshot_says_so_without_the_passphrase(
     credential_sentinel: CredentialSentinel,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A passphrase given for an unencrypted Archive still encrypts the snapshot."""
+    """A passphrase given for an unencrypted Archive still encrypts the snapshot.
+
+    Since the ADR-0016 amendment of 2026-11-07 that needs ``--allow-unencrypted``.
+    """
 
     def fail_after_snapshot(*args: object, **kwargs: object) -> object:
         rig.take_snapshot(BackupScope.ALL)
@@ -755,7 +758,7 @@ def test_an_encrypted_snapshot_says_so_without_the_passphrase(
 
     rig.execute = fail_after_snapshot
     _performed_snapshots(rig)
-    assert main(_argv(rig)) == int(LoadFailedError.exit_code)
+    assert main(_argv(rig, "--allow-unencrypted")) == int(LoadFailedError.exit_code)
     err = capsys.readouterr().err
     planned = rig.inputs.header.snapshot_path
     assert "safety snapshot is encrypted with the passphrase" in err
@@ -955,6 +958,77 @@ def test_require_encrypted_refuses_a_plain_archive_before_any_effect(
     assert main(_argv(rig, "--require-encrypted")) == int(ExitCode.USAGE)
     assert executed == []
     assert restore_mod.UNAUTHENTICATED_WARNING not in capsys.readouterr().err
+
+
+class _StubCipher:
+    """A ``PayloadCipher`` that is never asked to do anything here."""
+
+    def check(self) -> None:
+        return None
+
+    def required_tools(self) -> tuple[ToolRequirement, ...]:
+        return ()
+
+    def encrypt(self, reader: object, writer: object) -> None:
+        raise NotImplementedError
+
+    def decrypt(self, reader: object, writer: object) -> None:
+        raise NotImplementedError
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
+def test_a_passphrase_with_a_plain_archive_is_refused_before_any_effect(
+    rig: Rig, dry_run: bool
+) -> None:
+    """ADR-0016 amendment 2026-11-07: a passphrase means encryption was expected."""
+    executed: list[object] = []
+    rig.execute = lambda *a, **k: executed.append(a)  # type: ignore[misc, assignment]
+    with capture_logs(), pytest.raises(ArchiveNotEncryptedError) as caught:
+        rig.drive(cipher=_StubCipher(), dry_run=dry_run)
+    assert caught.value.passphrase_supplied is True
+    assert caught.value.arguments == ("--allow-unencrypted",)
+    assert int(caught.value.exit_code) == 2
+    assert executed == []
+
+
+def test_allow_unencrypted_restores_a_plain_archive_with_a_passphrase(
+    rig: Rig,
+) -> None:
+    with capture_logs():
+        rig.drive(cipher=_StubCipher(), allow_unencrypted=True)
+    assert rig.executions
+
+
+def test_no_passphrase_restores_a_plain_archive_as_before(rig: Rig) -> None:
+    with capture_logs():
+        rig.drive(cipher=None)
+    assert rig.executions
+
+
+def test_the_cli_refuses_without_and_proceeds_with_allow_unencrypted(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import uuid
+
+    monkeypatch.setenv(PASSPHRASE_ENV, f"sentinel-pp-{uuid.uuid4().hex}")
+    monkeypatch.setattr(
+        restore_mod,
+        "build_payload_cipher",
+        lambda *, passphrase, secrets: None if passphrase is None else _StubCipher(),
+    )
+    with capture_logs():
+        assert main(_argv(rig)) == int(ExitCode.USAGE)
+        assert not rig.executions
+        assert main(_argv(rig, "--allow-unencrypted")) == int(ExitCode.OK)
+    assert rig.executions
+
+
+def test_the_library_restore_takes_allow_unencrypted() -> None:
+    from l3io.wp.backup import api
+
+    parameter = inspect.signature(api.restore).parameters["allow_unencrypted"]
+    assert parameter.default is False
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
 
 
 def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(

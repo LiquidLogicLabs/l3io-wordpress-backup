@@ -64,6 +64,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC
 from pathlib import Path, PurePath, PurePosixPath
+from types import MappingProxyType
 from typing import Final, Protocol, cast
 
 import structlog
@@ -107,14 +108,24 @@ from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import (
     admin_source,
     admin_spec,
+    new_db_password,
     wordpress_source,
     wordpress_spec,
 )
 from l3io.wp.backup.cli.logging import configured_format
-from l3io.wp.backup.cli.output import emit_result
+from l3io.wp.backup.cli.output import (
+    RunWarning,
+    WarningSink,
+    emit_result,
+    emit_warning,
+)
 from l3io.wp.backup.cli.parser import RELOCATION_UNAVAILABLE
-from l3io.wp.backup.cli.passphrase import resolve_passphrase, terminal_prompt
-from l3io.wp.backup.cli.preflight import DumpReadinessPreflight, require_tools
+from l3io.wp.backup.cli.passphrase import (
+    note_short_restore_passphrase,
+    resolve_passphrase,
+    terminal_prompt,
+)
+from l3io.wp.backup.cli.preflight import require_tools, root_preflight
 from l3io.wp.backup.cli.scope import CLI_MODE_TO_SCOPE, backup_scope_from_cli
 from l3io.wp.backup.core.restore import (
     FREE_SPACE_MARGIN,
@@ -183,6 +194,7 @@ from l3io.wp.backup.domain.restore import (
     restores_files,
 )
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport
+from l3io.wp.backup.domain.secret import Secret, as_secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
@@ -660,7 +672,11 @@ class RelocationFlags:
     """The relocation flags, copied verbatim; Epic 7 validates them.
 
     ``new_db_password`` is left out of ``repr`` (and registered with the Run's
-    ``SecretRegistry`` before anything uses it).
+    ``SecretRegistry`` before anything uses it). The CLI fills it from
+    ``--new-db-password``, ``--new-db-password-file`` or
+    ``L3IO_WP_BACKUP_NEW_DB_PASSWORD``, in that order; the library from this
+    field, then that variable (only with ``new_db_user``), through
+    ``cli/credentials.new_db_password``.
     """
 
     new_site_url: str | None
@@ -668,8 +684,13 @@ class RelocationFlags:
     new_db_host: str | None
     new_db_name: str | None
     new_db_user: str | None
-    new_db_password: str | None = field(repr=False)
+    new_db_password: Secret | str | None = field(repr=False)
     wp_config: Path | None
+
+    def __post_init__(self) -> None:
+        # Owner decision 2026-11-07: a str is held as a Secret at once.
+        if self.new_db_password is not None:
+            object.__setattr__(self, "new_db_password", as_secret(self.new_db_password))
 
     @classmethod
     def none(cls) -> RelocationFlags:
@@ -771,8 +792,12 @@ class RestoreRequest:
     per-user state directory. ``archive_database`` is ``--archive-database``'s
     raw ``USER@HOST[:PORT]/NAME`` and ``admin_tls`` the ``--admin-tls`` /
     ``--admin-tls-ca`` override (BL-E002-114). ``opted_out_by`` names what
-    chose ``SnapshotPolicy.SKIP`` (BL-E003-050). No field carries an
-    ``l3io.wp.database`` type (ADR-0015 amendment).
+    chose ``SnapshotPolicy.SKIP`` (BL-E003-050). ``credentials`` is the
+    WordPress account's spec (``--db-credentials-aws-*``); ``None`` means
+    ``wp-config.php``. With a ``cipher`` (a passphrase was given) a plain
+    Archive is refused unless ``allow_unencrypted`` (ADR-0016 amendment
+    2026-11-07). No field carries an ``l3io.wp.database`` type
+    (ADR-0015 amendment).
     """
 
     site_root: Path
@@ -793,6 +818,8 @@ class RestoreRequest:
     extra_tools: tuple[ToolRequirement, ...] = ()
     opted_out_by: str = NO_SNAPSHOT_FLAG
     require_encrypted: bool = False
+    credentials: CredentialSpec | None = None
+    allow_unencrypted: bool = False
 
     def __post_init__(self) -> None:
         if not self.opted_out_by:
@@ -1021,11 +1048,7 @@ def _ports(
         run.adapters,
         preflight=functools.partial(
             require_tools,
-            DumpReadinessPreflight(
-                run.adapters.database_query,
-                site.database_location(),
-                credential_source=site.credential_source,
-            ),
+            root_preflight(run, site, credential_source=site.credential_source),
         ),
         free_bytes=lambda path: shutil.disk_usage(path).free,
         cutover_credentials=cutover,
@@ -1134,8 +1157,13 @@ def drive_restore(
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
     site_lock: SiteLock | None = None,
+    on_warning: WarningSink | None = None,
 ) -> RestoreOutcome:
     """The restore driver: returns a :class:`RestoreOutcome` or raises; never prints.
+
+    Its operator notices (``RunWarning``) go to ``on_warning`` when given,
+    else to stderr (``cli/output.emit_warning``); a notice's WARNING record is
+    logged either way.
 
     Steps, each before the next, nothing destructive before the executor:
     the Site Lock and the Run (1); the journal query (2); the Site Descriptor,
@@ -1227,8 +1255,10 @@ def drive_restore(
         # reset-consent check and the restored config all name its DB_USER, so
         # L3IO_WP_BACKUP_DB_* (a backup's override) must not pick another
         # account to provision (E005-S01-001 review F-1).
+        # ``--db-credentials-aws-*`` (E008-S01-001) is that account's stated
+        # source; the environment still is not consulted.
         wordpress = wordpress_source(
-            None, wp_config=wp_config, environ={}, secrets=run.secrets
+            request.credentials, wp_config=wp_config, environ={}, secrets=run.secrets
         )
         relocated_spec = ext.wordpress_spec()
         relocated = (
@@ -1296,6 +1326,16 @@ def drive_restore(
             # RT-1: the operator said an encrypted Archive was expected; a
             # plain one may be a substitution. Refused before any effect.
             raise ArchiveNotEncryptedError(str(request.archive.path), required=True)
+        if (
+            not view.encrypted
+            and request.cipher is not None
+            and not request.allow_unencrypted
+        ):
+            # ADR-0016 amendment 2026-11-07: a passphrase was given, so an
+            # encrypted Archive was expected. Refused before any effect.
+            raise ArchiveNotEncryptedError(
+                str(request.archive.path), passphrase_supplied=True
+            )
         if not view.encrypted:
             # RT-002 waiver (ADR-0016 amendment, 2026-11-06): restore, warning
             # before any effect, so the warning is seen even if the Run fails.
@@ -1304,11 +1344,20 @@ def drive_restore(
                 integrity=view.integrity.value,
                 archive=str(request.archive.path),
             )
-            print(
-                STRUCTURAL_ONLY_WARNING
-                if view.integrity is Integrity.STRUCTURAL_ONLY
-                else UNAUTHENTICATED_WARNING,
-                file=sys.stderr,
+            emit_warning(
+                RunWarning(
+                    code="archive_unauthenticated",
+                    message=STRUCTURAL_ONLY_WARNING
+                    if view.integrity is Integrity.STRUCTURAL_ONLY
+                    else UNAUTHENTICATED_WARNING,
+                    fields=MappingProxyType(
+                        {
+                            "integrity": view.integrity.value,
+                            "archive": str(request.archive.path),
+                        }
+                    ),
+                ),
+                on_warning,
             )
         # Step 6: the plan, FR-7's guard included.
         _require_cipher(view, request.cipher)
@@ -1431,16 +1480,25 @@ def drive_restore(
                 reason = "the snapshot was not performed, and the restore would destroy"
                 raise SnapshotFailedError(str(snapshot_path), reason)
             if request.cipher is None and taken[-1].performed:
-                print(
-                    f"safety snapshot is NOT encrypted: {result.path}", file=sys.stderr
+                emit_warning(
+                    RunWarning(
+                        code="safety_snapshot_unencrypted",
+                        message=f"safety snapshot is NOT encrypted: {result.path}",
+                        fields=MappingProxyType({"path": str(result.path)}),
+                    ),
+                    on_warning,
                 )
                 _log.warning("safety_snapshot_unencrypted", path=str(result.path))
             elif taken[-1].performed:
                 # BL-E003-075: restoring it needs this Run's passphrase.
-                print(
-                    "safety snapshot is encrypted with the passphrase this restore "
-                    f"was given: {result.path}",
-                    file=sys.stderr,
+                emit_warning(
+                    RunWarning(
+                        code="safety_snapshot_encrypted",
+                        message="safety snapshot is encrypted with the passphrase "
+                        f"this restore was given: {result.path}",
+                        fields=MappingProxyType({"path": str(result.path)}),
+                    ),
+                    on_warning,
                 )
             return taken[-1]
 
@@ -1672,11 +1730,15 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         new_db_host=args.new_db_host,
         new_db_name=args.new_db_name,
         new_db_user=args.new_db_user,
-        new_db_password=args.new_db_password,
+        new_db_password=new_db_password(
+            explicit=args.new_db_password,
+            file=args.new_db_password_file,
+            environ=os.environ,
+            secrets=secrets,
+            user_given=args.new_db_user is not None,
+        ),
         wp_config=None if args.wp_config is None else Path(args.wp_config),
     )
-    if relocation.new_db_password:
-        secrets.register(relocation.new_db_password, source="--new-db-password")
     mode, overrides = restore_mode_from_cli(
         mode=args.mode,
         cleanfirst=args.cleanfirst,
@@ -1690,6 +1752,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         secrets=secrets,
         label=RESTORE_PROMPT,
     )
+    note_short_restore_passphrase(resolved)
     # The one factory (E004-S01-003): it re-registers the passphrase and runs
     # the cipher's check() before the Run opens, so a backend failure is
     # rendered by the root and changes nothing.
@@ -1725,6 +1788,11 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         reset_existing_db_user=bool(args.reset_existing_db_user),
         dry_run=bool(args.what_if),
         require_encrypted=bool(args.require_encrypted),
+        allow_unencrypted=bool(args.allow_unencrypted),
+        credentials=wordpress_spec(
+            aws_secret_id=args.db_credentials_aws_secret_id,
+            aws_region=args.db_credentials_aws_region,
+        ),
     )
     try:
         outcome = drive_restore(request, ctx=None, secrets=secrets)

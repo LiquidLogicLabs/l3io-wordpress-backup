@@ -11,12 +11,17 @@ UX-S02-03 (BL-E003-082): each entry's ``--help`` line ends with
 does; no help text and no reason names a planning artefact (an epic, a story
 key, a removed dependency). Both scopes are derived from the built parser.
 
-The scope half: every option registered on the restore subcommand — derived
-from the parser, not listed — is either listed here (so using it exits
-``USAGE``) or read by the restore root, so a flag added to restore cannot slip
-past as silently accepted. Since E003-S02-006 binds the subcommand, "read" is
-checked by AST: an ``args.<dest>`` attribute in ``cli/restore.py`` or
-``cli/__init__.py`` (the two modules that receive ``args`` for a restore).
+The scope half (E008-S01-001, M5/B1): every option registered on **every**
+subcommand — both derived from the parser, not listed — is either listed here
+(so using it exits ``USAGE``) or read by the module that receives that
+subcommand's ``args`` (:data:`ROOT_MODULES`), so a flag cannot slip past as
+silently accepted. "Read" is checked by AST: an ``args.<dest>`` attribute in
+that one module. ``cli/__init__.py`` is not a reader: its reads only validate.
+A subcommand with no module in the map fails.
+
+The completion check (E008-S01-001): once Epic 7 and E008 have landed,
+:data:`NOT_YET_IMPLEMENTED` holds exactly AD-22's forced exception, and the four
+reason constants the bound entries used no longer exist.
 """
 
 from __future__ import annotations
@@ -213,19 +218,53 @@ def test_a_planted_internal_name_is_caught() -> None:
     assert _internal_names(planted) == ["a", "b", "c"]
 
 
-def _restore_options() -> list[str]:
+#: The module that receives each subcommand's ``args`` (its ``run_*``).
+ROOT_MODULES: dict[str, str] = {
+    "backup": "backup.py",
+    "restore": "restore.py",
+    "verify": "verify.py",
+    "doctor": "doctor.py",
+}
+#: AD-22's forced exception: the one entry that is never bound.
+FOREVER_UNBOUND = frozenset({"restore --only-appointed-in-asg"})
+#: The reason constants of the entries E008-S01-001 bound (deleted with them).
+BOUND_REASONS = (
+    "_AWS_UNAVAILABLE",
+    "_ENCRYPTION_UNAVAILABLE",
+    "_EXCLUDES_UNAVAILABLE",
+    "_DOCTOR_UNAVAILABLE",
+)
+
+
+def test_only_the_forced_exception_is_still_unbound() -> None:
+    assert set(NOT_YET_IMPLEMENTED) == FOREVER_UNBOUND
+
+
+def test_the_bound_entries_reason_constants_are_gone() -> None:
+    left = [name for name in BOUND_REASONS if hasattr(cli_parser, name)]
+    assert left == []
+
+
+def _options(parser: argparse.ArgumentParser) -> list[str]:
     return sorted(
         action.option_strings[-1]
-        for action in _subparsers()[RESTORE_COMMAND]._actions  # noqa: SLF001
+        for action in parser._actions  # noqa: SLF001
         if action.option_strings and not isinstance(action, argparse._HelpAction)  # noqa: SLF001
     )
 
 
-def test_the_restore_option_derivation_is_not_empty() -> None:
-    assert len(_restore_options()) > 20
+def _cases() -> list[tuple[str, str]]:
+    return [
+        (command, flag)
+        for command, parser in sorted(_subparsers().items())
+        for flag in _options(parser)
+    ]
 
 
-_ROOT_MODULES = ("restore.py", "__init__.py")
+def test_the_option_derivation_covers_every_subcommand() -> None:
+    commands = {command for command, _ in _cases()}
+    assert commands == set(_subparsers())
+    assert len(_options(_subparsers()[RESTORE_COMMAND])) > 20
 
 
 def _args_read(sources: list[str]) -> set[str]:
@@ -242,31 +281,61 @@ def _args_read(sources: list[str]) -> set[str]:
     return names
 
 
-def _root_sources() -> list[str]:
+def _root_source(command: str, roots: dict[str, str]) -> str:
+    if command not in roots:
+        msg = f"subcommand {command!r} has no module in ROOT_MODULES"
+        raise AssertionError(msg)
     folder = Path(cli_package.__file__).parent
-    return [(folder / name).read_text(encoding="utf-8") for name in _ROOT_MODULES]
+    return (folder / roots[command]).read_text(encoding="utf-8")
 
 
-def _silently_accepted(flags: list[str], read: set[str]) -> list[str]:
-    """The flags neither listed as unbound nor read by the restore root."""
-    actions = _subparsers()[RESTORE_COMMAND]._option_string_actions  # noqa: SLF001
+def _silently_accepted(
+    parser: argparse.ArgumentParser, command: str, flags: list[str], read: set[str]
+) -> list[str]:
+    """The flags neither listed as unbound nor read by ``command``'s root."""
+    actions = parser._option_string_actions  # noqa: SLF001
     return [
         flag
         for flag in flags
-        if f"{RESTORE_COMMAND} {flag}" not in NOT_YET_IMPLEMENTED
+        if f"{command} {flag}" not in NOT_YET_IMPLEMENTED
         and actions[flag].dest not in read
     ]
 
 
-@pytest.mark.parametrize("flag", _restore_options())
-def test_no_restore_option_is_silently_accepted(flag: str) -> None:
-    assert _silently_accepted([flag], _args_read(_root_sources())) == []
+@pytest.mark.parametrize(("command", "flag"), _cases())
+def test_no_option_is_silently_accepted(command: str, flag: str) -> None:
+    read = _args_read([_root_source(command, ROOT_MODULES)])
+    parser = _subparsers()[command]
+    assert _silently_accepted(parser, command, [flag], read) == []
 
 
-def test_an_unread_restore_option_is_caught() -> None:
-    """The scope attack: a registered flag the root never reads is reported."""
-    read = _args_read(_root_sources()) - {"archive_database"}
-    assert _silently_accepted(["--archive-database"], read) == ["--archive-database"]
+def test_every_subcommand_has_a_root_module() -> None:
+    for command in _subparsers():
+        _root_source(command, ROOT_MODULES)
+
+
+def test_a_subcommand_missing_from_the_map_is_caught() -> None:
+    """The scope attack: a subcommand added without a root module fails."""
+    roots = {k: v for k, v in ROOT_MODULES.items() if k != "doctor"}
+    with pytest.raises(AssertionError, match="doctor"):
+        _root_source("doctor", roots)
+
+
+@pytest.mark.parametrize("command", sorted(ROOT_MODULES))
+def test_a_planted_unread_option_is_caught(command: str) -> None:
+    """One planted option per subcommand, registered and never read."""
+    parser = _subparsers()[command]
+    parser.add_argument("--planted-e008-unread", action="store_true")
+    read = _args_read([_root_source(command, ROOT_MODULES)])
+    assert _silently_accepted(parser, command, ["--planted-e008-unread"], read) == [
+        "--planted-e008-unread"
+    ]
+
+
+def test_the_restore_db_credential_pair_is_read_by_the_restore_root() -> None:
+    """B1: ``cli/__init__.py`` validated them; only ``cli/restore.py`` reads them."""
+    read = _args_read([_root_source(RESTORE_COMMAND, ROOT_MODULES)])
+    assert {"db_credentials_aws_secret_id", "db_credentials_aws_region"} <= read
 
 
 def test_restore_without_an_archive_exits_usage(

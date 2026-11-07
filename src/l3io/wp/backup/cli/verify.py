@@ -61,6 +61,7 @@ from l3io.wp.backup.cli.backup import storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.output import emit_result
 from l3io.wp.backup.cli.passphrase import resolve_passphrase, terminal_prompt
+from l3io.wp.backup.cli.preflight import refuse_unsupported_platform
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.domain.archive_format import (
     ArchiveView,
@@ -76,6 +77,7 @@ from l3io.wp.backup.domain.errors import (
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.tracing import Tracer
 
@@ -121,7 +123,7 @@ def _authenticate(
     *,
     record: PhaseRecord,
     ctx: RunContext,
-    passphrase: str | None,
+    passphrase: Secret | str | None,
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
 ) -> None:
@@ -155,7 +157,7 @@ def drive_verify(
     tracer: Tracer | None = None,
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
-    passphrase: str | None = None,
+    passphrase: Secret | str | None = None,
     environ: Mapping[str, str] = _NO_ENVIRONMENT,
     prompt: Callable[[str], str] | None = None,
 ) -> VerificationResult:
@@ -166,8 +168,10 @@ def drive_verify(
     ``request.authenticate`` a returned pass has also been authenticated;
     ``passphrase``, ``environ`` and ``prompt`` are AD-26's chain, in that
     order, and are read only then. A library caller's ``environ`` defaults to
-    empty: nothing below a root reads ``os.environ``.
+    empty: nothing below a root reads ``os.environ``. An unsupported
+    platform is refused first, as every other command refuses it.
     """
+    refuse_unsupported_platform()
     with join_or_open(
         ctx,
         operation="verify",

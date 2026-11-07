@@ -322,7 +322,9 @@ def test_the_factory_registers_then_checks_before_returning(
     monkeypatch.setattr(PassphraseCipher, "check", check)
     cipher = build_payload_cipher(passphrase=passphrase, secrets=registry)
     assert isinstance(cipher, PassphraseCipher)
-    assert registry.registered == [passphrase]
+    assert [getattr(v, "reveal", lambda v=v: v)() for v in registry.registered] == [
+        passphrase
+    ]
     assert order == ["registered"]
     assert passphrase not in registry.redact(f"x {passphrase} y")
 

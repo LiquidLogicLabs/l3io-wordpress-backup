@@ -3,8 +3,8 @@ epic: 'E008'
 sprint: 'S01'
 title: Bind the parallel epics' providers into the composition roots
 classification: complex
-status: ready-for-dev
-updated_at: '2026-11-07T07:58:57Z'
+status: done
+updated_at: '2026-11-07T19:18:17Z'
 estimate:
   man_hours: 22.89
   hitl_hours: 0.0
@@ -35,3 +35,45 @@ depends_on:
 - 'E002-S02-012'
 - 'E003-S01-001'
 resolves: [BL-E007-006, BL-E007-007, BL-E007-008, BL-E007-009, BL-E007-016]
+completion_evidence:
+  test_runs:
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 1
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 1
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel,aws]' --all-extras --group test pytest -q
+    exit_code: 1
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q
+    exit_code: 0
+  - command: uv run -q --python 3.14 --isolated --with-editable '.[database,otel,aws]' --all-extras --group test pytest -q
+    exit_code: 0
+  - command: uv run python tools/check_purity.py
+    exit_code: 0
+  - command: uv run python tools/check_mode_defaults.py
+    exit_code: 0
+  - command: uv run python tools/gen_cli_docs.py --check
+    exit_code: 0
+  - command: uv run python tools/gen_tool_docs.py --check
+    exit_code: 0
+  - command: uv run pytest -q tests/contracts/test_flag_map.py tests/contracts/test_closeout_gate.py
+    exit_code: 0
+  - command: uv lock --check
+    exit_code: 0
+  - command: uv run ruff check . && uv run ruff format --check . && uv run mypy --strict src && uv run lint-imports && uv run pytest -q --basetemp ~/.cache/wpb-pytest/bt -p no:cacheprovider (integration fix round, CI first run; 4826 passed, 137 skipped)
+    exit_code: 0
+  tests_passing: true
+  fix_iterations: 1
+  files_changed: 71
+actual:
+  elapsed_hours: 1.05
+  man_hours: 60
+  hitl_hours: 0
+  tokens_k:
+    total: 105830.79
+    input: 0.688
+    output: 286.97
+    cache_write: 2071.877
+    cache_read: 103471.25
+  cost: 71.86
+  model: claude-opus-5
+calibration_sampled_at: '2026-11-07T19:18:17Z'

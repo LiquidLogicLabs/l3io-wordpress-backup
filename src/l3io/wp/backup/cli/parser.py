@@ -26,7 +26,10 @@ in text an operator reads.
 **Secret values.** No flag takes a passphrase; passphrases come only from
 AD-26's chain. ``--admin-password`` and ``--new-db-password`` are the two
 frozen v0.2.21 password flags, kept on AD-22's allowance, and their help says
-the value is visible in the process list.
+the value is visible in the process list and names the alternatives: the
+administrator's variable, and ``--new-db-password-file`` or
+:data:`NEW_DB_PASSWORD_VAR` (owner decision 2026-11-07), which keep the
+relocated account's password out of ``argv``.
 """
 
 from __future__ import annotations
@@ -34,10 +37,12 @@ from __future__ import annotations
 import argparse
 import logging
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
 from l3io.wp.backup import __version__
+from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
 
 __all__ = [
@@ -45,6 +50,7 @@ __all__ = [
     "DEFAULT_LOG_LEVEL",
     "DOCTOR_COMMAND",
     "LOG_FORMATS",
+    "NEW_DB_PASSWORD_VAR",
     "NOT_AVAILABLE_NOTE",
     "NOT_YET_IMPLEMENTED",
     "RELOCATION_UNAVAILABLE",
@@ -67,8 +73,8 @@ DOCTOR_COMMAND = "doctor"
 RESTORE_MODE_GROUP = "restore mode"
 #: The argument group holding every other restore flag.
 RESTORE_OPTIONS_GROUP = "restore options"
-#: The administrator's password from the environment, not the command line.
-ADMIN_PASSWORD_VARIABLE = "L3IO_WP_BACKUP_ADMIN_PASSWORD"  # noqa: S105 - a name
+#: The relocated account's password from the environment, not the command line.
+NEW_DB_PASSWORD_VAR: Final = "L3IO_WP_BACKUP_NEW_DB_PASSWORD"  # noqa: S105 - a name
 
 #: Why a relocation flag is refused while no restore extension is built in.
 #: The six ``--new-*`` flags were bound by E007-S01-001 and ``restore
@@ -76,11 +82,6 @@ ADMIN_PASSWORD_VARIABLE = "L3IO_WP_BACKUP_ADMIN_PASSWORD"  # noqa: S105 - a name
 RELOCATION_UNAVAILABLE: Final = (
     "restoring to a new URL, database or wp-config.php location is not supported yet"
 )
-# Bound by E008-S01-001 (the composition roots take Epics 4 and 5's providers).
-_AWS_UNAVAILABLE = "reading credentials from AWS Secrets Manager is not supported yet"
-_ENCRYPTION_UNAVAILABLE = "encrypting a backup is not supported yet"
-_EXCLUDES_UNAVAILABLE = "excluding paths from a backup is not supported yet"
-_DOCTOR_UNAVAILABLE = "the host readiness report is not supported yet"
 # Never bound: the legacy option had no meaning without its removed dependency.
 _REMOVED = "this option was removed and will not return"
 #: Ends the ``--help`` line of every :data:`NOT_YET_IMPLEMENTED` entry.
@@ -91,18 +92,7 @@ NOT_AVAILABLE_NOTE: Final = "(not available in this build)"
 #: one exits ``USAGE`` naming both; the binding story removes its entries.
 NOT_YET_IMPLEMENTED: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "restore --admin-credentials-aws-secret-id": _AWS_UNAVAILABLE,
-        "restore --admin-credentials-aws-region": _AWS_UNAVAILABLE,
-        "restore --db-credentials-aws-secret-id": _AWS_UNAVAILABLE,
-        "restore --db-credentials-aws-region": _AWS_UNAVAILABLE,
         "restore --only-appointed-in-asg": _REMOVED,
-        "backup --encrypt-with-passphrase": _ENCRYPTION_UNAVAILABLE,
-        "backup --exclude": _EXCLUDES_UNAVAILABLE,
-        "backup --no-default-excludes": _EXCLUDES_UNAVAILABLE,
-        "backup --list-default-excludes": _EXCLUDES_UNAVAILABLE,
-        "backup --db-credentials-aws-secret-id": _AWS_UNAVAILABLE,
-        "backup --db-credentials-aws-region": _AWS_UNAVAILABLE,
-        DOCTOR_COMMAND: _DOCTOR_UNAVAILABLE,
     }
 )
 #: Triage E-14: ``INFO``, not v0.2.21's ``CRITICAL`` (a behaviour fix AD-22 permits).
@@ -430,7 +420,7 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Database administrator password. The value is visible in the "
-            f"process list; prefer {ADMIN_PASSWORD_VARIABLE}"
+            f"process list; prefer {ADMIN_PASSWORD_VAR}"
         ),
     )
     options.add_argument(
@@ -466,7 +456,28 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     options.add_argument(
         "--new-db-password",
         default=None,
-        help=("Password of --new-db-user. The value is visible in the process list"),
+        help=(
+            "Password of --new-db-user. The value is visible in the process "
+            f"list; prefer --new-db-password-file or {NEW_DB_PASSWORD_VAR}"
+        ),
+    )
+    options.add_argument(
+        "--new-db-password-file",
+        metavar="PATH",
+        type=Path,
+        default=None,
+        help=(
+            "Read the password of --new-db-user from this file (its first "
+            "line; make it readable only by you)"
+        ),
+    )
+    options.add_argument(
+        "--allow-unencrypted",
+        action="store_true",
+        help=(
+            "Restore an archive that is not encrypted even though a passphrase "
+            "was given (without it, that is refused as a possible substitution)"
+        ),
     )
     _add_db_credentials(restore)
 

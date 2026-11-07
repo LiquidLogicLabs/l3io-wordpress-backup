@@ -128,6 +128,13 @@ needs: `adapters/credential_providers.py`, `adapters/database.py`, `cli/credenti
 each source and requires the refusal, with no connection attempted; another reads a password,
 fails afterwards, and requires that the error output masks it.
 
+**Implemented (E008-S01-001, 2026-11-07).** `CredentialTooShortError(source, minimum)` is raised
+by `adapters/database.py`'s registering wrapper after the resolved password is offered to the
+registry, and by `adapters/credential_providers.py` for an explicit spec as it is built; the
+relocated account's password is held to the same floor in `cli/credentials.new_db_password`.
+The floor is `adapters/redaction.MIN_SECRET_LENGTH`. An empty password (a variable set to `""`,
+or `DB_PASSWORD` empty in `wp-config.php`) is refused the same way, still exit 4.
+
 ## Amendment — 2026-11-07: the library boundary logs frames, never a dependency's text (E006 closure)
 
 `api/errors.py::public_boundary` logs `unexpected_exception` after the Run, when the Run's registry is

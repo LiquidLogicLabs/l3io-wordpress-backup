@@ -43,10 +43,18 @@ call:
 As root it adds ``--allow-root`` and logs WARNING ``wp_cli_running_as_root``;
 it never refuses (owner decision O4, 2026-11-06).
 
+Every call's output is bounded (:data:`CHILD_OUTPUT_LIMIT` per stream, the
+process group killed past it, BL-E007-009). Before any effect, when a URL is
+relocated, :meth:`~WpCliRestoreExtension.resolve` prepares the state
+directory and refuses a ``wp-cli.yml`` above it (BL-E007-008); the check in
+every call stays as the backstop.
+
 **Residual (stated, not closed).** ``restore_extension`` resolves ``wp`` on
 ``PATH`` once, with ``adapters/preflight.py::locate_tool`` (absolute entries
-only); story 7.4's preflight looks it up again by name, by the same rule, on
-the same ``PATH`` in the same process. A ``PATH`` entry changing between the
+only); the roots' ``RootPreflight`` routes ``wp`` to ``BinaryPreflight``,
+which looks it up again by name with that same function, on the same
+``PATH`` in the same process, so the binary checked is the binary run
+(BL-E007-016). A ``PATH`` entry changing between the
 two lookups is not detected. ``wp`` disappearing after the preflight surfaces
 as ``WpCliFailedError`` at ``SEARCH_REPLACE``, journaled incomplete.
 
@@ -77,7 +85,13 @@ import structlog
 
 from l3io.wp.backup.adapters.database import database_location_from_db_host
 from l3io.wp.backup.adapters.journal import journal_directory
-from l3io.wp.backup.adapters.preflight import locate_tool
+from l3io.wp.backup.adapters.preflight import (
+    WP_CLI_CONFIG_FILES,
+    ChildOutputLimitError,
+    find_wp_cli_config,
+    locate_tool,
+    run_bounded,
+)
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.restore_runner import config_member
 from l3io.wp.backup.adapters.workspace import private_directories
@@ -156,8 +170,6 @@ RELOCATED_CREDENTIAL_SOURCE = "--new-db-user/--new-db-password"
 #: ``WP_CLI_CONFIG_PATH``: ``PATH`` and ``HOME`` copied, ``LC_ALL`` set to
 #: ``C``. The same keys as ``adapters/preflight.py``'s probe environment.
 WP_CLI_ENV_KEYS: Final = ("PATH", "HOME", "LC_ALL")
-#: The project config files WP-CLI reads from its working directory upwards.
-WP_CLI_CONFIG_FILES: Final = ("wp-cli.yml", "wp-cli.local.yml")
 #: The flags every ``wp`` call carries after ``--path``.
 _GLOBAL_FLAGS: Final = (
     "--skip-plugins",
@@ -202,19 +214,6 @@ def wp_cli_environment(config_path: Path) -> dict[str, str]:
     }
 
 
-def find_wp_cli_config(directory: Path) -> Path | None:
-    """The first ``wp-cli.yml``/``wp-cli.local.yml`` in ``directory`` or above.
-
-    ``lexists``, so a dangling symlink or a directory by that name counts.
-    """
-    for candidate in (directory, *directory.parents):
-        for name in WP_CLI_CONFIG_FILES:
-            path = candidate / name
-            if os.path.lexists(path):
-                return path
-    return None
-
-
 def _global_argv(wp: str, site_root: Path, *, as_root: bool) -> list[str]:
     root = ["--allow-root"] if as_root else []
     return [wp, f"--path={site_root}", *_GLOBAL_FLAGS, *root]
@@ -252,6 +251,10 @@ class ChildRunner(Protocol):
     ) -> subprocess.CompletedProcess[str]: ...
 
 
+#: The most one ``wp`` child may print on each of stdout and stderr, in bytes
+#: (BL-E007-009); past it the child's process group is killed and the call
+#: fails. A ``search-replace`` table of every column of a large Site fits.
+CHILD_OUTPUT_LIMIT: Final = 8 * 1024 * 1024
 #: The longest one ``wp`` child may run, in seconds. Generous: a ``--precise``
 #: replace unserializes every row. It exists so restored code that never returns
 #: cannot hold the Site Lock for ever.
@@ -329,23 +332,21 @@ def _set_dumpable(value: int) -> int:
 def run_child(
     argv: list[str], *, cwd: Path, env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    """``subprocess.run`` with exactly ``env``, no shell, no stdin, text output.
+    """Run ``argv`` with exactly ``env``, no shell, no stdin, text output.
 
-    Killed after :data:`CHILD_TIMEOUT_S` (``subprocess.TimeoutExpired``). Runs
-    with this process non-dumpable, so the child cannot read its ``/proc``.
+    ``adapters/preflight.py::run_bounded``: the child leads its own process
+    group, killed whole after :data:`CHILD_TIMEOUT_S`
+    (``subprocess.TimeoutExpired``) or once either stream passes
+    :data:`CHILD_OUTPUT_LIMIT` (``ChildOutputLimitError``).
+    Runs with this process non-dumpable, so the child cannot read its ``/proc``.
     """
     with _unreadable_by_the_child():
-        return subprocess.run(  # noqa: S603 - a fixed list argv, never a shell
+        return run_bounded(
             argv,
             cwd=cwd,
             env=env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
             timeout=CHILD_TIMEOUT_S,
+            limit=CHILD_OUTPUT_LIMIT,
         )
 
 
@@ -387,6 +388,24 @@ def _wp_cli_directory(site_root: Path) -> Iterator[tuple[Path, Path]]:
         shutil.rmtree(directory, ignore_errors=True)
 
 
+def _check_wp_cli_directory(site_root: Path) -> None:
+    """BL-E007-008: what ``_wp_cli_directory`` would meet, checked before any effect.
+
+    The state directory is prepared (``0700``, a ``WpCliFailedError`` at
+    ``prepare`` if it cannot be), and a ``wp-cli.yml`` in it or above refuses
+    with ``WpCliConfigFoundError``. ``_Session.call`` repeats the check.
+    """
+    try:
+        base = journal_directory(site_root)
+        private_directories(base)
+    except OSError as exc:
+        step, reason = "prepare", f"{type(exc).__name__}: {exc.strerror or exc}"
+        raise WpCliFailedError(step, None, reason) from exc
+    found = find_wp_cli_config(base) or find_wp_cli_config(base.resolve())
+    if found is not None:
+        raise WpCliConfigFoundError(found)
+
+
 class _Session:
     """One ``relocate_content``: its directory, its flags, its ``wp`` calls."""
 
@@ -424,6 +443,9 @@ class _Session:
             status = result.returncode
         except subprocess.TimeoutExpired as exc:
             raise WpCliFailedError(step, None, "timed out and was killed") from exc
+        except ChildOutputLimitError as exc:
+            reason = f"its output exceeded {exc.limit} bytes and it was killed"
+            raise WpCliFailedError(step, None, reason) from exc
         except OSError as exc:
             reason = self.secrets.redact(f"{type(exc).__name__}: {exc.strerror or exc}")
             raise WpCliFailedError(step, None, reason) from exc
@@ -775,6 +797,7 @@ class WpCliRestoreExtension:
         urls = url_relocation(request)
         undo = relocation_undo(request, prior=prior)
         if urls is not None:
+            _check_wp_cli_directory(site_root)
             owed = owed_search_replace(site_root, urls, wp=self._wp)
             undo = (*undo, (RestorePhase.SEARCH_REPLACE, owed))
         laid_down = self._config_file(

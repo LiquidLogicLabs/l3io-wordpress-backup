@@ -63,7 +63,7 @@ def test_the_first_present_step_wins(
         secrets=secrets,
     )
     assert resolved is not None
-    assert (resolved.value, resolved.source) == (expected, source)
+    assert (resolved.value.reveal(), resolved.source) == (expected, source)
     assert len(calls) == (source == "prompt")
     assert secrets.redact(expected) == REDACTED
 
@@ -213,3 +213,137 @@ def test_the_library_root_holds_the_same_chain_once_it_exists() -> None:
     assert holders, "api/ exists but no module binds resolve_passphrase"
     for name in holders:
         assert importlib.import_module(name).resolve_passphrase is resolve_passphrase
+
+
+# --------------------------------------------------------------------------
+# E008-S01-001 (BL-E004-052, ADR-0024 amendment): the encryption floor
+# --------------------------------------------------------------------------
+
+
+def _plain(value: object) -> object:
+    """The text of ``value``, whether a ``str`` or an opaque ``Secret``."""
+    reveal = getattr(value, "reveal", None)
+    return reveal() if callable(reveal) else value
+
+
+def _sentinel(length: int) -> str:
+    import uuid
+
+    return f"sentinel-pp-{uuid.uuid4().hex}"[:length]
+
+
+def test_require_passphrase_refuses_eleven_characters() -> None:
+    from l3io.wp.backup.cli.passphrase import MIN_ENCRYPTION_PASSPHRASE_LENGTH
+    from l3io.wp.backup.domain.errors import PassphraseTooShortError
+
+    assert MIN_ENCRYPTION_PASSPHRASE_LENGTH == 12
+    value = _sentinel(11)
+    with pytest.raises(PassphraseTooShortError) as caught:
+        require_passphrase(
+            explicit=value, environ={}, prompt=None, secrets=SecretRegistry()
+        )
+    assert caught.value.minimum == 12
+    assert "12" in str(caught.value)
+    assert value not in str(caught.value)
+    assert isinstance(caught.value, UsageError)
+
+
+@pytest.mark.parametrize("source", ["argument", "environment"])
+def test_require_passphrase_accepts_twelve_and_asks_nothing(source: str) -> None:
+    value = _sentinel(12)
+    calls, prompt = _prompt()
+    resolved = require_passphrase(
+        explicit=value if source == "argument" else None,
+        environ={PASSPHRASE_ENV: value} if source == "environment" else {},
+        prompt=prompt,  # type: ignore[arg-type]
+        secrets=SecretRegistry(),
+    )
+    assert _plain(resolved.value) == value
+    assert resolved.source == source
+    assert calls == []
+
+
+def test_a_prompted_passphrase_is_asked_twice() -> None:
+    value = _sentinel(16)
+    calls, prompt = _prompt(value)
+    resolved = require_passphrase(
+        explicit=None,
+        environ={},
+        prompt=prompt,  # type: ignore[arg-type]
+        secrets=SecretRegistry(),
+    )
+    assert _plain(resolved.value) == value
+    assert len(calls) == 2
+    assert calls[0] != calls[1]
+
+
+def test_a_mismatched_confirmation_is_refused() -> None:
+    from l3io.wp.backup.domain.errors import PassphraseMismatchError
+
+    first, second = _sentinel(16), _sentinel(16)
+    answers = iter([first, second])
+    with pytest.raises(PassphraseMismatchError) as caught:
+        require_passphrase(
+            explicit=None,
+            environ={},
+            prompt=lambda _label: next(answers),
+            secrets=SecretRegistry(),
+        )
+    assert first not in str(caught.value)
+    assert second not in str(caught.value)
+    assert isinstance(caught.value, UsageError)
+
+
+@pytest.mark.parametrize("length", [4, 8, 11])
+def test_decryption_still_accepts_a_short_passphrase(length: int) -> None:
+    value = _sentinel(length)
+    resolved = resolve_passphrase(
+        explicit=value, environ={}, prompt=None, secrets=SecretRegistry()
+    )
+    assert resolved is not None
+    assert _plain(resolved.value) == value
+
+
+def test_a_short_restore_passphrase_is_noted_by_length_only() -> None:
+    from l3io.wp.backup.cli.passphrase import note_short_restore_passphrase
+
+    value = _sentinel(8)
+    resolved = resolve_passphrase(
+        explicit=value, environ={}, prompt=None, secrets=SecretRegistry()
+    )
+    with capture_logs() as logs:
+        note_short_restore_passphrase(resolved)
+        note_short_restore_passphrase(None)
+        note_short_restore_passphrase(
+            resolve_passphrase(
+                explicit=_sentinel(12),
+                environ={},
+                prompt=None,
+                secrets=SecretRegistry(),
+            )
+        )
+    assert [r["event"] for r in logs] == ["passphrase_below_encryption_floor"]
+    assert logs[0]["log_level"] == "warning"
+    assert value not in repr(logs)
+
+
+def test_the_library_backup_refuses_a_short_passphrase_before_a_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from l3io.wp.backup import api
+    from l3io.wp.backup.api import operations
+    from l3io.wp.backup.domain.backup_scope import BackupScope
+    from l3io.wp.backup.domain.errors import PassphraseTooShortError
+
+    driven: list[object] = []
+    monkeypatch.setattr(operations, "drive_backup", lambda *a, **k: driven.append(a))
+    monkeypatch.delenv(PASSPHRASE_ENV, raising=False)
+    with pytest.raises(PassphraseTooShortError):
+        api.backup(
+            tmp_path,
+            scope=BackupScope.FILES,
+            target=tmp_path / "out.tar.gz",
+            encrypt=True,
+            passphrase=_sentinel(11),
+        )
+    assert driven == []

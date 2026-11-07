@@ -43,13 +43,15 @@ import structlog
 
 from l3io.wp.backup.adapters.config_writer import read_defined
 from l3io.wp.backup.adapters.credential_providers import (
+    ADMIN_PASSWORD_VAR,
+    ADMIN_USER_VAR,
     WORDPRESS_PASSWORD_VAR,
     WORDPRESS_USER_VAR,
     admin_credentials,
     unset_partner,
     wordpress_credentials,
 )
-from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
 from l3io.wp.backup.domain.archive_format import ConfigLocation
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.database import (
@@ -64,6 +66,7 @@ from l3io.wp.backup.domain.errors import (
     AdminCredentialsRequiredError,
     BackupError,
     CredentialsError,
+    CredentialTooShortError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
@@ -126,8 +129,15 @@ _CREDENTIAL_CODES = frozenset({"authentication_failed", "credentials_unobtainabl
 _UNREACHABLE_CODE = "unreachable"
 _MISSING_PRIVILEGE = "missing_privilege"
 
-#: The flags that bind the administrator, named by ``AdminCredentialsRequiredError``.
-ADMIN_FLAGS: Final = ("--admin-username", "--admin-password")
+#: What binds the administrator, named by ``AdminCredentialsRequiredError``:
+#: the flags, the AWS secret flag and the two environment variables.
+ADMIN_FLAGS: Final = (
+    "--admin-username",
+    "--admin-password",
+    "--admin-credentials-aws-secret-id",
+    ADMIN_USER_VAR,
+    ADMIN_PASSWORD_VAR,
+)
 #: The ``source`` label of that error: the half that was not given.
 ADMIN_SOURCE: Final = "administrator"
 #: The flag that supplies each account's AWS region, named when none is known.
@@ -588,7 +598,9 @@ class _RegisteringSource:
     ``MissingExtraError`` naming it, and an AWS secret with no known region is
     ``CredentialsError`` naming ``region_flag``: database folds both into a
     finding that keeps neither, so they are mapped here, where every source
-    resolves. A failure that is not one of database's own credential errors
+    resolves. A password shorter than ``MIN_SECRET_LENGTH`` is refused with
+    ``CredentialTooShortError`` (ADR-0018 amendment), after it is offered to
+    the registry. A failure that is not one of database's own credential errors
     is re-raised as ``CredentialsError`` naming the label and the failure
     class; its text is untrusted, so it is not chained.
     """
@@ -637,6 +649,10 @@ class _RegisteringSource:
             # untrusted exception.
             raise CredentialsError(label, reason=failure)
         self._secrets.register(resolved.password, source=label)
+        if len(resolved.password) < MIN_SECRET_LENGTH:
+            # ADR-0018 amendment (BL-E005-005): too short to redact, so
+            # refused here, before any connection uses it.
+            raise CredentialTooShortError(label, minimum=MIN_SECRET_LENGTH)
         _log.info("credential_source_selected", credential_source=resolved.source)
         return resolved
 

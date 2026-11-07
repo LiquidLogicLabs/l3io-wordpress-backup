@@ -59,7 +59,7 @@ def test_run_backup_registers_the_passphrase_before_run_started(
         registries.append(self)
         real_register(self, value, source=source)
 
-    def cipher(*, environ: object, secrets: SecretRegistry) -> None:
+    def cipher(*, encrypt: bool, environ: object, secrets: SecretRegistry) -> None:
         resolve_passphrase(
             explicit=PASSPHRASE, environ={}, prompt=None, secrets=secrets
         )

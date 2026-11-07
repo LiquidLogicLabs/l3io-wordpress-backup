@@ -110,6 +110,10 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_BoundedTarInfo",
             "_Counter",
             "_ExtractFilter",
+            # E008-S01-001 (BL-E004-053): called by TarArchiveWriter.write on
+            # the real backup path this test drives; it serialises the
+            # Manifest the writer builds anyway (members, not bytes).
+            "_refuse_oversized_manifest",
             "_Scan",
             "_archive_path",
             "_began_as_a_tar",

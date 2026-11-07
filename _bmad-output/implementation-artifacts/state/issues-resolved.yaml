@@ -772,3 +772,180 @@ resolved:
   resolution: fixed
   resolved_at: '2026-11-07T05:04:47Z'
   ref: E007-S01-002
+- key: BL-E007-006
+  epic: '007'
+  sprint: '01'
+  title: Restore plan's PREFLIGHT line does not render required tools (wp >= 2.12.0 needed for SEARCH_REPLACE)
+  source: code-review (E007-S01-004) — core/restore.py::_line is outside E007-S01-004's Files in scope; the gate must render it there or move the observability bullet to E008-S01-001
+  source_phase: code-review
+  source_ref: E007-S01-004
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-004.md finding 3
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:06:32Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:13Z'
+  ref: E008-S01-001
+- key: BL-E007-007
+  epic: '007'
+  sprint: '01'
+  title: wp cli version preflight probe runs under $TMPDIR and reads wp-cli.yml from ancestors (not yet on the restore path; becomes reachable when E008-S01-001 binds BinaryPreflight)
+  source: epic-adversarial (AR-1)
+  source_phase: epic-adversarial
+  source_ref: AR-1
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:14Z'
+  ref: E008-S01-001
+- key: BL-E007-008
+  epic: '007'
+  sprint: '01'
+  title: wp-cli.yml ancestor refusal and wp state-directory prepare happen at SEARCH_REPLACE, after the site is wiped and loaded; move to PREFLIGHT
+  source: epic-adversarial (AR-2)
+  source_phase: epic-adversarial
+  source_ref: AR-2
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:16Z'
+  ref: E008-S01-001
+- key: BL-E007-009
+  epic: '007'
+  sprint: '01'
+  title: wp child output is captured unbounded in memory (timeout added in E007 closure); bound it
+  source: epic-redteam (RT-2)
+  source_phase: epic-redteam
+  source_ref: RT-2
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:17Z'
+  ref: E008-S01-001
+- key: BL-E007-016
+  epic: '007'
+  sprint: '01'
+  title: preflight/wpcli docstrings claim the binary checked is the binary run; false until RootPreflight binds BinaryPreflight
+  source: epic-arch-review (ED-2)
+  source_phase: epic-arch-review
+  source_ref: ED-2
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+  story: E008-S01-001
+  scheduled_at: '2026-11-07T07:18:48Z'
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:20Z'
+  ref: E008-S01-001
+- key: BL-E004-052
+  epic: '004'
+  sprint: ''
+  title: 'RT-5: encryption passphrase floor is the redaction minimum (4 chars) and backup prompts once; set an encryption floor and confirm-on-entry when --encrypt-with-passphrase ships (E008-S01-001)'
+  source: epic-redteam (RT-5)
+  source_phase: epic-redteam
+  source_ref: RT-5
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:21Z'
+  ref: E008-S01-001
+- key: BL-E004-053
+  epic: '004'
+  sprint: ''
+  title: 'RT-3: writer can emit an Archive whose Manifest exceeds MANIFEST_MAX_BYTES (~92k members), failing the backup at the final verify; refuse early with a named error or raise the cap (owner decision)'
+  source: epic-redteam (RT-3)
+  source_phase: epic-redteam
+  source_ref: RT-3
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:23Z'
+  ref: E008-S01-001
+- key: BL-E004-069
+  epic: '004'
+  sprint: ''
+  title: "Spec proposal: FR-5 is met only through an injected policy (`tests/integration/test_backup_exclusions.py`). A shipped backup excludes nothing, so caches, `upgrade/` scratch and `debug.log` all go into every Archive. The wiring is E008-S01-001's, by story text. Nothing mechanical forces it: `test_secret_registry_order.py:102,128` compare `request.exclusion == default_exclusion_policy()`, which stays true while the default is `INCLUDE_EVERYTHING`. `docs/exclusions.md` L16 states the deferral honestly, so this is reach, not overstatement. Same shape as E005 AD-1."
+  source: spec-sync (AD-1)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: E008-S01-001
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/epics.md#epic-8-wire-the-parallel-epics-into-the-commands. From: _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md.'
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:24Z'
+- key: BL-E005-005
+  epic: '005'
+  sprint: '01'
+  title: 'Redaction does not cover passwords of 3 characters or fewer, and registers only after a successful resolve (redteam M-4); owner decision: refuse short passwords or accept'
+  source: epic-redteam (M-4)
+  source_phase: epic-redteam
+  source_ref: M-4
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/redteam-report.md. redaction.py:60. Owner is the ADR-0018 owner.
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:26Z'
+  ref: E008-S01-001
+- key: BL-E005-003
+  epic: '005'
+  sprint: '01'
+  title: diagnose() logs absent-but-not-required known tools as preflight_checked at ERROR while reporting ready
+  source: code-review (E005-S01-002)
+  source_phase: code-review
+  source_ref: E005-S01-002
+  severity: Low
+  status: resolved
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-005/sprint-01/closure/review-E005-S01-002.md L1. The story fixes that diagnose emits only check's records; E008-S01-001 (wpbackup2 doctor) should decide the level for a tool no plan requires.
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:27Z'
+  ref: E008-S01-001
+- key: BL-E002-084
+  epic: '002'
+  sprint: '02'
+  title: cli/parser.py keeps its own copy of the L3IO_WP_BACKUP_ADMIN_PASSWORD name; E005-S01-001 owns the constant
+  source: code-review (E002-S02-011)
+  source_phase: code-review
+  source_ref: E002-S02-011
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-011.md
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:29Z'
+  ref: E008-S01-001
+- key: BL-E006-008
+  epic: '006'
+  sprint: ''
+  title: 'api: restore prints safety notices to stderr; add a caller-supplied warning sink (amends AD-26)'
+  source: epic-arch-review (AD-2)
+  source_phase: epic-arch-review
+  source_ref: AD-2
+  severity: Medium
+  status: resolved
+  description: Documented in docs/api.md; owner decision OD-2. See _bmad-output/implementation-artifacts/epic-006/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-07T18:37:30Z'
+  ref: E008-S01-001
+- key: BL-E008-004
+  epic: '008'
+  sprint: '01'
+  title: Safety Snapshot under a restore passphrase shorter than 12 characters is encrypted with it (ADR-0024 deviation recorded by the implementer, not the owner)
+  source: code-review
+  severity: Medium
+  status: resolved
+  description: 'See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-6. Owner decision needed: refuse, warn (current), or require --no-safety-snapshot.'
+  resolution: wontfix
+  resolved_at: '2026-11-07T19:35:27Z'
+  ref: E008-S01-001
+  note: "Owner decision 2026-11-07 (option a): the Safety Snapshot reuses the restore's passphrase with a warning below 12; ADR-0024 addendum"

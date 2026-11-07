@@ -62,6 +62,10 @@ ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
             "site_descriptor_from_wp_config",
         }
     ),
+    # E008-S01-001: the cipher factory and the logged exclusion wrapper; a
+    # cipher and a policy are per-call arguments, neither writes.
+    f"{ADAPTERS}.crypto": frozenset({"PassphraseCipher", "build_payload_cipher"}),
+    f"{ADAPTERS}.exclusions": frozenset({"LoggedExclusionPolicy"}),
     f"{ADAPTERS}.phase": frozenset({"phase"}),
     f"{ADAPTERS}.redaction": frozenset({"SecretRegistry"}),
 }

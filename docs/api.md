@@ -54,10 +54,16 @@ package emits, at every level including `DEBUG`, is printed to **stdout**, with
 no redaction step. If stdout is a data channel for your process, call
 `configure_logging` or configure structlog before the first call.
 
-**Joining a Run.** `context=` is for a caller that is already inside a Run.
-v0 offers no public way to open one, so a library caller normally omits it,
-and each call opens its own Run. Calling an entry point while a Run is active
-in the current context without passing its `context` raises `RunContextActiveError`.
+**One Run per call.** Each call opens its own Run. Calling an entry point
+while a Run is active in the current context raises `RunContextActiveError`.
+There is no public way to join a Run: the `context=` parameter was removed
+before 1.0 (owner decision 2026-11-07), and a public `open_run()` and
+`context=` return with the post-v1 library refactor (BL-E006-024).
+
+**Pre-1.0 changes (2026-11-07).** `backup`'s `target` is now required (no
+default; a call without it is a `TypeError`, raised before anything runs);
+`context=` is gone from `backup`, `restore` and `verify`; passwords and
+passphrases accept a `Secret`; `on_warning` and `doctor` are new.
 
 **The environment.** A library call may read these variables from the host's
 environment. The first three rows are the package's own; the rest are
@@ -123,8 +129,11 @@ provider. It does three things to the host process that you should know:
   process has no core dump and no same-user `ptrace`. Overlapping calls share
   one toggle, restored when the last child is done.
 - `restore` writes safety notices to **stderr** (the archive is not
-  authenticated; whether the Safety Snapshot is encrypted). The snapshot path
-  is in `RestoreOutcome.snapshot_path`.
+  authenticated; whether the Safety Snapshot is encrypted) unless you pass
+  `on_warning`, which then receives each as a `RunWarning` instead. The
+  WARNING log records are written either way, and an exception your callback
+  raises propagates out of the call. The snapshot path is in
+  `RestoreOutcome.snapshot_path`.
 
 Every package error survives `pickle` and `copy` with its fields, so a worker
 pool or task queue delivers the real exception. `__cause__` and the traceback
@@ -151,34 +160,38 @@ exports.
 
 Back up the Site whose root is `site`; returns what was published.
 
-`scope` has no default (AD-5). `target=None` is the CLI's default
-Archive name in the current directory. `exclusion=None` is the set the
-CLI applies with no exclusion flag. `encrypt=True` requires a passphrase
-(`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE`, then `prompt`) and
-refuses with `PassphraseUnavailableError` before the Site is read; a
+`scope` and `target` have no default (AD-5; `target` is required since
+2026-11-07, and the CLI's default Archive name is the CLI's alone).
+`exclusion=None` is the set the CLI applies with no exclusion flag: the
+default exclusion set, logged. `encrypt=True` requires a passphrase
+(`passphrase`, a `str` or `Secret`; `L3IO_WP_BACKUP_PASSPHRASE`; then
+`prompt`, asked twice) of at least 12 characters (`PassphraseTooShortError`,
+`PassphraseMismatchError`) and refuses with `PassphraseUnavailableError` when
+none resolves, before the Site is read; a
 `passphrase` without `encrypt=True` is refused (`UsageError`) rather
 than ignored, so an Archive is never written plain by omission, and a
 `L3IO_WP_BACKUP_PASSPHRASE` set without it is logged as the CLI logs it
 (`passphrase_ignored`).
-`dry_run=True` plans, checks and writes nothing.
+`dry_run=True` plans, checks and writes nothing. `on_warning` is accepted
+for parity with `restore`; `backup` gives no notice today.
 
 ```python
-backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str] | None = None, wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, context: RunContext | None = None) -> BackupResult
+backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> BackupResult
 ```
 
 | Parameter | Type | Default |
 |---|---|---|
 | `site` | `str \| os.PathLike[str]` | required |
 | `scope` | `BackupScope` | required |
-| `target` | `StorageTarget \| str \| os.PathLike[str] \| None` | `None` |
+| `target` | `StorageTarget \| str \| os.PathLike[str]` | required |
 | `wp_config` | `str \| os.PathLike[str] \| None` | `None` |
 | `credentials` | `CredentialSpec \| None` | `None` |
 | `exclusion` | `ExclusionPolicy \| None` | `None` |
 | `encrypt` | `bool` | `False` |
-| `passphrase` | `str \| None` | `None` |
+| `passphrase` | `Secret \| str \| None` | `None` |
 | `prompt` | `Callable[[str], str] \| None` | `None` |
 | `dry_run` | `bool` | `False` |
-| `context` | `RunContext \| None` | `None` |
+| `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
 
 Returns: `BackupResult`.
 
@@ -192,19 +205,20 @@ Keyless by default: a pass proves the checksums are consistent, not that
 the Archive is authentic (ADR-0024). `authenticate=True` resolves the
 passphrase and decrypts the payload, as `verify --authenticate` does.
 A failed verification raises `VerificationFailedError` carrying the
-result, as the CLI exits `VERIFICATION_FAILED`.
+result, as the CLI exits `VERIFICATION_FAILED`. `on_warning` is accepted for
+parity with `restore`; `verify` gives no notice today.
 
 ```python
-verify(archive: StorageTarget | str | os.PathLike[str], *, authenticate: bool = False, passphrase: str | None = None, prompt: Callable[[str], str] | None = None, context: RunContext | None = None) -> VerificationResult
+verify(archive: StorageTarget | str | os.PathLike[str], *, authenticate: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, on_warning: Callable[[RunWarning], None] | None = None) -> VerificationResult
 ```
 
 | Parameter | Type | Default |
 |---|---|---|
 | `archive` | `StorageTarget \| str \| os.PathLike[str]` | required |
 | `authenticate` | `bool` | `False` |
-| `passphrase` | `str \| None` | `None` |
+| `passphrase` | `Secret \| str \| None` | `None` |
 | `prompt` | `Callable[[str], str] \| None` | `None` |
-| `context` | `RunContext \| None` | `None` |
+| `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
 
 Returns: `VerificationResult`.
 
@@ -219,11 +233,18 @@ defaults (AD-5); FR-7's guard runs whichever root called. The passphrase
 is resolved on every call: it decrypts an encrypted Archive and encrypts
 the Safety Snapshot. `admin_tls=None` is the policy default
 (`AdminTls(mode=None, ca_file=None)`), `relocation=None` no
-relocation. A real restore whose database report does not say restored
-raises `DatabaseNotRestoredError`, as the CLI exits `FAILED`.
+relocation. A passphrase (`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE` or
+`prompt`) means an encrypted Archive is expected: a plain one is refused with
+`ArchiveNotEncryptedError` before any effect unless `allow_unencrypted=True`
+(ADR-0016 amendment 2026-11-07). Decryption accepts any passphrase length.
+`relocation.new_db_password`, when not given, is read from
+`L3IO_WP_BACKUP_NEW_DB_PASSWORD` if `relocation.new_db_user` is set. Notices go
+to `on_warning` as `RunWarning` values when given, else to stderr. A real
+restore whose database report does not say restored raises
+`DatabaseNotRestoredError`, as the CLI exits `FAILED`.
 
 ```python
-restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, admin_tls: AdminTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, passphrase: str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, context: RunContext | None = None) -> RestoreOutcome
+restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, admin_tls: AdminTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> RestoreOutcome
 ```
 
 | Parameter | Type | Default |
@@ -241,15 +262,38 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 | `reset_existing_db_user` | `bool` | `False` |
 | `relocation` | `RelocationFlags \| None` | `None` |
 | `require_encrypted` | `bool` | `False` |
-| `passphrase` | `str \| None` | `None` |
+| `allow_unencrypted` | `bool` | `False` |
+| `passphrase` | `Secret \| str \| None` | `None` |
 | `prompt` | `Callable[[str], str] \| None` | `None` |
 | `resolve_run_id` | `str \| None` | `None` |
 | `dry_run` | `bool` | `False` |
-| `context` | `RunContext \| None` | `None` |
+| `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
 
 Returns: `RestoreOutcome`.
 
 Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`.
+
+### `doctor`
+
+FR-27: whether this host is ready, as `wpbackup2 doctor` reports it.
+
+Returns the `Diagnosis`: `ready`, the tools found, the platform, the extras,
+the passphrase backend by name, the archive target and, with `site`, that
+Site's dump readiness. It raises nothing for what it reports, changes
+nothing and takes no Site Lock.
+
+```python
+doctor(*, site: str | os.PathLike[str] | None = None, archive: StorageTarget | str | os.PathLike[str] | None = None) -> Diagnosis
+```
+
+| Parameter | Type | Default |
+|---|---|---|
+| `site` | `str \| os.PathLike[str] \| None` | `None` |
+| `archive` | `StorageTarget \| str \| os.PathLike[str] \| None` | `None` |
+
+Returns: `Diagnosis`.
+
+Raises: `UnexpectedError`, with the original on `__cause__`, for any defect.
 
 ### `enumerate_defaults`
 
@@ -262,6 +306,47 @@ enumerate_defaults() -> tuple[str, ...]
 Returns: `tuple[str, ...]`.
 
 ## Values
+
+### `Diagnosis`
+
+FR-27's diagnostic: what is present, never an environment value. Fields:
+`python`, `platform`, `platform_supported`, `tools` (one `ToolStatus` per
+known binary), `database_clients`, `passphrase_backend` (`auto`, `binder`,
+`cli` or `invalid`), `extras`, `storage_target` and `ready`. `to_dict()` is
+the JSON `wpbackup2 doctor --json` prints. `ready` is false for an
+unsupported platform, a present but unusable tool, an unwritable or occupied
+target, or a Site whose database is not ready.
+
+### `RunWarning`
+
+Defined in the CLI layer; import it from l3io.wp.backup.api.
+
+An operator notice, as a value: what `restore` writes to stderr when no
+`on_warning` is given. Fields: `code` (the WARNING event name:
+`archive_unauthenticated`, `safety_snapshot_unencrypted`,
+`safety_snapshot_encrypted`), `message` (the line the CLI prints) and
+`fields` (paths and the integrity level as strings). It never carries a
+secret.
+
+```python
+RunWarning(code: str, message: str, fields: Mapping[str, str] = {})
+```
+
+### `Secret`
+
+A password or passphrase that never shows itself (owner decision
+2026-11-07). `repr` and `str` are `Secret('***')`; `reveal()` returns the
+text. It is not equal to, nor hashable as, its plain string; two `Secret`s
+compare in constant time; pickling one raises `TypeError`. Every password or
+passphrase parameter and field (`passphrase=`, `ExplicitCredentialSpec.password`,
+`RelocationFlags.new_db_password`) accepts a `Secret` or a `str`, and a `str`
+is wrapped at once.
+
+```python
+Secret(value: str | Secret)
+```
+
+`value` is the text to hold (a `Secret` is copied).
 
 ### `AdminTls`
 
@@ -360,13 +445,16 @@ Build one with a factory rather than the constructor:
 A username and password given directly. `repr` omits the password.
 
 ```python
-ExplicitCredentialSpec(username: str, password: str)
+ExplicitCredentialSpec(username: str, password: Secret | str)
 ```
+
+`password` is held as a `Secret` (a `str` is wrapped at once). A password
+shorter than 4 characters is refused when it is read (`CredentialTooShortError`).
 
 | Field | Type | Default |
 |---|---|---|
 | `username` | `str` | required |
-| `password` | `str` | required |
+| `password` | `Secret \| str` | required |
 
 ### `Override`
 
@@ -393,8 +481,14 @@ OverrideSet(waived: frozenset[Override])
 The relocation flags, copied verbatim; Epic 7 validates them.
 
 ```python
-RelocationFlags(*, new_site_url: str | None, new_home_url: str | None, new_db_host: str | None, new_db_name: str | None, new_db_user: str | None, new_db_password: str | None, wp_config: Path | None)
+RelocationFlags(*, new_site_url: str | None, new_home_url: str | None, new_db_host: str | None, new_db_name: str | None, new_db_user: str | None, new_db_password: Secret | str | None, wp_config: Path | None)
 ```
+
+`new_db_password` is held as a `Secret`. The CLI fills it from
+`--new-db-password`, `--new-db-password-file` or
+`L3IO_WP_BACKUP_NEW_DB_PASSWORD`, in that order; `restore` reads that variable
+when the field is `None` and `new_db_user` is set. Each source is registered for
+redaction and held to the 4-character floor.
 
 | Field | Type | Default |
 |---|---|---|
@@ -403,7 +497,7 @@ RelocationFlags(*, new_site_url: str | None, new_home_url: str | None, new_db_ho
 | `new_db_host` | `str \| None` | required |
 | `new_db_name` | `str \| None` | required |
 | `new_db_user` | `str \| None` | required |
-| `new_db_password` | `str \| None` | required |
+| `new_db_password` | `Secret \| str \| None` | required |
 | `wp_config` | `Path \| None` | required |
 
 `RelocationFlags.none()` gives no relocation flag; `restore(relocation=None)` means the same.
@@ -688,12 +782,16 @@ Fields: `user`, `location`, `differs`, each holding the argument of the same nam
 `--authenticate` was asked of an Archive with no encrypted payload.
 
 ```python
-ArchiveNotEncryptedError(archive: str, *, required: bool = False)
+ArchiveNotEncryptedError(archive: str, *, required: bool = False, passphrase_supplied: bool = False)
 ```
+
+Also raised by `restore` for a plain Archive when `require_encrypted=True`
+(`required`), or when a passphrase was given without `allow_unencrypted=True`
+(`passphrase_supplied`).
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `archive`, `required`, each holding the argument of the same name.
+Fields: `archive`, `required`, `passphrase_supplied`, each holding the argument of the same name.
 
 ### `ArchiveNotFoundError`
 
@@ -779,6 +877,18 @@ Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `path`, `key`, `reason`, `written`, each holding the argument of the same name.
 
+### `ChildOutputLimitError`
+
+A child printed more than `limit` bytes on one stream and was killed.
+
+```python
+ChildOutputLimitError(limit: int)
+```
+
+Base: `BackupError`. Exit code: `FAILED` (1).
+
+Fields: `limit`, holding the argument of the same name.
+
 ### `CorruptJournalError`
 
 `current.json` exists and cannot be read back (NFR-1: never absent).
@@ -790,6 +900,19 @@ CorruptJournalError(journal_path: str, reason: str)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `journal_path`, `reason`, each holding the argument of the same name.
+
+### `CredentialTooShortError`
+
+A database password shorter than the redaction floor (4 characters), refused
+from every source before any connection (ADR-0018 amendment).
+
+```python
+CredentialTooShortError(source: str, *, minimum: int)
+```
+
+Base: `CredentialsError`. Exit code: `CREDENTIALS` (4).
+
+Fields: `source`, `minimum`; never the value.
 
 ### `CredentialsError`
 
@@ -1091,6 +1214,19 @@ Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `reason`, `field`, each holding the argument of the same name.
 
+### `ManifestTooLargeError`
+
+The Manifest this backup would write exceeds the 256 MiB cap; refused after
+the Site Root is walked and before anything is written (BL-E004-053).
+
+```python
+ManifestTooLargeError(*, members: int, size: int, limit: int)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `members`, `size`, `limit`, each holding the argument of the same name.
+
 ### `MemberReadRefusedError`
 
 A single-member read was refused: not a regular file, not indexed, too big.
@@ -1151,6 +1287,18 @@ Base: `NonEmptyTargetError`. Exit code: `REFUSED` (3).
 
 Fields: `original`, each holding the argument of the same name.
 
+### `PassphraseMismatchError`
+
+The prompted encryption passphrase was not confirmed: the two entries differed.
+
+```python
+PassphraseMismatchError(*, prompts: int = 2)
+```
+
+Base: `UsageError`. Exit code: `USAGE` (2).
+
+Fields: `prompts`, holding the argument of the same name.
+
 ### `PassphraseRejectedError`
 
 The passphrase cannot open the encrypted payload (`DecryptionError`).
@@ -1186,6 +1334,19 @@ PassphraseUnavailableError(variable: str, *, reason: str)
 Base: `UsageError`. Exit code: `USAGE` (2).
 
 Fields: `variable`, `reason`, each holding the argument of the same name.
+
+### `PassphraseTooShortError`
+
+An encryption passphrase below 12 characters (ADR-0024 amendment); decryption
+has no floor.
+
+```python
+PassphraseTooShortError(*, minimum: int)
+```
+
+Base: `UsageError`. Exit code: `USAGE` (2).
+
+Fields: `minimum`, holding the argument of the same name.
 
 ### `PayloadDamagedError`
 

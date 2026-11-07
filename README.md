@@ -34,8 +34,8 @@ A Run checks every external tool its plan needs before its first effect, and sto
 <!-- BEGIN GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
 | Tool | Minimum | Purpose | Needed for | Install |
 |---|---|---|---|---|
-| `age` | — | encrypts the Archive under a passphrase (CLI passphrase backend) | no plan in this build | https://github.com/FiloSottile/age#installation |
-| `age-plugin-batchpass` | — | supplies the passphrase to age non-interactively (CLI backend) | no plan in this build | https://github.com/FiloSottile/age/releases |
+| `age` | 1.3 | encrypts the Archive under a passphrase (CLI passphrase backend) | the encrypted payload (ENCRYPT, VERIFY) | https://github.com/FiloSottile/age#installation |
+| `age-plugin-batchpass` | — | supplies the passphrase to age non-interactively (CLI backend) | the encrypted payload (ENCRYPT, VERIFY) | https://github.com/FiloSottile/age/releases |
 | `wp` | 2.12.0 | WP-CLI, which relocation runs to rewrite the Site's URLs | SEARCH_REPLACE: serialization-safe content URL rewrite for --new-site-url/--new-site-home-url (FR-12) | https://wp-cli.org/#installing |
 | MySQL/MariaDB client tools | client 8.4+, MariaDB 11.4+ | the database dump and load | checked per Site by l3io-wordpress-database (`check_dump`/`check_load`), never run by this package | your distribution's MySQL or MariaDB client package |
 <!-- END GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
@@ -101,8 +101,7 @@ positional arguments:
     backup              Perform a WordPress backup
     restore             Perform a WordPress restore
     verify              Check an archive without touching a site
-    doctor              Report whether this host is ready to back up and restore (not available in
-                        this build)
+    doctor              Report whether this host is ready to back up and restore
 
 options:
   -h, --help            show this help message and exit
@@ -143,23 +142,18 @@ options:
                         What to back up: files, db, or all (default: all)
   --encrypt-with-passphrase
                         Encrypt the archive with a passphrase. The passphrase comes from
-                        L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line (not
-                        available in this build)
-  --exclude PATTERN     Leave matching paths out of the archive (repeatable) (not available in
-                        this build)
+                        L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line
+  --exclude PATTERN     Leave matching paths out of the archive (repeatable)
   --no-default-excludes
-                        Do not apply the default exclusion set (not available in this build)
+                        Do not apply the default exclusion set
   --list-default-excludes
-                        Print the default exclusion set and exit without backing up (not available
-                        in this build)
+                        Print the default exclusion set and exit without backing up
 
 database credentials:
   --db-credentials-aws-secret-id ID
                         Read the WordPress database account from this AWS Secrets Manager secret
-                        (not available in this build)
   --db-credentials-aws-region REGION
-                        AWS region of --db-credentials-aws-secret-id (needs the secret id) (not
-                        available in this build)
+                        AWS region of --db-credentials-aws-secret-id (needs the secret id)
 ```
 
 ```text
@@ -177,7 +171,8 @@ usage: wpbackup2 restore [-h] --wp-dir WP_DIR [--archive ARCHIVE] [--mode {files
                          [--only-appointed-in-asg] [--new-site-url NEW_SITE_URL]
                          [--new-site-home-url NEW_SITE_HOME_URL] [--new-db-host NEW_DB_HOST]
                          [--new-db-name NEW_DB_NAME] [--new-db-user NEW_DB_USER]
-                         [--new-db-password NEW_DB_PASSWORD] [--db-credentials-aws-secret-id ID]
+                         [--new-db-password NEW_DB_PASSWORD] [--new-db-password-file PATH]
+                         [--allow-unencrypted] [--db-credentials-aws-secret-id ID]
                          [--db-credentials-aws-region REGION]
 
 options:
@@ -230,11 +225,9 @@ restore options:
                         Database administrator password. The value is visible in the process list;
                         prefer L3IO_WP_BACKUP_ADMIN_PASSWORD
   --admin-credentials-aws-secret-id ADMIN_CREDENTIALS_AWS_SECRET_ID
-                        Read the database administrator from this AWS Secrets Manager secret (not
-                        available in this build)
+                        Read the database administrator from this AWS Secrets Manager secret
   --admin-credentials-aws-region ADMIN_CREDENTIALS_AWS_REGION
-                        AWS region of --admin-credentials-aws-secret-id (needs the secret id) (not
-                        available in this build)
+                        AWS region of --admin-credentials-aws-secret-id (needs the secret id)
   --only-appointed-in-asg
                         Removed; accepted only to say so (not available in this build)
   --new-site-url NEW_SITE_URL
@@ -248,15 +241,19 @@ restore options:
   --new-db-user NEW_DB_USER
                         Relocate to this database user
   --new-db-password NEW_DB_PASSWORD
-                        Password of --new-db-user. The value is visible in the process list
+                        Password of --new-db-user. The value is visible in the process list;
+                        prefer --new-db-password-file or L3IO_WP_BACKUP_NEW_DB_PASSWORD
+  --new-db-password-file PATH
+                        Read the password of --new-db-user from this file (its first line; make it
+                        readable only by you)
+  --allow-unencrypted   Restore an archive that is not encrypted even though a passphrase was
+                        given (without it, that is refused as a possible substitution)
 
 database credentials:
   --db-credentials-aws-secret-id ID
                         Read the WordPress database account from this AWS Secrets Manager secret
-                        (not available in this build)
   --db-credentials-aws-region REGION
-                        AWS region of --db-credentials-aws-secret-id (needs the secret id) (not
-                        available in this build)
+                        AWS region of --db-credentials-aws-secret-id (needs the secret id)
 ```
 
 ```text

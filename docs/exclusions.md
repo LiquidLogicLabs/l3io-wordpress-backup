@@ -13,9 +13,12 @@ is recorded once and not descended into; its contents are not listed.
 
 ## The default set
 
-Applied when no exclusion is asked for, once E008-S01-001 binds this set into
-the CLI and the library default; until then a backup that names no exclusion
-set includes everything. The source of truth is
+Applied whenever no exclusion is asked for: `wpbackup2 backup` with no
+`--exclude`/`--no-default-excludes`, and the library `backup(exclusion=None)`,
+both through `cli/backup.py::default_exclusion_policy()`
+(`tests/contracts/test_default_exclusion_reach.py` fails if that stops being
+this set). `--list-default-excludes` prints it. The Safety Snapshot a restore
+takes is the exception: it excludes nothing. The source of truth is
 `DEFAULT_EXCLUSIONS` in `src/l3io/wp/backup/core/exclusions.py`;
 `tests/contracts/test_exclusions_documented.py` fails if this table and the
 constant differ in content or order. It is deliberately conservative: nothing

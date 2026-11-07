@@ -152,3 +152,53 @@ def test_a_failing_preflight_leaves_the_command_log_empty(
     assert events == ["preflight"]
     assert caught.value.found == "absent"
     assert not (tmp_path / "a.tar.gz").exists()
+
+
+class LabelledPreflight:
+    """A ``Preflight`` double logging ``label`` and the names it was asked."""
+
+    def __init__(self, label: str, events: list[str]) -> None:
+        self.label, self.events = label, events
+
+    def check(self, requirements: Sequence[ToolRequirement]) -> Sequence[ToolStatus]:
+        self.events.append(f"{self.label}:{','.join(r.name for r in requirements)}")
+        return [
+            ToolStatus(name=r.name, present=True, version=(99, 0), path="/x")
+            for r in requirements
+        ]
+
+
+@pytest.mark.parametrize("selection", sorted(SELECTIONS))
+def test_a_bound_root_preflight_completes_before_the_first_command(
+    run: RunContext, site: Path, tmp_path: Path, selection: str
+) -> None:
+    """E008-S01-001 (m6): the roots' ``RootPreflight``, over recording halves."""
+    from l3io.wp.backup.cli.preflight import RootPreflight
+    from l3io.wp.backup.core.backup import DUMP_REQUIREMENT
+
+    events: list[str] = []
+    run.bind_adapters(_recorded(SELECTIONS[selection](_real(run)), events))
+    preflight = RootPreflight(
+        dump=LabelledPreflight("dump", events),
+        binary=LabelledPreflight("binary", events),
+        platform=lambda: "linux",
+    )
+    age = ToolRequirement("age", (1, 3), "the encrypted payload")
+    config = locate_wp_config(site, stated=None)
+    descriptor, _ = site_descriptor_from_wp_config(site, config_file=config.path)
+    with capture_logs():
+        backup_cli.backup(
+            descriptor,
+            BackupScope.ALL,
+            backup_cli.storage_target_from_cli(str(tmp_path / "a.tar.gz")),
+            ctx=run,
+            config=config,
+            cipher=None,
+            exclusion=INCLUDE_EVERYTHING,
+            origin=None,
+            extra_tools=(age,),
+            preflight=preflight,
+        )
+    assert events[:2] == [f"dump:{DUMP_REQUIREMENT.name}", "binary:age"]
+    assert len(events) > 2, "no command was called"
+    assert not any(e.startswith(("dump:", "binary:")) for e in events[2:])

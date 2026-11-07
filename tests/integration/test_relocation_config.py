@@ -4,8 +4,10 @@ The plan is built through the real extension (``adapters/wpcli.py``'s
 ``resolve``) and the built ``build_restore_plan``, then run by
 ``execute_restore`` over the real adapters (``tests/integration/live_restore``).
 One case per ``--new-*`` flag of the restore subparser (derived from the
-parser; ``--new-db-user``/``--new-db-password`` together, as they must be),
-plus all of them at once:
+parser; ``--new-db-user`` with each password source, ``--new-db-password`` or
+``--new-db-password-file``, as they must be), plus all of them at once. The
+password is resolved by the CLI's own chain (``cli/credentials.new_db_password``);
+``--new-db-password-file`` is a ``0600`` file holding the sentinel password:
 
 * every supplied value reaches ``wp-config.php`` (seeded in WordPress's
   ``define( 'KEY', 'value' );`` spacing, every key defined) and every other
@@ -20,6 +22,12 @@ leaves the file byte-identical, journals ``REWRITE_CONFIG`` started and not
 completed, and loads nothing; a non-empty ``--new-db-name`` database is
 ``REFUSED`` (under ``--force``, by the database checks) with nothing changed;
 and a DB-only relocation runs end to end through ``wpbackup2 restore``.
+
+BL-E007-008 (E008-S01-001): a ``wp-cli.yml`` in the per-Site state directory's
+parent makes a URL-relocating ``wpbackup2 restore`` exit 3
+(``WpCliConfigFoundError``) before any effect -- the extension's ``resolve``
+checks the directory WP-CLI would run from -- with the Site Root, its config
+and every database untouched.
 
 Not here: a URL relocation through ``wpbackup2 restore`` (the root's WP-CLI
 preflight is E007-S01-004's; the end-to-end case is E008-S01-001's), and a
@@ -49,10 +57,12 @@ from l3io.wp.config import WpConfigString
 from l3io.wp.config.adapters import config_file as library_file
 
 from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
+from l3io.wp.backup.adapters.journal import journal_directory
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import verify_archive_view
 from l3io.wp.backup.adapters.wpcli import restore_extension
+from l3io.wp.backup.cli.credentials import new_db_password
 from l3io.wp.backup.cli.parser import RESTORE_COMMAND, build_parser
 from l3io.wp.backup.cli.restore import RelocationFlags
 from l3io.wp.backup.core.restore import RestoreRelocation, staging_name
@@ -66,6 +76,7 @@ from tests.integration.live_cli import (
     authorizing_flags,
     cli_site,
     run_cli,
+    tree,
 )
 from tests.integration.live_restore import (
     LiveSite,
@@ -99,8 +110,9 @@ FLAG_KEY = {
     "--new-db-name": "DB_NAME",
     "--new-db-user": "DB_USER",
     "--new-db-password": "DB_PASSWORD",
+    "--new-db-password-file": "DB_PASSWORD",
 }
-#: ``--new-*`` flag → ``RelocationFlags`` attribute.
+#: ``--new-*`` flag → the ``RelocationFlags`` attribute it fills.
 ATTRIBUTE = {
     "--new-site-url": "new_site_url",
     "--new-site-home-url": "new_home_url",
@@ -108,8 +120,11 @@ ATTRIBUTE = {
     "--new-db-name": "new_db_name",
     "--new-db-user": "new_db_user",
     "--new-db-password": "new_db_password",
+    "--new-db-password-file": "new_db_password",
 }
-PAIR = frozenset({"--new-db-user", "--new-db-password"})
+#: The relocated password's sources; each is given with ``--new-db-user``.
+PASSWORD_FLAGS = frozenset({"--new-db-password", "--new-db-password-file"})
+USER_FLAG = "--new-db-user"
 
 
 def _new_flags() -> list[str]:
@@ -129,7 +144,9 @@ def _new_flags() -> list[str]:
 def _groups() -> list[tuple[str, ...]]:
     groups: list[tuple[str, ...]] = []
     for flag in _new_flags():
-        group = tuple(sorted(PAIR)) if flag in PAIR else (flag,)
+        if flag == USER_FLAG:
+            continue  # with each password source, below
+        group = tuple(sorted({flag, USER_FLAG})) if flag in PASSWORD_FLAGS else (flag,)
         if group not in groups:
             groups.append(group)
     groups.append(tuple(_new_flags()))
@@ -149,7 +166,44 @@ def _values(site: LiveSite, sentinel: CredentialSentinel) -> dict[str, str]:
         "--new-db-name": f"{site.database}_rel",
         "--new-db-user": f"wpn_{uuid.uuid4().hex[:10]}",
         "--new-db-password": sentinel.relocated_password,
+        "--new-db-password-file": str(_password_file(site, sentinel)),
     }
+
+
+def _password_file(site: LiveSite, sentinel: CredentialSentinel) -> Path:
+    """The sentinel password in a ``0600`` file, as an operator would keep it."""
+    path = site.work / f"new-db-password-{uuid.uuid4().hex[:8]}"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(f"{sentinel.relocated_password}\n")
+    assert path.stat().st_mode & 0o777 == 0o600
+    return path
+
+
+def _expected(values: dict[str, str], sentinel: CredentialSentinel) -> dict[str, str]:
+    """Each flag's ``wp-config.php`` value: the argument, or the file's password."""
+    return {**values, "--new-db-password-file": sentinel.relocated_password}
+
+
+def _relocation_flags(given: dict[str, str]) -> RelocationFlags:
+    """``given`` as ``run_restore`` translates it; the password by its chain."""
+    file = given.get("--new-db-password-file")
+    password = new_db_password(
+        explicit=given.get("--new-db-password"),
+        file=None if file is None else Path(file),
+        environ={},
+        secrets=SecretRegistry(),
+        user_given=USER_FLAG in given,
+    )
+    return RelocationFlags(
+        **{
+            attribute: given.get(flag)
+            for flag, attribute in ATTRIBUTE.items()
+            if flag not in PASSWORD_FLAGS
+        },
+        new_db_password=password,
+        wp_config=None,
+    )
 
 
 def _resolve(
@@ -249,13 +303,11 @@ def test_each_relocation_flag_reaches_wp_config(
 ) -> None:
     site = live_site
     values = _values(site, credential_sentinel)
+    expected_values = _expected(values, credential_sentinel)
     given = {flag: values[flag] for flag in group}
-    if "--new-db-user" in given:
-        site.extra_users.append(given["--new-db-user"])
-    flags = RelocationFlags(
-        **{ATTRIBUTE[f]: given.get(f) for f in ATTRIBUTE},
-        wp_config=None,
-    )
+    if USER_FLAG in given:
+        site.extra_users.append(given[USER_FLAG])
+    flags = _relocation_flags(given)
     _write_wordpress_config(site)
     archive = build_archive(site.work, config=None)
     mode = RestoreMode.DATABASE
@@ -266,8 +318,12 @@ def test_each_relocation_flag_reaches_wp_config(
         archive,
         mode,
         relocation=relocation,
-        relocated_user=given.get("--new-db-user"),
-        relocated_password=given.get("--new-db-password"),
+        relocated_user=given.get(USER_FLAG),
+        relocated_password=(
+            credential_sentinel.relocated_password
+            if PASSWORD_FLAGS & given.keys()
+            else None
+        ),
     )
     restore(spec)
 
@@ -275,7 +331,7 @@ def test_each_relocation_flag_reaches_wp_config(
     # Literal value-span substitution on the original text, not a re-render
     # by the library that wrote the file: only these spans may differ.
     changed = {"DB_NAME": load}
-    changed.update({FLAG_KEY[flag]: value for flag, value in given.items()})
+    changed.update({FLAG_KEY[flag]: expected_values[flag] for flag in given})
     expected = before
     for key, value in changed.items():
         line = _define_line(key, _prior(before, key))
@@ -283,9 +339,9 @@ def test_each_relocation_flag_reaches_wp_config(
         expected = expected.replace(line, _define_line(key, value))
     after = site.config.read_text(encoding="utf-8")
     assert after == expected
-    for flag, value in given.items():
+    for flag in given:
         landed = WpConfigString(after).get(FLAG_KEY[flag])
-        assert sha(landed) == sha(value), flag
+        assert sha(landed) == sha(expected_values[flag]), flag
     _php_lint(site.config)
     assert "wp_restored" in _tables(load)
 
@@ -416,3 +472,41 @@ def test_a_db_only_relocation_runs_through_the_cli(
     credential_sentinel.add("stdout", ran.out)
     credential_sentinel.add("stderr", ran.err)
     credential_sentinel.assert_clean()
+
+
+@pytest.mark.parametrize("name", ["wp-cli.yml", "wp-cli.local.yml"])
+def test_a_wp_cli_config_above_the_state_directory_refuses_a_url_relocation(
+    cli_site: CliSite, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    site = cli_site
+    state = journal_directory(site.root.resolve())
+    state.parent.mkdir(parents=True, exist_ok=True)
+    planted = state.parent / name
+    planted.write_text("require:\n  - e008-planted.php\n", encoding="utf-8")
+    archive = site.archive()
+    before = (
+        tree(site.root),
+        site.site.config.read_bytes(),
+        site.site.checksums(),
+        site.site.databases(),
+    )
+    ran = run_cli(
+        site.argv(
+            archive,
+            *authorizing_flags(RestoreMode.ALL),
+            "--new-site-url",
+            "https://staging.e008.example",
+        ),
+        capsys,
+    )
+    assert ran.code == int(ExitCode.REFUSED) == 3, ran.err[-3000:]
+    (failed,) = ran.events("command_failed")
+    assert failed["error"] == "WpCliConfigFoundError"
+    assert str(planted) in str(failed["message"])
+    assert (
+        tree(site.root),
+        site.site.config.read_bytes(),
+        site.site.checksums(),
+        site.site.databases(),
+    ) == before
+    assert not ran.events("phase_started"), "a phase started before the refusal"

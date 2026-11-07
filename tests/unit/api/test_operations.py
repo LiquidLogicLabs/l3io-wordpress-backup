@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import inspect
 import os
 import uuid
 from collections.abc import Callable, Iterator, Mapping
@@ -55,8 +56,8 @@ from l3io.wp.backup.domain.errors import (
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.restore import ConfigPolicy, RestoreMode, SnapshotPolicy
+from l3io.wp.backup.domain.secret import Secret
 from tests.restore_root_rig import ALL_WAIVED, Rig, report_for
-from tests.unit.cli.conftest import RecordingSiteLock
 
 pytestmark = pytest.mark.usefixtures("fake_database")
 
@@ -161,34 +162,6 @@ def test_restore_opens_exactly_one_run(
     assert capsys.readouterr().out == ""
 
 
-def test_a_given_context_is_joined_without_a_run_workspace_or_lock(
-    site: Path, tmp_path: Path, workdir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inner = RecordingSiteLock()
-    monkeypatch.setattr(backup_cli, "real_site_lock", lambda: inner)
-    outer = RecordingSiteLock()
-    with (
-        capture_logs(),
-        open_run(operation="backup", site_root=site.resolve(), site_lock=outer) as ctx,
-    ):
-        _bind_real(ctx, site)
-        workspaces = sorted(workdir.iterdir())
-        with capture_logs() as logs:
-            result = api.backup(
-                site,
-                scope=BackupScope.ALL,
-                target=tmp_path / "joined.tar.gz",
-                context=ctx,
-            )
-        assert sorted(workdir.iterdir()) == workspaces
-    assert result.performed
-    assert _events(logs, "run_started") == []
-    assert _events(logs, "run_finished") == []
-    assert _run_ids(logs) <= {ctx.run_id}
-    assert inner.events == []
-    assert [e[0] for e in outer.events] == ["lock.acquire", "lock.release"]
-
-
 def _bind_real(ctx: RunContext, site: Path) -> None:
     """The outer root's one bind, as ``drive_backup`` makes it when it opens."""
     from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
@@ -260,21 +233,6 @@ def test_dry_run_reaches_the_request_and_binds_the_no_op_writer(
     assert not final.exists()
 
 
-def test_a_dry_run_cannot_join_a_real_run(site: Path, tmp_path: Path) -> None:
-    with (
-        capture_logs(),
-        open_run(operation="backup") as ctx,
-        pytest.raises(UsageError, match="cannot join"),
-    ):
-        api.backup(
-            site,
-            scope=BackupScope.ALL,
-            target=tmp_path / "x.tar.gz",
-            dry_run=True,
-            context=ctx,
-        )
-
-
 # --------------------------------------------------------------------------
 # The requests: the CLI's, built from the same intent
 # --------------------------------------------------------------------------
@@ -317,16 +275,29 @@ def test_backup_builds_the_request_run_backup_builds(
     assert call["args"][0].exclusion == backup_cli.default_exclusion_policy()
 
 
-def test_a_target_of_none_stays_none_for_the_driver_to_name(
+def test_backup_requires_a_target_before_any_effect(
     site: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Owner decision 2026-11-07: ``target`` is a required keyword."""
     calls = _spy(monkeypatch, operations, "drive_backup")
-    api.backup(site, scope=BackupScope.FILES, wp_config="conf.php")
+    parameter = inspect.signature(api.backup).parameters["target"]
+    assert parameter.default is inspect.Parameter.empty
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    with pytest.raises(TypeError, match="target"):
+        api.backup(site, scope=BackupScope.FILES, wp_config="conf.php")  # type: ignore[call-arg]
+    assert calls == []
+    api.backup(site, scope=BackupScope.FILES, target="t.tar.gz", wp_config="conf.php")
     (call,) = calls
     request: BackupRequest = call["args"][0]
-    assert request.target is None
+    assert request.target is not None
     assert request.wp_config == Path("conf.php")
     assert request.scope is BackupScope.FILES
+
+
+@pytest.mark.parametrize("name", ["backup", "restore", "verify", "doctor"])
+def test_no_entry_point_takes_a_context(name: str) -> None:
+    """Owner decision 2026-11-07 (BL-E006-024): no public way to join a Run."""
+    assert "context" not in inspect.signature(getattr(api, name)).parameters
 
 
 def test_verify_builds_the_request_run_verify_builds(
@@ -521,12 +492,12 @@ def test_a_callers_exclusion_set_is_wrapped_and_a_logged_one_passed_unchanged(
 ) -> None:
     calls = _spy(monkeypatch, operations, "drive_backup")
     none = ExclusionSet.none()
-    api.backup(site, scope=BackupScope.ALL, exclusion=none)
+    api.backup(site, scope=BackupScope.ALL, target="t.tar.gz", exclusion=none)
     wrapped = calls[0]["args"][0].exclusion
     assert isinstance(wrapped, LoggedExclusionPolicy)
     assert wrapped.policy is none
     logged = LoggedExclusionPolicy(ExclusionSet.default())
-    api.backup(site, scope=BackupScope.ALL, exclusion=logged)
+    api.backup(site, scope=BackupScope.ALL, target="t.tar.gz", exclusion=logged)
     assert calls[1]["args"][0].exclusion is logged
 
 
@@ -646,14 +617,20 @@ def test_backup_encrypt_resolves_through_require_passphrase_into_a_new_registry(
     monkeypatch.setattr(operations, "require_passphrase", require)
     monkeypatch.setattr(operations, "build_payload_cipher", factory)
     calls = _spy(monkeypatch, operations, "drive_backup")
-    api.backup(site, scope=BackupScope.ALL, encrypt=True, passphrase=passphrase)
+    api.backup(
+        site,
+        scope=BackupScope.ALL,
+        target="t.tar.gz",
+        encrypt=True,
+        passphrase=passphrase,
+    )
     assert order == ["require_passphrase", "build_payload_cipher"]
     (call,) = calls
     request: BackupRequest = call["args"][0]
     assert request.cipher is cipher
     assert request.extra_tools is tools
     registry: SecretRegistry = call["secrets"]
-    assert given == [(passphrase, registry)]
+    assert given == [(Secret(passphrase), registry)]
     assert passphrase not in registry.redact(passphrase)
 
 
@@ -662,13 +639,15 @@ def test_backup_encrypt_with_no_passphrase_is_refused_before_the_site_is_read(
 ) -> None:
     calls = _spy(monkeypatch, operations, "drive_backup")
     with pytest.raises(PassphraseUnavailableError):
-        api.backup(site, scope=BackupScope.ALL, encrypt=True)
+        api.backup(site, scope=BackupScope.ALL, target="t.tar.gz", encrypt=True)
 
     def closed(_label: str) -> str:
         raise EOFError
 
     with pytest.raises(PassphraseUnavailableError):
-        api.backup(site, scope=BackupScope.ALL, encrypt=True, prompt=closed)
+        api.backup(
+            site, scope=BackupScope.ALL, target="t.tar.gz", encrypt=True, prompt=closed
+        )
     assert calls == []
 
 
@@ -677,7 +656,9 @@ def test_a_passphrase_without_encrypt_is_refused_not_ignored(
 ) -> None:
     calls = _spy(monkeypatch, operations, "drive_backup")
     with pytest.raises(UsageError, match="encrypt=True"):
-        api.backup(site, scope=BackupScope.ALL, passphrase=passphrase)
+        api.backup(
+            site, scope=BackupScope.ALL, target="t.tar.gz", passphrase=passphrase
+        )
     assert calls == []
 
 
@@ -717,27 +698,10 @@ def test_restore_resolves_through_the_chain_with_the_restore_label(
     assert kwargs["explicit"] == passphrase
     assert kwargs["environ"] is os.environ
     assert kwargs["secrets"] is calls[0]["secrets"]
-    assert built_with == [passphrase]
+    assert built_with == [Secret(passphrase)]
     built: RestoreRequest = calls[0]["args"][0]
     assert built.cipher is cipher
     assert built.extra_tools is tools
-
-
-def test_a_joined_call_uses_the_contexts_registry(
-    site: Path, monkeypatch: pytest.MonkeyPatch, passphrase: str
-) -> None:
-    calls = _spy(monkeypatch, operations, "drive_backup")
-    with capture_logs(), open_run(operation="backup") as ctx:
-        api.backup(
-            site,
-            scope=BackupScope.ALL,
-            encrypt=True,
-            passphrase=passphrase,
-            context=ctx,
-        )
-    assert calls[0]["secrets"] is ctx.secrets
-    assert calls[0]["ctx"] is ctx
-    assert passphrase not in ctx.secrets.redact(passphrase)
 
 
 def test_an_encrypted_backup_authenticates_with_its_passphrase(

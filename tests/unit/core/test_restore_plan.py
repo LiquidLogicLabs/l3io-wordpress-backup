@@ -248,3 +248,46 @@ def test_action_lines_never_name_a_username() -> None:
     load = next(a for a in built.actions if a.phase is P.LOAD_DUMP)
     assert load.fields["host"] == "db2.internal"
     assert load.fields["database"] == "moved_db"
+
+
+# --------------------------------------------------------------------------
+# BL-E007-006 (E008-S01-001): the printed PREFLIGHT line names WP-CLI
+# --------------------------------------------------------------------------
+
+
+def _preflight_text(
+    *, relocation: object, extra_tools: tuple[ToolRequirement, ...]
+) -> str:
+    built = build_restore_plan(
+        SITE,
+        RestoreMode.ALL,
+        WAIVED,
+        view(),
+        POPULATED,
+        archive=ARCHIVE,
+        relocation=relocation,  # type: ignore[arg-type]
+        snapshot=SnapshotPolicy.TAKE,
+        snapshot_dir=SNAPSHOTS,
+        config_dir=SITE.site_root,
+        config_policy=ConfigPolicy.KEEP,
+        extra_tools=extra_tools,
+    )
+    (action,) = [a for a in built.actions if a.phase is RestorePhase.PREFLIGHT]
+    return action.text
+
+
+def test_a_relocating_plan_names_wp_cli_and_its_floor() -> None:
+    from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
+
+    expected = f"{WP_CLI_REQUIREMENT.name} >= {'.'.join(map(str, WP_CLI_MINIMUM))}"
+    text = _preflight_text(relocation=URL_ONLY, extra_tools=(WP_CLI_REQUIREMENT,))
+    assert expected in text
+
+
+def test_a_plan_that_relocates_nothing_does_not_name_wp() -> None:
+    from l3io.wp.backup.core.relocation import WP_CLI_REQUIREMENT
+    from tests.restore_builders import NO_RELOCATION
+
+    text = _preflight_text(relocation=NO_RELOCATION, extra_tools=())
+    assert WP_CLI_REQUIREMENT.name not in text.split()
+    assert f"{WP_CLI_REQUIREMENT.name} >=" not in text
