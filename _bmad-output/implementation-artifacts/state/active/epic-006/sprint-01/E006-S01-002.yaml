@@ -1,0 +1,34 @@
+key: 'E006-S01-002'
+epic: 'E006'
+sprint: 'S01'
+title: Catch typed failures
+classification: complex
+status: ready-for-dev
+updated_at: '2026-11-07T02:50:11Z'
+estimate:
+  man_hours: 24.92
+  hitl_hours: 0.0
+  elapsed_hours: 0.88
+  cost: 24.25
+  model: claude-opus-5
+  fix_factor: 1.25
+  scope_ratios:
+    man_hours: 1.6615
+    hitl_hours: 0.0
+    elapsed_hours: 0.1752
+    tokens_k: 5.9591
+  confidence: low
+  tokens_k:
+    total: 28523
+    input: 0
+    output: 213
+    cache_write: 830
+    cache_read: 27480
+depends_on:
+- 'E002-S01-001'
+- 'E002-S01-005'
+- 'E002-S01-006'
+- 'E006-S01-001'
+- 'E002-S01-010'
+- 'E002-S02-011'
+- 'E007-S01-001'

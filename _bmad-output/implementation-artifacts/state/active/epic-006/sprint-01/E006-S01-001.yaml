@@ -3,8 +3,8 @@ epic: 'E006'
 sprint: 'S01'
 title: Drive backup and restore from Python
 classification: standard
-status: backlog
-updated_at: '2026-11-06T14:20:01Z'
+status: ready-for-dev
+updated_at: '2026-11-07T02:50:11Z'
 estimate:
   man_hours: 7.5
   hitl_hours: 0.44
