@@ -2197,8 +2197,8 @@ resolved:
   description: See epic-002/sprint-01/closure/redteam-report.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:01Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-067
   epic: '002'
   sprint: '01'
@@ -2211,8 +2211,8 @@ resolved:
   description: See epic-002/sprint-01/closure/adversarial-review.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:03Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-092
   epic: '002'
   sprint: '02'
@@ -2225,8 +2225,8 @@ resolved:
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:05Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-093
   epic: '002'
   sprint: '02'
@@ -2239,8 +2239,8 @@ resolved:
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:06Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-100
   epic: '002'
   sprint: '02'
@@ -2253,8 +2253,8 @@ resolved:
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:08Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-101
   epic: '002'
   sprint: '02'
@@ -2267,8 +2267,8 @@ resolved:
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:10Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-102
   epic: '002'
   sprint: '02'
@@ -2281,8 +2281,8 @@ resolved:
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
   resolution: fixed
   resolved_at: '2026-11-07T21:48:12Z'
-  ref: cc60f50
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  ref: 0cc6c12
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
 - key: BL-E002-107
   epic: '002'
   sprint: ''
@@ -2291,8 +2291,8 @@ resolved:
   severity: Medium
   status: resolved
   kind: spec-proposal
-  ref: cc60f50
+  ref: 0cc6c12
   description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md.'
   resolution: fixed
   resolved_at: '2026-11-07T21:48:14Z'
-  note: close-out triage fix, regression test in cc60f50; see closeout/triage-high-medium.md
+  note: close-out triage fix, regression test in 0cc6c12; see closeout/triage-high-medium.md
