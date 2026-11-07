@@ -62,7 +62,9 @@ class InvalidExclusionPatternError(UsageError):
     def __init__(self, pattern: str, reason: str) -> None:
         self.pattern = pattern
         self.reason = reason
-        super().__init__(f"invalid exclusion pattern {pattern!r}: {reason}")
+        super().__init__(
+            f"invalid exclusion pattern {pattern!r}: {reason}", arguments=("--exclude",)
+        )
 
 
 def _compile(patterns: tuple[object, ...]) -> GitIgnoreSpec:
@@ -83,7 +85,9 @@ def _compile(patterns: tuple[object, ...]) -> GitIgnoreSpec:
         try:
             [one] = GitIgnoreSpec.from_lines([pattern]).patterns
         except ValueError as exc:
-            raise InvalidExclusionPatternError(pattern, str(exc)) from exc
+            raise InvalidExclusionPatternError(
+                pattern, "the pattern is not valid gitignore syntax"
+            ) from exc
         if one.include is None:
             raise InvalidExclusionPatternError(
                 pattern, "the pattern matches nothing (a comment or an empty match)"

@@ -18,6 +18,7 @@ import dataclasses
 import os
 import uuid
 from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any
@@ -64,6 +65,14 @@ API = Path(operations.__file__).parent
 
 class _Captured(Exception):
     """Raised by a driver spy once it has recorded its call."""
+
+
+@contextmanager
+def _captured() -> Iterator[None]:
+    """The spy's ``_Captured``, as ``public_boundary`` delivers it: wrapped."""
+    with pytest.raises(api.UnexpectedError) as caught:
+        yield
+    assert isinstance(caught.value.__cause__, _Captured)
 
 
 def _events(logs: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
@@ -281,7 +290,7 @@ def _cli_request(
     """The request a ``run_*`` root builds from ``argv``, by a spy on its driver."""
     original = getattr(module, name)
     calls = _spy(monkeypatch, module, name, raise_after=True)
-    with pytest.raises(_Captured):
+    with pytest.raises(_Captured):  # a CLI root: no public_boundary
         root(build_parser().parse_args(argv))
     monkeypatch.setattr(module, name, original)
     (call,) = calls
@@ -379,7 +388,7 @@ def test_restore_with_every_keyword_builds_the_request_run_restore_builds(
     )
     monkeypatch.setenv(PASSPHRASE_ENV, passphrase)
     calls = _spy(monkeypatch, operations, "drive_restore", raise_after=True)
-    with pytest.raises(_Captured):
+    with _captured():
         api.restore(
             root,
             archive=archive,
@@ -424,7 +433,7 @@ def test_restore_defaults_are_the_policy_and_no_relocation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _spy(monkeypatch, operations, "drive_restore", raise_after=True)
-    with pytest.raises(_Captured):
+    with _captured():
         api.restore(
             tmp_path,
             archive=tmp_path / "a.tar",
@@ -693,7 +702,7 @@ def test_restore_resolves_through_the_chain_with_the_restore_label(
     monkeypatch.setattr(operations, "resolve_passphrase", resolve)
     monkeypatch.setattr(operations, "build_payload_cipher", factory)
     calls = _spy(monkeypatch, operations, "drive_restore", raise_after=True)
-    with pytest.raises(_Captured):
+    with _captured():
         api.restore(
             tmp_path,
             archive=tmp_path / "a.tar",

@@ -51,6 +51,8 @@ _BINDER_MODULE: Final = "l3io_age_passphrase"
 _AGE_MINIMUM: Final = (1, 3)
 _NEEDED_FOR: Final = "the encrypted payload (ENCRYPT, VERIFY)"
 _REGISTRY_SOURCE: Final = "passphrase"
+#: The encryption a :class:`PassphraseRejectedError` names (``scheme``).
+_SCHEME: Final = "age"
 
 
 class EncryptionConfigError(UsageError):
@@ -60,20 +62,26 @@ class EncryptionConfigError(UsageError):
     passphrase, an unrecognised ``L3IO_AGE_PASSPHRASE_BACKEND``, or the ``cli``
     backend without ``age`` and ``age-plugin-batchpass`` on ``PATH``. The
     message never carries database's text, which could echo the input.
+    ``relative_path`` is ``True`` for the ``PATH`` refusal; ``arguments``
+    names what is at fault (``PATH``, or the passphrase and the backend
+    variable).
     """
 
     def __init__(self, *, relative_path: bool = False) -> None:
+        self.relative_path = relative_path
         if relative_path:
             super().__init__(
                 "encryption cannot run: the age command-line backend would be "
                 "looked up through a PATH with an empty or relative entry, so a "
                 "planted age could receive the passphrase; remove those entries "
-                "or use the in-process backend"
+                "or use the in-process backend",
+                arguments=("PATH",),
             )
             return
         super().__init__(
             "encryption cannot run: the passphrase is empty, or "
-            f"{_BACKEND_ENV} names a backend that is unknown or not installed"
+            f"{_BACKEND_ENV} names a backend that is unknown or not installed",
+            arguments=("passphrase", _BACKEND_ENV),
         )
 
 
@@ -191,7 +199,7 @@ class PassphraseCipher:
         except InvalidArgumentsError as exc:
             raise EncryptionConfigError from exc
         except DecryptionError as exc:
-            raise PassphraseRejectedError from exc
+            raise PassphraseRejectedError(scheme=_SCHEME) from exc
         except CorruptDumpError as exc:
             raise PayloadDamagedError from exc
 

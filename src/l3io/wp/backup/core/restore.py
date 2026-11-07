@@ -197,6 +197,13 @@ class UnsafeSnapshotLocationError(RefusedError):
         )
 
 
+def _cause_text(cause: BaseException) -> str:
+    """The cause's type and, for an ``OSError``, its errno text; never its message."""
+    strerror = getattr(cause, "strerror", None)
+    name = type(cause).__name__
+    return f"{name}: {strerror}" if isinstance(strerror, str) else name
+
+
 class SnapshotFailedError(RefusedError):
     """FR-8: the Safety Snapshot was not written and verified; nothing destroyed.
 
@@ -209,7 +216,7 @@ class SnapshotFailedError(RefusedError):
     def __init__(self, path: str | None, cause: BaseException | str) -> None:
         self.path = path
         self.cause = cause
-        reason = cause if isinstance(cause, str) else f"{type(cause).__name__}: {cause}"
+        reason = cause if isinstance(cause, str) else _cause_text(cause)
         where = "" if path is None else f" {path!r}"
         super().__init__(
             f"the safety snapshot{where} was not written and verified ({reason}); "

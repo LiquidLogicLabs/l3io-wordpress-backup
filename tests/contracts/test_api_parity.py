@@ -157,11 +157,14 @@ def test_no_entry_point_takes_a_command_line() -> None:
 
 
 def test_every_exported_class_is_the_defining_layers() -> None:
+    """``UnexpectedError`` alone is api's own: its one raise site is api's
+    ``public_boundary`` (E006-S01-002), so api is the layer that defines it."""
     redefined = sorted(
         name
         for name in api.__all__
         if isinstance(obj := getattr(api, name), type)
         and obj.__module__.startswith("l3io.wp.backup.api")
+        and obj is not api.UnexpectedError
     )
     assert redefined == []
 

@@ -43,6 +43,6 @@ def default_archive_name(db_name: str, now: datetime) -> str:
     """
     if now.tzinfo is None or now.utcoffset() is None:
         msg = "default_archive_name needs a timezone-aware datetime"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("now",))
     stamp = now.astimezone(UTC).strftime("%Y%m%d%H%M%S")
     return f"wpbackup2-{db_name}-{stamp}.tar.gz"

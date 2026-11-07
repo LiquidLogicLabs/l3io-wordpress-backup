@@ -35,6 +35,10 @@ joined Run opens no root of its own). No command line is placed on a span
 (``command_args=None``): a library call has none of its own. The CLI binds
 the no-op tracer.
 
+**Errors (AD-14).** Each entry point is wrapped in ``api/errors.py``'s
+``public_boundary``: a package exception passes through unchanged, and any
+other ``Exception`` arrives as ``UnexpectedError`` from the original.
+
 Pruning is FR-17 (v1.1): the CLI has no prune operation, so neither has this.
 """
 
@@ -51,6 +55,7 @@ from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.tracing import OpenTelemetryTracer
+from l3io.wp.backup.api.errors import public_boundary
 from l3io.wp.backup.cli.backup import (
     BackupRequest,
     BackupResult,
@@ -115,6 +120,7 @@ def _exclusion(policy: ExclusionPolicy) -> ExclusionPolicy:
     return policy
 
 
+@public_boundary
 def backup(
     site: str | os.PathLike[str],
     *,
@@ -153,7 +159,7 @@ def backup(
         cipher, extra_tools = built, built.required_tools()
     elif passphrase is not None:
         msg = "a passphrase was given but encrypt=True was not: nothing would use it"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=("passphrase", "encrypt"))
     else:
         note_unused_passphrase(os.environ)
     site_root = Path(site)
@@ -192,6 +198,7 @@ def backup(
     )
 
 
+@public_boundary
 def verify(
     archive: StorageTarget | str | os.PathLike[str],
     *,
@@ -225,6 +232,7 @@ def verify(
     return result
 
 
+@public_boundary
 def restore(
     site_root: str | os.PathLike[str],
     *,

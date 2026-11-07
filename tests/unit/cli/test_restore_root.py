@@ -680,7 +680,7 @@ def test_a_failure_after_the_snapshot_names_it(
     def fail_after_snapshot(*args: object, **kwargs: object) -> object:
         rig.take_snapshot(BackupScope.ALL)
         reason = "exit 1"
-        raise LoadFailedError(reason)
+        raise LoadFailedError(reason, database="wp")
 
     rig.execute = fail_after_snapshot
     real_result = restore_mod.snapshot_result
@@ -751,7 +751,7 @@ def test_an_encrypted_snapshot_says_so_without_the_passphrase(
     def fail_after_snapshot(*args: object, **kwargs: object) -> object:
         rig.take_snapshot(BackupScope.ALL)
         reason = "exit 1"
-        raise LoadFailedError(reason)
+        raise LoadFailedError(reason, database="wp")
 
     rig.execute = fail_after_snapshot
     _performed_snapshots(rig)
@@ -965,7 +965,7 @@ def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(
 
     def fail(*args: object, **kwargs: object) -> object:
         reason = "exit 1"
-        raise LoadFailedError(reason)
+        raise LoadFailedError(reason, database="wp")
 
     rig.execute = fail
     with capture_logs():

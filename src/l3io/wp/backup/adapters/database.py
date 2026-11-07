@@ -159,6 +159,9 @@ INVALID_DB_HOST: Final = (
     "the database host is not HOST or HOST:PORT with a port from 1 to 65535; "
     "nothing was changed"
 )
+UNUSABLE_CONNECTION: Final = (
+    "the database connection settings (host, port, name or TLS) are not usable"
+)
 INVALID_DATABASE_NAME: Final = (
     "the database name is not a valid database name; nothing was changed"
 )
@@ -235,25 +238,27 @@ def _tls_settings(admin_tls: AdminTls, host: str) -> TlsSettings:
     if admin_tls.mode is not None:
         if admin_tls.mode not in ADMIN_TLS_MODES:
             msg = f"--admin-tls {admin_tls.mode!r}: choose one of {ADMIN_TLS_MODES}"
-            raise UsageError(msg)
+            raise UsageError(msg, arguments=("--admin-tls",))
         wanted = wpdb.TlsMode(admin_tls.mode.replace("-", "_"))
         if _TLS_ORDER.index(wanted.value) < _TLS_ORDER.index(policy.mode.value):
             msg = (
                 f"--admin-tls {admin_tls.mode} is below the policy for {host!r} "
                 f"({policy.mode.value.replace('_', '-')}); it may only raise it"
             )
-            raise UsageError(msg)
+            raise UsageError(msg, arguments=("--admin-tls",))
         mode = wanted
     if mode is wpdb.TlsMode.OFF:
         if admin_tls.ca_file is not None:
             msg = f"--admin-tls-ca needs TLS, which is off for the local host {host!r}"
-            raise UsageError(msg)
+            raise UsageError(msg, arguments=("--admin-tls-ca",))
         return wpdb.TlsSettings()
     try:
         return wpdb.TlsSettings(mode=mode, ca_file=admin_tls.ca_file)
     except wpdb.InvalidArgumentsError as exc:
         # ADV-S02-11: a fixed text; database's message is never forwarded.
-        raise UsageError(TLS_SETTINGS_UNUSABLE) from exc
+        raise UsageError(
+            TLS_SETTINGS_UNUSABLE, arguments=("--admin-tls", "--admin-tls-ca")
+        ) from exc
 
 
 def check_admin_tls(admin_tls: AdminTls | None, host: str) -> None:
@@ -435,7 +440,9 @@ def _parse(
         msg = f"{exc.key} is not defined"
         raise InvalidSiteDescriptorError(msg, paths=(str(config_file),)) from exc
     except (wpdb.InvalidArgumentsError, wpdb.InvalidIdentifierError) as exc:
-        raise InvalidSiteDescriptorError(str(exc), paths=(str(config_file),)) from exc
+        raise InvalidSiteDescriptorError(
+            _unusable_connection(exc), paths=(str(config_file),)
+        ) from exc
     site_url, home_url = _url_constants(config_file, label)
     descriptor = SiteDescriptor(
         site_root=site_root,
@@ -448,6 +455,29 @@ def _parse(
         credential_source=label,
     )
     return descriptor, config
+
+
+def _unusable_connection(exc: Exception) -> str:
+    """Why database refused the connection settings, from its fields only.
+
+    An identifier refusal names the kind and database's fixed reason, never
+    the value; any other is a fixed text (AD-7: no dependency text forwarded).
+    """
+    kind = getattr(exc, "kind", None)
+    if isinstance(kind, str):
+        return f"the {kind} is not a valid identifier: {getattr(exc, 'reason', '')}"
+    return UNUSABLE_CONNECTION
+
+
+def _failure(
+    failed: type[ProvisioningFailedError] | type[LoadFailedError],
+    reason: str,
+    location: DatabaseLocation,
+) -> ProvisioningFailedError | LoadFailedError:
+    """``failed`` built for ``reason``; a load names the database it loaded into."""
+    if failed is LoadFailedError:
+        return LoadFailedError(reason, database=location.name)
+    return ProvisioningFailedError(reason)
 
 
 def database_location_from_db_host(db_host: str, name: str) -> DatabaseLocation:
@@ -466,9 +496,9 @@ def database_location_from_db_host(db_host: str, name: str) -> DatabaseLocation:
     try:
         connection = wpdb.Connection.from_db_host(db_host, name)
     except wpdb.InvalidIdentifierError as exc:
-        raise UsageError(INVALID_DATABASE_NAME) from exc
+        raise UsageError(INVALID_DATABASE_NAME, arguments=("name",)) from exc
     except wpdb.InvalidArgumentsError as exc:
-        raise UsageError(INVALID_DB_HOST) from exc
+        raise UsageError(INVALID_DB_HOST, arguments=("db_host",)) from exc
     return DatabaseLocation(
         host=connection.host, port=connection.port, name=connection.database
     )
@@ -774,7 +804,7 @@ class WpDatabase:
         except wpdb.MissingDependencyError as exc:
             raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
         except wpdb.DatabaseError as exc:
-            raise DumpFailedError(type(exc).__name__) from exc
+            raise DumpFailedError(type(exc).__name__, database=location.name) from exc
         blockers, warnings = _codes(verdict)
         _log.info(
             "dump_readiness",
@@ -806,7 +836,9 @@ class WpDatabase:
             # Structured fields only, never the dependency's text (AD-7).
             code = exc.exit_code
             reason = "the dump stopped" if code is None else f"the dump exited {code}"
-            raise DumpFailedError(reason) from exc
+            raise DumpFailedError(
+                reason, database=location.name, exit_status=code
+            ) from exc
         except (
             wpdb.TlsHandshakeError,
             wpdb.TlsVerificationError,
@@ -825,9 +857,11 @@ class WpDatabase:
         except wpdb.MissingDependencyError as exc:
             raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
         except wpdb.DatabaseError as exc:
-            raise DumpFailedError(type(exc).__name__) from exc
+            raise DumpFailedError(type(exc).__name__, database=location.name) from exc
         except OSError as exc:
-            raise DumpFailedError(exc.strerror or type(exc).__name__) from exc
+            raise DumpFailedError(
+                exc.strerror or type(exc).__name__, database=location.name
+            ) from exc
         return DumpResult(bytes=result.bytes, duration_ms=result.duration_ms)
 
     # ----------------------------------------------------------------------
@@ -1088,10 +1122,12 @@ class WpDatabase:
         except wpdb.TransferError as exc:
             code = exc.exit_code
             raise LoadFailedError(
-                "the load stopped" if code is None else f"the load exited {code}"
+                "the load stopped" if code is None else f"the load exited {code}",
+                database=location.name,
+                exit_status=code,
             ) from exc
         except (wpdb.CorruptDumpError, wpdb.DecryptionError) as exc:
-            raise LoadFailedError(type(exc).__name__) from exc
+            raise LoadFailedError(type(exc).__name__, database=location.name) from exc
         except (
             wpdb.TlsHandshakeError,
             wpdb.TlsVerificationError,
@@ -1110,11 +1146,13 @@ class WpDatabase:
         except wpdb.MissingDependencyError as exc:
             raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
         except wpdb.InvalidIdentifierError as exc:
-            raise InvalidSiteDescriptorError(str(exc)) from exc
+            raise InvalidSiteDescriptorError(_unusable_connection(exc)) from exc
         except wpdb.DatabaseError as exc:
-            raise failed(type(exc).__name__) from exc
+            raise _failure(failed, type(exc).__name__, location) from exc
         except OSError as exc:
-            raise failed(exc.strerror or type(exc).__name__) from exc
+            raise _failure(
+                failed, exc.strerror or type(exc).__name__, location
+            ) from exc
 
     def _refusal(
         self,
@@ -1150,4 +1188,4 @@ class WpDatabase:
                 tls=wpdb.TlsSettings() if tls is None else tls,
             )
         except (wpdb.InvalidArgumentsError, wpdb.InvalidIdentifierError) as exc:
-            raise InvalidSiteDescriptorError(str(exc)) from exc
+            raise InvalidSiteDescriptorError(_unusable_connection(exc)) from exc

@@ -39,7 +39,9 @@ def _aws_spec(
                 f"--{prefix}-aws-region needs --{prefix}-aws-secret-id: "
                 "a region names no secret"
             )
-            raise UsageError(msg)
+            raise UsageError(
+                msg, arguments=(f"--{prefix}-aws-region", f"--{prefix}-aws-secret-id")
+            )
         return None
     return AwsSecretCredentialSpec(secret_id=secret_id, region=region)
 
@@ -71,12 +73,19 @@ def admin_spec(
     if (username is None) != (password is None):
         missing = "--admin-password" if password is None else "--admin-username"
         msg = f"{missing} is required with its partner: give both halves or neither"
-        raise UsageError(msg)
+        raise UsageError(msg, arguments=(missing,))
     aws = _aws_spec(aws_secret_id, aws_region, prefix="admin")
     if username is not None and password is not None:
         if aws is not None:
             msg = "give --admin-username/--admin-password or an AWS secret, not both"
-            raise UsageError(msg)
+            raise UsageError(
+                msg,
+                arguments=(
+                    "--admin-username",
+                    "--admin-password",
+                    "--admin-aws-secret-id",
+                ),
+            )
         return ExplicitCredentialSpec(username=username, password=password)
     return aws
 

@@ -40,7 +40,11 @@ import structlog
 from l3io.wp.backup.adapters.lock import APP_NAME
 from l3io.wp.backup.adapters.workspace import private_directories
 from l3io.wp.backup.core.restore import IncompleteRunError, incomplete_run_error
-from l3io.wp.backup.domain.errors import BackupError, RefusedError
+from l3io.wp.backup.domain.errors import (
+    BackupError,
+    RefusedError,
+    UnknownInterruptedRunError,
+)
 from l3io.wp.backup.domain.journal import (
     JournalEntry,
     JournalEvent,
@@ -415,20 +419,17 @@ class FileRunJournal:
     def resolve(self, run_id: str, resolved_by: str) -> None:
         """Move ``run_id``'s blocking record to ``resolved/``, acknowledged.
 
-        Refuses (``RefusedError``) when no journal blocks, or when the one
+        Refuses (``UnknownInterruptedRunError``) when no journal blocks, or when the one
         that does names another Run: a blanket acknowledgement resolves
         nothing it did not name.
         """
         record = self.incomplete(PurePosixPath(self._directory))
         if record is None:
-            msg = f"no interrupted run {run_id} is recorded for this Site"
-            raise RefusedError(msg)
+            raise UnknownInterruptedRunError(run_id, recorded_run_id=None)
         if record.header.run_id != run_id:
-            msg = (
-                f"the interrupted run is {record.header.run_id}, not {run_id}; "
-                "nothing was resolved"
+            raise UnknownInterruptedRunError(
+                run_id, recorded_run_id=record.header.run_id
             )
-            raise RefusedError(msg)
         extra: dict[str, object] = {
             "resolved_at": datetime.now(UTC).isoformat(),
             "resolved_by": resolved_by,

@@ -48,7 +48,10 @@ FAILURES: list[tuple[BaseException, ExitCode]] = [
         ExitCode.CREDENTIALS,
     ),
     (ProvisioningFailedError("ProvisioningError"), ExitCode.FAILED),
-    (LoadFailedError("the load exited 1"), ExitCode.FAILED),
+    (
+        LoadFailedError("the load exited 1", database="wp", exit_status=1),
+        ExitCode.FAILED,
+    ),
 ]
 COMMANDS = ["ensure_database", "load_dump"]
 
