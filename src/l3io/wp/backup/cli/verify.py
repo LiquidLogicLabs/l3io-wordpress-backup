@@ -134,6 +134,7 @@ def _authenticate(
     record: PhaseRecord,
     ctx: RunContext,
     passphrase: Secret | str | None,
+    passphrase_argument: str | None,
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
 ) -> None:
@@ -141,7 +142,11 @@ def _authenticate(
     if view is None or not view.encrypted or manifest_text is None:
         raise ArchiveNotEncryptedError(str(target.path))
     resolved = resolve_passphrase(
-        explicit=passphrase, environ=environ, prompt=prompt, secrets=ctx.secrets
+        explicit=passphrase,
+        environ=environ,
+        prompt=prompt,
+        secrets=ctx.secrets,
+        argument=passphrase_argument,
     )
     if resolved is None:
         operation: Final = "verify"
@@ -168,6 +173,7 @@ def drive_verify(
     secrets: SecretRegistry | None = None,
     command_args: Sequence[str] | None = None,
     passphrase: Secret | str | None = None,
+    passphrase_argument: str | None = None,
     environ: Mapping[str, str] = NO_ENVIRONMENT,
     prompt: Callable[[str], str] | None = None,
     on_warning: WarningSink | None = None,
@@ -182,9 +188,11 @@ def drive_verify(
     finishes with a non-zero ``exit_code`` (``report_failure``). With
     ``request.authenticate`` a returned pass has also been authenticated;
     ``passphrase``, ``environ`` and ``prompt`` are AD-26's chain, in that
-    order, and are read only then. A library caller's ``environ`` defaults to
-    empty: nothing below a root reads ``os.environ``. An unsupported
-    platform is refused first, as every other command refuses it.
+    order, and are read only then; ``passphrase_argument`` is the root's name
+    for ``passphrase`` a refusal's hint gives (``None`` for the CLI). A
+    library caller's ``environ`` defaults to empty: nothing below a root reads
+    ``os.environ``. An unsupported platform is refused first, as every other
+    command refuses it.
     """
     del on_warning  # no verification notice exists yet (see above)
     refuse_unsupported_platform()
@@ -205,6 +213,7 @@ def drive_verify(
                     record=record,
                     ctx=handle.ctx,
                     passphrase=passphrase,
+                    passphrase_argument=passphrase_argument,
                     environ=environ,
                     prompt=prompt,
                 )

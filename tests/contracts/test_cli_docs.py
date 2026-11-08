@@ -89,3 +89,59 @@ def test_a_missing_block_is_an_error(tmp_path: Path) -> None:
     result = _run("--check", "--readme", str(copy))
     assert result.returncode != 0
     assert "no well-formed" in result.stderr
+
+
+def _stale_duplicate(text: str) -> str:
+    """``text`` with a second, stale copy of the exit-code block appended."""
+    begin = "<!-- BEGIN GENERATED: exit-codes (tools/gen_cli_docs.py) -->"
+    end = "<!-- END GENERATED: exit-codes -->"
+    stale = text[text.index(begin) : text.index(end) + len(end)]
+    return text + "\n" + stale.replace("| `LOCKED` |", "| `LOCKD` |") + "\n"
+
+
+def test_a_stale_duplicated_block_fails_the_check_and_is_regenerated(
+    tmp_path: Path,
+) -> None:
+    """AR-16 (BL-E002-071): every marker pair is replaced, not the first only."""
+    copy = tmp_path / "README.md"
+    planted = _stale_duplicate(README.read_text(encoding="utf-8"))
+    copy.write_text(planted, encoding="utf-8")
+    result = _run("--check", "--readme", str(copy))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _run("--readme", str(copy)).returncode == 0
+    regenerated = copy.read_text(encoding="utf-8")
+    assert "LOCKD" not in regenerated
+    assert regenerated.count("| `LOCKED` |") == 2
+    assert _run("--check", "--readme", str(copy)).returncode == 0
+
+
+def test_an_unclosed_block_is_an_error(tmp_path: Path) -> None:
+    copy = tmp_path / "README.md"
+    begin = "<!-- BEGIN GENERATED: exit-codes (tools/gen_cli_docs.py) -->"
+    copy.write_text(
+        README.read_text(encoding="utf-8") + f"\n{begin}\n", encoding="utf-8"
+    )
+    result = _run("--check", "--readme", str(copy))
+    assert result.returncode != 0
+    assert "exit-codes" in result.stderr
+
+
+def test_the_usage_walk_recurses_into_nested_subcommands() -> None:
+    """AR-16: a nested sub-parser is documented too, found by the walk."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("gen_cli_docs", TOOL)
+    assert spec is not None
+    assert spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    top = argparse.ArgumentParser(prog="wpbackup2")
+    sub = top.add_subparsers().add_parser("outer")
+    sub.add_subparsers().add_parser("inner")
+    sections = tool._sections(top, "wpbackup2")  # noqa: SLF001 - the walk itself
+    headings = [s.splitlines()[1] for s in sections]
+    assert headings == [
+        "$ wpbackup2 --help",
+        "$ wpbackup2 outer --help",
+        "$ wpbackup2 outer inner --help",
+    ]

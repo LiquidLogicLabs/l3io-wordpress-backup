@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
+import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Final
 
@@ -73,6 +74,11 @@ def refuse_unsafe_clean_target(root: Path) -> None:
         )
 
 
+def _fold(name: str) -> str:
+    """``name`` as :meth:`LocalSiteFiles.clean` compares it: NFC, casefolded."""
+    return unicodedata.normalize("NFC", name).casefold()
+
+
 class LocalSiteFiles:
     """The Site Root on the local filesystem."""
 
@@ -118,6 +124,12 @@ class LocalSiteFiles:
         followed — a symlinked directory's target is untouched — and
         ``site_root`` itself is never removed.
 
+        ``keep`` matches an entry's name case-insensitively and after Unicode
+        NFC normalisation (RT-005): on a case-insensitive or normalising
+        filesystem ``WP-Config.php`` *is* the kept ``wp-config.php``. On a
+        case-sensitive one an entry differing from a kept name only in case is
+        kept too — the clean errs towards keeping, never towards removing.
+
         **A heuristic guard, not a proof.** ``UnsafeCleanTargetError`` is
         raised before anything is removed when ``site_root`` is ``/``, the
         user's home directory, or holds neither ``wp-config.php`` nor
@@ -132,10 +144,11 @@ class LocalSiteFiles:
         root = site_root.absolute()
         refuse_unsafe_clean_target(root)
         kept = {path.parts[0] for path in keep if path.parts}
+        folded = {_fold(name) for name in kept}
         started = time.monotonic_ns()
         removed = 0
         for entry in sorted(_listing(root), key=lambda e: e.name):
-            if entry.name in kept:
+            if _fold(entry.name) in folded:
                 continue
             path = Path(entry.path)
             try:

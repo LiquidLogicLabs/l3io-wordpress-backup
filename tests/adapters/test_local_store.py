@@ -205,3 +205,52 @@ def test_an_uncreatable_directory_is_an_archive_write_error(tmp_path: Path) -> N
     store = LocalArchiveStore(verify=Verifier(), create_directory=True)
     with pytest.raises(ArchiveWriteError):
         store.stage(_target(blocker / "snapshots" / "snap.tar.gz"))
+
+
+def _record_fsyncs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int, bool]]:
+    """Each ``os.fsync``'d descriptor as (device, inode, is a directory)."""
+    synced: list[tuple[int, int, bool]] = []
+    real = os.fsync
+
+    def fsync(fd: int) -> None:
+        st = os.fstat(fd)
+        synced.append((st.st_dev, st.st_ino, stat.S_ISDIR(st.st_mode)))
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    return synced
+
+
+def test_publish_fsyncs_the_destination_directory_after_the_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AR-10 (BL-E002-071): the rename is durable once publish returns."""
+    final = tmp_path / "site.tar.gz"
+    staged = LocalArchiveStore(verify=Verifier()).stage(_target(final))
+    staged.stream.write(b"archive bytes")
+    synced = _record_fsyncs(monkeypatch)
+    staged.publish()
+    directory = tmp_path.stat()
+    assert synced[-1] == (directory.st_dev, directory.st_ino, True)
+
+
+def test_a_directory_that_cannot_be_synced_is_logged_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    final = tmp_path / "site.tar.gz"
+    staged = LocalArchiveStore(verify=Verifier()).stage(_target(final))
+    staged.stream.write(b"archive bytes")
+    real = os.fsync
+
+    def fsync(fd: int) -> None:
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(errno.EIO, "I/O error")
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    with capture_logs() as logs:
+        assert staged.publish() is True
+    assert final.read_bytes() == b"archive bytes"
+    (warning,) = [e for e in logs if e["event"] == "archive_directory_not_synced"]
+    assert warning["log_level"] == "warning"
+    assert warning["path"] == str(tmp_path)

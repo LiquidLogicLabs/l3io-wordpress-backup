@@ -103,6 +103,7 @@ from l3io.wp.backup.domain.errors import UsageError, VerificationFailedError
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
+    Override,
     OverrideSet,
     RestoreMode,
     SnapshotPolicy,
@@ -117,6 +118,9 @@ __all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "restore", "verify"]
 #: What a library Run's ``safety_snapshot_skipped`` record names as having
 #: chosen ``SnapshotPolicy.SKIP`` (BL-E003-050): the argument, not the CLI flag.
 SNAPSHOT_SKIPPED_BY: Final = "snapshot=SnapshotPolicy.SKIP"
+#: The library's name for a passphrase its caller passes, which a
+#: ``PassphraseUnavailableError`` hint names (UX-01-17; the CLI takes none).
+_PASSPHRASE_ARGUMENT: Final = "passphrase"  # noqa: S105 - a parameter name
 
 
 def _registry() -> SecretRegistry:
@@ -129,6 +133,30 @@ def _target(value: StorageTarget | str | os.PathLike[str]) -> StorageTarget:
     if isinstance(value, StorageTarget):
         return value
     return storage_target_from_cli(os.fspath(value))
+
+
+def _require(value: object, expected: type, argument: str) -> None:
+    """``UsageError`` naming ``argument`` unless ``value`` is an ``expected``.
+
+    BL-E006-018: a wrong-typed closed choice (``scope="all"``, a bare string
+    for ``mode``) is the caller's mistake, refused at the API edge, not a
+    defect surfacing later as ``UnexpectedError``. The message names the
+    types, never the value.
+    """
+    if not isinstance(value, expected):
+        msg = f"{argument} must be a {expected.__name__}, not {type(value).__name__}"
+        raise UsageError(msg, arguments=(argument,))
+
+
+def _require_overrides(overrides: object) -> None:
+    """``overrides`` is an ``OverrideSet`` of ``Override`` members only."""
+    _require(overrides, OverrideSet, "overrides")
+    waived = getattr(overrides, "waived", None)
+    if not isinstance(waived, frozenset) or not all(
+        isinstance(item, Override) for item in waived
+    ):
+        msg = "overrides must waive Override members only"
+        raise UsageError(msg, arguments=("overrides",))
 
 
 def _exclusion(policy: ExclusionPolicy) -> ExclusionPolicy:
@@ -173,13 +201,19 @@ def backup(
     ``allow_target_in_site_root=True`` allows a ``target`` inside the Site
     Root (``TargetInsideSiteRootError`` otherwise), as ``--confirm-db-host``
     and ``--allow-target-in-site-root`` (owner decisions 2026-11-07).
+    A ``scope`` that is not a ``BackupScope`` is refused (``UsageError``).
     """
+    _require(scope, BackupScope, "scope")
     registry = _registry()
     cipher: PayloadCipher | None = None
     extra_tools: tuple[ToolRequirement, ...] = ()
     if encrypt:
         resolved = require_passphrase(
-            explicit=passphrase, environ=os.environ, prompt=prompt, secrets=registry
+            explicit=passphrase,
+            environ=os.environ,
+            prompt=prompt,
+            secrets=registry,
+            argument=_PASSPHRASE_ARGUMENT,
         )
         built = build_payload_cipher(passphrase=resolved.value, secrets=registry)
         cipher, extra_tools = built, built.required_tools()
@@ -250,6 +284,7 @@ def verify(
         secrets=registry,
         command_args=None,
         passphrase=passphrase,
+        passphrase_argument=_PASSPHRASE_ARGUMENT,
         environ=os.environ if authenticate else NO_ENVIRONMENT,
         prompt=prompt,
         on_warning=on_warning,
@@ -298,7 +333,13 @@ def restore(
     ``DatabaseNotRestoredError``, as the CLI exits ``FAILED``. A process
     running as root is refused (``RootRestoreRefusedError``) unless
     ``allow_root=True``, as ``--allow-root`` (owner decision 2026-11-07).
+    A ``mode``, ``overrides``, ``snapshot`` or ``config_policy`` of the wrong
+    type is refused (``UsageError`` naming the parameter) before any effect.
     """
+    _require(mode, RestoreMode, "mode")
+    _require_overrides(overrides)
+    _require(snapshot, SnapshotPolicy, "snapshot")
+    _require(config_policy, ConfigPolicy, "config_policy")
     registry = _registry()
     flags = RelocationFlags.none() if relocation is None else relocation
     # The CLI's chain without its file flag: the argument, then
@@ -320,6 +361,7 @@ def restore(
         prompt=prompt,
         secrets=registry,
         label=RESTORE_PROMPT,
+        argument=_PASSPHRASE_ARGUMENT,
     )
     note_short_restore_passphrase(resolved, on_warning)
     cipher = build_payload_cipher(

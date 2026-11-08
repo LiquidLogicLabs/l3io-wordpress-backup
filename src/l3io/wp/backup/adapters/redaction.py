@@ -24,6 +24,11 @@ Limits, stated because string matching cannot see past them:
 - a host that configures logging itself has no :func:`redact_open_runs` in its
   chain.
 
+A field that is neither text, an exception nor a container — ``bytes``, a
+``Path``, any object — is examined as the text the renderer would make of it
+(``bytes`` decoded as UTF-8 with ``surrogateescape``, anything else ``repr()``);
+when that text holds a secret the field becomes the redacted text.
+
 **In the configured pipeline** (``cli/logging.py``, E002-S01-004) the processor
 is :func:`redact_open_runs`: it applies :meth:`SecretRegistry.redact_event` of
 every registry :func:`open_registry` has made live — ``cli.context.open_run``
@@ -168,7 +173,16 @@ class SecretRegistry:
             walked = [self._walk(v) for v in value]
             # A named tuple or other subclass comes back as a plain list.
             return type(value)(walked) if type(value) in _SEQUENCES else walked
-        return value
+        if value is None or isinstance(value, bool | int | float):
+            return value
+        # bytes, a Path or any other object: the renderer stringifies it after
+        # this step, so examine that text now. Unchanged unless it holds one.
+        if isinstance(value, bytes | bytearray):
+            text = bytes(value).decode("utf-8", errors="surrogateescape")
+        else:
+            text = repr(value)
+        redacted = self.redact(text)
+        return value if redacted == text else redacted
 
     def log_registered(self) -> None:
         """The one ``secrets_registered`` DEBUG record a Run emits: a count."""

@@ -110,6 +110,21 @@ def test_a_member_larger_than_its_index_entry_is_refused(
     assert not (destination / "b.php").exists()
 
 
+def test_a_skipped_roles_member_larger_than_its_index_entry_is_refused(
+    tmp_path: Path, destination: Path
+) -> None:
+    """BL-E003-088: a member of a role not extracted is still decompressed to
+    be skipped, so its header is held to its indexed size as well."""
+    short = {"site-root/a.php": len(BODY), "site-root/b.php": len(BODY) - 1}
+    source, view = _crafted(tmp_path, short)
+    with pytest.raises(
+        ExtractionRefusedError, match="the archive lists for it"
+    ) as caught:
+        extract_archive(source, destination, view, roles=frozenset({MemberRole.DUMP}))
+    assert caught.value.member == "site-root/b.php"
+    assert list(destination.iterdir()) == []
+
+
 def test_the_running_total_stops_at_the_indexed_sum(
     tmp_path: Path, destination: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

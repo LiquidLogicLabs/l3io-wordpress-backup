@@ -49,7 +49,11 @@ from l3io.wp.backup.domain.errors import (
     UnreadableSiteRootError,
     UsageError,
 )
-from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.exit_codes import (
+    INTERRUPTED_EXIT,
+    INTERRUPTED_REASON,
+    ExitCode,
+)
 from l3io.wp.backup.domain.flag_map import FLAG_MAP, FlagRejection, resolve_flags
 from l3io.wp.backup.domain.journal import JournalHeader
 from l3io.wp.backup.domain.preflight import ToolRequirement
@@ -844,7 +848,10 @@ def test_the_encrypted_snapshot_notice_survives_json_at_warning_level(
     ids=["defect", "os-error", "interrupt"],
 )
 def test_any_error_after_the_snapshot_names_it(
-    rig: Rig, capsys: pytest.CaptureFixture[str], error: BaseException
+    rig: Rig,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    error: BaseException,
 ) -> None:
     """ADV-S02-06: not only a ``BackupError`` carries the Safety Snapshot path."""
 
@@ -858,11 +865,23 @@ def test_any_error_after_the_snapshot_names_it(
         rig.drive()
     planned = rig.inputs.header.snapshot_path
     assert str(caught.value.snapshot_path) == planned  # type: ignore[union-attr]
-    if not isinstance(error, Exception):
-        return  # main() does not catch KeyboardInterrupt; drive_restore named it
     capsys.readouterr()
-    assert main(_argv(rig)) == int(ExitCode.FAILED)
-    summary = _summary(capsys.readouterr().out)
+    interrupted = isinstance(error, KeyboardInterrupt)
+    code = main(_argv(rig))
+    # L3 (BL-E002-066): Ctrl-C exits 130 with one line and no traceback.
+    assert code == (INTERRUPTED_EXIT if interrupted else int(ExitCode.FAILED))
+    captured = capsys.readouterr()
+    if interrupted:
+        assert "Traceback" not in captured.err
+        assert "interrupted [exit 130 INTERRUPTED]" in captured.err
+        (failed,) = [
+            r.msg
+            for r in caplog.records
+            if isinstance(r.msg, dict) and r.msg.get("event") == "command_failed"
+        ]
+        assert failed["exit_code"] == INTERRUPTED_EXIT
+        assert failed["exit_reason"] == INTERRUPTED_REASON
+    summary = _summary(captured.out)
     assert summary == {
         "status": "failed",
         "error": type(error).__name__,
@@ -1119,6 +1138,37 @@ def test_allow_unencrypted_restores_a_plain_archive_with_a_passphrase(
     with capture_logs():
         rig.drive(cipher=_StubCipher(), allow_unencrypted=True)
     assert rig.executions
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"cipher": None}, "no passphrase was given"),
+        (
+            {"cipher": _StubCipher(), "require_encrypted": True},
+            "require_encrypted refuses a plain Archive",
+        ),
+        ({"cipher": _StubCipher()}, None),
+    ],
+    ids=["no-passphrase", "with-require-encrypted", "has-effect"],
+)
+def test_allow_unencrypted_without_effect_is_noted_at_info(
+    rig: Rig, changes: dict[str, object], reason: str | None
+) -> None:
+    """BL-E008-021: never refused, never silent."""
+    with capture_logs() as logs:
+        try:
+            rig.drive(allow_unencrypted=True, **changes)
+        except ArchiveNotEncryptedError:
+            assert changes.get("require_encrypted") is True
+    noted = [e for e in logs if e["event"] == "restore_flag_no_effect"]
+    if reason is None:
+        assert noted == []
+        return
+    (record,) = noted
+    assert record["log_level"] == "info"
+    assert record["option"] == "allow_unencrypted"
+    assert record["reason"].startswith(reason)
 
 
 def test_no_passphrase_restores_a_plain_archive_as_before(rig: Rig) -> None:

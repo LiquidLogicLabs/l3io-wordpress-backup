@@ -22,7 +22,7 @@ define( 'DB_NAME', 'wordpress' );
 /** MySQL database username */
 define( 'DB_USER', 'wordpress' );
 /** MySQL database password */
-define( 'DB_PASSWORD', 'pass@word1' );
+define( 'DB_PASSWORD', 'sentinel-v0-fixture-db-password-d2ff9b94b265' );
 /** MySQL hostname */
 define( 'DB_HOST', 'wordpressdb' );
 /** Database Charset to use in creating database tables. */

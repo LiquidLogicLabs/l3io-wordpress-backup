@@ -40,7 +40,7 @@ from typing import Final, Self
 import platformdirs
 import structlog
 
-from l3io.wp.backup.adapters.workspace import private_directories
+from l3io.wp.backup.adapters.workspace import private_state_directories
 from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     SiteLockedError,
@@ -49,7 +49,13 @@ from l3io.wp.backup.domain.errors import (
 )
 from l3io.wp.backup.domain.lock import LockHolder, utc_z
 
-__all__ = ["APP_NAME", "FcntlLockHandle", "FcntlSiteLock", "default_lock_dir"]
+__all__ = [
+    "APP_NAME",
+    "FcntlLockHandle",
+    "FcntlSiteLock",
+    "default_lock_dir",
+    "state_root",
+]
 
 #: The per-user state directory's application name, shared with Epic 3.
 APP_NAME: Final = "l3io-wp-backup"
@@ -61,9 +67,14 @@ _RECORD_LIMIT: Final = 64 * 1024
 _log = structlog.get_logger(__name__)
 
 
+def state_root() -> Path:
+    """The per-user state directory: ``platformdirs.user_state_path(APP_NAME)``."""
+    return platformdirs.user_state_path(APP_NAME)
+
+
 def default_lock_dir() -> Path:
     """The per-user lock directory: ``<user state dir>/locks``."""
-    return platformdirs.user_state_path(APP_NAME) / "locks"
+    return state_root() / "locks"
 
 
 # ``fcntl`` is imported where it is used, not at module import: on a platform
@@ -251,7 +262,8 @@ class FcntlSiteLock:
             if _inside(directory.resolve(), site_root):
                 reason = f"it is inside the site root {str(site_root)!r}"
                 raise SiteLockLocationError(directory, reason)
-            private_directories(directory)
+            # BL-E008-027: checked before and after it is created.
+            private_state_directories(directory, root=state_root())
             # A symlink placed after the check above is caught here.
             directory = directory.resolve(strict=True)
             if _inside(directory, site_root):

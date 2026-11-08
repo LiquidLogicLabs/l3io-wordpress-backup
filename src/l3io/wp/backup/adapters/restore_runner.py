@@ -211,6 +211,20 @@ class TargetConfigMissingError(RefusedError):
         )
 
 
+def _finish_after_failure(journal: RunJournalCommand) -> None:
+    """Finish the journal of an orderly failure without masking that failure.
+
+    ADV-13: an error from ``finish_run`` (a full journal disk) would replace
+    the Run's own error, and with it the exit code. It is logged (ERROR
+    ``journal_finish_failed``, the error's class only) and the caller
+    re-raises the original; the journal is left as the failure left it.
+    """
+    try:
+        journal.finish_run()
+    except Exception as exc:  # RunTerminated: mapped here (the Run's error re-raised)
+        _log.error("journal_finish_failed", error=type(exc).__name__)
+
+
 class _RecordingJournal:
     """``RunJournalCommand`` over ``inner``, keeping this Run's entries in memory."""
 
@@ -366,7 +380,7 @@ def execute_restore(
                 _dispatch(run, step, record)
     except BaseException:
         if run.begun and is_orderly_failure(tuple(run.journal.entries)):
-            run.journal.finish_run()
+            _finish_after_failure(run.journal)
         raise
     if run.begun:
         run.journal.finish_run()
@@ -827,6 +841,10 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
             run.wp_config_kept = True
             _log.info("wp_config_kept", path=str(inputs.config_path))
     if lay_down and not by_role:
+        # BL-E008-023: a config laid down by the tree extraction gets the
+        # same restriction as one laid down by role, before the cutover
+        # writes a database password into it.
+        _restrict_laid_down(config_file)
         run.journal.step_completed(RestorePhase.EXTRACT, STEP_CONFIG)
     run.journal.phase_completed(RestorePhase.EXTRACT)
 
@@ -834,7 +852,8 @@ def _extract(run: _Run, record: PhaseRecord) -> None:
 def _restrict_laid_down(config_file: Path) -> None:
     """Take every permission from "other" off a config just laid down.
 
-    It takes its mode from the Archive, and the cutover is about to write a
+    Laid down by role or by the tree extraction alike (BL-E008-023): it takes
+    its mode from the Archive, and the cutover is about to write a
     database password into it. The owner and group bits are kept: the web
     server may read it as the group. WARNING ``config_mode_restricted`` (path
     and modes only) says when the Archive's mode was wider.

@@ -90,16 +90,18 @@ import structlog
 
 from l3io.wp.backup.adapters.database import database_location_from_db_host
 from l3io.wp.backup.adapters.journal import journal_directory
+from l3io.wp.backup.adapters.lock import state_root
 from l3io.wp.backup.adapters.preflight import (
     WP_CLI_CONFIG_FILES,
     ChildOutputLimitError,
+    absolute_search_path,
     find_wp_cli_config,
     locate_tool,
     run_bounded,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.restore_runner import config_member
-from l3io.wp.backup.adapters.workspace import private_directories
+from l3io.wp.backup.adapters.workspace import private_state_directories
 from l3io.wp.backup.core.config_location import (
     ConfigFacts,
     ConfigPlacement,
@@ -238,10 +240,12 @@ def wp_cli_environment(config_path: Path) -> dict[str, str]:
 
     Nothing else from ``os.environ`` reaches it: not the passphrase, not
     ``MYSQL_*``, not any ``L3IO_WP_BACKUP_*`` or ``WP_CLI_*`` variable. WP-CLI
-    reads ``DB_PASSWORD`` from ``wp-config.php`` itself (AD-7).
+    reads ``DB_PASSWORD`` from ``wp-config.php`` itself (AD-7). ``PATH`` holds
+    only its absolute entries, the ones ``wp`` was located over, so the
+    ``php`` WP-CLI runs is found by the same rule (BL-E007-013).
     """
     return {
-        "PATH": os.environ.get("PATH", os.defpath),
+        "PATH": absolute_search_path(),
         "HOME": os.environ.get("HOME", "/"),
         "LC_ALL": "C",
         "WP_CLI_CONFIG_PATH": str(config_path),
@@ -409,7 +413,7 @@ def _wp_cli_directory(site_root: Path) -> Iterator[tuple[Path, Path]]:
     """
     try:
         base = journal_directory(site_root)
-        private_directories(base)
+        private_state_directories(base, root=state_root())  # BL-E008-027
         directory = Path(tempfile.mkdtemp(prefix="wp-cli-", dir=base))
     except OSError as exc:
         step, reason = "prepare", f"{type(exc).__name__}: {exc.strerror or exc}"
@@ -431,7 +435,7 @@ def _check_wp_cli_directory(site_root: Path) -> None:
     """
     try:
         base = journal_directory(site_root)
-        private_directories(base)
+        private_state_directories(base, root=state_root())  # BL-E008-027
     except OSError as exc:
         step, reason = "prepare", f"{type(exc).__name__}: {exc.strerror or exc}"
         raise WpCliFailedError(step, None, reason) from exc

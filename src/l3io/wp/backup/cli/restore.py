@@ -168,6 +168,7 @@ from l3io.wp.backup.domain.errors import (
     PassphraseRequiredError,
     RefusedError,
     RootRestoreRefusedError,
+    RunTerminated,
     SiteRootNotFoundError,
     UnknownInterruptedRunError,
     UsageError,
@@ -1391,6 +1392,7 @@ def drive_restore(
             )
         # Step 5: the probe (reused when step 3 already probed).
         view = archive.view()
+        _note_allow_unencrypted(request, encrypted=view.encrypted)
         if not view.encrypted and request.require_encrypted:
             # RT-1: the operator said an encrypted Archive was expected; a
             # plain one may be a substitution. Refused before any effect.
@@ -1550,7 +1552,7 @@ def drive_restore(
                 reason = "the snapshot was not performed, and the restore would destroy"
                 raise SnapshotFailedError(str(snapshot_path), reason)
             if request.cipher is None and taken[-1].performed:
-                emit_warning(
+                _warn_after_snapshot(
                     RunWarning(
                         code="safety_snapshot_unencrypted",
                         message=f"safety snapshot is NOT encrypted: {result.path}",
@@ -1561,7 +1563,7 @@ def drive_restore(
                 _log.warning("safety_snapshot_unencrypted", path=str(result.path))
             elif taken[-1].performed:
                 # BL-E003-075: restoring it needs this Run's passphrase.
-                emit_warning(
+                _warn_after_snapshot(
                     RunWarning(
                         code="safety_snapshot_encrypted",
                         message="safety snapshot is encrypted with the passphrase "
@@ -1775,6 +1777,45 @@ def _print_outcome(
         )
     if completed:
         emit_result(completion_line(outcome, archive=archive, site_root=site_root))
+
+
+def _warn_after_snapshot(warning: RunWarning, sink: WarningSink | None) -> None:
+    """``emit_warning``, where a raising ``sink`` must not abort the Run.
+
+    BL-E008-022 (owner decision 2026-11-07): once the Safety Snapshot is
+    taken, a library caller's ``on_warning`` that raises (a closed log handle,
+    a UI callback) would stop the restore with a snapshot and a journal entry
+    but no restore. Its exception is logged (ERROR ``on_warning_failed``, the
+    notice's code and the exception's class) and the Run continues; the
+    notice's own WARNING record is logged by the caller either way. A notice
+    before any effect still propagates the sink's exception.
+    """
+    try:
+        emit_warning(warning, sink)
+    except RunTerminated:
+        raise
+    except Exception as exc:  # RunTerminated: mapped here (re-raised above)
+        _log.error("on_warning_failed", code=warning.code, error=type(exc).__name__)
+
+
+def _note_allow_unencrypted(request: RestoreRequest, *, encrypted: bool) -> None:
+    """INFO ``restore_flag_no_effect`` when ``allow_unencrypted`` changes nothing.
+
+    BL-E008-021 (owner decision 2026-11-07): accepted, never refused, but not
+    silently: it has an effect only for a plain Archive restored with a
+    passphrase and without ``require_encrypted``.
+    """
+    if not request.allow_unencrypted:
+        return
+    if encrypted:
+        reason = "the Archive is encrypted"
+    elif request.require_encrypted:
+        reason = "require_encrypted refuses a plain Archive"
+    elif request.cipher is None:
+        reason = "no passphrase was given, so a plain Archive is restored anyway"
+    else:
+        return
+    _log.info("restore_flag_no_effect", option="allow_unencrypted", reason=reason)
 
 
 def _print_kept_snapshot(path: PurePath, *, error: BaseException) -> None:

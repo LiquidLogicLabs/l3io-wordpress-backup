@@ -77,7 +77,7 @@ from l3io.wp.backup.adapters.database import (
     require_wp_config_credentials,
     site_descriptor_from_wp_config,
 )
-from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy
+from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy, log_path_excluded
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import (
@@ -246,17 +246,19 @@ class _SkipStaged:
         return self.inner.patterns
 
     def decide(self, relative: PurePosixPath, *, is_dir: bool) -> ExclusionDecision:
+        own = None
         if not is_dir and self.site_root / relative == self.staged:
-            return ExclusionDecision(
-                excluded=True, pattern="the Archive being written", protected=False
-            )
-        if not is_dir and any(
+            own = "the Archive being written"
+        elif not is_dir and any(
             fnmatch.fnmatchcase(relative.name, g) for g in _OWN_ARCHIVE_GLOBS
         ):
-            return ExclusionDecision(
-                excluded=True, pattern="an earlier wpbackup2 Archive", protected=False
-            )
-        return self.inner.decide(relative, is_dir=is_dir)
+            own = "an earlier wpbackup2 Archive"
+        if own is None:
+            return self.inner.decide(relative, is_dir=is_dir)
+        # BL-E004-045: logged like every other exclusion, so the path_excluded
+        # records match the Manifest's excluded entries.
+        log_path_excluded(relative, own)
+        return ExclusionDecision(excluded=True, pattern=own, protected=False)
 
 
 def default_exclusion_policy() -> ExclusionPolicy:

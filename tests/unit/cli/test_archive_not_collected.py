@@ -11,6 +11,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 
 import pytest
+from structlog.testing import capture_logs
 
 pytest.importorskip("l3io.wp.database")
 
@@ -31,6 +32,22 @@ def test_skip_staged_excludes_only_the_staged_file(tmp_path: Path) -> None:
     assert not policy.decide(
         PurePosixPath(".out.tar.gz.abc.partial"), is_dir=True
     ).excluded
+
+
+def test_skip_staged_logs_each_own_exclusion_as_path_excluded(tmp_path: Path) -> None:
+    """BL-E004-045: the records match the Manifest's excluded entries."""
+    root = tmp_path / "www"
+    staged = root / ".out.tar.gz.abc.partial"
+    policy = _SkipStaged(INCLUDE_EVERYTHING, root, staged)
+    with capture_logs() as logs:
+        policy.decide(PurePosixPath(".out.tar.gz.abc.partial"), is_dir=False)
+        policy.decide(PurePosixPath("wpbackup2-db-20261103184135.tar.gz"), is_dir=False)
+        policy.decide(PurePosixPath("index.php"), is_dir=False)
+    excluded = [e for e in logs if e["event"] == "path_excluded"]
+    assert [(e["path"], e["pattern"], e["log_level"]) for e in excluded] == [
+        (".out.tar.gz.abc.partial", "the Archive being written", "debug"),
+        ("wpbackup2-db-20261103184135.tar.gz", "an earlier wpbackup2 Archive", "debug"),
+    ]
 
 
 def test_a_files_backup_inside_the_site_root_does_not_contain_its_partial(

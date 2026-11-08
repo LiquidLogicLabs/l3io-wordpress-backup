@@ -102,7 +102,8 @@ Generated from the parser by `tools/gen_cli_docs.py`; CI fails if it drifts.
 <!-- BEGIN GENERATED: cli-usage (tools/gen_cli_docs.py) -->
 ```text
 $ wpbackup2 --help
-usage: wpbackup2 [-h] [--version] [--log-level LOG_LEVEL] [--log-format {console,json}] [--whatIf]
+usage: wpbackup2 [-h] [--version] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}]
+                 [--log-format {console,json}] [--whatIf]
                  {backup,restore,verify,doctor} ...
 
 Backup/restore your WordPress content and database.
@@ -116,14 +117,15 @@ positional arguments:
     doctor              Report whether this host is ready to back up and restore
 
 options:
-  -h, --help            show this help message and exit
-  --version             show program's version number and exit
-  --log-level LOG_LEVEL
+  -h, --help            Show this help message and exit
+  --version             Show the program's version number and exit
+  --log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}
                         Logging level (stdlib level names; default INFO)
   --log-format {console,json}
                         Log format on stderr (default: console on a terminal, else json)
-  --whatIf, --what-if   Dry Run: resolve credentials, run preflight and every query for real,
-                        print the ordered plan, and change nothing
+  --whatIf, --what-if   Dry Run: resolve credentials, run preflight and every query for real, and
+                        print the ordered plan; changes no Site, database or archive, but takes
+                        the Site Lock (exit 9 LOCKED while another Run holds it)
 
 exit codes:
    0  OK                   the Run succeeded
@@ -145,12 +147,14 @@ usage: wpbackup2 backup [-h] [--wp-dir WP_DIR] [--whatIf] [--archive ARCHIVE] [-
                         [--allow-target-in-site-root] [--db-credentials-aws-secret-id ID]
                         [--db-credentials-aws-region REGION]
 
+Perform a WordPress backup
+
 options:
-  -h, --help            show this help message and exit
+  -h, --help            Show this help message and exit
   --wp-dir WP_DIR       Path to the root of the WordPress directory (required, except with --list-
                         default-excludes)
-  --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
-                        write nothing (also accepted before `backup`)
+  --whatIf, --what-if   Dry Run: run every check and query for real and print the ordered plan;
+                        writes no archive but takes the Site Lock (also accepted before `backup`)
   --archive ARCHIVE     Archive path or file: URL (default: ./wpbackup2-<db>-<UTC
                         timestamp>.tar.gz)
   --wp-config PATH      Use this wp-config.php instead of searching for it
@@ -178,6 +182,17 @@ database credentials:
                         Read the WordPress database account from this AWS Secrets Manager secret
   --db-credentials-aws-region REGION
                         AWS region of --db-credentials-aws-secret-id (needs the secret id)
+
+exit codes:
+   0  OK                   the Run succeeded
+   1  FAILED               the Run failed for a reason no other code names
+   2  USAGE                the command line was invalid
+   3  REFUSED              a check found a reason not to act; nothing was done
+   4  CREDENTIALS          credentials were missing, unusable or rejected
+   5  UNREACHABLE          the database server could not be reached
+   7  NOT_READY            a required tool or optional extra is not available
+   8  VERIFICATION_FAILED  the archive failed verification
+   9  LOCKED               another Run holds the site lock
 ```
 
 ```text
@@ -196,8 +211,10 @@ usage: wpbackup2 restore [-h] --wp-dir WP_DIR --archive ARCHIVE [--mode {files,d
                          [--new-db-password-file PATH] [--allow-root] [--allow-unencrypted]
                          [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
 
+Perform a WordPress restore
+
 options:
-  -h, --help            show this help message and exit
+  -h, --help            Show this help message and exit
   --wp-dir WP_DIR       Path to the root of the WordPress directory
   --archive ARCHIVE     Path or file: URL of the archive to restore from (required, --resolve-
                         interrupted-run included)
@@ -216,11 +233,11 @@ restore mode:
                         selects no mode and removes nothing
 
 restore options:
-  The flags that do not select the Restore Mode: Dry Run, wp-config.php, the Safety Snapshot,
-  the database administrator and relocation
+  The flags that do not select the Restore Mode: Dry Run, wp-config.php, the Safety Snapshot, the database administrator and relocation
 
-  --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
-                        change nothing (also accepted before `restore`)
+  --whatIf, --what-if   Dry Run: run every check and query for real and print the ordered plan;
+                        changes no Site or database but takes the Site Lock (also accepted before
+                        `restore`)
   --wp-config PATH      Use this wp-config.php instead of searching for it
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
@@ -282,31 +299,68 @@ database credentials:
                         Read the WordPress database account from this AWS Secrets Manager secret
   --db-credentials-aws-region REGION
                         AWS region of --db-credentials-aws-secret-id (needs the secret id)
+
+exit codes:
+   0  OK                   the Run succeeded
+   1  FAILED               the Run failed for a reason no other code names
+   2  USAGE                the command line was invalid
+   3  REFUSED              a check found a reason not to act; nothing was done
+   4  CREDENTIALS          credentials were missing, unusable or rejected
+   5  UNREACHABLE          the database server could not be reached
+   7  NOT_READY            a required tool or optional extra is not available
+   8  VERIFICATION_FAILED  the archive failed verification
+   9  LOCKED               another Run holds the site lock
 ```
 
 ```text
 $ wpbackup2 verify --help
 usage: wpbackup2 verify [-h] [--whatIf] --archive ARCHIVE [--authenticate]
 
+Check an archive without touching a site
+
 options:
-  -h, --help           show this help message and exit
+  -h, --help           Show this help message and exit
   --whatIf, --what-if  Accepted for symmetry: verify is read-only, so it changes nothing
-  --archive ARCHIVE    Path or file: URL of the archive to check.
+  --archive ARCHIVE    Path or file: URL of the archive to check
   --authenticate       Decrypt the encrypted payload to prove the archive authentic; without it,
                        verify proves only that its checksums are consistent. The passphrase comes
                        from L3IO_WP_BACKUP_PASSPHRASE or a prompt. It does not show the archive is
-                       the latest one: an older archive under the same passphrase also passes.
+                       the latest one: an older archive under the same passphrase also passes
+
+exit codes:
+   0  OK                   the Run succeeded
+   1  FAILED               the Run failed for a reason no other code names
+   2  USAGE                the command line was invalid
+   3  REFUSED              a check found a reason not to act; nothing was done
+   4  CREDENTIALS          credentials were missing, unusable or rejected
+   5  UNREACHABLE          the database server could not be reached
+   7  NOT_READY            a required tool or optional extra is not available
+   8  VERIFICATION_FAILED  the archive failed verification
+   9  LOCKED               another Run holds the site lock
 ```
 
 ```text
 $ wpbackup2 doctor --help
 usage: wpbackup2 doctor [-h] [--wp-dir DIR] [--archive TARGET] [--json]
 
+Report whether this host is ready to back up and restore
+
 options:
-  -h, --help        show this help message and exit
+  -h, --help        Show this help message and exit
   --wp-dir DIR      Also check this Site Root
   --archive TARGET  Also check this archive target
   --json            Print the diagnosis as JSON
+
+exit codes:
+   0  OK                   the Run succeeded
+   1  FAILED               the Run failed for a reason no other code names
+   2  USAGE                the command line was invalid
+   3  REFUSED              a check found a reason not to act; nothing was done
+   4  CREDENTIALS          credentials were missing, unusable or rejected
+   5  UNREACHABLE          the database server could not be reached
+   7  NOT_READY            a required tool or optional extra is not available
+   8  VERIFICATION_FAILED  the archive failed verification
+   9  LOCKED               another Run holds the site lock
 ```
 <!-- END GENERATED: cli-usage -->
 
@@ -314,8 +368,8 @@ options:
 
 A scheduler can branch on the exit code alone: `0` means the Run succeeded and
 every failure exits non-zero with a code naming its kind. The table is
-append-only — a code is never renumbered or reused. `KeyboardInterrupt` exits
-with the shell's `130`, which is not part of the table.
+append-only — a code is never renumbered or reused. Ctrl-C exits with the
+shell's `130` (`INTERRUPTED` in the log), which is not part of the table.
 
 <!-- BEGIN GENERATED: exit-codes (tools/gen_cli_docs.py) -->
 | Code | Name | Meaning |

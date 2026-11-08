@@ -21,7 +21,7 @@ import structlog
 from l3io.wp.backup.core.exclusions import ExclusionSet
 from l3io.wp.backup.domain.exclusion import ExclusionDecision
 
-__all__ = ["LoggedExclusionPolicy"]
+__all__ = ["LoggedExclusionPolicy", "log_path_excluded"]
 
 _log = structlog.get_logger(__name__)
 
@@ -29,6 +29,20 @@ _log = structlog.get_logger(__name__)
 def _escaped(text: str) -> str:
     """``repr()``'s escaping, without its quotes."""
     return repr(text)[1:-1]
+
+
+def log_path_excluded(relative: PurePosixPath, pattern: str) -> None:
+    """The DEBUG ``path_excluded`` record for one excluded path.
+
+    Shared with the backup root's own exclusions (its staged Archive and
+    earlier Archives; BL-E004-045), so every path the Manifest records as
+    excluded has its record.
+    """
+    _log.debug(
+        "path_excluded",
+        path=_escaped(relative.as_posix()),
+        pattern=_escaped(pattern),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +73,7 @@ class LoggedExclusionPolicy:
                 pattern_count=len(self.policy.patterns),
             )
         if decision.excluded and decision.pattern is not None:
-            _log.debug(
-                "path_excluded",
-                path=_escaped(relative.as_posix()),
-                pattern=_escaped(decision.pattern),
-            )
+            log_path_excluded(relative, decision.pattern)
         elif decision.protected and decision.pattern is not None:
             _log.warning(
                 "protected_path_kept",

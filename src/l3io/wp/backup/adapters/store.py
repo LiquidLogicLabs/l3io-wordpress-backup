@@ -7,9 +7,13 @@ so the rename is atomic — through stdlib :func:`tempfile.mkstemp` (``O_CREAT |
 O_EXCL``, mode ``0600``). :meth:`_LocalStagedArchive.publish` runs the injected
 verifier once, inside ``phase("VERIFY")``, and only on a pass, and only if the
 final name is still free, renames the file into place with :func:`os.replace`
-inside ``phase("PUBLISH")``. Any failure discards the staged file; nothing is
-ever left at the final name. The verifier has no default, so a store that skips
-verification cannot be built by omission.
+inside ``phase("PUBLISH")``, then ``fsync``s the destination directory so
+the rename survives a power loss (AR-10). Any failure before the rename
+discards the staged file; nothing is ever left at the final name. A directory
+that cannot be synced after the rename is logged (WARNING
+``archive_directory_not_synced``), not raised: the Archive is in place, and
+raising would report it as not published. The verifier has no default, so a
+store that skips verification cannot be built by omission.
 
 Before staging, :meth:`~LocalArchiveStore.stage` sweeps the destination
 directory for this target's stray ``.partial`` files a hard-killed Run left
@@ -94,6 +98,22 @@ class _DestinationWriter(io.RawIOBase):
                 super().close()
 
 
+def _sync_directory(directory: Path) -> None:
+    """``fsync`` ``directory`` so a rename in it is durable; a failure is logged."""
+    try:
+        fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        _log.warning(
+            "archive_directory_not_synced",
+            path=str(directory),
+            reason=exc.strerror or type(exc).__name__,
+        )
+
+
 class _LocalStagedArchive:
     """One staged Archive. ``publish`` and ``discard`` each act at most once."""
 
@@ -139,6 +159,7 @@ class _LocalStagedArchive:
             self._staged.replace(self._final)
         except OSError as exc:
             raise ArchiveWriteError(self._final, _reason(exc)) from exc
+        _sync_directory(self._final.parent)
         return size
 
     def publish(self) -> bool:

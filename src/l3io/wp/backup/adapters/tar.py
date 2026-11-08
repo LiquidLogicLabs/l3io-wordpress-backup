@@ -1339,6 +1339,17 @@ class _ExtractFilter:
         if located is None:
             raise ExtractionRefusedError(name, "escapes its role prefix")
         role, relative = located
+        declared = self.sizes.get(name)
+        if member.isfile() and declared is not None and member.size > declared:
+            # Before the role check (BL-E003-088): a member of a role that is
+            # not extracted is still decompressed to be skipped, so its header
+            # is held to its indexed size too, and the whole payload's work is
+            # bounded by the index.
+            reason = (
+                f"its size, {member.size} bytes, exceeds the {declared} bytes "
+                "the archive lists for it"
+            )
+            raise ExtractionRefusedError(name, reason)
         if role not in self.roles or not relative:
             return None
         if any(parent in self.links for parent in PurePosixPath(relative).parents):
@@ -1360,13 +1371,6 @@ class _ExtractFilter:
             raise ExtractionRefusedError(name, type(exc).__name__) from exc
         if self.check_kinds and _header_kind(member) is not indexed:
             reason = f"its type is not the {indexed.value} the archive lists for it"
-            raise ExtractionRefusedError(name, reason)
-        declared = self.sizes.get(name)
-        if member.isfile() and declared is not None and member.size > declared:
-            reason = (
-                f"its size, {member.size} bytes, exceeds the {declared} bytes "
-                "the archive lists for it"
-            )
             raise ExtractionRefusedError(name, reason)
         if PurePosixPath(relative) in self.exclude:
             return None
@@ -1442,7 +1446,9 @@ def extract_archive(
     reported in ``skipped_links``, any other refusal, a hard link anywhere and
     a member outside the index raise :class:`ExtractionRefusedError`. ``exclude``
     holds role-relative paths whose bytes are never written. A file member
-    whose header size exceeds its indexed ``ViewMember.size`` is refused, and
+    whose header size exceeds its indexed ``ViewMember.size`` is refused —
+    in a role that is not extracted too, since it is still decompressed to be
+    skipped (BL-E003-088) — and
     so is a running total past the sum of the extracted roles' indexed sizes
     (BL-E002-116); a v0 member has no indexed size, and tarfile writes no more
     than its header states. :func:`require_patched_tarfile` runs first, before

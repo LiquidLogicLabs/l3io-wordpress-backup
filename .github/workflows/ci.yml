@@ -107,6 +107,13 @@ jobs:
       # only those tokens, so any other spelling on the same line still fires.
       - name: AD-4 no dry-run conditionals
         run: |
+          # AD-12: assert the scope first. A missing path makes the first grep
+          # exit 2 and the last one see no input, so the step would pass
+          # over nothing.
+          test -d src/l3io/wp/backup || {
+            echo "::error::AD-4 -- src/l3io/wp/backup does not exist; this guard would pass vacuously"
+            exit 1
+          }
           if grep -rniE 'dry_?run|what_?if' src/l3io/wp/backup --include='*.py' \
                | grep -vE '^src/l3io/wp/backup/(cli|api)/' \
                | sed -E 's/\b(skipped_dry_run|dry_run_adapters)\b//g' \

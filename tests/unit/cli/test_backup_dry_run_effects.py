@@ -68,7 +68,8 @@ ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
     # E008-S01-001: the cipher factory and the logged exclusion wrapper; a
     # cipher and a policy are per-call arguments, neither writes.
     f"{ADAPTERS}.crypto": frozenset({"PassphraseCipher", "build_payload_cipher"}),
-    f"{ADAPTERS}.exclusions": frozenset({"LoggedExclusionPolicy"}),
+    # BL-E004-045: log_path_excluded writes one DEBUG record, nothing else.
+    f"{ADAPTERS}.exclusions": frozenset({"LoggedExclusionPolicy", "log_path_excluded"}),
     f"{ADAPTERS}.phase": frozenset({"phase"}),
     f"{ADAPTERS}.redaction": frozenset({"SecretRegistry"}),
 }

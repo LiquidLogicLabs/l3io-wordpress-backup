@@ -193,14 +193,21 @@ class PassphraseUnavailableError(UsageError):
     """AD-26 — passphrase encryption was requested and no usable one resolved.
 
     ``variable`` is the environment variable consulted, never its value;
-    ``reason`` says why none was usable; ``arguments`` is ``("passphrase",)``.
+    ``reason`` says why none was usable; ``argument`` is the root's own name
+    for a passphrase its caller passes (the library's ``passphrase``), named
+    in the hint; ``None`` (the CLI, which takes no passphrase value) leaves it
+    out (UX-01-17). ``arguments`` is ``("passphrase",)``.
     """
 
-    def __init__(self, variable: str, *, reason: str) -> None:
+    def __init__(
+        self, variable: str, *, reason: str, argument: str | None = None
+    ) -> None:
         self.variable = variable
         self.reason = reason
+        self.argument = argument
+        passed = "" if argument is None else f"pass {argument}=, "
         super().__init__(
-            f"no usable passphrase: {reason} (pass passphrase=, set {variable}, "
+            f"no usable passphrase: {reason} ({passed}set {variable}, "
             "or run on a terminal so it can be prompted for)",
             arguments=("passphrase",),
         )

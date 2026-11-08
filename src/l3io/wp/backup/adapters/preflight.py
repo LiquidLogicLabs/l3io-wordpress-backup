@@ -96,6 +96,7 @@ __all__ = [
     "ExtraStatus",
     "TargetStatus",
     "ToolInfo",
+    "absolute_search_path",
     "diagnose",
     "find_wp_cli_config",
     "locate_tool",
@@ -249,9 +250,13 @@ def find_wp_cli_config(directory: Path) -> Path | None:
 
 
 def _probe_environment(extra: Mapping[str, str]) -> dict[str, str]:
-    """``PATH``, ``HOME``, ``LC_ALL=C`` and ``extra`` — nothing inherited besides."""
+    """``PATH``, ``HOME``, ``LC_ALL=C`` and ``extra`` — nothing inherited besides.
+
+    ``PATH`` is :func:`absolute_search_path`: the entries the probed binary
+    was found over, so what it runs (``php`` under ``wp``) is found the same way.
+    """
     return {
-        "PATH": os.environ.get("PATH", os.defpath),
+        "PATH": absolute_search_path(),
         "HOME": os.environ.get("HOME", "/"),
         "LC_ALL": "C",
         **extra,
@@ -446,6 +451,16 @@ def _absolute_entries(path: str) -> list[str]:
     return [e for e in path.split(os.pathsep) if e and Path(e).is_absolute()]
 
 
+def absolute_search_path() -> str:
+    """``PATH`` (default ``os.defpath``) with its empty and relative entries dropped.
+
+    The ``PATH`` a child this package runs gets (BL-E007-013): the entries
+    :func:`locate_tool` searched, so a tool the child itself looks up (``php``
+    under ``wp``) is found by the same rule, never relative to the child's cwd.
+    """
+    return os.pathsep.join(_absolute_entries(os.environ.get("PATH", os.defpath)))
+
+
 def has_relative_path_entry(path: str | None = None) -> bool:
     """Whether ``path`` (default: ``PATH``) has an empty or relative entry.
 
@@ -638,7 +653,9 @@ class DatabaseClientsStatus:
     """The database client tools, which this package never runs or names.
 
     ``ready`` is ``None`` when no Site was given; otherwise database's verdict
-    with its finding codes.
+    with its finding codes. ``blocker_details`` says what to fix when the Site
+    could not be checked at all: ``"<error class>: <the package's message>"``
+    for the error behind each such blocker (BL-E008-020), never a value.
     """
 
     checked_by: str
@@ -646,6 +663,7 @@ class DatabaseClientsStatus:
     ready: bool | None
     blockers: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    blocker_details: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -691,6 +709,7 @@ class Diagnosis:
                 "site_given": self.database_clients.site_given,
                 "ready": self.database_clients.ready,
                 "blockers": list(self.database_clients.blockers),
+                "blocker_details": list(self.database_clients.blocker_details),
                 "warnings": list(self.database_clients.warnings),
             },
             "passphrase_backend": self.passphrase_backend,
@@ -784,7 +803,9 @@ def _target_status(target: StorageTarget) -> TargetStatus:
     return TargetStatus(path=str(path), exists=os.path.lexists(path), writable=writable)
 
 
-def _database_clients(database: Readiness | None) -> DatabaseClientsStatus:
+def _database_clients(
+    database: Readiness | None, details: tuple[str, ...]
+) -> DatabaseClientsStatus:
     if database is None:
         return DatabaseClientsStatus(
             checked_by=DATABASE_CLIENTS_CHECKED_BY, site_given=False, ready=None
@@ -795,6 +816,7 @@ def _database_clients(database: Readiness | None) -> DatabaseClientsStatus:
         ready=database.ready,
         blockers=database.blockers,
         warnings=database.warnings,
+        blocker_details=details,
     )
 
 
@@ -804,11 +826,13 @@ def diagnose(
     environ: Mapping[str, str],
     target: StorageTarget | None = None,
     database: Readiness | None = None,
+    database_details: tuple[str, ...] = (),
 ) -> Diagnosis:
     """FR-27's diagnostic data. Runs only ``preflight``'s probes; changes nothing.
 
     ``preflight`` is built by the caller with its Run workspace as ``cwd``;
-    ``database`` is the caller's ``DatabaseQuery.check_dump`` result. Of
+    ``database`` is the caller's ``DatabaseQuery.check_dump`` result, and
+    ``database_details`` what stopped the check (``blocker_details``). Of
     ``environ`` only :data:`PASSPHRASE_BACKEND_VAR` is read, and it is
     reported as one of ``auto``/``binder``/``cli`` or ``"invalid"``.
     """
@@ -824,7 +848,7 @@ def diagnose(
         )
     )
     backend = environ.get(PASSPHRASE_BACKEND_VAR, "auto")
-    clients = _database_clients(database)
+    clients = _database_clients(database, database_details)
     storage = None if target is None else _target_status(target)
     ready = (
         supported

@@ -40,7 +40,7 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final, NoReturn
+from typing import Any, Final, NoReturn
 
 from l3io.wp.backup import __version__
 from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
@@ -52,6 +52,7 @@ __all__ = [
     "DEFAULT_LOG_LEVEL",
     "DOCTOR_COMMAND",
     "LOG_FORMATS",
+    "LOG_LEVELS",
     "NEW_DB_PASSWORD_VAR",
     "NOT_AVAILABLE_NOTE",
     "NOT_YET_IMPLEMENTED",
@@ -103,6 +104,9 @@ NOT_YET_IMPLEMENTED: Final[Mapping[str, str]] = MappingProxyType(
 #: ``INFO``, not v0.2.21's ``CRITICAL``, so a Run's progress is visible by
 #: default (a behaviour fix AD-22 permits).
 DEFAULT_LOG_LEVEL = "INFO"
+#: The ``--log-level`` names shown in help and in the error (any stdlib name,
+#: in any case, is accepted).
+LOG_LEVELS: Final = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 #: ``--log-format`` choices, as ``l3io-wp-database`` v0.2.0 spells them.
 LOG_FORMATS = ("console", "json")
 
@@ -111,7 +115,8 @@ def _log_level(text: str) -> str:
     """A stdlib level name, case-insensitive; anything else is a usage error."""
     name = text.upper()
     if name == "NOTSET" or name not in logging.getLevelNamesMapping():
-        msg = f"invalid level {text!r} (choose DEBUG, INFO, WARNING, ERROR or CRITICAL)"
+        choices = ", ".join(LOG_LEVELS[:-1]) + f" or {LOG_LEVELS[-1]}"
+        msg = f"invalid level {text!r} (choose {choices})"
         raise argparse.ArgumentTypeError(msg)
     return name
 
@@ -137,6 +142,23 @@ class CliParser(argparse.ArgumentParser):
 
     commands: Mapping[str, argparse.ArgumentParser] = MappingProxyType({})
 
+    def __init__(
+        self,
+        *,
+        add_help: bool = True,
+        **kwargs: Any,  # noqa: ANN401 - argparse's own keyword arguments
+    ) -> None:
+        # UX-01-11: every help line is capitalised, argparse's own -h included.
+        super().__init__(add_help=False, **kwargs)
+        if add_help:
+            self.add_argument(
+                "-h",
+                "--help",
+                action="help",
+                default=argparse.SUPPRESS,
+                help="Show this help message and exit",
+            )
+
     def for_command(self, action: str | None) -> argparse.ArgumentParser:
         """The parser of ``action``'s subcommand; this one for none."""
         return self.commands.get(action or "", self)
@@ -157,12 +179,16 @@ def build_parser() -> CliParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show the program's version number and exit",
     )
     parser.add_argument(
         "--log-level",
         type=_log_level,
         default=DEFAULT_LOG_LEVEL,
+        metavar="{" + ",".join(LOG_LEVELS) + "}",
         help=f"Logging level (stdlib level names; default {DEFAULT_LOG_LEVEL})",
     )
     parser.add_argument(
@@ -171,7 +197,8 @@ def build_parser() -> CliParser:
         default=None,
         help="Log format on stderr (default: console on a terminal, else json)",
     )
-    # AD-22 freezes the camelCase spelling; --what-if is its alias (triage E-7).
+    # AD-22 freezes the camelCase spelling; --what-if is an alias, an addition
+    # AD-22 permits, and both set the one `what_if` dest.
     parser.add_argument(
         "--whatIf",
         "--what-if",
@@ -179,40 +206,44 @@ def build_parser() -> CliParser:
         action="store_true",
         help=(
             "Dry Run: resolve credentials, run preflight and every query for "
-            "real, print the ordered plan, and change nothing"
+            "real, and print the ordered plan; changes no Site, database or "
+            "archive, but takes the Site Lock (exit 9 LOCKED while another Run "
+            "holds it)"
         ),
     )
 
     subparsers = parser.add_subparsers(dest="action", help="Action being requested")
-    _add_backup(
-        subparsers.add_parser(
-            BACKUP_COMMAND, help=_noted(BACKUP_COMMAND, "Perform a WordPress backup")
-        )
-    )
-    _add_restore(
-        subparsers.add_parser(
-            RESTORE_COMMAND, help=_noted(RESTORE_COMMAND, "Perform a WordPress restore")
-        )
-    )
+    _add_backup(_command(subparsers, BACKUP_COMMAND, "Perform a WordPress backup"))
+    _add_restore(_command(subparsers, RESTORE_COMMAND, "Perform a WordPress restore"))
     _add_verify(
-        subparsers.add_parser(
-            VERIFY_COMMAND,
-            help=_noted(VERIFY_COMMAND, "Check an archive without touching a site"),
-        )
+        _command(subparsers, VERIFY_COMMAND, "Check an archive without touching a site")
     )
     _add_doctor(
-        subparsers.add_parser(
+        _command(
+            subparsers,
             DOCTOR_COMMAND,
-            help=_noted(
-                DOCTOR_COMMAND,
-                "Report whether this host is ready to back up and restore",
-            ),
+            "Report whether this host is ready to back up and restore",
         )
     )
     for command, command_parser in subparsers.choices.items():
         _note_unavailable_flags(command, command_parser)
     parser.commands = MappingProxyType(dict(subparsers.choices))
     return parser
+
+
+def _command(
+    subparsers: argparse._SubParsersAction[CliParser],
+    name: str,
+    text: str,
+) -> argparse.ArgumentParser:
+    """A subcommand whose ``--help`` has its description and the exit codes."""
+    return subparsers.add_parser(
+        name,
+        help=_noted(name, text),
+        description=_noted(name, text),
+        epilog=exit_code_epilog(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
 
 def _noted(key: str, text: str) -> str:
@@ -286,8 +317,9 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
         action="store_true",
         default=argparse.SUPPRESS,
         help=(
-            "Dry Run: run every check and query for real, print the ordered "
-            "plan, and write nothing (also accepted before `backup`)"
+            "Dry Run: run every check and query for real and print the ordered "
+            "plan; writes no archive but takes the Site Lock (also accepted "
+            "before `backup`)"
         ),
     )
     backup.add_argument(
@@ -426,8 +458,9 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         action="store_true",
         default=argparse.SUPPRESS,
         help=(
-            "Dry Run: run every check and query for real, print the ordered "
-            "plan, and change nothing (also accepted before `restore`)"
+            "Dry Run: run every check and query for real and print the ordered "
+            "plan; changes no Site or database but takes the Site Lock (also "
+            "accepted before `restore`)"
         ),
     )
     options.add_argument(
@@ -629,7 +662,7 @@ def _add_verify(verify: argparse.ArgumentParser) -> None:
         help="Accepted for symmetry: verify is read-only, so it changes nothing",
     )
     verify.add_argument(
-        "--archive", help="Path or file: URL of the archive to check.", required=True
+        "--archive", help="Path or file: URL of the archive to check", required=True
     )
     verify.add_argument(
         "--authenticate",
@@ -639,7 +672,7 @@ def _add_verify(verify: argparse.ArgumentParser) -> None:
             "without it, verify proves only that its checksums are consistent. "
             "The passphrase comes from L3IO_WP_BACKUP_PASSPHRASE or a prompt. "
             "It does not show the archive is the latest one: an older archive "
-            "under the same passphrase also passes."
+            "under the same passphrase also passes"
         ),
     )
 

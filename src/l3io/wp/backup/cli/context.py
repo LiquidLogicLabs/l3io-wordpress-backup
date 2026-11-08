@@ -70,7 +70,11 @@ from l3io.wp.backup.domain.errors import (
     RunContextActiveError,
     UsageError,
 )
-from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.exit_codes import (
+    INTERRUPTED_EXIT,
+    INTERRUPTED_REASON,
+    ExitCode,
+)
 from l3io.wp.backup.domain.lock import LockHolder
 from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.clock import Clock
@@ -288,16 +292,23 @@ def open_run(
                 else _outcome(run_state)
             )
             registry.log_registered()
-            # An interrupt that is not an Exception (KeyboardInterrupt) exits
-            # with the interpreter's status, so no code is claimed for it
-            # (BL-E002-056).
+            # Ctrl-C exits INTERRUPTED_EXIT (130), outside the table, and is
+            # named so; any other BaseException that is not an Exception
+            # claims no code (BL-E002-056).
             claimed = error is None or isinstance(error, Exception)
+            code, reason = (
+                (int(exit_code), exit_code.name)
+                if claimed
+                else (INTERRUPTED_EXIT, INTERRUPTED_REASON)
+                if isinstance(error, KeyboardInterrupt)
+                else (None, None)
+            )
             emit = _log.info if exit_code is ExitCode.OK else _log.error
             emit(
                 "run_finished",
                 **{RUN_ID_KEY: run_id},
-                exit_code=int(exit_code) if claimed else None,
-                exit_reason=exit_code.name if claimed else None,
+                exit_code=code,
+                exit_reason=reason,
                 duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
                 error=error_type,
             )

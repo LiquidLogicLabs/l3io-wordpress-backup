@@ -281,6 +281,34 @@ def test_a_callbacks_exception_propagates(rig: Rig) -> None:
         )
 
 
+@pytest.mark.parametrize("encrypted", [False, True], ids=["plain", "encrypted"])
+def test_a_raising_sink_after_the_snapshot_is_logged_and_the_run_goes_on(
+    rig: Rig, encrypted: bool
+) -> None:
+    """BL-E008-022: the snapshot exists; the restore is not aborted for a notice."""
+
+    class Broken(Exception):
+        pass
+
+    def sink(warning: RunWarning) -> None:
+        if warning.code.startswith("safety_snapshot_"):
+            raise Broken(warning.code)
+
+    changes: dict[str, Any] = (
+        {"cipher": _Cipher(), "allow_unencrypted": True} if encrypted else {}
+    )
+    with capture_logs() as logs, pytest.raises(_Stop):  # the executor went on
+        restore_mod.drive_restore(
+            rig.request(**changes), ctx=None, secrets=None, on_warning=sink
+        )
+    (failed,) = [r for r in logs if r["event"] == "on_warning_failed"]
+    assert failed["log_level"] == "error"
+    assert failed["error"] == "Broken"
+    code = "safety_snapshot_encrypted" if encrypted else "safety_snapshot_unencrypted"
+    assert failed["code"] == code
+    assert code in {r["event"] for r in logs if r["log_level"] == "warning"}
+
+
 def test_api_restore_hands_its_callback_to_the_driver(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

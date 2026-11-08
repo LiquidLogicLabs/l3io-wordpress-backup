@@ -12,6 +12,7 @@ import ast
 import dataclasses
 import inspect
 import os
+import stat
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
@@ -521,6 +522,39 @@ def test_a_lay_down_takes_other_permissions_off_and_logs_the_mode(
     assert all(body not in repr(e) for e in logs)
 
 
+@pytest.mark.parametrize(
+    ("archive_mode", "laid_mode"), [(0o644, 0o640), (0o604, 0o600), (0o640, 0o640)]
+)
+def test_a_config_laid_down_by_the_tree_loses_other_permissions_too(
+    tmp_path: Path, archive_mode: int, laid_mode: int
+) -> None:
+    """BL-E008-023: no config role, so the tree extraction lays it down; its
+    "other" bits go before the cutover writes a password into it."""
+    archive = write_v1(tmp_path)
+    relocation = dataclasses.replace(RELOCATIONS["url-only"], lay_down_config=True)
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.ALL, relocation=relocation, real_files=True
+    )
+    h.config_path.unlink()
+    real_extract = LocalSiteFiles.extract
+
+    def extract(self: LocalSiteFiles, *args: object, **kwargs: object) -> object:
+        result = real_extract(self, *args, **kwargs)  # type: ignore[arg-type]
+        if h.config_path.exists():
+            h.config_path.chmod(archive_mode)
+        return result
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(LocalSiteFiles, "extract", extract)
+        with capture_logs() as logs:
+            h.run()
+    laid = [c for c in h.log.calls if c[2] == "extract" and c[3][1] == ["config"]]
+    assert laid == []  # the tree laid it down, not the config role
+    assert stat.S_IMODE(h.config_path.stat().st_mode) == laid_mode
+    narrowed = [e for e in logs if e["event"] == "config_mode_restricted"]
+    assert len(narrowed) == (0 if archive_mode == laid_mode else 1)
+
+
 def test_a_config_laid_down_above_the_root_excludes_the_trees_own(
     tmp_path: Path,
 ) -> None:
@@ -912,6 +946,26 @@ def test_an_orderly_slot_failure_finishes_the_journal(
     with pytest.raises(RuntimeError):
         h.run()
     assert h.journal.names()[-1] == "finish_run"
+
+
+def test_a_journal_that_cannot_finish_does_not_mask_the_runs_error(
+    tmp_path: Path, archive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADV-13 (BL-E003-040): the Run's own error, and so its exit code, stands."""
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.DATABASE, slot_failure=ORDERLY_CHECK_FAILURE
+    )
+
+    def full_disk() -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(h.journal, "finish_run", full_disk)
+    with capture_logs() as logs, pytest.raises(RuntimeError) as caught:
+        h.run()
+    assert not isinstance(caught.value, OSError)
+    (failed,) = [e for e in logs if e["event"] == "journal_finish_failed"]
+    assert failed["log_level"] == "error"
+    assert failed["error"] == "OSError"
 
 
 def test_a_failure_after_the_cutover_leaves_the_journal_blocking(

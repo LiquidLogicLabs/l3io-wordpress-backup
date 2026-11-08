@@ -111,6 +111,25 @@ def test_requested_encryption_with_nothing_and_no_terminal_is_refused() -> None:
         )
     assert PASSPHRASE_ENV in str(caught.value)
     assert "no terminal" in str(caught.value)
+    # UX-01-17: the CLI takes no passphrase value, so its hint names none.
+    assert "passphrase=" not in str(caught.value)
+
+
+@pytest.mark.parametrize("closed", [False, True], ids=["none-given", "prompt-closed"])
+def test_a_root_with_a_passphrase_argument_names_it_in_the_hint(closed: bool) -> None:
+    def prompt(_: str) -> str:
+        raise EOFError
+
+    with pytest.raises(PassphraseUnavailableError) as caught:
+        require_passphrase(
+            explicit=None,
+            environ={},
+            prompt=prompt if closed else None,
+            secrets=SecretRegistry(),
+            argument="passphrase",
+        )
+    assert "(pass passphrase=, set " in str(caught.value)
+    assert caught.value.argument == "passphrase"
 
 
 def test_repr_shows_only_the_source() -> None:

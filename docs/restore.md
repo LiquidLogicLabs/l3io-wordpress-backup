@@ -709,7 +709,10 @@ the ordered actions the real Run would take and runs every check the real Run
 runs, so it refuses where the real Run would, with the same exit code. It
 changes nothing: not the Site, the database, any Storage Target, the snapshot
 directory or the journal directory. Only the Run workspace is written (an
-encrypted payload is decrypted there to check the passphrase).
+encrypted payload is decrypted there to check the passphrase), and the Site
+Lock is taken as for a real Run: its lock file is created under the per-user
+state directory, and a Dry Run is refused with `LOCKED` (exit 9) while
+another Run of the same Site holds it.
 
 ## What a Run prints
 

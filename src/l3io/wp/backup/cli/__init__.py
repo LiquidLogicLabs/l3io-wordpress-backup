@@ -20,7 +20,10 @@ path. A ``run_*`` returns ``ExitCode.OK`` or raises; the root maps what it
 raised with :func:`~l3io.wp.backup.cli.exit.exit_code_for` and reports it
 through the registry the Run used (ADR-0018), so a defect's traceback is
 redacted too. Usage errors are argparse's own ``SystemExit(2)``, which is
-``ExitCode.USAGE``. ``KeyboardInterrupt`` is not caught.
+``ExitCode.USAGE``. Ctrl-C (``KeyboardInterrupt``) during a Run is reported
+by :func:`~l3io.wp.backup.cli.exit.report_interrupt` — one line, no traceback —
+and exits ``130`` (:data:`~l3io.wp.backup.domain.exit_codes.INTERRUPTED_EXIT`),
+after the Run's ``finally`` chain has released its lock and workspace.
 
 **SIGTERM (FR-28).** For the duration of the Run only, :func:`main` installs a
 SIGTERM handler — and the same for SIGHUP and SIGQUIT
@@ -44,7 +47,7 @@ from contextlib import contextmanager
 from types import FrameType
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.cli.exit import report_failure
+from l3io.wp.backup.cli.exit import report_failure, report_interrupt
 from l3io.wp.backup.cli.logging import configure_logging
 from l3io.wp.backup.cli.parser import (
     BACKUP_COMMAND,
@@ -170,8 +173,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from l3io.wp.backup.cli.verify import run_verify
 
                 code = run_verify(args, secrets=secrets)
+    except KeyboardInterrupt as exc:
+        return report_interrupt(exc, secrets=secrets)
     except Exception as exc:  # RunTerminated: mapped here (exit code)
-        # Every failure is mapped to its code; KeyboardInterrupt is not caught.
         return int(report_failure(exc, secrets=secrets))
     return int(code)
 

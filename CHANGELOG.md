@@ -47,6 +47,16 @@ owner asked for, which a commit subject cannot hold.
 
 ### Changed restore behaviour (owner decisions 2026-11-07)
 
+- **`--force` no longer means "clean everything", and `--cleanfirst` no longer
+  removes the database** (AD-25, B-3; SD-02-10). In v0.2.21 `--force` selected
+  the `ALLCLEAN` behaviour and `--cleanfirst` also dropped the database. Now
+  each destructive effect needs its own flag: `--cleanfirst` clears the Site
+  Root only, `--drop-database` removes the database that loses the cutover,
+  and `--force` only waives the non-empty-target refusal for the parts the
+  Mode restores — it selects no Mode and authorises no removal. A script that
+  relied on `--force` or `--cleanfirst` to remove the database must add
+  `--drop-database`.
+
 - **A failed load check is exit 7** (BL-E002-104). The database's load
   readiness check runs as the WordPress account the load runs as and no longer
   needs administrator credentials; a check that cannot run is
@@ -54,6 +64,49 @@ owner asked for, which a commit subject cannot hold.
 - **`--overwrite-wp-config` refuses an Archive config that defines a key
   twice** (BL-E002-091): the replace is now `l3io-wordpress-config`'s
   `replace_content`, which refuses such a file (PHP keeps the first definition).
+
+### Changed behaviour, close-out batch (owner decisions 35 and 39, 2026-11-07)
+
+- **Ctrl-C exits 130 with one line, no traceback** (L3). The interrupted
+  Run's `run_finished` and the `command_failed` record carry `exit_code` 130
+  and `exit_reason` `INTERRUPTED`; they were `null`.
+- **A per-user state directory another user could tamper with is refused**
+  (BL-E008-027). The state directory and everything the Site Lock, the Run
+  Journal and WP-CLI use under it must be real directories (not symlinks),
+  owned by you and not group- or world-writable; a lock directory that is not
+  exits 7 (`NOT_READY`, `SiteLockLocationError`). It was used as found.
+- **The library refuses a wrong-typed closed choice as `UsageError`**
+  (BL-E006-018): `scope`, `mode`, `overrides`, `snapshot` or `config_policy`
+  of the wrong type (a string such as `"all"`) names the parameter, exit 2,
+  before anything runs. It surfaced as `UnexpectedError`, a defect.
+- **An `on_warning` callback that raises after the Safety Snapshot no longer
+  aborts the restore** (BL-E008-022): it is logged (ERROR
+  `on_warning_failed`) and the restore continues. A notice before any effect
+  still propagates the callback's exception.
+- **`--allow-unencrypted` with no effect is noted** (BL-E008-021): INFO
+  `restore_flag_no_effect` when the Archive is encrypted, no passphrase was
+  given, or `--require-encrypted` refuses the plain Archive anyway. Never a
+  refusal.
+- **A `wp-config.php` laid down by the tree extraction loses its "other"
+  permissions** (BL-E008-023), as one laid down by role already did, before
+  the relocated database password is written into it.
+- **Restore's `CLEAN` keeps a name case-insensitively** (RT-005): on a
+  case-insensitive filesystem `WP-Config.php` is the kept `wp-config.php`.
+- **`wp` and the tool probes get only the absolute `PATH` entries**
+  (BL-E007-013): the ones `wp` was located over, so `php` is found by the same
+  rule.
+- **Extraction holds every member to its indexed size** (BL-E003-088), those
+  of roles not restored included, so a forged header cannot make the restore
+  decompress more than the Archive lists.
+- **`doctor` says what stopped the database check** (BL-E008-020): a
+  `blocker_details` entry (JSON) or `database blocker:` line names the error
+  and its message, beside the exit-code name.
+- **Help**: every subcommand's `--help` has a description and the exit-code
+  table; `--log-level` shows its choices; help lines share one style
+  (UX-01-11). `--whatIf` says a Dry Run takes the Site Lock (AD-5). A
+  passphrase refusal from the CLI no longer suggests `passphrase=` (UX-01-17).
+- **Durability**: a published Archive's directory is fsynced after the rename
+  (AR-10; WARNING `archive_directory_not_synced` if it cannot be).
 
 ### Changed log fields (owner decisions 2026-11-07)
 

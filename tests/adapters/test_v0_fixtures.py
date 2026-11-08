@@ -252,5 +252,16 @@ def test_the_released_fixture_carries_no_operator_secret() -> None:
         embedded = config.read()
     assert dump.strip(), "the released fixture's Dump is empty"
     assert not [p for p in SENTINEL_PREFIXES if p in dump]
-    # Only the public test credentials: the Site Root's config is the test one.
-    assert embedded == WP_CONFIG.read_bytes()
+
+    # Only the public test credentials: the Site Root's config is the test
+    # one, but for DB_PASSWORD. The released fixture is never regenerated (its
+    # SHA-256 is pinned in the provenance file), so it keeps the test config's
+    # password from before BL-E004-064 replaced it with a unique sentinel;
+    # every other line must still match.
+    def without_password(text: bytes) -> list[bytes]:
+        return [line for line in text.splitlines() if b"'DB_PASSWORD'" not in line]
+
+    assert without_password(embedded) == without_password(WP_CONFIG.read_bytes())
+    assert embedded != WP_CONFIG.read_bytes(), (
+        "the released fixture now carries the sentinel: drop this exception"
+    )

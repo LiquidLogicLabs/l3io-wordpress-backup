@@ -70,7 +70,8 @@ _FIXED_KEYS: Final = frozenset(
 )
 
 #: The outcome a no-op command adapter's step records: nothing was performed,
-#: so a rehearsal's log never claims an effect occurred (triage E-8).
+#: so a rehearsal's log never claims an effect occurred (AD-4: a Dry Run's
+#: records describe only what it did).
 SKIPPED_OUTCOME: Final = "skipped_dry_run"
 
 _current: ContextVar[PhaseRecord | None] = ContextVar("phase", default=None)

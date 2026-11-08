@@ -1079,7 +1079,8 @@ class WpDatabase:
         started = time.monotonic_ns()
         # Database folds an unobtainable WordPress credential into a refusal
         # that names no source; resolving it first lets the error name the
-        # WordPress source, not the administrator's (review F1).
+        # WordPress source, not the administrator's: a credential error always
+        # names the source that failed.
         with self._mapped(location, self._credentials.source, ProvisioningFailedError):
             self._credentials.resolve()
         with self._mapped(location, admin.source, ProvisioningFailedError):

@@ -159,6 +159,54 @@ def test_the_tool_guards_every_restore_value_type() -> None:
     assert set(RESTORE_VALUE_TYPES) <= _tool().GUARDED_TYPES
 
 
+def test_the_guarded_set_is_derived_from_the_vocabulary_modules() -> None:
+    """AD-10/SD-02-8: the closed choices the old hand list missed are guarded."""
+    assert {"RestorePhase", "Override", "RestorePart", "BackupScope"} <= (
+        _tool().GUARDED_TYPES
+    )
+
+
+def test_a_closed_choice_added_to_the_vocabulary_is_guarded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Attack the scope: a new enum, a new Literal alias and a holder of one,
+    added to a copy of ``domain/restore.py``, are guarded with no edit to the
+    tool, and a defaulted parameter of each fails."""
+    tool = _tool()
+    vocabulary = tmp_path / "restore.py"
+    vocabulary.write_text(
+        tool.VOCABULARY[0].read_text(encoding="utf-8")
+        + "\n\nclass NewChoice(StrEnum):\n    A = 'a'\n"
+        + "\nNewPart = Literal['x', 'y']\n"
+        + "\n@dataclass(frozen=True)\nclass Holder:\n    parts: frozenset[NewPart]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tool, "VOCABULARY", (vocabulary,))
+    planted = tmp_path / "pkg" / "planted.py"
+    planted.parent.mkdir()
+    planted.write_text(
+        "def a(x: NewChoice = NewChoice.A) -> None: ...\n"
+        "def b(*, x: NewPart = 'x') -> None: ...\n"
+        "def c(x: Holder | None = None) -> None: ...\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tool, "PACKAGE_ROOT", planted.parent)
+    assert tool.main() == 1
+    err = capsys.readouterr().err
+    assert all(name in err for name in ("NewChoice", "NewPart", "Holder"))
+
+
+def test_a_missing_vocabulary_module_is_a_scope_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool = _tool()
+    monkeypatch.setattr(tool, "VOCABULARY", (tmp_path / "gone.py",))
+    with pytest.raises(SystemExit, match="scope error"):
+        tool.main()
+
+
 @pytest.mark.parametrize("guarded", sorted(_tool().GUARDED_TYPES))
 @pytest.mark.parametrize(
     "source",

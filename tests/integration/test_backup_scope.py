@@ -60,7 +60,11 @@ def _site(root: Path, *, db_host: str) -> Path:
     for constant, fixture_value, value in (
         ("DB_NAME", "wordpress", DB_NAME),
         ("DB_USER", "wordpress", DB_USER),
-        ("DB_PASSWORD", "pass@word1", os.environ["DB_PASSWORD"]),
+        (
+            "DB_PASSWORD",
+            "sentinel-v0-fixture-db-password-d2ff9b94b265",
+            os.environ["DB_PASSWORD"],
+        ),
         ("DB_HOST", "wordpressdb", db_host),
     ):
         old = f"define( '{constant}', '{fixture_value}' );"

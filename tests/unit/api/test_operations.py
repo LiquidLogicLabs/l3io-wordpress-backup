@@ -661,8 +661,10 @@ def test_backup_encrypt_with_no_passphrase_is_refused_before_the_site_is_read(
     site: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _spy(monkeypatch, operations, "drive_backup")
-    with pytest.raises(PassphraseUnavailableError):
+    with pytest.raises(PassphraseUnavailableError) as caught:
         api.backup(site, scope=BackupScope.ALL, target="t.tar.gz", encrypt=True)
+    # UX-01-17: the library's hint names its own argument.
+    assert "pass passphrase=" in str(caught.value)
 
     def closed(_label: str) -> str:
         raise EOFError
@@ -928,3 +930,57 @@ def test_the_api_scans_fire_on_planted_violations(tmp_path: Path) -> None:
         "x/leak.py:<module>",
         "x/leak.py:unpaired",
     ]
+
+
+# BL-E006-018: a wrong-typed closed choice is the caller's mistake (UsageError
+# naming the parameter), never a defect (UnexpectedError), and nothing runs.
+_RESTORE_CHOICES: dict[str, object] = {
+    "mode": RestoreMode.ALL,
+    "overrides": ALL_WAIVED,
+    "snapshot": SnapshotPolicy.TAKE,
+    "config_policy": ConfigPolicy.KEEP,
+}
+
+
+@pytest.mark.parametrize(
+    ("argument", "wrong"),
+    [
+        ("mode", "all"),
+        ("overrides", frozenset()),
+        ("overrides", dataclasses.replace(ALL_WAIVED, waived=frozenset({"x"}))),
+        ("snapshot", "take"),
+        ("config_policy", True),
+    ],
+    ids=[
+        "mode-str",
+        "overrides-set",
+        "overrides-member",
+        "snapshot-str",
+        "config-bool",
+    ],
+)
+def test_restore_refuses_a_wrong_typed_choice_as_usage(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, argument: str, wrong: object
+) -> None:
+    calls = _spy(monkeypatch, operations, "drive_restore")
+    with pytest.raises(UsageError) as caught:
+        api.restore(
+            rig.site_root,
+            archive=rig.archive_path,
+            **{**_RESTORE_CHOICES, argument: wrong},  # type: ignore[arg-type]
+            **allow_root_kwargs(),
+        )
+    assert not isinstance(caught.value, api.UnexpectedError)
+    assert caught.value.arguments == (argument,)
+    assert calls == []
+
+
+def test_backup_refuses_a_string_scope_as_usage(
+    site: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _spy(monkeypatch, operations, "drive_backup")
+    with pytest.raises(UsageError) as caught:
+        api.backup(site, scope="all", target=site.parent / "t.tar.gz")  # type: ignore[arg-type]
+    assert caught.value.arguments == ("scope",)
+    assert "BackupScope" in str(caught.value)
+    assert calls == []

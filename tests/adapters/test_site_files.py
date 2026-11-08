@@ -95,6 +95,24 @@ def test_clean_honours_keep_and_never_removes_the_root(
     assert "duration_ms" in record
 
 
+def test_keep_matches_names_case_insensitively_and_after_nfc(
+    files: LocalSiteFiles, site: Path
+) -> None:
+    """RT-005 (BL-E003-040): on a case-insensitive or normalising filesystem
+    the differently spelled entry *is* the kept one, so it is never removed."""
+    (site / "wp-config.php").rename(site / "WP-Config.PHP")
+    decomposed = "cafe\u0301"  # NFD of "café"
+    (site / decomposed).mkdir()
+    files.clean(
+        site,
+        keep=frozenset({PurePosixPath("wp-config.php"), PurePosixPath("caf\u00e9")}),
+    )
+    assert sorted(p.name for p in site.iterdir()) == sorted(
+        ["WP-Config.PHP", decomposed]
+    )
+    assert (site / "WP-Config.PHP").read_bytes() == CONFIG
+
+
 def test_a_symlinked_directory_is_unlinked_and_its_target_untouched(
     files: LocalSiteFiles, site: Path, tmp_path: Path
 ) -> None:

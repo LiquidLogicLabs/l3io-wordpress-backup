@@ -80,12 +80,14 @@ def terminal_prompt() -> Callable[[str], str] | None:
     return getpass.getpass if sys.stdin.isatty() else None
 
 
-def _prompted(prompt: Callable[[str], str], label: str) -> str:
+def _prompted(prompt: Callable[[str], str], label: str, argument: str | None) -> str:
     try:
         return prompt(label)
     except (EOFError, KeyboardInterrupt):
         raise PassphraseUnavailableError(
-            PASSPHRASE_ENV, reason="the prompt was closed before a passphrase was given"
+            PASSPHRASE_ENV,
+            reason="the prompt was closed before a passphrase was given",
+            argument=argument,
         ) from None
 
 
@@ -110,10 +112,13 @@ def resolve_passphrase(
     prompt: Callable[[str], str] | None,
     secrets: SecretRegistry,
     label: str = _PROMPT,
+    argument: str | None = None,
 ) -> ResolvedPassphrase | None:
     """The AD-26 chain. ``None`` when no step supplies a passphrase.
 
-    ``label`` is the text ``prompt`` shows.
+    ``label`` is the text ``prompt`` shows. ``argument`` is the root's name
+    for ``explicit`` that a refusal's hint names (the library's
+    ``passphrase``); the CLI has none (UX-01-17).
 
     Raises ``PassphraseUnavailableError`` when the prompt is closed (EOF or
     interrupt) or the value is shorter than the registry can redact. A source
@@ -131,13 +136,15 @@ def resolve_passphrase(
     elif environ.get(PASSPHRASE_ENV):
         resolved = ResolvedPassphrase(Secret(environ[PASSPHRASE_ENV]), "environment")
     elif prompt is not None:
-        value = _prompted(prompt, label)
+        value = _prompted(prompt, label, argument)
         if value:
             resolved = ResolvedPassphrase(Secret(value), "prompt")
     if resolved is None:
         return None
     if len(resolved.value) < MIN_SECRET_LENGTH:
-        raise PassphraseUnavailableError(PASSPHRASE_ENV, reason="too short to protect")
+        raise PassphraseUnavailableError(
+            PASSPHRASE_ENV, reason="too short to protect", argument=argument
+        )
     secrets.register(resolved.value, source=f"passphrase:{resolved.source}")
     return resolved
 
@@ -148,6 +155,7 @@ def require_passphrase(
     environ: Mapping[str, str],
     prompt: Callable[[str], str] | None,
     secrets: SecretRegistry,
+    argument: str | None = None,
 ) -> ResolvedPassphrase:
     """:func:`resolve_passphrase` where encryption was requested: ``None`` refuses.
 
@@ -159,17 +167,23 @@ def require_passphrase(
     value is registered, and neither names it.
     """
     resolved = resolve_passphrase(
-        explicit=explicit, environ=environ, prompt=prompt, secrets=secrets
+        explicit=explicit,
+        environ=environ,
+        prompt=prompt,
+        secrets=secrets,
+        argument=argument,
     )
     if resolved is None:
         reason = "none was given" + (
             "" if prompt is not None else " and no terminal was available to prompt"
         )
-        raise PassphraseUnavailableError(PASSPHRASE_ENV, reason=reason)
+        raise PassphraseUnavailableError(
+            PASSPHRASE_ENV, reason=reason, argument=argument
+        )
     if len(resolved.value) < MIN_ENCRYPTION_PASSPHRASE_LENGTH:
         raise PassphraseTooShortError(minimum=MIN_ENCRYPTION_PASSPHRASE_LENGTH)
     if resolved.source == "prompt" and prompt is not None:
-        again = Secret(_prompted(prompt, _CONFIRM))
+        again = Secret(_prompted(prompt, _CONFIRM, argument))
         if again != resolved.value:  # Secret: constant time
             raise PassphraseMismatchError()
     return resolved

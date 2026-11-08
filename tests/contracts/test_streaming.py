@@ -206,6 +206,9 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_final_path",
             "_occupied",
             "_reason",
+            # AR-10: fsyncs the directory after the rename; moves no bytes,
+            # and runs inside publish, which the RSS test drives.
+            "_sync_directory",
         }
     ),
 }

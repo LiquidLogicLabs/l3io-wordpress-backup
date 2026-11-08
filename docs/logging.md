@@ -69,7 +69,7 @@ decrypted the whole payload with its passphrase:
 | `phase` | string | The step, upper case with underscores. A backup's: `DUMP`, `COLLECT_SITE_ROOT`, `ENCRYPT`, `WRITE_ARCHIVE`, `VERIFY`, `PUBLISH`; a restore's: `PREFLIGHT`, `VERIFY`, `SNAPSHOT`, `CLEAN`, `EXTRACT`, `REWRITE_CONFIG`, `LOAD_DUMP`, `SEARCH_REPLACE` (owner decision 2026-11-07, BL-E002-109; the Run Journal file keeps its own lower-case spelling) |
 | `duration_ms` | number | Monotonic time the step took |
 | `bytes` | integer | Bytes the step produced or read; `0` when not applicable |
-| `exit_code` | integer | `0` on success; on failure the error's code from the [exit-code table](../README.md#exit-codes), the same one `run_finished` carries; `null` when the step was interrupted by `KeyboardInterrupt`, whose exit status is the interpreter's, not the table's |
+| `exit_code` | integer | `0` on success; on failure the error's code from the [exit-code table](../README.md#exit-codes), the same one `run_finished` carries; `null` when the step was interrupted by `KeyboardInterrupt` (the Run's `run_finished` carries `130`, `INTERRUPTED`) |
 | `outcome` | string | `ok` or `failed`; `skipped_dry_run` (with `bytes` `0`) for a step a Dry Run did not perform |
 <!-- /schema:phase -->
 
@@ -78,9 +78,10 @@ package `version`; `run_finished` carries `exit_code` (the integer from the
 [exit-code table](../README.md#exit-codes)), `exit_reason` (its name, such as
 `VERIFICATION_FAILED`), `duration_ms` and, on failure, `error` (the error's
 class name) — a verification that fails is a failure here too. A Run ended by
-`KeyboardInterrupt` carries `error` but `null` `exit_code` and `exit_reason`:
-the process exits with the interpreter's status (130 for Ctrl-C), which is not
-in the table. They are the first and last records of every Run.
+Ctrl-C (`KeyboardInterrupt`) carries `exit_code` `130` and `exit_reason`
+`INTERRUPTED`: the shell's convention, which is not in the table; the command
+exits 130 and prints one line, no traceback. They are the first and last
+records of every Run.
 
 Before preflight, a backup logs one `planned_action` record per action it
 plans, in order — `ordinal`, `step`, the rendered `action` line and the step's
@@ -99,6 +100,151 @@ before any Run opened (a missing `--wp-dir`, a bad `--archive`), which has no
 (exit 2): argparse prints plain text before logging is configured. With `--log-format console` the plain `wpbackup2: ...` line is
 printed to stderr as well; with `--log-format json` it is not, so stderr stays
 one JSON object per line and `jq` over it never stops at a failed Run.
+
+## Events
+
+Every event the package logs, by its `event` name. `tests/contracts/test_log_events_documented.py`
+derives the emitted set from the source and fails on an event without a row
+here, or a row naming an event the package no longer emits. Fields beyond the
+[record schema](#the-record-schema) are named where they matter; credentials
+never appear in any of them.
+
+| Event | Level | When |
+|---|---|---|
+| `archive_bound` | INFO | A restore copied the Archive into the Run workspace before reading it (`archive`, `copy`) |
+| `archive_database_confirmed` | INFO | A config-less restore target matched `--archive-database` against the Archive's own database identity (`db_host`, `db_port`, `db_name`, `db_user`) |
+| `archive_database_unused` | INFO | `--archive-database` was given but the target has its own `wp-config.php`, so it was not used |
+| `archive_directory_not_synced` | WARNING | The destination directory could not be fsynced after the Archive was renamed into place; the Archive is published (`path`, `reason`) |
+| `archive_discarded` | INFO | A staged Archive was removed without being published (`path`, its final name) |
+| `archive_published` | INFO | A verified Archive was renamed onto its final name (`path`) |
+| `archive_read_stopped` | DEBUG | Reading the outer tar stopped at a stream error; the classifier decides truncated or unrecognised (`error`, the class name) |
+| `archive_staged` | DEBUG | A temporary file was created beside the final Archive name (`path`, `staged`) |
+| `archive_target_in_site_root` | WARNING | A backup target inside the Site Root was allowed by `--allow-target-in-site-root` (`path`, `site_root`, `allowed_by`) |
+| `archive_unauthenticated` | WARNING | A restore proceeds from an unencrypted Archive, whose checksums prove consistency, not authenticity (`integrity`, `archive`) |
+| `backup_completed` | INFO | A backup finished (`path`, `format_version`, `members` by kind, `bytes`, `performed` — `false` in a Dry Run) |
+| `backup_started` | INFO | A backup's plan begins executing (`backup_scope`) |
+| `command_failed` | ERROR | A command failed, or was interrupted by Ctrl-C (`exit_code` `130`, `exit_reason` `INTERRUPTED`); see [Failures](#failures) (`error`, `message`, `exit_code`, `exit_reason`) |
+| `config_directory_not_synced` | WARNING | The directory of a written `wp-config.php` could not be fsynced after the rename; the file has changed (`path`, `reason`) |
+| `config_laid_down` | INFO | A restore wrote `wp-config.php` from the Archive into a target that had none (`config_path`, `mode`) |
+| `config_located` | INFO | A relocating restore chose where WP-CLI reads `wp-config.php` (`config_path`, `location`, `action`, `source`, `manifest_config_path`) |
+| `config_mode_restricted` | WARNING | A laid-down `wp-config.php` was world-accessible in the Archive; its other-user bits were removed (`config_path`, `archive_mode`, `mode`) |
+| `config_written` | INFO | `wp-config.php` was changed: `method` `set_constants`, `save_copy` or `replace_file` (`path`, `keys`, `changed`, never values) |
+| `credential_chain_built` | DEBUG | The credential sources for a `role` were ordered (`sources`; `none_configured` when there are none) |
+| `credential_source_empty` | WARNING | A credential source was set but empty and was skipped (`source`, a name, never a value) |
+| `credential_source_selected` | INFO | The database password was resolved from `credential_source` (logged when the source changes) |
+| `cutover_abandoned` | WARNING | Resolving an interrupted Run found `wp-config.php` back at its pre-run values, so the cutover is not completed (`load_database`, `database_exists`, `reason`) |
+| `cutover_completed` | INFO | `--resolve-interrupted-run` wrote the cutover keys an interrupted Run left pending (`keys`, `wp_config_path`) |
+| `cutover_key_written` | DEBUG | One cutover key was written to `wp-config.php` (`key`, `wp_config_path`) |
+| `cutover_read_back_failed` | ERROR | After a cutover write failed, reading the key back failed too; the write's error is raised (`key`, `error_type`) |
+| `cutover_write_error_landed` | WARNING | A cutover write reported an error but the value read back is the one written, so the Run continues (`key`, `error_type`) |
+| `database_cutover` | INFO | `wp-config.php` now points at the loaded database (`keys`, `wp_config_path`, `from`, `to`; `host_from`, `host_to` when the host changed) |
+| `database_drop_warnings` | WARNING | Dropping a database succeeded with server warnings (`db_name`, `warnings`) |
+| `database_dropped` | INFO | A database was dropped (`db_host`, `db_port`, `db_name`, `changed`, `warnings`, `duration_ms`) |
+| `database_ensured` | INFO | The load database and its account were ensured (`db_name`, `created_database`, `created_user`, `duration_ms`) |
+| `database_restore_report` | INFO, ERROR | The database part of a restore finished (INFO) or failed (ERROR), with what was done (loaded, checked, cutover keys written) |
+| `database_surveyed` | INFO | A restore target's database was surveyed as the administrator (`db_name`, `database_exists`, `duration_ms`) |
+| `db_host_confirmed` | INFO | A non-local `DB_HOST` was confirmed with `--confirm-db-host` (`db_host`) |
+| `dump_loaded` | INFO | The Archive's Dump was loaded into the load database (`db_name`, `bytes`, `duration_ms`) |
+| `dump_readiness` | INFO | The database reported whether it can be dumped (`db_name`, `credential_source`, blockers and warnings) |
+| `encryption_configured` | INFO | A backup encrypts its payload (`scheme` `age`, `mode` `passphrase`) |
+| `exclusions_applied` | INFO | The first exclusion decision of a backup (`source`, `pattern_count`) |
+| `grants_revoked` | INFO | The losing database's account had its grants revoked before the drop (`db_name`, `changed`, `duration_ms`) |
+| `hard_link_stored_as_file` | WARNING | Files that are hard links of each other were each stored in full (`paths`) |
+| `incomplete_run_found` | ERROR | A restore found an interrupted Run's journal for this Site and refuses (`run_id_interrupted`, `started_at`, `interrupted_phase`) |
+| `interrupted_run_resolved` | INFO | `--resolve-interrupted-run` completed and cleared the interrupted Run's journal (`run_id_resolved`) |
+| `journal_finish_failed` | ERROR | The Run Journal could not be finished after an orderly restore failure; the Run's own error is re-raised (`error`, the class name) |
+| `journal_written` | DEBUG | A Run Journal entry was written and fsynced (`journal_run_id`, `phase`, `journal_event`, `step`) |
+| `manifest_value_unknown` | WARNING | A Manifest field held a value this version does not know; it reads as absent (`field`, `value`) |
+| `member_decryption_failed` | ERROR | Decrypting the payload failed (`member`, `reason` `wrong_passphrase` or `corrupt`) |
+| `on_warning_failed` | ERROR | A library caller's `on_warning` sink raised on a notice given after the Safety Snapshot was taken; the restore continues (`code`, `error`) |
+| `passphrase_below_encryption_floor` | WARNING | A restore's passphrase is shorter than the encryption floor and also encrypts the Safety Snapshot (`minimum`) |
+| `passphrase_ignored` | WARNING | `L3IO_WP_BACKUP_PASSPHRASE` is set but encryption was not requested (`variable`) |
+| `password_on_command_line` | WARNING | A password was given as a flag value, visible in the process list (`flag`, never the value) |
+| `path_excluded` | DEBUG | A backup left a path out by an exclusion pattern, or because it is the Archive being written or an earlier `wpbackup2` Archive (`path`, `pattern`) |
+| `phase_completed` | INFO, ERROR | A step finished; see [the record schema](#the-record-schema) |
+| `planned_action` | INFO | One action of the ordered plan, before preflight (`ordinal`, `step`, `action`) |
+| `post_check_skipped` | WARNING | The search-replace post-check for a URL pair was skipped because the new URL contains the old one (`old`, `new`) |
+| `preflight_checked` | DEBUG, INFO, ERROR | One required tool was checked: DEBUG when present, INFO when an optional one is missing, ERROR otherwise (`outcome`) |
+| `preflight_passed` | INFO | Every required tool is present (`tools`) |
+| `previous_database_absent` | INFO | The database the restore replaces did not exist (`database`) |
+| `previous_database_dropped` | INFO | The database that lost the cutover was dropped (`database`, `performed`) |
+| `previous_database_retained` | INFO | The database that lost the cutover was kept (`database`, `reason`: `mode` or `different server`) |
+| `protected_path_kept` | WARNING | A path an exclusion pattern matched was kept because it is protected (`path`, `pattern`) |
+| `relocation_planned` | INFO | A restore resolved what it will relocate (`keys`, `cutover_keys`, `db_location`) |
+| `restore_flag_no_effect` | INFO | A restore flag had no effect for this Archive or Mode, such as `--allow-unencrypted` (`allow_unencrypted=True`) with an encrypted Archive, with no passphrase, or with `--require-encrypted` (`option`, `reason`) |
+| `restore_mode_resolved` | INFO | The restore flags resolved to one Mode (`restore_mode`, `overrides`, `snapshot_policy`, `flags`) |
+| `restore_refused` | ERROR | FR-7 refused a non-empty target (`reason`, `parts`, `found`) |
+| `restore_running_as_root` | WARNING | A restore runs as root under `--allow-root` (`allowed_by`, `risk`) |
+| `run_finished` | INFO, ERROR | A Run ended; see [the record schema](#the-record-schema) |
+| `run_started` | INFO | A Run began; see [the record schema](#the-record-schema) |
+| `safety_snapshot_encrypted` | WARNING | The Safety Snapshot is encrypted with this Run's passphrase, which its restore needs (`path`) |
+| `safety_snapshot_kept` | INFO | A failed restore left its Safety Snapshot in place (`path`) |
+| `safety_snapshot_not_needed` | INFO | No Safety Snapshot was planned because every part the Mode may destroy is empty (`empty`, `restore_mode`) |
+| `safety_snapshot_planned` | INFO | A Dry Run's Safety Snapshot, not written (`path`, `scope`, `restore_mode`) |
+| `safety_snapshot_skipped` | WARNING | The Safety Snapshot was opted out of (`opted_out_by`, `restore_mode`) |
+| `safety_snapshot_unencrypted` | WARNING | The Safety Snapshot was written unencrypted, as no passphrase resolved (`path`) |
+| `safety_snapshot_written` | INFO | The Safety Snapshot was written (`path`, `scope`, `bytes`, `encrypted`, `integrity`) |
+| `search_replace_completed` | INFO | WP-CLI search-replace finished (`pairs`, `replacements`, `tables`, `remaining`) |
+| `search_replace_count_drift` | WARNING | A pair replaced a different number of values than its preview counted (`old`, `new`, `previewed`, `replaced`) |
+| `search_replace_home_moved` | WARNING | One stored value serves `siteurl` and `home`, so relocating one URL moves home-derived links too (`old`, `new`) |
+| `secret_too_short_to_redact` | WARNING | A secret shorter than the redaction floor was not registered (`source`, never the value) |
+| `secrets_registered` | DEBUG | How many secrets the Run's registry holds (`count`) |
+| `site_lock_acquired` | INFO | The Site Lock was taken (`site_root`, `lock_path`) |
+| `site_lock_released` | DEBUG | The Site Lock was released (`site_root`, `lock_path`) |
+| `site_locked` | ERROR | Another Run holds the Site Lock; the Run exits 9 `LOCKED` (`site_root`, `lock_path`, the holder's `holder_*` fields) |
+| `site_root_cleaned` | INFO | A restore cleared the Site Root; a kept entry is matched case-insensitively (`path`, `removed`, `kept`, `duration_ms`) |
+| `special_file_skipped` | WARNING | A backup skipped a file that is not regular, a directory or a symlink (`path`) |
+| `staging_database_created` | INFO | A restore created its load database (`staging_database`, `created_user`, `granted`) |
+| `staging_database_drop_failed` | ERROR | After a failure, dropping the load database failed; the original error is raised (`staging_database`, `error_type`) |
+| `staging_database_dropped` | WARNING | After a failure, the load database was dropped (`staging_database`) |
+| `staging_dropped_not_journaled` | ERROR | The load database was dropped but the journal could not record it (`staging_database`, `error_type`) |
+| `staging_load_checked` | INFO | The loaded database was surveyed before the cutover (`staging_database`, `is_wordpress`, `schema_version`; `performed` `false` in a Dry Run) |
+| `stale_lock_reclaimed` | WARNING | A dead Run's lock record was overwritten (`previous_run_id`, `previous_pid`, `previous_started_at`, `previous_pid_alive`) |
+| `stale_residue_removed` | INFO | A dead Run's workspace or `.partial` file older than 24 h was removed (`path`) |
+| `symlink_outside_site_root` | WARNING | A backup stored a symlink whose target leaves the Site Root (`path`, `target`) |
+| `symlink_skipped` | WARNING | A restore did not restore a symlink (`path`, `link_target`, `reason`) |
+| `target_checked` | INFO | A restore surveyed its target before planning (`site_root_empty`, `database_exists`) |
+| `target_resurveyed` | INFO | A restore surveyed its target again before the first destructive phase (`site_root_empty`, `restore_mode`) |
+| `tracer_failed` | WARNING | The caller's tracer raised; tracing is disabled for the rest of the Run (`tracer`, `error`) |
+| `unexpected_exception` | ERROR | A library call failed with a defect, wrapped as `UnexpectedError` (`cause_type`, `api_function`, `traceback`) |
+| `what_if_not_applicable` | INFO | `--whatIf` was given to `verify`, which is read-only (`message`) |
+| `workspace_created` | DEBUG | The Run workspace was created (`path`) |
+| `workspace_not_removed` | WARNING | The Run workspace survived removal; the Run fails (no path) |
+| `workspace_not_removed_path` | DEBUG | The path of the workspace that survived removal (`path`) |
+| `would_check` | INFO | A Dry Run would survey the loaded database (`staging_database`) |
+| `wp_cli_invoked` | DEBUG | A WP-CLI command ran (`argv` redacted, `cwd`, `step`) |
+| `wp_cli_running_as_root` | WARNING | WP-CLI runs as root, executing the Site's PHP as root (`site_root`, `archive_encrypted`) |
+| `wp_config_exclusion_ignored` | DEBUG | An exclusion pattern matched `wp-config.php`, which is never excluded (`path`) |
+| `wp_config_kept` | INFO | A restore kept the target's own `wp-config.php` (`path`) |
+| `wp_config_located` | INFO | A backup found the Site's `wp-config.php` (`path`, `location`) |
+| `wp_config_outside_search_path` | WARNING | `--wp-config` names a file WordPress would not load for this Site Root (`path`) |
+| `wp_config_overwritten` | WARNING | `--overwrite-wp-config` replaced the target's `wp-config.php`; the old one was saved (`path`, `saved`) |
+
+### The Site Lock
+
+Every backup and restore Run, a Dry Run included, takes the Site Lock before it
+reads the Site. The lock is a kernel `flock` on
+`<sha256 of the canonical Site Root>.lock` in the per-user state directory,
+`platformdirs.user_state_path("l3io-wp-backup") / "locks"` (on Linux
+`~/.local/state/l3io-wp-backup/locks`, or under `$XDG_STATE_HOME`), mode `0700`,
+beside a `0600` `.json` holder record. The kernel releases the lock when its
+holder exits for any reason, SIGKILL included, so a lock is never left held by a
+dead Run; the next Run overwrites the dead Run's holder record and logs
+`stale_lock_reclaimed`.
+
+A Run refused with exit 9 (`LOCKED`, `site_locked`) found another live Run of
+the same Site, by the same OS user, holding the lock; the message names its
+`run_id`, PID, host and start time. Nothing was changed. Wait for that Run to
+finish and run again; do not delete the lock file, which would not release a
+live Run's lock and could let two Runs of one Site overlap.
+
+The per-user state directory (`l3io-wp-backup` and everything the lock, the Run
+Journal and WP-CLI's private directory use under it) must be a real directory,
+not a symlink, owned by the user running the command and not group- or
+world-writable; otherwise the Run is refused before it is created or used (the
+lock's refusal is `SiteLockLocationError`, exit 7 `NOT_READY`, naming the
+directory and the reason). Fix the directory's owner or mode (`chmod 0700`), or
+point `XDG_STATE_HOME` at a directory you own.
 
 ## Correlating with your own identifier
 

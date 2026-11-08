@@ -10,9 +10,11 @@ report), and returns ``adapters/preflight.diagnose``'s ``Diagnosis``.
 With ``site_root`` it also reads that Site's ``wp-config.php``, builds the
 WordPress credential source through ``cli/credentials.wordpress_source`` and
 asks ``DatabaseQuery.check_dump``. A ``BackupError`` on that path is recorded
-as ``Readiness(ready=False, blockers=(<the error's exit-code name>,))``: the
-diagnosis still prints and the exit is ``NOT_READY``, never the error's own
-code (doctor reports; it does not fail on what it reports).
+as ``Readiness(ready=False, blockers=(<the error's exit-code name>,))``, with
+the error's class and message as its ``blocker_details`` (BL-E008-020), so the
+operator is told what to fix: the diagnosis still prints and the exit is
+``NOT_READY``, never the error's own code (doctor reports; it does not fail on
+what it reports).
 
 :func:`run_doctor` renders the diagnosis — text on a terminal, JSON otherwise
 or with ``--json`` — and returns ``OK`` when it is ready, else ``NOT_READY``.
@@ -53,8 +55,12 @@ __all__ = ["drive_doctor", "render_text", "run_doctor"]
 
 def _site_readiness(
     run: RunContext, site_root: Path, environ: Mapping[str, str]
-) -> Readiness:
-    """The Site's dump readiness; a ``BackupError`` becomes a blocker."""
+) -> tuple[Readiness, tuple[str, ...]]:
+    """The Site's dump readiness; a ``BackupError`` becomes a blocker.
+
+    The second item is that error's ``blocker_details`` line, redacted; empty
+    when the check ran.
+    """
     try:
         try:
             root = site_root.resolve(strict=True)
@@ -72,9 +78,10 @@ def _site_readiness(
             wordpress_source=source, secrets=run.secrets, tracer=run.tracer
         )
         run.bind_adapters(adapters)
-        return run.adapters.database_query.check_dump(site.database_location())
+        return run.adapters.database_query.check_dump(site.database_location()), ()
     except BackupError as exc:
-        return Readiness(ready=False, blockers=(exit_code_for(exc).name,))
+        detail = run.secrets.redact(f"{type(exc).__name__}: {exc}")
+        return Readiness(ready=False, blockers=(exit_code_for(exc).name,)), (detail,)
 
 
 def drive_doctor(
@@ -91,14 +98,17 @@ def drive_doctor(
     library); no driver reads ``os.environ`` itself (BL-E006-013).
     """
     with open_run(operation="doctor", secrets=secrets, tracer=tracer) as run:
-        database = (
-            None if site_root is None else _site_readiness(run, site_root, environ)
+        database, details = (
+            (None, ())
+            if site_root is None
+            else _site_readiness(run, site_root, environ)
         )
         diagnosis = diagnose(
             preflight=binary_preflight(run, optional=True),
             environ=environ,
             target=target,
             database=database,
+            database_details=details,
         )
         if not diagnosis.ready:
             run.report_failure(exit_code=ExitCode.NOT_READY, error_type="NotReady")
@@ -126,6 +136,7 @@ def render_text(diagnosis: Diagnosis) -> str:
     clients = diagnosis.database_clients
     blockers = f", blockers: {', '.join(clients.blockers)}" if clients.blockers else ""
     lines.append(f"database: ready {_yes(clients.ready)}{blockers}")
+    lines.extend(f"database blocker: {detail}" for detail in clients.blocker_details)
     lines.append(f"database clients: {clients.checked_by}")
     for extra in diagnosis.extras:
         missing = f" (missing: {', '.join(extra.missing)})" if extra.missing else ""

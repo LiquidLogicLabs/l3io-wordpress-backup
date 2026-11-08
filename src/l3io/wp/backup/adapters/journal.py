@@ -34,11 +34,10 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Final, cast, get_args
 
-import platformdirs
 import structlog
 
-from l3io.wp.backup.adapters.lock import APP_NAME
-from l3io.wp.backup.adapters.workspace import private_directories
+from l3io.wp.backup.adapters.lock import state_root
+from l3io.wp.backup.adapters.workspace import private_state_directories
 from l3io.wp.backup.core.restore import IncompleteRunError, incomplete_run_error
 from l3io.wp.backup.domain.errors import (
     BackupError,
@@ -119,7 +118,7 @@ def journal_directory(site_root: Path) -> Path:
     """
     canonical = Path(site_root).resolve(strict=True)
     digest = hashlib.sha256(str(canonical).encode()).hexdigest()
-    return platformdirs.user_state_path(APP_NAME) / "snapshots" / digest
+    return state_root() / "snapshots" / digest
 
 
 # --------------------------------------------------------------------------
@@ -281,7 +280,7 @@ def _write_atomically(
 
 
 def _ensure_dir(path: Path) -> None:
-    private_directories(path)
+    private_state_directories(path, root=state_root())  # BL-E008-027
     path.chmod(_DIR_MODE)
 
 

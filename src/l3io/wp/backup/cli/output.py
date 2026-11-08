@@ -12,7 +12,9 @@ pipeline, whose registry the root re-opens for the report.
 log record (owner decision 2026-11-07, E006 closure decision 2):
 :func:`emit_warning` hands it to the caller's sink when there is one (the
 library's ``on_warning``) and otherwise writes its message to stderr, as the
-CLI always has. A sink's exception propagates, unchanged, to the caller.
+CLI always has. A sink's exception propagates, unchanged, to the caller;
+``cli/restore.py`` catches it only for the notices it gives after the Safety
+Snapshot was taken (``on_warning_failed``, BL-E008-022).
 """
 
 from __future__ import annotations

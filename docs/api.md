@@ -140,8 +140,12 @@ provider. It does three things to the host process that you should know:
 - `restore` writes safety notices to **stderr** (the archive is not
   authenticated; whether the Safety Snapshot is encrypted) unless you pass
   `on_warning`, which then receives each as a `RunWarning` instead. The
-  WARNING log records are written either way, and an exception your callback
-  raises propagates out of the call. The snapshot path is in
+  WARNING log records are written either way. An exception your callback
+  raises propagates out of the call, except for a notice given after the
+  Safety Snapshot was taken (whether the snapshot is encrypted): that one is
+  logged (ERROR `on_warning_failed`, naming the notice's code and the
+  exception's class) and the restore continues, so a broken callback cannot
+  leave a snapshot with no restore. The snapshot path is in
   `RestoreOutcome.snapshot_path`.
 
 Every package error survives `pickle` and `copy` with its fields, so a worker
@@ -212,7 +216,7 @@ backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarge
 
 Returns: `BackupResult`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature.
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature; `UsageError` naming `scope`, before anything runs, when `scope` is not a `BackupScope` (a string such as `"all"` included).
 
 ### `verify`
 
@@ -303,7 +307,7 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 
 Returns: `RestoreOutcome`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature.
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature; `UsageError` naming the parameter, before anything runs, when `mode`, `overrides`, `snapshot` or `config_policy` is not of its type (an `OverrideSet` must waive `Override` members only).
 
 ### `doctor`
 
@@ -1384,12 +1388,14 @@ Fields: `operation`, each holding the argument of the same name.
 AD-26 — passphrase encryption was requested and no usable one resolved.
 
 ```python
-PassphraseUnavailableError(variable: str, *, reason: str)
+PassphraseUnavailableError(variable: str, *, reason: str, argument: str | None = None)
 ```
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `variable`, `reason`, each holding the argument of the same name.
+Fields: `variable`, `reason`, `argument`, each holding the argument of the same name.
+`argument` is the passphrase argument the hint names: `passphrase` from the
+library, `None` from the CLI, which takes no passphrase value.
 
 ### `PassphraseTooShortError`
 

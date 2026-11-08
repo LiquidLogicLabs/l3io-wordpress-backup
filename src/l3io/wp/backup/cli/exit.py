@@ -17,9 +17,11 @@ traceback. :func:`report_failure` is what the root calls: it
 re-opens the Run's ``SecretRegistry`` for the pipeline while it logs, and a
 failure while reporting (a closed stderr) never changes the code returned.
 
-``KeyboardInterrupt`` is deliberately not handled here: exit 130 is the
-shell's convention, not a member of the table, and Python's default handling
-applies once the Run's ``finally`` blocks have run.
+:func:`report_interrupt` is the same for Ctrl-C (``KeyboardInterrupt``):
+one ``command_failed`` record and plain line, no traceback (a dependency's
+chained message would print unredacted through Python's default hook), and
+:data:`~l3io.wp.backup.domain.exit_codes.INTERRUPTED_EXIT` (130, the shell's
+convention, not a member of the table).
 """
 
 from __future__ import annotations
@@ -33,9 +35,14 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry, open_registry
 from l3io.wp.backup.cli.logging import RUN_ID_KEY
 from l3io.wp.backup.cli.output import emit_failure
 from l3io.wp.backup.domain.errors import BackupError, exit_code_of
-from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
+from l3io.wp.backup.domain.exit_codes import (
+    DESCRIPTIONS,
+    INTERRUPTED_EXIT,
+    INTERRUPTED_REASON,
+    ExitCode,
+)
 
-__all__ = ["exit_code_for", "render_failure", "report_failure"]
+__all__ = ["exit_code_for", "render_failure", "report_failure", "report_interrupt"]
 
 _PROG = "wpbackup2"
 _WITHHELD = "<message withheld: not a package error>"
@@ -140,3 +147,25 @@ def report_failure(exc: Exception, *, secrets: SecretRegistry) -> ExitCode:
     except Exception:  # noqa: S110 - RunTerminated: mapped here (the code is decided)
         pass
     return code
+
+
+def report_interrupt(exc: KeyboardInterrupt, *, secrets: SecretRegistry) -> int:
+    """Log and print a Ctrl-C without a traceback; return :data:`INTERRUPTED_EXIT`."""
+    run_id = getattr(exc, RUN_ID_ATTR, None)
+    run_fields: dict[str, object] = {} if run_id is None else {RUN_ID_KEY: run_id}
+    try:
+        with open_registry(secrets):
+            emit_failure(
+                "command_failed",
+                f"{_PROG}: interrupted [exit {INTERRUPTED_EXIT} {INTERRUPTED_REASON}]",
+                error=type(exc).__name__,
+                secrets=secrets,
+                exc_info=None,
+                stderr_text=None,
+                exit_code=INTERRUPTED_EXIT,
+                exit_reason=INTERRUPTED_REASON,
+                **run_fields,
+            )
+    except Exception:  # noqa: S110 - RunTerminated: mapped here (the code is decided)
+        pass
+    return INTERRUPTED_EXIT

@@ -201,3 +201,34 @@ def test_stdlib_records_redact_through_processor_formatter(
     rendered = formatter.format(record)
     assert SECRET not in rendered
     assert REDACTED in rendered
+
+
+class _Leaky:
+    def __repr__(self) -> str:
+        return f"_Leaky(password={SECRET})"
+
+
+@pytest.mark.parametrize(
+    "value", [SECRET.encode(), bytearray(SECRET.encode()), _Leaky()]
+)
+def test_redact_event_redacts_bytes_and_object_reprs(
+    registry: SecretRegistry, value: object
+) -> None:
+    out = registry.redact_event(None, "e", {"field": value, "nested": [value]})
+    assert out["field"] == registry.redact(
+        value.decode() if isinstance(value, bytes | bytearray) else repr(value)
+    )
+    assert SECRET not in str(out)
+    assert REDACTED in out["field"]
+    assert SECRET not in str(out["nested"])
+
+
+def test_redact_event_leaves_secret_free_values_as_they_were(
+    registry: SecretRegistry,
+) -> None:
+    from pathlib import Path
+
+    values = {"p": Path("/srv/www"), "b": b"\xff plain", "n": 3, "f": None}
+    out = registry.redact_event(None, "e", dict(values))
+    assert out == values
+    assert all(out[k] is v for k, v in values.items())

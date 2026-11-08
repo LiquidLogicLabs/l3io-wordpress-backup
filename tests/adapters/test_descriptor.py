@@ -39,7 +39,7 @@ from l3io.wp.backup.domain.exclusion import ExcludedEntry
 
 FIXTURE = Path(__file__).resolve().parents[1] / "data" / "wp-config.php"
 #: The DB_PASSWORD planted in the fixture; searched for, never printed.
-PLANTED_PASSWORD = "pass@word1"
+PLANTED_PASSWORD = "sentinel-v0-fixture-db-password-d2ff9b94b265"
 
 
 def _config(tmp_path: Path, body: str, name: str = "wp-config.php") -> Path:

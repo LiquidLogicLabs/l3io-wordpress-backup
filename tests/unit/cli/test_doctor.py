@@ -165,6 +165,24 @@ def test_a_missing_site_root_is_a_blocker_named_by_exit_code(
     assert code == int(ExitCode.NOT_READY)
 
 
+def test_a_blocker_says_what_stopped_the_check(
+    workdir: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BL-E008-020: the error class and message, not only its code's name."""
+    missing = tmp_path / "nowhere"
+    _, out = _doctor(capsys, "--json", "--wp-dir", str(missing))
+    clients = json.loads(out)["database_clients"]
+    (detail,) = clients["blocker_details"]
+    assert detail.startswith("InvalidSiteDescriptorError: ")
+    assert "site root does not exist" in detail
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    _, out = _doctor(capsys, "--wp-dir", str(missing))
+    assert "database blocker: InvalidSiteDescriptorError: " in out
+
+
 def test_doctor_prints_no_credential(
     credential_sentinel: CredentialSentinel,
     fake_database: FakeDatabase,

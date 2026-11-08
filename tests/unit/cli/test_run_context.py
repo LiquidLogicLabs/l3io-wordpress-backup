@@ -134,11 +134,10 @@ def test_a_failure_still_finishes_the_run_and_removes_the_workspace(
     with capture_logs() as logs, pytest.raises(type(raised)):
         run()
     (finished,) = _events(logs, "run_finished")
-    # BL-E002-056: an interrupt exits with the interpreter's status (130),
-    # which is not the table's, so no code is claimed for it.
+    # L3 (BL-E002-066): Ctrl-C exits 130, outside the table, and is named.
     claimed = isinstance(raised, Exception)
-    assert finished["exit_code"] == (1 if claimed else None)
-    assert finished["exit_reason"] == ("FAILED" if claimed else None)
+    assert finished["exit_code"] == (1 if claimed else 130)
+    assert finished["exit_reason"] == ("FAILED" if claimed else "INTERRUPTED")
     assert finished["error"] == type(raised).__name__
     assert finished["log_level"] == "error"
     assert not seen[0].workspace.exists()

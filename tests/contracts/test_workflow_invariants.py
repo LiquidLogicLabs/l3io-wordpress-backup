@@ -363,3 +363,47 @@ def test_python_dash_m_wpbackup2_runs_wherever_the_console_script_does() -> None
         assert all(re.search(r"^\s*cd\s", c, re.MULTILINE) for c in module), (
             f"{where}: `python -m wpbackup2` runs inside the checkout"
         )
+
+
+def _recursive_grep_steps() -> list[tuple[str, str]]:
+    """Every workflow step whose script scans a tree with ``grep -r``."""
+    found: list[tuple[str, str]] = []
+    for wf in WORKFLOWS:
+        for job_name, job in _jobs(wf).items():
+            for step in job.get("steps") or []:
+                script = step.get("run") or ""
+                if re.search(r"\bgrep\s+-[a-zA-Z]*r", script):
+                    found.append((f"{wf.name}:{job_name}:{step.get('name')}", script))
+    return found
+
+
+GREP_STEPS = _recursive_grep_steps()
+
+
+def test_there_are_grep_steps_to_check() -> None:
+    assert GREP_STEPS, "no grep -r step found; the test below would pass vacuously"
+
+
+@pytest.mark.parametrize(
+    ("label", "script"), GREP_STEPS, ids=[label for label, _ in GREP_STEPS]
+)
+def test_a_grep_gate_fails_when_its_tree_is_missing(
+    label: str, script: str, tmp_path: pathlib.Path
+) -> None:
+    """AD-12 (BL-E002-096): run where the scanned tree does not exist (a
+    package rename), the step must fail, never pass over nothing; run over
+    this repo, it passes. GitHub's default ``bash -e`` shell."""
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    assert bash is not None
+    root = pathlib.Path(__file__).resolve().parents[2]
+
+    def run(cwd: pathlib.Path) -> int:
+        return subprocess.run(  # noqa: S603 - a fixed shell over a workflow script
+            [bash, "-e", "-c", script], cwd=cwd, capture_output=True, check=False
+        ).returncode
+
+    assert run(tmp_path) != 0, f"{label} passes over a missing tree"
+    assert run(root) == 0, f"{label} fails over this repo"

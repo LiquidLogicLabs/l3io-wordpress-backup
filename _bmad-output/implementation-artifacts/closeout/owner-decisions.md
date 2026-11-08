@@ -48,3 +48,14 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Docs only:** BL-E004-024 and BL-E004-025.
     - **Deferred to post-v1:** BL-E003-041.
     - **Closed as wontfix:** BL-E002-120, BL-E004-059 and BL-E008-015.
+40. **BL-E003-040's 11 remaining sub-findings: (c).**
+    - **Docs:** fix ADV-14 (with decision 41), UX-9 (define the operator jargon in docs/restore.md) and RT-006 (an ADR note recording the CLEAN safety heuristic). State that the space and expansion pre-checks are advisory (ADV-12, SD-01-4).
+    - **Behaviour:** RT-007, a WARNING when `--overwrite-wp-config` applies an Archive `wp-config.php` with non-constant PHP.
+    - **Typing cleanup:** CR-1 (`run_from_cli` is `NoReturn`; no `type: ignore` in `__main__`), CR-2 (reduce `type: ignore` in the restore test harness) and CR-3 (the E402 `noqa` block).
+    - **Closed as wontfix:** SD-01-2 (folded into the decision 36 refactors if they touch it) and UX-11.
+41. **Dry Run skipped symlinks (BL-E003-021 finding, ADV-14): (a) wire in `planned_skipped_links`.** A restore Dry Run lists, after its actions, the site-root links the real Run would skip, with each link's reason. For a v0 Archive, which records no targets, it says they are reported at extraction. Tested at the CLI level; docs/restore.md stays as written.
+42. **Remaining `pass@word1` (BL-E004-064): (b).**
+    - **Sample settings:** replace it in `tests/test_settings.sample.json` with a unique sentinel.
+    - **Legacy fixture accepted:** `tests/data/v0/released-0.2.21-all.tar.gz` stays as captured. It is the legacy tool's real output, pinned by SHA-256 with its provenance record, and it is the interop proof. This one exception is recorded in its provenance notes and in the test that ignores that one line.
+43. **Mode of a tree-laid `wp-config.php` (BL-E008-023): (a) drop the "other" bits only** (0644 becomes 0640). This is the same rule as the by-role lay-down; it amends decision 39's "chmod 0600". The group keeps read access, because PHP often reads the file through a shared group.
+44. **Ownership checks use the effective uid (BL-E008-027): (a).** The state-directory check and the stale-workspace sweep compare against `os.geteuid()`, the owner of the files the process creates. A refusal names a directory owned by another user and points to `XDG_STATE_HOME` (the `sudo -E` case).

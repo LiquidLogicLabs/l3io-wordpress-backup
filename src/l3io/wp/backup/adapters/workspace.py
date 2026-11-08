@@ -27,6 +27,7 @@ by path (``stale_residue_removed``), the owner's explicit ask.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import shutil
 import stat
@@ -47,6 +48,8 @@ __all__ = [
     "WORKSPACE_PREFIX",
     "WorkspaceNotRemovedError",
     "private_directories",
+    "private_state_directories",
+    "require_private_state_directory",
     "run_workspace",
     "sweep_stale",
     "sweep_stale_partials",
@@ -132,6 +135,67 @@ def private_directories(path: Path) -> None:
             directory.mkdir(mode=PRIVATE_DIR_MODE)
     if not path.is_dir():
         raise NotADirectoryError(str(path))
+
+
+def private_state_directories(path: Path, *, root: Path) -> None:
+    """:func:`private_directories` for a state directory, checked before and after.
+
+    The components that already exist are checked first
+    (:func:`require_private_state_directory`), so nothing is created through a
+    symlink or in another user's directory; the whole tree is checked again
+    once created.
+    """
+    require_private_state_directory(path, root=root, missing_ok=True)
+    private_directories(path)
+    require_private_state_directory(path, root=root)
+
+
+def require_private_state_directory(
+    path: Path, *, root: Path, missing_ok: bool = False
+) -> None:
+    """Refuse a state directory another user could tamper with (BL-E008-027).
+
+    ``path`` and, when it lies under ``root`` (the per-user state directory),
+    each ancestor up to and including ``root`` must be a real directory — not
+    a symlink — owned by this user (the real uid, as :func:`sweep_stale`
+    judges ownership) and not group- or world-writable. Whoever owns or can
+    write such a directory could swap a journal, lock or Safety Snapshot name
+    for a link. Each refusal is a ``PermissionError`` (``NotADirectoryError``
+    for a symlink or a file) whose ``strerror`` names the component and the
+    reason; each caller maps it to its own error, as it maps
+    :func:`private_directories`' ``OSError``. Off POSIX (no ``getuid``) only
+    the type and mode are checked. ``missing_ok`` skips a component that
+    does not exist yet.
+    """
+    absolute = Path(os.path.abspath(path))  # noqa: PTH100 - lexical, no symlink resolved
+    top = Path(os.path.abspath(root))  # noqa: PTH100
+    components = [absolute]
+    if absolute != top and top in absolute.parents:
+        for parent in absolute.parents:
+            components.append(parent)
+            if parent == top:
+                break
+    uid = os.getuid() if hasattr(os, "getuid") else None
+    for component in components:
+        try:
+            info = os.lstat(component)
+        except FileNotFoundError:
+            if missing_ok:
+                continue
+            raise
+        if not stat.S_ISDIR(info.st_mode):
+            kind = "a symlink" if stat.S_ISLNK(info.st_mode) else "not a directory"
+            reason = f"state directory {str(component)!r} is {kind}"
+            raise NotADirectoryError(errno.ENOTDIR, reason, str(component))
+        if uid is not None and info.st_uid != uid:
+            reason = f"state directory {str(component)!r} is not owned by this user"
+            raise PermissionError(errno.EPERM, reason, str(component))
+        if stat.S_IMODE(info.st_mode) & 0o022:
+            reason = (
+                f"state directory {str(component)!r} is group- or world-writable "
+                f"(mode {stat.S_IMODE(info.st_mode):04o})"
+            )
+            raise PermissionError(errno.EPERM, reason, str(component))
 
 
 def _newest_mtime(path: Path) -> float:

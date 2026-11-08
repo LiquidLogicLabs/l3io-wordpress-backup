@@ -30,7 +30,7 @@ from structlog.testing import capture_logs
 
 import l3io.wp.backup.adapters.wpcli as wpcli
 from l3io.wp.backup.adapters.journal import journal_directory
-from l3io.wp.backup.adapters.preflight import _probe_environment
+from l3io.wp.backup.adapters.preflight import _probe_environment, absolute_search_path
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.wpcli import (
     WP_CLI_CONFIG_FILES,
@@ -618,10 +618,22 @@ def test_no_sentinel_reaches_a_wp_child(
     for call in fake.calls:
         assert set(call.env) == expected_keys
         assert call.env["LC_ALL"] == "C"
-        assert call.env["PATH"] == os.environ["PATH"]
+        assert call.env["PATH"] == absolute_search_path()
         blob = "\0".join([*call.env.values(), *call.argv])
         for name, value in sentinels.items():
             assert value not in blob, f"{name} reached a wp child"
+
+
+def test_the_wp_child_gets_only_the_absolute_path_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E007-013: the PATH ``wp`` was located over, never an empty, ``.`` or
+    relative entry that would resolve ``php`` against the child's cwd."""
+    sep = os.pathsep
+    monkeypatch.setenv("PATH", sep.join(["", ".", "rel/bin", "/usr/bin", "/bin"]))
+    env = wpcli.wp_cli_environment(tmp_path / "config.yml")
+    assert env["PATH"] == sep.join(["/usr/bin", "/bin"])
+    assert _probe_environment({})["PATH"] == env["PATH"]
 
 
 def test_the_real_runner_passes_exactly_the_built_environment(
@@ -726,9 +738,11 @@ def test_a_wp_cli_config_above_a_symlinked_state_dir_is_refused(
     real = tmp_path / "physical" / "inner" / "state"
     real.mkdir(parents=True)
     (tmp_path / "physical" / "wp-cli.yml").write_text("require: [m.php]\n", "utf-8")
-    link = tmp_path / "lexical" / "state"
-    link.parent.mkdir()
-    link.symlink_to(real, target_is_directory=True)
+    # A symlinked ancestor; the state directory itself is real (BL-E008-027
+    # refuses a symlink as the state directory).
+    lexical = tmp_path / "lexical"
+    lexical.symlink_to(real.parent, target_is_directory=True)
+    link = lexical / "state"
     monkeypatch.setattr(wpcli, "journal_directory", lambda _root: link)
     fake = _one_pair_wp()
     with pytest.raises(WpCliConfigFoundError) as caught:

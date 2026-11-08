@@ -36,7 +36,13 @@ from enum import IntEnum, unique
 from types import MappingProxyType
 from typing import Final
 
-__all__ = ["DESCRIPTIONS", "RESERVED", "ExitCode"]
+__all__ = [
+    "DESCRIPTIONS",
+    "INTERRUPTED_EXIT",
+    "INTERRUPTED_REASON",
+    "RESERVED",
+    "ExitCode",
+]
 
 
 @unique
@@ -53,6 +59,14 @@ class ExitCode(IntEnum):
     VERIFICATION_FAILED = 8
     LOCKED = 9
 
+
+#: A Run stopped by Ctrl-C (``KeyboardInterrupt``) exits with the shell's
+#: convention, 128 + SIGINT, which is not a member of :class:`ExitCode`; its
+#: ``run_finished`` and ``command_failed`` records name it
+#: :data:`INTERRUPTED_REASON`.
+INTERRUPTED_EXIT: Final = 130
+#: The ``exit_reason`` an interrupted Run's records carry.
+INTERRUPTED_REASON: Final = "INTERRUPTED"
 
 #: Values the family reserves; never a member of :class:`ExitCode`.
 RESERVED: Final[frozenset[int]] = frozenset({6})

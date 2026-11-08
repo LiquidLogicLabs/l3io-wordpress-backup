@@ -13,7 +13,10 @@ The committed fixtures predate owner decision 21 (2026-11-07): their outer tar
 is plain, not gzip-wrapped. They are kept as they are, as the backward-
 compatibility fixtures every reader must still accept
 (``tests/adapters/test_outer_gzip.py``); regenerating them now writes the
-gzip-wrapped encoding, so do so only when a test requires it.
+gzip-wrapped encoding, so do so only when a test requires it. They were
+regenerated once since (2026-11-07, BL-E004-064: ``tests/data/wp-config.php``'s
+DB_PASSWORD became a unique sentinel) with the outer gzip stream removed again
+after writing, so they keep the plain outer tar.
 
 Written by the real writer (``adapters/tar.write_archive``, E002-S01-010) from
 ``tests/data/wp-config.php``, a few-kilobyte Site Root holding an empty
