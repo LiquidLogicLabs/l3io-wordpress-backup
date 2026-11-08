@@ -63,3 +63,7 @@ Each is implemented after all are collected, then the item is resolved with the 
 46. **BL-E004-036, v0 `config_path` (a): fix now.**
     - **Fix:** a v0 `ArchiveView.config_path` resolves to the same location form as v1, so an `all` restore of a v0 Archive onto a target with no `wp-config.php` uses the Archive's copy for the database cutover instead of refusing `NoConfigForCutoverError`.
     - **Proof:** a Docker integration test (v0 `all` onto an empty target) and unit tests on the view; a CHANGELOG entry.
+47. **Official-image `getenv_docker()` DB settings (sidecar test finding, 2026-11-08): (a) support them before release.** This reverses the earlier "document now, fix post-v1" for the backup half.
+    - **Backup:** a `DB_*` defined as `getenv_docker('VAR', 'default')` resolves from the process environment (the sidecar carries the site's `WORDPRESS_DB_*`), else the default. The expression is recognised by `l3io-wordpress-config`, never parsed in backup.
+    - **Restore, for an env-driven `DB_NAME`:** it cannot cut over by rewriting `wp-config.php`, so it loads into the existing database name instead. The mechanism is decided in a new ADR (Proposed until the owner accepts).
+    - **Order:** the config API first (request sent to the config agent), then backup.
