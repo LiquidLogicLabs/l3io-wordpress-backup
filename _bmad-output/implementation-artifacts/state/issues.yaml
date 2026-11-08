@@ -7,14 +7,6 @@ next:
   '006': 26
   '008': 36
 backlog:
-- key: BL-E002-005
-  epic: '002'
-  sprint: ''
-  title: 'Timestamp spelling differs: Manifest created_at uses +00:00 (S01-001), log records use Z (S01-004) — pick one per the Consistency Conventions'
-  source: arch-gate
-  severity: Low
-  status: backlog
-  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
 - key: BL-E003-013
   epic: '003'
   sprint: ''
@@ -89,16 +81,6 @@ backlog:
   epic: '002'
   sprint: ''
   title: Manifest.payload is required but the manifest builder and no-op writer must create a Manifest before a payload exists — make it Optional or build it after the payload
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
-- key: BL-E002-032
-  epic: '002'
-  sprint: ''
-  title: ADR-0024's outer Archive is an uncompressed tar, but the default name and the test fixture still end in .tar.gz
   source: arch-gate (l3io-arch-review)
   source_phase: arch-gate
   source_ref: l3io-arch-review
@@ -185,36 +167,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
-- key: BL-E002-063
-  epic: '002'
-  sprint: '01'
-  title: Stronger credentials sent to site-controlled DB_HOST
-  source: redteam (M3)
-  source_phase: redteam
-  source_ref: M3
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
-- key: BL-E002-064
-  epic: '002'
-  sprint: '01'
-  title: Archive target inside site root not refused
-  source: redteam (M4)
-  source_phase: redteam
-  source_ref: M4
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
-- key: BL-E002-065
-  epic: '002'
-  sprint: '01'
-  title: Interrupted run leaves plaintext dump/payload in temp and .partial files
-  source: redteam (M5)
-  source_phase: redteam
-  source_ref: M5
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/redteam-report.md
 - key: BL-E002-066
   epic: '002'
   sprint: '01'
@@ -225,16 +177,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/sprint-01/closure/redteam-report.md
-- key: BL-E002-069
-  epic: '002'
-  sprint: '01'
-  title: 'Exit code mapping: extraction refusal exit 3 after partial write; corrupt payload exit 1 vs 8; missing passphrase exit 2 vs 4 (AR-03..05)'
-  source: adversarial (AR-03-05)
-  source_phase: adversarial
-  source_ref: AR-03-05
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/adversarial-review.md
 - key: BL-E002-071
   epic: '002'
   sprint: '01'
@@ -245,26 +187,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/sprint-01/closure/adversarial-review.md
-- key: BL-E002-072
-  epic: '002'
-  sprint: '01'
-  title: v0/v1 branching via payload-is-None outside domain/archive_format; widen test_version_branching guard (SD-01-2, spec-proposal)
-  source: arch-drift (SD-01-2)
-  source_phase: arch-drift
-  source_ref: SD-01-2
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/arch-drift-review.md
-- key: BL-E002-074
-  epic: '002'
-  sprint: '01'
-  title: 'UX: operator input mistakes exit 1 not 2 (UX-01-3); restore advertised in --help (UX-01-4)'
-  source: ux-review (UX-01-3-4)
-  source_phase: ux-review
-  source_ref: UX-01-3-4
-  severity: Medium
-  status: backlog
-  description: See epic-002/sprint-01/closure/ux-review.md
 - key: BL-E002-075
   epic: '002'
   sprint: '01'
@@ -275,16 +197,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/sprint-01/closure/ux-review.md
-- key: BL-E002-077
-  epic: '002'
-  sprint: '02'
-  title: 'R9: top-level --whatIf is silently ignored by actions that do not honour it (verify; restore once Epic 3 wires it)'
-  source: code-review (E002-S02-007)
-  source_phase: code-review
-  source_ref: E002-S02-007
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
 - key: BL-E002-081
   epic: '002'
   sprint: '02'
@@ -295,16 +207,6 @@ backlog:
   severity: Low
   status: backlog
   description: F2 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
-- key: BL-E002-083
-  epic: '002'
-  sprint: '02'
-  title: Site Lock key (resolved path string) does not merge macOS case-insensitive spellings or Linux bind mounts of one Site (spec gap in AD-19)
-  source: code-review (E002-S02-008)
-  source_phase: code-review
-  source_ref: E002-S02-008
-  severity: Low
-  status: backlog
-  description: F4 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
 - key: BL-E002-088
   epic: '002'
   sprint: '02'
@@ -325,16 +227,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
-- key: BL-E002-091
-  epic: '002'
-  sprint: '02'
-  title: "F9: config_writer._write_over duplicates l3io-wordpress-config's private atomic write (ADR-0023 prescribes it); request a public whole-content replace upstream and correct the story's existing-library claim"
-  source: code-review (E002-S02-009)
-  source_phase: code-review
-  source_ref: E002-S02-009
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
 - key: BL-E002-096
   epic: '002'
   sprint: '02'
@@ -345,36 +237,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/adversarial-review.md
-- key: BL-E002-098
-  epic: '002'
-  sprint: '02'
-  title: LocalSiteFiles.extract tarfile data-filter check/open race via symlink swap (root restore)
-  source: redteam (RT-2)
-  source_phase: redteam
-  source_ref: RT-2
-  severity: High
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
-- key: BL-E002-103
-  epic: '002'
-  sprint: '02'
-  title: Remaining UX findings UX-3..UX-11 and redteam MEDIUM/LOW observations
-  source: ux-review (UX-3)
-  source_phase: ux-review
-  source_ref: UX-3
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
-- key: BL-E002-104
-  epic: '002'
-  sprint: '02'
-  title: check_load answers as the WordPress account rather than the administrator; noop phase names (SD-02-1 disposed spec-proposal)
-  source: arch-drift (SD-02-1)
-  source_phase: arch-drift
-  source_ref: SD-02-1
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md
 - key: BL-E002-105
   epic: '002'
   sprint: '02'
@@ -385,26 +247,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md
-- key: BL-E002-106
-  epic: '002'
-  sprint: ''
-  title: 'Spec proposal: **What happens.** `core/verify.verify` selects a whole v1 or v0 rule set on `view.payload is None`. `payload` is `None` exactly when the Archive is v0, so this is a version branch under another name. The v0 rule set (`_v0`) then re-inspects the raw `MemberIndex` (`MANIFEST_MEMBER in index.names`). `adapters/tar` picks the extraction source and the kind checks the same way.<br>**Why the guard misses it.** The contract test matches only the token `format_version`. Its own "not covered" note names copied values, not proxies like this one. So the gate stays green over the branch AD-23 exists to prevent: two consumers, here `core/verify` and `adapters/tar`, each re-deriving the format.<br>**Status.** E002-S01-003:61 and :65 specify this placement, so the story text diverges from the spine. This is reported, not reopened.'
-  source: spec-sync (SD-01-2)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/SD-01-2.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-23--archive-format-detection-is-explicit-and-one-way. From: _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/arch-drift-review.md.'
-- key: BL-E002-109
-  epic: '002'
-  sprint: ''
-  title: "Spec proposal: Sprint 1 emitted the `phase` field in upper case (`DUMP`, `VERIFY`). Sprint 2 declared restore phases in lower-case kebab (`load-dump`, `rewrite-config`, `search-replace`), and the no-op twins already emit them as `phase` through `_skip(RestorePhase.X.value)`. `docs/logging.md:53` defines the field as \"The step: `DUMP`, `COLLECT_SITE_ROOT`, ... `PUBLISH`\" with a closed list, and `jq 'select(.event==\"phase_completed\")'` (logging.md:10) is the documented query. Epic 3's executor will therefore emit a second spelling in the same field, and `VERIFY` exists in both flows with different spellings (`VERIFY` from `BackupStep`, `verify` from `RestorePhase`). The spine writes AD-17's phases in upper case, so the lower-case values are not in the spec. Nothing is wrong yet, but the field is still unemitted by a real restore, so renaming now costs a docstring and a test; after Epic 3 it is a log-schema break."
-  source: spec-sync (AD-1)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/AD-1.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md.'
 - key: BL-E002-120
   epic: '002'
   sprint: ''
@@ -425,16 +267,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md
-- key: BL-E003-033
-  epic: '003'
-  sprint: '01'
-  title: 'E003-S02-003 risk: snapshot_location refuses any directory under a one-level-up config dir, so ~/public_html with ~/wp-config.php refuses a $HOME-based snapshot default'
-  source: code-review (E003-S01-001)
-  source_phase: code-review
-  source_ref: E003-S01-001
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md (Recorded risk section)
 - key: BL-E003-040
   epic: '003'
   sprint: '01'
@@ -453,16 +285,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R4)
-- key: BL-E003-048
-  epic: '003'
-  sprint: '02'
-  title: 'ADV-6 partial: the database part of a Safety Snapshot is charged 0 bytes in the free-space claim (no live-database size query) (review F4)'
-  source: code-review (E003-S02-003)
-  source_phase: code-review
-  source_ref: E003-S02-003
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F4)
 - key: BL-E003-064
   epic: '003'
   sprint: '02'
@@ -483,26 +305,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
-- key: BL-E003-086
-  epic: '003'
-  sprint: '02'
-  title: Plaintext residue in TMPDIR after SIGKILL
-  source: redteam (RT-S02-007)
-  source_phase: redteam
-  source_ref: RT-S02-007
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-087
-  epic: '003'
-  sprint: '02'
-  title: Unencrypted Safety Snapshots and saved configs accumulate with no retention
-  source: redteam (RT-S02-008)
-  source_phase: redteam
-  source_ref: RT-S02-008
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-088
   epic: '003'
   sprint: '02'
@@ -563,16 +365,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-106
-  epic: '003'
-  sprint: '02'
-  title: Database report shows raw bytes and puts provisioning detail before outcome
-  source: ux-review (UX-S02-11)
-  source_phase: ux-review
-  source_ref: UX-S02-11
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-109
   epic: '003'
   sprint: ''
@@ -593,16 +385,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
-- key: BL-E003-113
-  epic: '003'
-  sprint: ''
-  title: 'EP-RT-001 residual: the re-survey before CLEAN cannot detect writes to an already non-empty Site since the snapshot; the quiesce duty is documented only'
-  source: epic-redteam (EP-RT-001)
-  source_phase: epic-redteam
-  source_ref: EP-RT-001
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
 - key: BL-E003-114
   epic: '003'
   sprint: ''
@@ -620,16 +402,6 @@ backlog:
   source: epic-redteam (EP-RT-004)
   source_phase: epic-redteam
   source_ref: EP-RT-004
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
-- key: BL-E003-116
-  epic: '003'
-  sprint: ''
-  title: "EP-RT-005: the free-space check does not cover the database server's disk where the staging load happens"
-  source: epic-redteam (EP-RT-005)
-  source_phase: epic-redteam
-  source_ref: EP-RT-005
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
@@ -670,16 +442,6 @@ backlog:
   source: epic-arch-review (AD-5)
   source_phase: epic-arch-review
   source_ref: AD-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
-- key: BL-E005-010
-  epic: '005'
-  sprint: '01'
-  title: Probe locates a binary by name; later run re-resolves PATH (adversarial A-2 TOCTOU)
-  source: epic-arch-review (A-2)
-  source_phase: epic-arch-review
-  source_ref: A-2
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
@@ -743,16 +505,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
-- key: BL-E004-063
-  epic: '004'
-  sprint: ''
-  title: 'AR-10: wp-config.php protection is case-sensitive (documented, Linux-only assumption)'
-  source: epic-adversarial (AR-10)
-  source_phase: epic-adversarial
-  source_ref: AR-10
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
 - key: BL-E004-064
   epic: '004'
   sprint: ''
@@ -773,16 +525,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
-- key: BL-E004-067
-  epic: '004'
-  sprint: ''
-  title: 'AD-5: no-direct-crypto guard forbids a hand-kept list of libraries'
-  source: epic-arch-review (AD-5)
-  source_phase: epic-arch-review
-  source_ref: AD-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
 - key: BL-E007-002
   epic: '007'
   sprint: '01'
@@ -883,16 +625,6 @@ backlog:
   severity: Medium
   status: backlog
   description: Documented in docs/api.md and ADR-0011 amendment. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
-- key: BL-E006-013
-  epic: '006'
-  sprint: ''
-  title: Stale docstrings claim nothing below a root reads os.environ (cli/verify.py, cli/passphrase.py); consider an environ parameter on drive_backup/drive_restore
-  source: epic-adversarial (AR-6)
-  source_phase: epic-adversarial
-  source_ref: AR-6
-  severity: Low
-  status: backlog
-  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
 - key: BL-E006-015
   epic: '006'
   sprint: ''
@@ -900,16 +632,6 @@ backlog:
   source: epic-adversarial (AR-8)
   source_phase: epic-adversarial
   source_ref: AR-8
-  severity: Low
-  status: backlog
-  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
-- key: BL-E006-016
-  epic: '006'
-  sprint: ''
-  title: 'Passphrase edge cases: empty explicit passphrase falls through to the environment; verify ignores passphrase without authenticate'
-  source: epic-adversarial (AR-9)
-  source_phase: epic-adversarial
-  source_ref: AR-9
   severity: Low
   status: backlog
   description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
@@ -923,16 +645,6 @@ backlog:
   severity: Low
   status: backlog
   description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
-- key: BL-E006-019
-  epic: '006'
-  sprint: ''
-  title: structlog contextvars run_id and dry_run overwrite a host's same-named keys during a call; namespace them
-  source: epic-adversarial (AR-13)
-  source_phase: epic-adversarial
-  source_ref: AR-13
-  severity: Low
-  status: backlog
-  description: Documented in docs/api.md. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
 - key: BL-E006-022
   epic: '006'
   sprint: ''
@@ -964,22 +676,6 @@ backlog:
   source: owner-decision (E006 closure 5)
   severity: Low
   status: backlog
-- key: BL-E008-003
-  epic: '008'
-  sprint: '01'
-  title: Manifest cap is enforced at WRITE_ARCHIVE (after collection, before the write), not at plan time; a Dry Run never checks it; the 256 MiB verify-memory test is scaled down
-  source: code-review
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-5. The plan reads nothing (ADR-0019), so plan-time needs a pre-walk; owner to decide whether the write-time refusal suffices.
-- key: BL-E008-005
-  epic: '008'
-  sprint: '01'
-  title: An empty --new-db-password or empty password file counts as not given and falls through to L3IO_WP_BACKUP_NEW_DB_PASSWORD instead of being refused
-  source: code-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
 - key: BL-E008-008
   epic: '008'
   sprint: '01'
@@ -988,56 +684,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
-- key: BL-E008-010
-  epic: '008'
-  sprint: ''
-  title: 'Spec proposal: The owner decision (E004 D2 c) and the story say the Manifest cap is refused "at plan time ... with nothing written". The check sits in the archive-writer command adapter, which the Dry Run binds as a no-op. A backup Dry Run on a site whose Manifest exceeds 256 MiB therefore reports success and the real Run refuses. ADR-0019 option C permits this only for refusals "only a command can detect"; this one needs only the member list. The tests (`test_manifest_cap.py`) cover the adapter, not the Dry Run.'
-  source: spec-sync (AD-2)
-  severity: Medium
-  status: backlog
-  kind: spec-proposal
-  ref: _bmad-output/implementation-artifacts/epic-008/epic-closure/spec-proposals/AD-2.md
-  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-4--dry-run-is-adapter-selection-never-a-conditional. From: _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md.'
-- key: BL-E008-011
-  epic: '008'
-  sprint: ''
-  title: 'Manifest cap 256 MiB: verify/restore allocate ~4.3x the Manifest size (about 1.1 GiB at the cap, test factor 25 = 6.4 GiB) before authentication; streaming parse is only on the backlog (owner decision pending)'
-  source: epic-adversarial (A-01)
-  source_phase: epic-adversarial
-  source_ref: A-01
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Options in epic-008/epic-closure/closure-report.md.
-- key: BL-E008-012
-  epic: '008'
-  sprint: ''
-  title: api.backup and api.verify accept on_warning and discard it; passphrase_below_encryption_floor and password_on_command_line are log-only, never a RunWarning (owner decision pending)
-  source: epic-adversarial (A-03)
-  source_phase: epic-adversarial
-  source_ref: A-03
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Options in epic-008/epic-closure/closure-report.md.
-- key: BL-E008-013
-  epic: '008'
-  sprint: ''
-  title: backup --list-default-excludes still requires --wp-dir (the other flags are now refused as a UsageError)
-  source: epic-adversarial (A-02)
-  source_phase: epic-adversarial
-  source_ref: A-02
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Needs a parser change to AD-22's frozen surface; owner decision in closure-report.md.
-- key: BL-E008-014
-  epic: '008'
-  sprint: ''
-  title: "Restored Site PHP (wp-config.php, mu-plugins, drop-ins) runs in the relocation wp child with the operator's full privileges and real HOME (owner decision pending: confinement)"
-  source: epic-redteam (RT-01)
-  source_phase: epic-redteam
-  source_ref: RT-01
-  severity: Medium
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md. Options in epic-008/epic-closure/closure-report.md.
 - key: BL-E008-015
   epic: '008'
   sprint: ''
@@ -1128,16 +774,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
-- key: BL-E008-028
-  epic: '008'
-  sprint: ''
-  title: RunContext is still public though no entry point accepts or returns one
-  source: epic-arch-review (AD-4)
-  source_phase: epic-arch-review
-  source_ref: AD-4
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
 - key: BL-E008-032
   epic: '008'
   sprint: ''

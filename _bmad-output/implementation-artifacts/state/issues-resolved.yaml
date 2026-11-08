@@ -3824,3 +3824,512 @@ resolved:
   resolved_at: '2026-11-07T23:25:07Z'
   ref: d2d2fa3
   note: 'owner decision 2026-11-07, closeout/owner-decisions.md #24'
+- key: BL-E002-005
+  epic: '002'
+  sprint: ''
+  title: 'Timestamp spelling differs: Manifest created_at uses +00:00 (S01-001), log records use Z (S01-004) — pick one per the Consistency Conventions'
+  source: arch-gate
+  severity: Low
+  status: resolved
+  description: See epic-002/arch/arch-gate-review.md (2026-10-27 re-run), MINOR from both.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:29Z'
+  ref: 63a4c71
+  note: 'owner decision: 28 created_at_text (Z, whole seconds, UTC) is the one serializer in domain/archive_format.py; parse_created_at reads both forms; test_created_at.py'
+- key: BL-E002-032
+  epic: '002'
+  sprint: ''
+  title: ADR-0024's outer Archive is an uncompressed tar, but the default name and the test fixture still end in .tar.gz
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:31Z'
+  ref: 63a4c71
+  note: 'owner decision: 21 outer tar written inside gzip.GzipFile at OUTER_COMPRESSLEVEL=0; readers (_outer_tar, probe) accept gzip and plain v1; format_version stays 1; AD-6 + ADR-0024 amended; test_outer_gzip.py; plain v1 '
+- key: BL-E002-063
+  epic: '002'
+  sprint: '01'
+  title: Stronger credentials sent to site-controlled DB_HOST
+  source: redteam (M3)
+  source_phase: redteam
+  source_ref: M3
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:33Z'
+  ref: 63a4c71
+  note: 'owner decision: 2 dumping backup refuses a non-local DB_HOST before any connection unless --confirm-db-host/confirm_db_host names it; DatabaseHostUnconfirmedError (REFUSED)'
+- key: BL-E002-064
+  epic: '002'
+  sprint: '01'
+  title: Archive target inside site root not refused
+  source: redteam (M4)
+  source_phase: redteam
+  source_ref: M4
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:35Z'
+  ref: 63a4c71
+  note: 'owner decision: 3 backup target resolving inside the Site Root refused (USAGE) unless --allow-target-in-site-root; TargetInsideSiteRootError; CHANGELOG.md entry'
+- key: BL-E002-065
+  epic: '002'
+  sprint: '01'
+  title: Interrupted run leaves plaintext dump/payload in temp and .partial files
+  source: redteam (M5)
+  source_phase: redteam
+  source_ref: M5
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:37Z'
+  ref: 63a4c71
+  note: "owner decision: 4 each Run sweeps this user's stale l3io-wp-backup-* workspaces and its target's .partial files older than 24 h, logged by path; SIGHUP/SIGQUIT handled like SIGTERM"
+- key: BL-E002-069
+  epic: '002'
+  sprint: '01'
+  title: 'Exit code mapping: extraction refusal exit 3 after partial write; corrupt payload exit 1 vs 8; missing passphrase exit 2 vs 4 (AR-03..05)'
+  source: adversarial (AR-03-05)
+  source_phase: adversarial
+  source_ref: AR-03-05
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:39Z'
+  ref: 63a4c71
+  note: 'owner decision: 9 extraction refusal after CLEAN exits 8 (ExtractionRefusedAfterCleanError, names the snapshot); PassphraseRequiredError exits 4; CHANGELOG.md entries'
+- key: BL-E002-072
+  epic: '002'
+  sprint: '01'
+  title: v0/v1 branching via payload-is-None outside domain/archive_format; widen test_version_branching guard (SD-01-2, spec-proposal)
+  source: arch-drift (SD-01-2)
+  source_phase: arch-drift
+  source_ref: SD-01-2
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:41Z'
+  ref: 63a4c71
+  note: 'owner decision: 13 AD-23 amended (payload presence is a layout fact; only version comparisons confined to domain/archive_format.py); test_version_branching widened to version constants (derived from the owner) and ve'
+- key: BL-E002-074
+  epic: '002'
+  sprint: '01'
+  title: 'UX: operator input mistakes exit 1 not 2 (UX-01-3); restore advertised in --help (UX-01-4)'
+  source: ux-review (UX-01-3-4)
+  source_phase: ux-review
+  source_ref: UX-01-3-4
+  severity: Medium
+  status: resolved
+  description: See epic-002/sprint-01/closure/ux-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:43Z'
+  ref: 63a4c71
+  note: 'owner decision: 9 nonexistent --wp-dir (SiteRootNotFoundError) and --archive (ArchiveNotFoundError) exit 2; exit-code table test asserts all three'
+- key: BL-E002-077
+  epic: '002'
+  sprint: '02'
+  title: 'R9: top-level --whatIf is silently ignored by actions that do not honour it (verify; restore once Epic 3 wires it)'
+  source: code-review (E002-S02-007)
+  source_phase: code-review
+  source_ref: E002-S02-007
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-007.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:45Z'
+  ref: 63a4c71
+  note: 'owner decision: 29 verify accepts --whatIf in either position; note on stderr (console) and INFO what_if_not_applicable; verification still runs'
+- key: BL-E002-083
+  epic: '002'
+  sprint: '02'
+  title: Site Lock key (resolved path string) does not merge macOS case-insensitive spellings or Linux bind mounts of one Site (spec gap in AD-19)
+  source: code-review (E002-S02-008)
+  source_phase: code-review
+  source_ref: E002-S02-008
+  severity: Low
+  status: resolved
+  description: F4 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:47Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 docs/restore.md: Site Lock keyed by resolved path; case-insensitive and bind-mount spellings are two locks (accepted)'
+- key: BL-E002-091
+  epic: '002'
+  sprint: '02'
+  title: "F9: config_writer._write_over duplicates l3io-wordpress-config's private atomic write (ADR-0023 prescribes it); request a public whole-content replace upstream and correct the story's existing-library claim"
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:49Z'
+  ref: 63a4c71
+  note: 'owner decision: 34 l3io-wordpress-config>=0.1.4,<0.2; replace_file calls WpConfigFile.replace_content; _write_over/_keep_owner deleted; errors map to ConfigWriteFailedError; ADR-0023 revisit resolved by amendment'
+- key: BL-E002-098
+  epic: '002'
+  sprint: '02'
+  title: LocalSiteFiles.extract tarfile data-filter check/open race via symlink swap (root restore)
+  source: redteam (RT-2)
+  source_phase: redteam
+  source_ref: RT-2
+  severity: High
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:50Z'
+  ref: 63a4c71
+  note: 'owner decision: 1 restore as root refused (USAGE) unless --allow-root/allow_root=True; WARNING+notice restore_running_as_root names the race; RootRestoreRefusedError'
+- key: BL-E002-103
+  epic: '002'
+  sprint: '02'
+  title: Remaining UX findings UX-3..UX-11 and redteam MEDIUM/LOW observations
+  source: ux-review (UX-3)
+  source_phase: ux-review
+  source_ref: UX-3
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/ux-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:52Z'
+  ref: 63a4c71
+  note: 'owner decision: 10 README + docs/logging.md: stderr strict JSON lines off a terminal; --log-format console for human-readable cron mail'
+- key: BL-E002-104
+  epic: '002'
+  sprint: '02'
+  title: check_load answers as the WordPress account rather than the administrator; noop phase names (SD-02-1 disposed spec-proposal)
+  source: arch-drift (SD-02-1)
+  source_phase: arch-drift
+  source_ref: SD-02-1
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:54Z'
+  ref: 63a4c71
+  note: "owner decision: 14 check_load needs no administrator; its failures are LoadReadinessError (NOT_READY, exit 7) naming the WordPress account's credential source; api/errors export, docs/api.md, CHANGELOG"
+- key: BL-E002-106
+  epic: '002'
+  sprint: ''
+  title: 'Spec proposal: **What happens.** `core/verify.verify` selects a whole v1 or v0 rule set on `view.payload is None`. `payload` is `None` exactly when the Archive is v0, so this is a version branch under another name. The v0 rule set (`_v0`) then re-inspects the raw `MemberIndex` (`MANIFEST_MEMBER in index.names`). `adapters/tar` picks the extraction source and the kind checks the same way.<br>**Why the guard misses it.** The contract test matches only the token `format_version`. Its own "not covered" note names copied values, not proxies like this one. So the gate stays green over the branch AD-23 exists to prevent: two consumers, here `core/verify` and `adapters/tar`, each re-deriving the format.<br>**Status.** E002-S01-003:61 and :65 specify this placement, so the story text diverges from the spine. This is reported, not reopened.'
+  source: spec-sync (SD-01-2)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: 63a4c71
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-23--archive-format-detection-is-explicit-and-one-way. From: _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/arch-drift-review.md.'
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:56Z'
+  note: 'owner decision: 13 same AD-23 amendment and widened guard as BL-E002-072'
+- key: BL-E002-109
+  epic: '002'
+  sprint: ''
+  title: "Spec proposal: Sprint 1 emitted the `phase` field in upper case (`DUMP`, `VERIFY`). Sprint 2 declared restore phases in lower-case kebab (`load-dump`, `rewrite-config`, `search-replace`), and the no-op twins already emit them as `phase` through `_skip(RestorePhase.X.value)`. `docs/logging.md:53` defines the field as \"The step: `DUMP`, `COLLECT_SITE_ROOT`, ... `PUBLISH`\" with a closed list, and `jq 'select(.event==\"phase_completed\")'` (logging.md:10) is the documented query. Epic 3's executor will therefore emit a second spelling in the same field, and `VERIFY` exists in both flows with different spellings (`VERIFY` from `BackupStep`, `verify` from `RestorePhase`). The spine writes AD-17's phases in upper case, so the lower-case values are not in the spec. Nothing is wrong yet, but the field is still unemitted by a real restore, so renaming now costs a docstring and a test; after Epic 3 it is a log-schema break."
+  source: spec-sync (AD-1)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: 63a4c71
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md.'
+  resolution: fixed
+  resolved_at: '2026-11-08T01:54:58Z'
+  note: 'owner decision: 11 restore phases logged upper case (RestorePhase.name) in logs and spans; journal keeps .value; test_phase_names_upper.py'
+- key: BL-E003-033
+  epic: '003'
+  sprint: '01'
+  title: 'E003-S02-003 risk: snapshot_location refuses any directory under a one-level-up config dir, so ~/public_html with ~/wp-config.php refuses a $HOME-based snapshot default'
+  source: code-review (E003-S01-001)
+  source_phase: code-review
+  source_ref: E003-S01-001
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/review-E003-S01-001.md (Recorded risk section)
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:00Z'
+  ref: 63a4c71
+  note: "owner decision: 22 docs/restore.md: --snapshot-dir under a one-level-up config's directory refused (accepted); use a directory outside it"
+- key: BL-E003-048
+  epic: '003'
+  sprint: '02'
+  title: 'ADV-6 partial: the database part of a Safety Snapshot is charged 0 bytes in the free-space claim (no live-database size query) (review F4)'
+  source: code-review (E003-S02-003)
+  source_phase: code-review
+  source_ref: E003-S02-003
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-003.md (F4)
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:02Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 docs/restore.md: database part of the Safety Snapshot charged 0 bytes (accepted)'
+- key: BL-E003-086
+  epic: '003'
+  sprint: '02'
+  title: Plaintext residue in TMPDIR after SIGKILL
+  source: redteam (RT-S02-007)
+  source_phase: redteam
+  source_ref: RT-S02-007
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:05Z'
+  ref: 63a4c71
+  note: 'owner decision: 4 same sweep as BL-E002-065 (TMPDIR plaintext residue after SIGKILL)'
+- key: BL-E003-087
+  epic: '003'
+  sprint: '02'
+  title: Unencrypted Safety Snapshots and saved configs accumulate with no retention
+  source: redteam (RT-S02-008)
+  source_phase: redteam
+  source_ref: RT-S02-008
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:07Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 docs/restore.md: snapshots/saved configs never removed (accepted); prune command post-v1'
+- key: BL-E003-106
+  epic: '003'
+  sprint: '02'
+  title: Database report shows raw bytes and puts provisioning detail before outcome
+  source: ux-review (UX-S02-11)
+  source_phase: ux-review
+  source_ref: UX-S02-11
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:09Z'
+  ref: 63a4c71
+  note: 'owner decision: 31 human database report prints the verdict first (database restored / database NOT restored: <reason>); JSON unchanged'
+- key: BL-E003-113
+  epic: '003'
+  sprint: ''
+  title: 'EP-RT-001 residual: the re-survey before CLEAN cannot detect writes to an already non-empty Site since the snapshot; the quiesce duty is documented only'
+  source: epic-redteam (EP-RT-001)
+  source_phase: epic-redteam
+  source_ref: EP-RT-001
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:11Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 docs/restore.md: re-survey cannot see writes to a non-empty part; quiesce (accepted)'
+- key: BL-E003-116
+  epic: '003'
+  sprint: ''
+  title: "EP-RT-005: the free-space check does not cover the database server's disk where the staging load happens"
+  source: epic-redteam (EP-RT-005)
+  source_phase: epic-redteam
+  source_ref: EP-RT-005
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:13Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 docs/restore.md: database server disk not checked (accepted)'
+- key: BL-E004-063
+  epic: '004'
+  sprint: ''
+  title: 'AR-10: wp-config.php protection is case-sensitive (documented, Linux-only assumption)'
+  source: epic-adversarial (AR-10)
+  source_phase: epic-adversarial
+  source_ref: AR-10
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:15Z'
+  ref: 63a4c71
+  note: 'owner decision: 8 protected-path match is case-insensitive (casefold); test over derived case spellings'
+- key: BL-E004-067
+  epic: '004'
+  sprint: ''
+  title: 'AD-5: no-direct-crypto guard forbids a hand-kept list of libraries'
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:17Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 tests/contracts/test_no_direct_crypto.py docstring: hand-kept FORBIDDEN list accepted as a stated limit'
+- key: BL-E005-010
+  epic: '005'
+  sprint: '01'
+  title: Probe locates a binary by name; later run re-resolves PATH (adversarial A-2 TOCTOU)
+  source: epic-arch-review (A-2)
+  source_phase: epic-arch-review
+  source_ref: A-2
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:19Z'
+  ref: 63a4c71
+  note: 'owner decision: 22 adapters/wpcli.py docstring: PATH re-lookup window accepted for v1'
+- key: BL-E006-013
+  epic: '006'
+  sprint: ''
+  title: Stale docstrings claim nothing below a root reads os.environ (cli/verify.py, cli/passphrase.py); consider an environ parameter on drive_backup/drive_restore
+  source: epic-adversarial (AR-6)
+  source_phase: epic-adversarial
+  source_ref: AR-6
+  severity: Low
+  status: resolved
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:21Z'
+  ref: 63a4c71
+  note: 'owner decision: 20 drive_backup/drive_restore (and drive_doctor) take environ; CLI and api pass os.environ; AST guard test_drivers_no_environ.py with planted violations'
+- key: BL-E006-016
+  epic: '006'
+  sprint: ''
+  title: 'Passphrase edge cases: empty explicit passphrase falls through to the environment; verify ignores passphrase without authenticate'
+  source: epic-adversarial (AR-9)
+  source_phase: epic-adversarial
+  source_ref: AR-9
+  severity: Low
+  status: resolved
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:23Z'
+  ref: 63a4c71
+  note: 'owner decision: 32 empty passphrase argument or variable: WARNING credential_source_empty naming the source, chain continues'
+- key: BL-E006-019
+  epic: '006'
+  sprint: ''
+  title: structlog contextvars run_id and dry_run overwrite a host's same-named keys during a call; namespace them
+  source: epic-adversarial (AR-13)
+  source_phase: epic-adversarial
+  source_ref: AR-13
+  severity: Low
+  status: resolved
+  description: Documented in docs/api.md. See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:25Z'
+  ref: 63a4c71
+  note: 'owner decision: 12 Run binds l3io_run_id/l3io_dry_run in contextvars; command_failed carries l3io_run_id; docs/logging.md, docs/api.md; test asserts no un-prefixed key bound'
+- key: BL-E008-003
+  epic: '008'
+  sprint: '01'
+  title: Manifest cap is enforced at WRITE_ARCHIVE (after collection, before the write), not at plan time; a Dry Run never checks it; the 256 MiB verify-memory test is scaled down
+  source: code-review
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review M-5. The plan reads nothing (ADR-0019), so plan-time needs a pre-walk; owner to decide whether the write-time refusal suffices.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:27Z'
+  ref: 63a4c71
+  note: 'owner decision: 15 ADR-0019 amended + E008-S01-001 AC amended: Manifest cap enforced at write time, Dry Run does not see it; pre-dump measurement post-v1'
+- key: BL-E008-005
+  epic: '008'
+  sprint: '01'
+  title: An empty --new-db-password or empty password file counts as not given and falls through to L3IO_WP_BACKUP_NEW_DB_PASSWORD instead of being refused
+  source: code-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:29Z'
+  ref: 63a4c71
+  note: 'owner decision: 32 empty --new-db-password, password file or variable: WARNING credential_source_empty, chain continues (empty file now falls through)'
+- key: BL-E008-010
+  epic: '008'
+  sprint: ''
+  title: 'Spec proposal: The owner decision (E004 D2 c) and the story say the Manifest cap is refused "at plan time ... with nothing written". The check sits in the archive-writer command adapter, which the Dry Run binds as a no-op. A backup Dry Run on a site whose Manifest exceeds 256 MiB therefore reports success and the real Run refuses. ADR-0019 option C permits this only for refusals "only a command can detect"; this one needs only the member list. The tests (`test_manifest_cap.py`) cover the adapter, not the Dry Run.'
+  source: spec-sync (AD-2)
+  severity: Medium
+  status: resolved
+  kind: spec-proposal
+  ref: 63a4c71
+  description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-4--dry-run-is-adapter-selection-never-a-conditional. From: _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md.'
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:31Z'
+  note: 'owner decision: 15 same amendment as BL-E008-003'
+- key: BL-E008-011
+  epic: '008'
+  sprint: ''
+  title: 'Manifest cap 256 MiB: verify/restore allocate ~4.3x the Manifest size (about 1.1 GiB at the cap, test factor 25 = 6.4 GiB) before authentication; streaming parse is only on the backlog (owner decision pending)'
+  source: epic-adversarial (A-01)
+  source_phase: epic-adversarial
+  source_ref: A-01
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Options in epic-008/epic-closure/closure-report.md.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:33Z'
+  ref: 63a4c71
+  note: 'owner decision: 16 read-side memory (~4.3x Manifest, ~1.1 GB at the 256 MiB cap, normal sites a few MB) documented in docs/restore.md and README verify section; streaming parse post-v1'
+- key: BL-E008-012
+  epic: '008'
+  sprint: ''
+  title: api.backup and api.verify accept on_warning and discard it; passphrase_below_encryption_floor and password_on_command_line are log-only, never a RunWarning (owner decision pending)
+  source: epic-adversarial (A-03)
+  source_phase: epic-adversarial
+  source_ref: A-03
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Options in epic-008/epic-closure/closure-report.md.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:35Z'
+  ref: 63a4c71
+  note: 'owner decision: 17 api.backup/api.verify pass on_warning to their drivers; passphrase_below_encryption_floor, password_on_command_line, passphrase_ignored, archive_target_in_site_root, restore_running_as_root are sin'
+- key: BL-E008-013
+  epic: '008'
+  sprint: ''
+  title: backup --list-default-excludes still requires --wp-dir (the other flags are now refused as a UsageError)
+  source: epic-adversarial (A-02)
+  source_phase: epic-adversarial
+  source_ref: A-02
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md. Needs a parser change to AD-22's frozen surface; owner decision in closure-report.md.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:37Z'
+  ref: 63a4c71
+  note: "owner decision: 18 --wp-dir optional only with --list-default-excludes; post-parse check keeps argparse's message and exit 2"
+- key: BL-E008-014
+  epic: '008'
+  sprint: ''
+  title: "Restored Site PHP (wp-config.php, mu-plugins, drop-ins) runs in the relocation wp child with the operator's full privileges and real HOME (owner decision pending: confinement)"
+  source: epic-redteam (RT-01)
+  source_phase: epic-redteam
+  source_ref: RT-01
+  severity: Medium
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md. Options in epic-008/epic-closure/closure-report.md.
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:40Z'
+  ref: 63a4c71
+  note: 'owner decision: 7 docs/restore.md: wp child runs restored code unconfined as the restoring user; encrypted Archive authenticates it; archive_unauthenticated WARNING before any effect (existing); confinement post-v1'
+- key: BL-E008-028
+  epic: '008'
+  sprint: ''
+  title: RunContext is still public though no entry point accepts or returns one
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T01:55:42Z'
+  ref: 63a4c71
+  note: 'owner decision: 19 RunContext removed from api.__all__ and docs/api.md; guard test'
