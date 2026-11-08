@@ -7,26 +7,6 @@ next:
   '006': 26
   '008': 36
 backlog:
-- key: BL-E003-021
-  epic: '003'
-  sprint: ''
-  title: "E003: no restore-level test for skipped symlinks (exit OK, WARNING lines, Safety Snapshot round trip), and nothing proves the Dry Run's link_target predicate agrees with the data_filter skip"
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E004-016
-  epic: '004'
-  sprint: ''
-  title: "E004-S01-001 ExclusionSource(StrEnum) vs E002-S01-001's Literal source and ExclusionPolicy.source: str — one type under mypy --strict"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
 - key: BL-E004-036
   epic: '004'
   sprint: ''
@@ -37,16 +17,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
-- key: BL-E002-024
-  epic: '002'
-  sprint: ''
-  title: Manifest.payload is required but the manifest builder and no-op writer must create a Manifest before a payload exists — make it Optional or build it after the payload
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
 - key: BL-E003-041
   epic: '003'
   sprint: '02'
@@ -57,66 +27,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-005.md (R4)
-- key: BL-E003-094
-  epic: '003'
-  sprint: '02'
-  title: Epic 7 scaffolding unreachable; new_db_password registered twice; require_database_restored called (outcome, outcome)
-  source: adversarial (CR-S02-01)
-  source_phase: adversarial
-  source_ref: CR-S02-01
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-099
-  epic: '003'
-  sprint: '02'
-  title: RestoreRequest carries adapters-layer AdminTls; mutable global RESTORE_EXTENSION
-  source: arch-drift (SD-02-5)
-  source_phase: arch-drift
-  source_ref: SD-02-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-100
-  epic: '003'
-  sprint: '02'
-  title: staging.py reads time.monotonic_ns directly instead of the Clock port
-  source: arch-drift (SD-02-6)
-  source_phase: arch-drift
-  source_ref: SD-02-6
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-109
-  epic: '003'
-  sprint: ''
-  title: "AD-3: split core/restore.py (1495 lines) and cli/restore.py (1691) along SD-01-3's seams before Epic 6/7 add to them"
-  source: epic-arch-review (AD-3)
-  source_phase: epic-arch-review
-  source_ref: AD-3
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
-- key: BL-E004-064
-  epic: '004'
-  sprint: ''
-  title: 'AR-11: tests/data/wp-config.php carries DB_PASSWORD pass@word1, not a unique sentinel, baked into v0 fixtures'
-  source: epic-adversarial (AR-11)
-  source_phase: epic-adversarial
-  source_ref: AR-11
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
-- key: BL-E004-065
-  epic: '004'
-  sprint: ''
-  title: 'AR-12: unreachable manifest_text-is-None branches under pragma no cover in restore_runner and verify'
-  source: epic-adversarial (AR-12)
-  source_phase: epic-adversarial
-  source_ref: AR-12
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
 - key: BL-E007-002
   epic: '007'
   sprint: '01'
@@ -127,66 +37,6 @@ backlog:
   severity: Low
   status: backlog
   description: "Deferred: the real output can only be captured where wp, php-mysql and MySQL exist (CI, from this story's ci.yml change); see _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-003.md (L3, H3 item 3)"
-- key: BL-E007-005
-  epic: '007'
-  sprint: '01'
-  title: 'F-11: wp-config.php / wp-settings.php names defined in several modules; export one constant next to ConfigLocation'
-  source: code-review (E007-S01-002)
-  source_phase: code-review
-  source_ref: E007-S01-002
-  severity: Low
-  status: backlog
-  description: "See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-002.md. Deferred: refactor touching domain/archive_format, adapters/database and core/restore, outside this story's files."
-- key: BL-E007-011
-  epic: '007'
-  sprint: '01'
-  title: dead factory-is-None branch, RELOCATION_UNAVAILABLE and mid-file import under noqa in cli/restore.py
-  source: epic-adversarial (AR-7)
-  source_phase: epic-adversarial
-  source_ref: AR-7
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
-- key: BL-E007-018
-  epic: '007'
-  sprint: '01'
-  title: config-placement decision logic (_config_file) sits in the adapter, not core/config_location.py
-  source: epic-arch-review (ED-4)
-  source_phase: epic-arch-review
-  source_ref: ED-4
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-- key: BL-E007-019
-  epic: '007'
-  sprint: '01'
-  title: adapters/wpcli.py ~900 lines mixes runner, session, owed text and the restore extension; imports across adapters
-  source: epic-arch-review (ED-5)
-  source_phase: epic-arch-review
-  source_ref: ED-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-- key: BL-E007-020
-  epic: '007'
-  sprint: '01'
-  title: RunFacts is hidden shared mutable state between resolve and the replacer's log
-  source: epic-arch-review (ED-7)
-  source_phase: epic-arch-review
-  source_ref: ED-7
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-- key: BL-E006-015
-  epic: '006'
-  sprint: ''
-  title: UsageError.arguments mixes CLI flag spellings and parameter names on library paths; fix one vocabulary
-  source: epic-adversarial (AR-8)
-  source_phase: epic-adversarial
-  source_ref: AR-8
-  severity: Low
-  status: backlog
-  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
 - key: BL-E006-022
   epic: '006'
   sprint: ''
@@ -218,16 +68,6 @@ backlog:
   source: owner-decision (E006 closure 5)
   severity: Low
   status: backlog
-- key: BL-E008-027
-  epic: '008'
-  sprint: ''
-  title: Existing per-user state directory accepted without checking owner or mode
-  source: epic-redteam (RT-06)
-  source_phase: epic-redteam
-  source_ref: RT-06
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
 - key: BL-E008-032
   epic: '008'
   sprint: ''
@@ -275,66 +115,6 @@ backlog:
   severity: Low
   status: backlog
   description: Follow-up to BL-E008-011; v1 documents the ~4.3x bound. Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 16 (and 26).
-- key: BL-E003-118
-  epic: '003'
-  sprint: '01'
-  title: 'ADV-12 (split from BL-E003-040): Space and expansion checks act on unverified v1 sizes before VERIFY'
-  source: closeout-split (ADV-12)
-  source_phase: closeout-split
-  source_ref: ADV-12
-  severity: Low
-  status: backlog
-  description: Sub-finding ADV-12 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (ADV-12).
-- key: BL-E003-120
-  epic: '003'
-  sprint: '01'
-  title: 'ADV-14 (split from BL-E003-040): Dry Run skipped-link listing has no caveat in docs/restore.md'
-  source: closeout-split (ADV-14)
-  source_phase: closeout-split
-  source_ref: ADV-14
-  severity: Low
-  status: backlog
-  description: Sub-finding ADV-14 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (ADV-14).
-- key: BL-E003-121
-  epic: '003'
-  sprint: '01'
-  title: 'CR-1 (split from BL-E003-040): wpbackup2 __main__ type: ignore; run_from_cli not NoReturn'
-  source: closeout-split (CR-1)
-  source_phase: closeout-split
-  source_ref: CR-1
-  severity: Low
-  status: backlog
-  description: Sub-finding CR-1 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (CR-1).
-- key: BL-E003-122
-  epic: '003'
-  sprint: '01'
-  title: 'CR-2 (split from BL-E003-040): type: ignore used heavily in the restore test harness'
-  source: closeout-split (CR-2)
-  source_phase: closeout-split
-  source_ref: CR-2
-  severity: Low
-  status: backlog
-  description: Sub-finding CR-2 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (CR-2).
-- key: BL-E003-123
-  epic: '003'
-  sprint: '01'
-  title: 'CR-3 (split from BL-E003-040): E402 noqa block in test_restore_refusal.py'
-  source: closeout-split (CR-3)
-  source_phase: closeout-split
-  source_ref: CR-3
-  severity: Low
-  status: backlog
-  description: Sub-finding CR-3 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (CR-3).
-- key: BL-E003-126
-  epic: '003'
-  sprint: '01'
-  title: 'RT-006 (split from BL-E003-040): CLEAN safety is a heuristic; no recorded decision'
-  source: closeout-split (RT-006)
-  source_phase: closeout-split
-  source_ref: RT-006
-  severity: Low
-  status: backlog
-  description: Sub-finding RT-006 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md (RT-006).
 - key: BL-E003-127
   epic: '003'
   sprint: '01'
@@ -345,23 +125,3 @@ backlog:
   severity: Low
   status: backlog
   description: Sub-finding RT-007 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md (RT-007).
-- key: BL-E003-129
-  epic: '003'
-  sprint: '01'
-  title: 'SD-01-4 (split from BL-E003-040): _check_space pre-check trusts the unverified index; not stated as advisory'
-  source: closeout-split (SD-01-4)
-  source_phase: closeout-split
-  source_ref: SD-01-4
-  severity: Low
-  status: backlog
-  description: Sub-finding SD-01-4 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md (SD-01-4).
-- key: BL-E003-131
-  epic: '003'
-  sprint: '01'
-  title: 'UX-9 (split from BL-E003-040): docs/restore.md jargon undefined for operators'
-  source: closeout-split (UX-9)
-  source_phase: closeout-split
-  source_ref: UX-9
-  severity: Low
-  status: backlog
-  description: Sub-finding UX-9 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md (UX-9).

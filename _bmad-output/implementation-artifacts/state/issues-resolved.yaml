@@ -5575,3 +5575,339 @@ resolved:
   resolved_at: '2026-11-08T04:51:52Z'
   ref: '1673328'
   note: 'Owner decision 40: wontfix (SD-01-2 folded into the decision 36 refactors if they touch it; UX-11 wording preference)'
+- key: BL-E003-118
+  epic: '003'
+  sprint: '01'
+  title: 'ADV-12 (split from BL-E003-040): Space and expansion checks act on unverified v1 sizes before VERIFY'
+  source: closeout-split (ADV-12)
+  source_phase: closeout-split
+  source_ref: ADV-12
+  severity: Low
+  status: resolved
+  description: Sub-finding ADV-12 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (ADV-12).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:16Z'
+  ref: a073c2e
+  note: "ADV-12 (owner decision 40): restore space/expansion pre-checks stated advisory: adapters/restore_runner._check_space and core/restore.check_expansion docstrings, docs/restore.md 'These two checks are advisory' (trust the unverified index; VERIFY and extraction's indexed-size cap enforce); docs only, no behaviour change"
+- key: BL-E003-120
+  epic: '003'
+  sprint: '01'
+  title: 'ADV-14 (split from BL-E003-040): Dry Run skipped-link listing has no caveat in docs/restore.md'
+  source: closeout-split (ADV-14)
+  source_phase: closeout-split
+  source_ref: ADV-14
+  severity: Low
+  status: resolved
+  description: Sub-finding ADV-14 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (ADV-14).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:18Z'
+  ref: a073c2e
+  note: "ADV-14 (owner decisions 40, 41): docs/restore.md Symlinks states the Dry Run's lexical rule vs extraction's on-disk resolution (a pre-existing symlinked directory can differ; the real Run's WARNINGs are the authority); the Dry Run listing itself is decision 41 (see BL-E003-021)"
+- key: BL-E003-121
+  epic: '003'
+  sprint: '01'
+  title: 'CR-1 (split from BL-E003-040): wpbackup2 __main__ type: ignore; run_from_cli not NoReturn'
+  source: closeout-split (CR-1)
+  source_phase: closeout-split
+  source_ref: CR-1
+  severity: Low
+  status: resolved
+  description: Sub-finding CR-1 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (CR-1).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:20Z'
+  ref: a073c2e
+  note: 'CR-1: cli.run_from_cli typed NoReturn; src/wpbackup2/__main__.py calls it plainly, no type: ignore; tests/contracts/test_cli_surface.py::test_the_entry_never_returns_and_python_dash_m_needs_no_ignore, ::test_python_dash_m_wpbackup2_exits_with_the_runs_code'
+- key: BL-E003-122
+  epic: '003'
+  sprint: '01'
+  title: 'CR-2 (split from BL-E003-040): type: ignore used heavily in the restore test harness'
+  source: closeout-split (CR-2)
+  source_phase: closeout-split
+  source_ref: CR-2
+  severity: Low
+  status: resolved
+  description: Sub-finding CR-2 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (CR-2).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:23Z'
+  ref: a073c2e
+  note: 'CR-2: tests/restore_harness.py port stand-ins typing.cast to their ports, Harness(config_writer=, slot=) replace attribute assignment (test_restore_modes, test_dry_run_restore, test_credential_hygiene); tests/restore_root_rig.py casts; test_restore_root lambdas typed; 15 type: ignore removed from the harness family; guard tests/contracts/test_restore_harness_typed.py (scope tests/restore_*.py by glob, planted violation)'
+- key: BL-E003-123
+  epic: '003'
+  sprint: '01'
+  title: 'CR-3 (split from BL-E003-040): E402 noqa block in test_restore_refusal.py'
+  source: closeout-split (CR-3)
+  source_phase: closeout-split
+  source_ref: CR-3
+  severity: Low
+  status: resolved
+  description: Sub-finding CR-3 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/adversarial-review.md (CR-3).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:25Z'
+  ref: a073c2e
+  note: 'CR-3: tests/integration/test_restore_refusal.py: bare pytest.importorskip calls then plain imports; the 13 noqa: E402 removed (ruff E402 passes; without the restructure ruff reports 13 E402)'
+- key: BL-E003-126
+  epic: '003'
+  sprint: '01'
+  title: 'RT-006 (split from BL-E003-040): CLEAN safety is a heuristic; no recorded decision'
+  source: closeout-split (RT-006)
+  source_phase: closeout-split
+  source_ref: RT-006
+  severity: Low
+  status: resolved
+  description: Sub-finding RT-006 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md (RT-006).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:27Z'
+  ref: a073c2e
+  note: "RT-006 (owner decision 40): ADR-0022 amendment 2026-11-07 records CLEAN's target check (root/home/neither wp-config.php nor wp-includes/) as a heuristic kept as is, FR-7's --cleanfirst/--force the control; docs/restore.md states it; docs only"
+- key: BL-E003-129
+  epic: '003'
+  sprint: '01'
+  title: 'SD-01-4 (split from BL-E003-040): _check_space pre-check trusts the unverified index; not stated as advisory'
+  source: closeout-split (SD-01-4)
+  source_phase: closeout-split
+  source_ref: SD-01-4
+  severity: Low
+  status: resolved
+  description: Sub-finding SD-01-4 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/arch-drift-review.md (SD-01-4).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:30Z'
+  ref: a073c2e
+  note: 'SD-01-4 (owner decision 40): as BL-E003-118: _check_space docstring and docs/restore.md say the pre-check trusts the index and extraction enforces; docs only'
+- key: BL-E003-131
+  epic: '003'
+  sprint: '01'
+  title: 'UX-9 (split from BL-E003-040): docs/restore.md jargon undefined for operators'
+  source: closeout-split (UX-9)
+  source_phase: closeout-split
+  source_ref: UX-9
+  severity: Low
+  status: resolved
+  description: Sub-finding UX-9 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/ux-review.md (UX-9).
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:32Z'
+  ref: a073c2e
+  note: "UX-9 (owner decision 40): docs/restore.md 'Terms' section defines Site, Site Root, Archive, Dump, Restore Mode, Run, Dry Run, Run workspace, Safety Snapshot, Run Journal, Site Lock, per-user state directory (with its path) and Phase; docs only"
+- key: BL-E003-021
+  epic: '003'
+  sprint: ''
+  title: "E003: no restore-level test for skipped symlinks (exit OK, WARNING lines, Safety Snapshot round trip), and nothing proves the Dry Run's link_target predicate agrees with the data_filter skip"
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:35Z'
+  ref: a073c2e
+  note: "Owner decision 41: core/restore.build_restore_plan sets RestorePlan.skipped_links (planned_skipped_links when files are extracted; None when the Archive records no link targets, domain/archive_format.records_link_targets); a Dry Run's RestoreOutcome.skipped_links is the plan's; console prints 'would skip symlink ...: <reason> (not supported)' after the actions (v0: LINKS_AT_EXTRACTION line), JSON skipped_links entries carry reason and are null for a v0 Dry Run; docs/restore.md, docs/api.md, CHANGELOG; tests/unit/cli/test_restore_dry_run_links.py (5 tests, 3 fail without the wiring); Docker: tests/integration/test_restore_skipped_symlinks.py asserts the Dry Run's skipped_links equal the planned set"
+- key: BL-E004-064
+  epic: '004'
+  sprint: ''
+  title: 'AR-11: tests/data/wp-config.php carries DB_PASSWORD pass@word1, not a unique sentinel, baked into v0 fixtures'
+  source: epic-adversarial (AR-11)
+  source_phase: epic-adversarial
+  source_ref: AR-11
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:37Z'
+  ref: a073c2e
+  note: 'Owner decision 42: tests/test_settings.sample.json dbPassword is sentinel-legacy-settings-db-password-52cce7b5cead; released-0.2.21-all.provenance.json gains accepted_exception (the one DB_PASSWORD line, owner decision 42); tests/adapters/test_v0_fixtures.py::test_the_released_fixture_carries_no_operator_secret ignores exactly one DB_PASSWORD line holding the old password, ::test_the_legacy_test_password_is_nowhere_else (git ls-files scope less _bmad*/; fails on the old sample). tests/classes/ cannot run here (pytest-ignored; legacy wpconfigr/WpSite not importable, pre-existing) and does not read the sample'
+- key: BL-E008-027
+  epic: '008'
+  sprint: ''
+  title: Existing per-user state directory accepted without checking owner or mode
+  source: epic-redteam (RT-06)
+  source_phase: epic-redteam
+  source_ref: RT-06
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:39Z'
+  ref: a073c2e
+  note: 'Owner decision 44: adapters/workspace._effective_uid (os.geteuid) for require_private_state_directory and sweep_stale; refusal names the directory, both uids and STATE_HOME_HINT (XDG_STATE_HOME, sudo -E); docs/logging.md, CHANGELOG; tests/unit/adapters/test_state_directory.py::test_ownership_is_judged_by_the_effective_uid, ::test_a_real_uid_that_differs_from_the_owner_is_not_judged, ::test_the_site_lock_refusal_names_xdg_state_home, ::test_the_sweep_judges_ownership_by_the_effective_uid (5 fail on the old code); tests/adapters/test_wpcli.py not_root now patches wpcli._running_as_root, not os.geteuid. Decision 43 confirmed: tree-laid config drops other bits only (0644->0640), docs/restore.md and CHANGELOG say so'
+- key: BL-E003-109
+  epic: '003'
+  sprint: ''
+  title: "AD-3: split core/restore.py (1495 lines) and cli/restore.py (1691) along SD-01-3's seams before Epic 6/7 add to them"
+  source: epic-arch-review (AD-3)
+  source_phase: epic-arch-review
+  source_ref: AD-3
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:41Z'
+  ref: a073c2e
+  note: 'Owner decision 36: core/restore.py (1569 lines) split into core/restore.py (plan, target, relocation seam, run values, staging names; 1053), core/restore_space.py (BL-E002-116 size/free-space/expansion, advisory) and core/restore_journal.py (STEP_* names, is_orderly_failure, journal read-back and undo); cli/restore.py (1952) split into cli/restore.py (run_restore, drive_restore and its steps; 1149), cli/restore_request.py (RestoreRequest/RestoreOutcome, RelocationFlags and the extension Protocols, flag translation, refusal rendering, archive identity) and cli/restore_report.py (database report, FR-9 exit rule, JSON summary, printer); imports updated across src/tests (STEP_* scope tests now derive from core/restore_journal); behaviour-neutral: full suite, root-simulated suite'
+- key: BL-E007-019
+  epic: '007'
+  sprint: '01'
+  title: adapters/wpcli.py ~900 lines mixes runner, session, owed text and the restore extension; imports across adapters
+  source: epic-arch-review (ED-5)
+  source_phase: epic-arch-review
+  source_ref: ED-5
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:44Z'
+  ref: a073c2e
+  note: 'Owner decision 36: adapters/wpcli.py split into adapters/wpcli_child.py (run_child, the bounded child and the non-dumpable guard), adapters/wpcli.py (WP-CLI session, WpCliSearchReplace, owed text; check_wp_cli_directory now public) and adapters/restore_extension.py (WpCliRestoreExtension, restore_extension); config_member moved to domain/archive_format (no adapter-to-adapter import for it); tests retarget monkeypatches to the owning module; tests/contracts/test_child_env_explicit.py reads wpcli_child.py; tests/unit/cli/test_restore_extension.py grant guard covers both Epic 7 modules (planted violations)'
+- key: BL-E007-018
+  epic: '007'
+  sprint: '01'
+  title: config-placement decision logic (_config_file) sits in the adapter, not core/config_location.py
+  source: epic-arch-review (ED-4)
+  source_phase: epic-arch-review
+  source_ref: ED-4
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:46Z'
+  ref: a073c2e
+  note: 'Owner decision 36: core/config_location gains recorded_location(view), require_stated_config_loaded(...) and require_lay_down_free(...); adapters/restore_extension._config_file only reads facts (file_exists/isfile, realpath compare, lexists) and logs; tests/unit/core/test_config_location.py::test_a_url_relocation_refuses_a_stated_config_wordpress_does_not_load, ::test_a_lay_down_onto_anything_is_refused, ::test_only_a_config_role_member_records_a_location'
+- key: BL-E007-020
+  epic: '007'
+  sprint: '01'
+  title: RunFacts is hidden shared mutable state between resolve and the replacer's log
+  source: epic-arch-review (ED-7)
+  source_phase: epic-arch-review
+  source_ref: ED-7
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:49Z'
+  ref: a073c2e
+  note: 'Owner decision 36: RunFacts removed; SearchReplaceCommand.relocate_content(site_root, urls, *, archive_encrypted=None) and the restore runner passes view.encrypted; WpCliSearchReplace logs it on wp_cli_running_as_root; noop/unbound twins and test fakes take the keyword; tests/unit/adapters/test_restore_runner.py::test_search_replace_is_told_whether_the_archive_was_encrypted, tests/adapters/test_wpcli.py::test_allow_root_and_a_warning_only_as_root'
+- key: BL-E003-099
+  epic: '003'
+  sprint: '02'
+  title: RestoreRequest carries adapters-layer AdminTls; mutable global RESTORE_EXTENSION
+  source: arch-drift (SD-02-5)
+  source_phase: arch-drift
+  source_ref: SD-02-5
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:51Z'
+  ref: a073c2e
+  note: "Owner decision 36: AdminTls moved to ports/database.py (Path keeps it out of domain/; api re-export unchanged); RESTORE_EXTENSION global replaced by drive_restore(extension=restore_extension) parameter, the Rig passes it; CHANGELOG; tests/unit/cli/test_restore_extension.py::test_the_shipped_extension_is_drive_restores_default, tests/contracts/test_tool_requirements_documented.py (factory derived from drive_restore's default)"
+- key: BL-E004-016
+  epic: '004'
+  sprint: ''
+  title: "E004-S01-001 ExclusionSource(StrEnum) vs E002-S01-001's Literal source and ExclusionPolicy.source: str — one type under mypy --strict"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/arch-gate-review.md (MINORs) and the reviewer files
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:54Z'
+  ref: a073c2e
+  note: "Owner decision 36: ExclusionSource (StrEnum) moved to domain/exclusion.py and is the one type of ExclusionSet.source, ManifestExclusions.source and IncludeEverything.source; the Manifest reader and the backup convert a host policy's str once (same refusal text); tests/unit/core/test_exclusions.py::test_one_exclusion_source_type_everywhere"
+- key: BL-E002-024
+  epic: '002'
+  sprint: ''
+  title: Manifest.payload is required but the manifest builder and no-op writer must create a Manifest before a payload exists — make it Optional or build it after the payload
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:56Z'
+  ref: a073c2e
+  note: 'Owner decision 36: domain/archive_format.pending_payload(encrypted=) is the one placeholder a Manifest carries before its payload exists (cli/backup builder, tar seal); write_archive replaces it; tests/unit/domain/test_classifier.py::test_one_pending_payload_names_the_member_to_be_written'
+- key: BL-E007-005
+  epic: '007'
+  sprint: '01'
+  title: 'F-11: wp-config.php / wp-settings.php names defined in several modules; export one constant next to ConfigLocation'
+  source: code-review (E007-S01-002)
+  source_phase: code-review
+  source_ref: E007-S01-002
+  severity: Low
+  status: resolved
+  description: "See _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-002.md. Deferred: refactor touching domain/archive_format, adapters/database and core/restore, outside this story's files."
+  resolution: fixed
+  resolved_at: '2026-11-08T07:04:58Z'
+  ref: a073c2e
+  note: 'Owner decision 36: domain/archive_format.WP_CONFIG_NAME / WP_SETTINGS_NAME, used by ConfigLocation, CONFIG_RELATIVE, core/restore, core/exclusions, core/config_location, adapters/database, adapters/site_files, adapters/wpcli, adapters/restore_extension, cli/restore; tests/contracts/test_config_name_defined_once.py (scope walked, planted definition)'
+- key: BL-E003-100
+  epic: '003'
+  sprint: '02'
+  title: staging.py reads time.monotonic_ns directly instead of the Clock port
+  source: arch-drift (SD-02-6)
+  source_phase: arch-drift
+  source_ref: SD-02-6
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T07:05:01Z'
+  ref: a073c2e
+  note: 'Owner decision 36: Clock port gains monotonic_ns() (SystemClock: time.monotonic_ns); adapters/staging load_staged(clock=) times the cutover with it, drive_restore passes run.clock; tests/unit/adapters/test_staging.py::test_the_cutover_is_timed_by_the_runs_clock'
+- key: BL-E006-015
+  epic: '006'
+  sprint: ''
+  title: UsageError.arguments mixes CLI flag spellings and parameter names on library paths; fix one vocabulary
+  source: epic-adversarial (AR-8)
+  source_phase: epic-adversarial
+  source_ref: AR-8
+  severity: Low
+  status: resolved
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+  resolution: fixed
+  resolved_at: '2026-11-08T07:05:03Z'
+  ref: a073c2e
+  note: 'Owner decision 36: UsageError.arguments names library parameters on every library-reachable path (allow_unencrypted, require_encrypted, authenticate, allow_root, config_policy, archive_database, admin_tls, admin_tls.ca_file, relocation.<field>, target/allow_target_in_site_root, archive/target, patterns); only cli/credentials keeps flags; InvalidRelocationValueError(argument=), Incomplete.../RelocationNeeds...(arguments=) added; docs/api.md and CHANGELOG; tests/contracts/test_usage_arguments_vocabulary.py (every arguments= literal, planted flag), updated assertions in test_restore_root/test_closeout_safety'
+- key: BL-E003-094
+  epic: '003'
+  sprint: '02'
+  title: Epic 7 scaffolding unreachable; new_db_password registered twice; require_database_restored called (outcome, outcome)
+  source: adversarial (CR-S02-01)
+  source_phase: adversarial
+  source_ref: CR-S02-01
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T07:05:06Z'
+  ref: a073c2e
+  note: 'Owner decision 37: dead seam removed: RESTORE_EXTENSION/factory-is-None branch and _NoExtension gone (drive_restore always builds the shipped extension); --new-db-password registered once (by the factory); require_database_restored(outcome, *, dry_run) takes one value; tests/unit/cli/test_restore_extension.py rewritten to the final seam, tests/unit/core/test_database_report.py and tests/unit/api/test_operations.py updated'
+- key: BL-E007-011
+  epic: '007'
+  sprint: '01'
+  title: dead factory-is-None branch, RELOCATION_UNAVAILABLE and mid-file import under noqa in cli/restore.py
+  source: epic-adversarial (AR-7)
+  source_phase: epic-adversarial
+  source_ref: AR-7
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:05:09Z'
+  ref: a073c2e
+  note: 'Owner decision 37: RELOCATION_UNAVAILABLE removed from cli/parser (and tests/contracts/test_not_yet_implemented.py), mid-file noqa import replaced by a top-level import of adapters/restore_extension.restore_extension'
+- key: BL-E004-065
+  epic: '004'
+  sprint: ''
+  title: 'AR-12: unreachable manifest_text-is-None branches under pragma no cover in restore_runner and verify'
+  source: epic-adversarial (AR-12)
+  source_phase: epic-adversarial
+  source_ref: AR-12
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T07:05:11Z'
+  ref: a073c2e
+  note: "Owner decision 37: the two unreachable manifest_text-is-None branches (adapters/restore_runner._verify pragma no cover, cli/verify._authenticate's folded check) removed; an encrypted view is a v1 Manifest's, so the text is cast with the invariant stated; existing verify/restore tests green"
