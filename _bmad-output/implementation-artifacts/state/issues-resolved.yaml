@@ -5925,3 +5925,17 @@ resolved:
   resolved_at: '2026-11-08T13:45:27Z'
   ref: 49910dd
   note: "Owner decision 45: no run-time warning (config 0.1.4 cannot detect added PHP; the Archive's other PHP is restored the same way); docs/restore.md states the file is applied whole, code included"
+- key: BL-E004-036
+  epic: '004'
+  sprint: ''
+  title: ArchiveView.config_path means a member path for v0 and a location for v1; E007-S01-002 AC L27 reconciled only by a note
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
+  resolution: fixed
+  resolved_at: '2026-11-08T14:39:13Z'
+  ref: 5393ea5
+  note: 'Owner decision 46: a v0 ArchiveView.config_path is the location ConfigLocation.SITE_ROOT ("wp-config.php"), as a v1 in-tree config records it, never the member path (domain/archive_format._classify_v0); config_member resolves the location to the tree member under the Site Root role prefix (wp-root/ for v0, site-root/ for v1) and no longer matches config_path as a member name; core/restore._config_at_cutover compares with ConfigLocation.SITE_ROOT, so a v0 all/all-clean restore onto a target with no wp-config.php cuts over into the tree copy instead of refusing NoConfigForCutoverError; config_location docstrings; CHANGELOG entry. Tests: tests/unit/core/test_v0_config_location.py (11 cases; 3 failed before the fix: the location test and the all, all-clean plan cases), tests/integration/test_v0_restore_empty_target.py::test_execute_restore_cuts_over_into_the_trees_config (failed before) and ::test_the_cli_restores_a_v0_archive_onto_an_empty_directory (Docker CI only); updated test_classifier.py::test_v0_with_a_dump, test_v0_fixtures.py::test_a_passing_fixture_is_structural_only, test_wpcli_config_placement.py::test_a_v0_archive_lays_its_config_at_the_default; tests/integration/live_restore.restore reads the config via config_member'

@@ -7,16 +7,6 @@ next:
   '006': 26
   '008': 36
 backlog:
-- key: BL-E004-036
-  epic: '004'
-  sprint: ''
-  title: ArchiveView.config_path means a member path for v0 and a location for v1; E007-S01-002 AC L27 reconciled only by a note
-  source: arch-gate (l3io-arch-review)
-  source_phase: arch-gate
-  source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/arch/recheck-*-2026-10-30.md
 - key: BL-E003-041
   epic: '003'
   sprint: '02'
