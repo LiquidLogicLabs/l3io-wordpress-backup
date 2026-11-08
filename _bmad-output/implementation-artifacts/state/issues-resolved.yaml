@@ -4333,3 +4333,101 @@ resolved:
   resolved_at: '2026-11-08T01:55:42Z'
   ref: 63a4c71
   note: 'owner decision: 19 RunContext removed from api.__all__ and docs/api.md; guard test'
+- key: BL-E003-115
+  epic: '003'
+  sprint: ''
+  title: 'EP-RT-004: only SIGTERM is handled; SIGHUP leaves the decrypted payload and Dump in the temp workspace'
+  source: epic-redteam (EP-RT-004)
+  source_phase: epic-redteam
+  source_ref: EP-RT-004
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T02:28:12Z'
+  ref: 63a4c71
+  note: cli/__init__.py TERMINATING_SIGNALS handles SIGTERM, SIGHUP and SIGQUIT alike (owner decision 4); tests/unit/cli/test_closeout_residue.py parametrizes all three
+- key: BL-E003-104
+  epic: '003'
+  sprint: '02'
+  title: STRUCTURAL_ONLY plain-text line between JSON log lines on stderr
+  source: ux-review (UX-S02-09)
+  source_phase: ux-review
+  source_ref: UX-S02-09
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T02:28:14Z'
+  ref: 63a4c71
+  note: 'cli/output.emit_warning prints nothing under --log-format json (owner decision 10, BL-E002-103 UX-5): the archive_unauthenticated WARNING record carries the STRUCTURAL_ONLY notice; tests/unit/cli/test_restore_root.py parses every stderr line of a JSON restore as one JSON object'
+- key: BL-E004-061
+  epic: '004'
+  sprint: ''
+  title: 'AR-8: restore of a plain Archive is gated on the encryption backend when a passphrase is set; require cipher tools only when view.encrypted'
+  source: epic-adversarial (AR-8)
+  source_phase: epic-adversarial
+  source_ref: AR-8
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/adversarial-review.md
+  resolution: obsolete
+  resolved_at: '2026-11-08T02:28:17Z'
+  ref: 63a4c71
+  note: 'Since the ADR-0016 amendment of 2026-11-07 a passphrase given for a plain Archive is refused unless --allow-unencrypted, and with it the passphrase encrypts the Safety Snapshot (cli/restore.py take_snapshot: request.cipher; tests/unit/cli/test_restore_root.py test_an_encrypted_snapshot_says_so_without_the_passphrase), so the cipher backend is genuinely required by that Run'
+- key: BL-E003-018
+  epic: '003'
+  sprint: ''
+  title: "E003-S02-006 L61/L86: a joined Run with relocation has no obligation to carry search_replace / relocated source — refuse or state the outer root's obligation"
+  source: arch-gate (l3io-arch-review)
+  source_phase: arch-gate
+  source_ref: l3io-arch-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+  resolution: obsolete
+  resolved_at: '2026-11-08T02:28:19Z'
+  ref: 63a4c71
+  note: 'No caller can join a restore into an outer Run: cli/restore.py run_restore and api/operations.py restore both call drive_restore(ctx=None) since context= was removed (owner decision 24, BL-E006-014); the concern returns with open_run() in the owner-deferred BL-E006-025'
+- key: BL-E008-025
+  epic: '008'
+  sprint: ''
+  title: --new-db-password-file has no regular-file/owner/mode check (a FIFO blocks while the Site Lock is held); next to BL-E008-006
+  source: epic-redteam (RT-04)
+  source_phase: epic-redteam
+  source_ref: RT-04
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+  resolution: obsolete
+  resolved_at: '2026-11-08T02:28:23Z'
+  ref: '48324e4'
+  note: 'The password file is read in run_restore (cli/restore.py new_db_password(...) while building RelocationFlags) before drive_restore takes the Site Lock, so a blocking FIFO no longer holds the lock; the owner/mode check was settled as advice by BL-E008-016 (48324e4: the "readable only by you" help stays advice), and a regular-file check would refuse the process-substitution pattern --new-db-password-file <(...)'
+- key: BL-E003-114
+  epic: '003'
+  sprint: ''
+  title: "EP-RT-003: RunTerminated is an Exception so the cutover's except Exception can swallow SIGTERM and continue to the live-database drop"
+  source: epic-redteam (EP-RT-003)
+  source_phase: epic-redteam
+  source_ref: EP-RT-003
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/redteam-report.md
+  resolution: duplicate
+  resolved_at: '2026-11-08T02:28:33Z'
+  ref: BL-E002-092
+  note: 'Duplicate of BL-E002-092 (resolved fixed in 0cc6c12): every except Exception in adapters/staging.py (_drop_staging, _read_back, _cutover) and restore_runner._snapshot re-raises RunTerminated first; tests/contracts/test_run_terminated_propagates.py guards it'
+- key: BL-E008-026
+  epic: '008'
+  sprint: ''
+  title: The age CLI backend (l3io-wordpress-database) inherits the whole environment including L3IO_WP_BACKUP_* secrets
+  source: epic-redteam (RT-05)
+  source_phase: epic-redteam
+  source_ref: RT-05
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/redteam-report.md
+  resolution: duplicate
+  resolved_at: '2026-11-08T02:28:35Z'
+  ref: BL-E004-055
+  note: 'Duplicate of BL-E004-055 (age CLI backend inherits the whole environment): owner decision 6 (d2d2fa3) bundles it into one database release; BL-E004-055 stays open by design until that ships'

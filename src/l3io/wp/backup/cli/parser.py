@@ -36,10 +36,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import Final, NoReturn
 
 from l3io.wp.backup import __version__
 from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
@@ -60,6 +61,7 @@ __all__ = [
     "RESTORE_OPTIONS_GROUP",
     "VERIFY_COMMAND",
     "WP_DIR_REQUIRED",
+    "CliParser",
     "build_parser",
     "exit_code_epilog",
     "not_yet_implemented",
@@ -122,9 +124,33 @@ def exit_code_epilog() -> str:
     return "\n".join(["exit codes:", *rows])
 
 
-def build_parser() -> argparse.ArgumentParser:
+class CliParser(argparse.ArgumentParser):
+    """argparse, with a usage error naming its exit code as every failure does.
+
+    BL-E002-058: the plain ``wpbackup2: error: ...`` line ends with the same
+    ``[exit 2 USAGE: ...]`` suffix ``cli.exit.render_failure`` gives every
+    other failure. Subcommand parsers are of this class too (argparse makes
+    them of the parent's type). ``commands`` maps each subcommand to its
+    parser, so a check after parsing reports with that command's usage
+    (BL-E003-101), as argparse's own errors do.
+    """
+
+    commands: Mapping[str, argparse.ArgumentParser] = MappingProxyType({})
+
+    def for_command(self, action: str | None) -> argparse.ArgumentParser:
+        """The parser of ``action``'s subcommand; this one for none."""
+        return self.commands.get(action or "", self)
+
+    def error(self, message: str) -> NoReturn:
+        code = ExitCode.USAGE
+        self.print_usage(sys.stderr)
+        suffix = f"[exit {int(code)} {code.name}: {DESCRIPTIONS[code]}]"
+        self.exit(int(code), f"{self.prog}: error: {message} {suffix}\n")
+
+
+def build_parser() -> CliParser:
     """Build the CLI parser with both frozen subcommands registered."""
-    parser = argparse.ArgumentParser(
+    parser = CliParser(
         prog="wpbackup2",
         description="Backup/restore your WordPress content and database.",
         epilog=exit_code_epilog(),
@@ -185,6 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     for command, command_parser in subparsers.choices.items():
         _note_unavailable_flags(command, command_parser)
+    parser.commands = MappingProxyType(dict(subparsers.choices))
     return parser
 
 

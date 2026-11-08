@@ -58,10 +58,12 @@ their names (`db.name`, `error.type`, `process.exit.code`, `process.executable.n
 - **Status descriptions.** A span's status description is the redacted message of a package error;
   for any other exception it is the class name with the message withheld (red team RT-2). A
   dependency's text is untrusted and the registry removes only the secrets it knows.
-- **Not covered.** `l3io-wordpress-database`'s own spans nest under ours and record the exception
-  message and stack trace as an `exception` event with no redaction (red team RT-3). This package
-  cannot change that; `docs/api.md` tells a host to scrub them and BL-E006-010 carries the request to
-  that package's owner.
+- **Database spans.** `l3io-wordpress-database`'s own spans nest under ours. Up to 0.3.2 they
+  recorded the exception message and stack trace as an `exception` event with no redaction (red team
+  RT-3). From 0.3.3, the floor this package requires (BL-E006-010), a failed database span carries
+  only `error.type=<exception class>` and status ERROR with no description; `record_exception` is
+  off. `tests/adapters/test_tracing_database_nesting.py` plants a sentinel in a database error and
+  asserts no exported span, database's or ours, carries it.
 - **`opentelemetry-exporter-otlp-json-file` is a beta (0.x) package** in the `otel` extra and the dev
   group (Core §8). Accepted because it is optional, pure Python, and the only exporter that avoids
   `grpcio`. **Revisit when** a GA exporter without `grpcio` exists, or the base install gains the

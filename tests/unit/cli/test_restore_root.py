@@ -782,6 +782,63 @@ def test_an_encrypted_snapshot_says_so_without_the_passphrase(
 
 
 @pytest.mark.parametrize(
+    ("given", "logged"),
+    [
+        ((), "--mode all --force"),
+        (("--mode", "db"), "--mode db --force"),
+    ],
+    ids=["default", "db"],
+)
+def test_restore_mode_resolved_carries_the_raw_flags(
+    rig: Rig,
+    capsys: pytest.CaptureFixture[str],
+    given: tuple[str, ...],
+    logged: str,
+) -> None:
+    """BL-E003-013 (FR-6): the flags that produced the Mode are in the Run's log."""
+    capsys.readouterr()
+    main(_argv(rig, *given))
+    (record,) = [
+        r
+        for r in _records(capsys.readouterr().err)
+        if r["event"] == "restore_mode_resolved"
+    ]
+    assert record["flags"] == logged
+
+
+@pytest.mark.parametrize("level", [None, "WARNING"], ids=["default", "warning"])
+@pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
+def test_the_encrypted_snapshot_notice_survives_json_at_warning_level(
+    rig: Rig,
+    credential_sentinel: CredentialSentinel,
+    capsys: pytest.CaptureFixture[str],
+    level: str | None,
+) -> None:
+    """Under ``--log-format json`` the record is the notice's only trace on stderr.
+
+    Logged at INFO, ``--log-level WARNING`` dropped it while text mode still
+    printed it; it is a WARNING record, as ``safety_snapshot_unencrypted`` is.
+    """
+
+    def fail_after_snapshot(*args: object, **kwargs: object) -> object:
+        rig.take_snapshot(BackupScope.ALL)
+        reason = "exit 1"
+        raise LoadFailedError(reason, database="wp")
+
+    rig.execute = fail_after_snapshot
+    _performed_snapshots(rig)
+    levels = [] if level is None else ["--log-level", level]
+    argv = [*levels, *_argv(rig, "--allow-unencrypted")]
+    assert main(argv) == int(LoadFailedError.exit_code)
+    err = capsys.readouterr().err
+    (record,) = [r for r in _records(err) if r["event"] == "safety_snapshot_encrypted"]
+    assert record["level"] == "warning"
+    assert record["path"] == str(rig.inputs.header.snapshot_path)
+    assert credential_sentinel.passphrase is not None
+    assert credential_sentinel.passphrase not in err
+
+
+@pytest.mark.parametrize(
     "error",
     [RuntimeError("a defect"), OSError(5, "I/O error"), KeyboardInterrupt()],
     ids=["defect", "os-error", "interrupt"],

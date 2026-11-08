@@ -24,3 +24,8 @@ htmlcov
 .act.env
 .act.secrets
 .act.vars
+
+# Local agent tool state: Codex's directory and Claude Code's per-agent git
+# worktrees. Neither belongs in the repository (BL-E007-012).
+.codex
+.claude/worktrees/

@@ -18,7 +18,12 @@ from typing import Protocol, runtime_checkable
 from l3io.wp.backup.domain.archive_format import ArchiveView, ExtractResult, MemberRole
 from l3io.wp.backup.domain.storage_target import StorageTarget
 
-__all__ = ["SiteFilesCommand", "SiteFilesQuery", "require_site_relative"]
+__all__ = [
+    "SiteFilesCommand",
+    "SiteFilesQuery",
+    "require_site_relative",
+    "require_top_level",
+]
 
 
 def require_site_relative(paths: Iterable[PurePosixPath], *, argument: str) -> None:
@@ -29,6 +34,19 @@ def require_site_relative(paths: Iterable[PurePosixPath], *, argument: str) -> N
     for path in paths:
         if path.is_absolute() or ".." in path.parts:
             msg = f"{argument} must hold Site-Root-relative paths, got {str(path)!r}"
+            raise ValueError(msg)
+
+
+def require_top_level(paths: Iterable[PurePosixPath], *, argument: str) -> None:
+    """``ValueError`` when any path is not one top-level entry name.
+
+    ``clean`` keeps whole top-level entries; a nested path would keep its
+    whole ancestor (``wp-content/uploads`` keeping old plugins and themes),
+    so it is refused by the real adapter and the no-op alike (BL-E002-088).
+    """
+    for path in paths:
+        if len(path.parts) != 1:
+            msg = f"{argument} must hold top-level entry names, got {str(path)!r}"
             raise ValueError(msg)
 
 

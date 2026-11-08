@@ -73,7 +73,7 @@ from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.archive import ManifestBuilder
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
-from l3io.wp.backup.ports.site_files import require_site_relative
+from l3io.wp.backup.ports.site_files import require_site_relative, require_top_level
 from l3io.wp.backup.ports.tracing import (
     PhaseSpan,
     Redactor,
@@ -500,6 +500,7 @@ class NoopSiteFiles:
         """``0``: nothing removed. ``keep`` and the target are checked as the
         real one checks them, so an unsafe target is refused here too."""
         require_site_relative(keep, argument="keep")
+        require_top_level(keep, argument="keep")
         refuse_unsafe_clean_target(site_root.absolute())
         _skip(RestorePhase.CLEAN.name, method="clean", keep=_names(keep))
         self._log.record("NoopSiteFiles", "clean", str(site_root))

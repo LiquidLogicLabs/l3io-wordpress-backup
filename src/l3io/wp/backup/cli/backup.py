@@ -767,7 +767,7 @@ def drive_backup(
         # Only a plan that dumps touches the credentials (FR-2, AD-9), and
         # only wp-config.php is checked up front (FR-1).
         if BackupStep.DUMP in plan.steps and request.credentials is None:
-            require_wp_config_credentials(credentials)
+            require_wp_config_credentials(credentials, environ=environ)
         if handle.opened:
             # AD-4: the one place a Dry Run is selected — by adapter set.
             real = real_adapters(

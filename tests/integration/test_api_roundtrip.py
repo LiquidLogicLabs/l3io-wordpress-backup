@@ -57,7 +57,7 @@ def _phases(records: list[dict[str, Any]]) -> list[str]:
 def _one_run(records: list[dict[str, Any]]) -> str:
     started = [r for r in records if r.get("event") == "run_started"]
     finished = [r for r in records if r.get("event") == "run_finished"]
-    run_ids = {str(r["run_id"]) for r in records if "run_id" in r}
+    run_ids = {str(r["l3io_run_id"]) for r in records if "l3io_run_id" in r}
     assert (len(started), len(finished), len(run_ids)) == (1, 1, 1)
     return run_ids.pop()
 

@@ -657,6 +657,30 @@ def test_run_bounded_returns_both_streams(tmp_path: Path) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (4, "out\n", "err\n")
 
 
+def test_the_group_is_killed_while_the_leader_is_still_unreaped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E008-018: a zombie leader keeps its pid, so the pgid cannot be reused."""
+    script = _script(tmp_path, "t", "exit 0")
+    unreaped: list[bool] = []
+    real = module._kill_group  # noqa: SLF001
+
+    def spy(leader: int) -> None:
+        try:
+            info = os.waitid(os.P_PID, leader, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+        except ChildProcessError:
+            info = None  # already reaped: its pid could be anyone's now
+        unreaped.append(info is not None)
+        real(leader)
+
+    monkeypatch.setattr(module, "_kill_group", spy)
+    result = module.run_bounded(
+        [str(script)], cwd=tmp_path, env={"PATH": os.defpath}, timeout=5, limit=1024
+    )
+    assert result.returncode == 0
+    assert unreaped == [True]
+
+
 def test_run_bounded_raises_past_the_limit_on_stderr(tmp_path: Path) -> None:
     script = _script(tmp_path, "t", "head -c 5000 /dev/zero >&2")
     with pytest.raises(module.ChildOutputLimitError) as caught:
@@ -696,16 +720,14 @@ def test_an_interrupt_kills_the_child_group_at_once(
     """Review H-1: SIGTERM/Ctrl-C during the wait kill the child, not wait it out."""
     marker = tmp_path / "survived"
     script = _script(tmp_path, "t", f"sleep 3; touch {marker}")
-    real_wait = subprocess.Popen.wait
-    calls: list[object] = []
 
-    def interrupted(self: subprocess.Popen[bytes], timeout: float | None = None) -> int:
-        if not calls:
-            calls.append(timeout)
-            raise KeyboardInterrupt
-        return real_wait(self, timeout=timeout)
+    def interrupted(pid: int, argv: object, timeout: float) -> bool:
+        # The wait for the leader (BL-E008-018: ``_wait_unreaped``) is where
+        # SIGTERM's RunTerminated or Ctrl-C lands.
+        del pid, argv, timeout
+        raise KeyboardInterrupt
 
-    monkeypatch.setattr(subprocess.Popen, "wait", interrupted)
+    monkeypatch.setattr(module, "_wait_unreaped", interrupted)
     started = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
         module.run_bounded(

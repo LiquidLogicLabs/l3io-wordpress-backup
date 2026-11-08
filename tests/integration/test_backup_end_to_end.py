@@ -28,6 +28,7 @@ from l3io.wp.backup.domain.archive_format import (  # noqa: E402
     MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
     MemberRole,
+    ignore_unknown,
     manifest_from_json,
 )
 from l3io.wp.backup.domain.errors import BackupError  # noqa: E402
@@ -127,7 +128,9 @@ def test_a_backup_produces_one_archive_and_leaves_the_site_unchanged(
         payload_file = outer.extractfile(PAYLOAD_MEMBER)
         assert manifest_file is not None
         assert payload_file is not None
-        manifest = manifest_from_json(manifest_file.read().decode("utf-8"))
+        manifest = manifest_from_json(
+            manifest_file.read().decode("utf-8"), on_unknown=ignore_unknown
+        )
         with tarfile.open(fileobj=payload_file, mode="r|gz") as inner:
             names = [info.name for info in inner]
     roles = [name.split("/")[0] for name in names]

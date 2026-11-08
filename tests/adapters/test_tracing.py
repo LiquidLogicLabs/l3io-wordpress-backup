@@ -219,7 +219,7 @@ def test_a_backup_is_one_root_with_one_span_per_phase_record(
     (expected,) = attributes
     assert root.attributes is not None
     assert {k: root.attributes[k] for k in expected} == expected
-    assert root.attributes["l3io.run_id"] == run_started["run_id"]
+    assert root.attributes["l3io.run_id"] == run_started["l3io_run_id"]
     assert root.attributes["db.name"] == "wptest"
     assert root.attributes["l3io.archive.bytes"] == result.bytes
     assert root.attributes["process.exit.code"] == 0

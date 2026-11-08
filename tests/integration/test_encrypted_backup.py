@@ -41,6 +41,7 @@ from l3io.wp.backup.domain.archive_format import (
     INNER_MANIFEST_MEMBER,
     MANIFEST_MEMBER,
     MemberRole,
+    ignore_unknown,
     manifest_from_json,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -233,7 +234,7 @@ def test_an_inspector_without_the_passphrase_reads_no_content(
         manifest_text = manifest_file.read().decode("utf-8")
         payload = payload_file.read()
     assert payload.startswith(b"age-encryption.org/v1\n")
-    manifest = manifest_from_json(manifest_text)
+    manifest = manifest_from_json(manifest_text, on_unknown=ignore_unknown)
     assert manifest.encrypted is True
     assert verify_archive(final).passed  # keyless
 

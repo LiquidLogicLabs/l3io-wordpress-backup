@@ -573,6 +573,17 @@ class RestoreInputs:
     #: The administrator's survey of the live database (AD-29): whether it
     #: existed. ``False`` makes the report's ``previous_database`` ``"none"``.
     live_database_exists: bool
+    #: The Archive as the operator named it, for error text: ``archive`` is
+    #: the workspace copy, deleted with the Run (BL-E003-068). ``None`` names
+    #: ``archive`` itself.
+    archive_name: str | None = None
+
+    @property
+    def archive_label(self) -> str:
+        """The Archive's name for an error the operator reads."""
+        return (
+            str(self.archive.path) if self.archive_name is None else self.archive_name
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -242,6 +242,13 @@ def test_the_site_files_twin_records_keep_and_exclude(site: Path) -> None:
     assert record["keep"] == ["wp-content"]
 
 
+def test_the_twin_refuses_a_nested_keep_like_the_real_one(site: Path) -> None:
+    """BL-E002-088: real adapter and no-op alike."""
+    files = noop.NoopSiteFiles(noop.ActionLog())
+    with pytest.raises(ValueError, match="top-level"):
+        files.clean(site, keep=frozenset({PurePosixPath("wp-content/uploads")}))
+
+
 @pytest.mark.parametrize("bad", ["/etc", "../outside", "a/../../b"])
 def test_an_unsafe_keep_or_exclude_is_a_value_error(site: Path, bad: str) -> None:
     files = noop.NoopSiteFiles(noop.ActionLog())

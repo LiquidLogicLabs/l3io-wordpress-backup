@@ -69,7 +69,7 @@ decrypted the whole payload with its passphrase:
 | `phase` | string | The step, upper case with underscores. A backup's: `DUMP`, `COLLECT_SITE_ROOT`, `ENCRYPT`, `WRITE_ARCHIVE`, `VERIFY`, `PUBLISH`; a restore's: `PREFLIGHT`, `VERIFY`, `SNAPSHOT`, `CLEAN`, `EXTRACT`, `REWRITE_CONFIG`, `LOAD_DUMP`, `SEARCH_REPLACE` (owner decision 2026-11-07, BL-E002-109; the Run Journal file keeps its own lower-case spelling) |
 | `duration_ms` | number | Monotonic time the step took |
 | `bytes` | integer | Bytes the step produced or read; `0` when not applicable |
-| `exit_code` | integer | `0` on success; on failure the error's code from the [exit-code table](../README.md#exit-codes), the same one `run_finished` carries |
+| `exit_code` | integer | `0` on success; on failure the error's code from the [exit-code table](../README.md#exit-codes), the same one `run_finished` carries; `null` when the step was interrupted by `KeyboardInterrupt`, whose exit status is the interpreter's, not the table's |
 | `outcome` | string | `ok` or `failed`; `skipped_dry_run` (with `bytes` `0`) for a step a Dry Run did not perform |
 <!-- /schema:phase -->
 
@@ -77,7 +77,10 @@ decrypted the whole payload with its passphrase:
 package `version`; `run_finished` carries `exit_code` (the integer from the
 [exit-code table](../README.md#exit-codes)), `exit_reason` (its name, such as
 `VERIFICATION_FAILED`), `duration_ms` and, on failure, `error` (the error's
-class name) — a verification that fails is a failure here too. They are the first and last records of every Run.
+class name) — a verification that fails is a failure here too. A Run ended by
+`KeyboardInterrupt` carries `error` but `null` `exit_code` and `exit_reason`:
+the process exits with the interpreter's status (130 for Ctrl-C), which is not
+in the table. They are the first and last records of every Run.
 
 Before preflight, a backup logs one `planned_action` record per action it
 plans, in order — `ordinal`, `step`, the rendered `action` line and the step's
@@ -111,8 +114,13 @@ structlog.contextvars.bind_contextvars(correlation_id="job-1234")
 The Run's keys are prefixed `l3io_` (owner decision 2026-11-07, BL-E006-019):
 `l3io_run_id` and `l3io_dry_run` are what the Run binds in structlog's context
 variables, so a host's own `run_id` or `dry_run` is never overwritten during a
-call. `run_started` and `run_finished` also name the Run in their own
-`run_id` field.
+call. No record the package emits has a `run_id` or `dry_run` field of its own,
+which would replace a host's bound value in that record: `run_started` states
+`l3io_run_id` and `l3io_dry_run`, and `run_finished` `l3io_run_id`, as explicit
+fields too, so a host that does not merge context variables still sees each
+Run's boundaries named. `tests/unit/cli/test_log_schema.py` checks every record
+of a whole backup, real and Dry Run, and every record a Run emits under a host
+that bound its own `run_id` and `dry_run`.
 
 ## What is and is not covered
 
@@ -124,7 +132,8 @@ call. `run_started` and `run_finished` also name the Run in their own
   is still redacted: the redaction step applies every open Run's registry.
 - Credentials never appear at any level, `DEBUG` included (FR-20, ADR-0018);
   the workspace path is logged only at `DEBUG` (`workspace_not_removed` is a
-  WARNING without it, followed by a `DEBUG` record that names it).
+  WARNING without it, followed by a `DEBUG` record that names it; a Run that
+  had otherwise succeeded then fails with `WorkspaceNotRemovedError`, exit 1).
 - A host that configures logging itself gets none of this: the configuration
   lives in `l3io.wp.backup.cli.logging.configure_logging`, which a library
   module never calls (AD-10).

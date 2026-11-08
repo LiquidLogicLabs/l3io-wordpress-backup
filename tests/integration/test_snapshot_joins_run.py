@@ -229,7 +229,7 @@ def test_a_destructive_all_clean_restore_joins_one_run(
     assert events.count("run_started") == 1
     assert events.count("run_finished") == 1
     assert events.count("site_lock_acquired") == 1
-    assert len({r["run_id"] for r in records if "run_id" in r}) == 1
+    assert len({r["l3io_run_id"] for r in records if "l3io_run_id" in r}) == 1
     phases = {str(r["phase"]) for r in records if r["event"] == "phase_completed"}
     assert {
         RestorePhase.SNAPSHOT.name,

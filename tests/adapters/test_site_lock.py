@@ -357,3 +357,24 @@ def test_the_default_lock_file_is_outside_the_site_root(site: Path) -> None:
     with FcntlSiteLock().acquire(site, _holder()) as handle:
         assert handle.lock_path.parent == default_lock_dir().resolve()
         assert not handle.lock_path.is_relative_to(site.resolve())
+
+
+def test_the_module_imports_where_fcntl_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BL-E008-008: native Windows reaches the platform refusal, not an ImportError."""
+    import importlib.util
+    import sys
+
+    from l3io.wp.backup.adapters import lock
+
+    monkeypatch.setitem(sys.modules, "fcntl", None)  # import fcntl -> ImportError
+    with pytest.raises(ImportError):
+        __import__("fcntl")
+    spec = importlib.util.spec_from_file_location("_lock_without_fcntl", lock.__file__)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)  # dataclasses look it up
+    spec.loader.exec_module(module)
+    assert hasattr(module, "FcntlSiteLock")

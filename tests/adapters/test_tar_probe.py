@@ -7,9 +7,12 @@ Archives are built in the test in both shapes 0.2.21 wrote (gzip and plain).
 
 from __future__ import annotations
 
+import dataclasses
+import errno
 import hashlib
 import io
 import json
+import os
 import posixpath
 import shutil
 import stat
@@ -50,6 +53,8 @@ from l3io.wp.backup.domain.archive_format import (
 )
 from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
+    ArchiveReadError,
+    ArchiveWriteError,
     MemberReadRefusedError,
     UnsupportedStorageSchemeError,
     VerificationFailedError,
@@ -173,6 +178,21 @@ def test_a_v0_archive_passes_as_structural_only(
     view = _view(path)
     assert view.dump_present is dump
     assert (MemberRole.DUMP in {m.role for m in view.members}) is dump
+
+
+@pytest.mark.parametrize("gz", [True, False], ids=["gzip", "plain"])
+def test_the_publish_gate_refuses_a_v0_shaped_archive(
+    tmp_path: Path, *, gz: bool
+) -> None:
+    """BL-E002-048: the writer only writes v1, so STRUCTURAL_ONLY never publishes."""
+    path = _v0(tmp_path / "old.tar.gz", gz=gz, dump=True)
+    assert verify_archive(path).passed
+    with pytest.raises(VerificationFailedError) as caught:
+        verify_or_raise(path)
+    assert caught.value.result.passed is False
+    assert caught.value.result.integrity is Integrity.STRUCTURAL_ONLY
+    (failure,) = caught.value.result.failures
+    assert failure.reason is VerificationReason.UNRECOGNISED_FORMAT
 
 
 def test_the_probe_reports_raw_facts(tmp_path: Path) -> None:
@@ -748,3 +768,124 @@ def test_decrypting_a_plain_archive_is_a_programming_error(
             destination=tmp_path / "plain",
         )
     assert not (tmp_path / "plain").exists()
+
+
+def test_an_unknown_manifest_value_is_logged_as_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BL-E002-034: a value the read dropped (``origin.kind``) is a WARNING."""
+    real = tar_module.verify_probe
+
+    def probe(*args: Any) -> Any:  # noqa: ANN401
+        view, result = real(*args)
+        assert view is not None
+        unknown = (("origin.kind", "scheduled_rotation"),)
+        return dataclasses.replace(view, unknown_values=unknown), result
+
+    monkeypatch.setattr(tar_module, "verify_probe", probe)
+    with structlog.testing.capture_logs() as logs:
+        tar_module.verify_archive_manifest(FIXTURE)
+    (record,) = [r for r in logs if r["event"] == "manifest_value_unknown"]
+    assert record["log_level"] == "warning"
+    assert record["field"] == "origin.kind"
+    assert "scheduled_rotation" in record["value"]
+
+
+def test_a_known_manifest_logs_no_unknown_value() -> None:
+    with structlog.testing.capture_logs() as logs:
+        view, _, _ = tar_module.verify_archive_manifest(FIXTURE)
+    assert view is not None
+    assert view.unknown_values == ()
+    assert not [r for r in logs if r["event"] == "manifest_value_unknown"]
+
+
+class _FailingWrites(io.FileIO):
+    """The destination's descriptor, refusing every write with ``ENOSPC``."""
+
+    def write(self, data: object, /) -> int:
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+
+def test_a_destination_write_failure_is_an_archive_write_error(
+    tmp_path: Path,
+    site_root: Path,
+    cipher: PayloadCipher,
+    manifest_builder: Builder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BL-E002-049: no raw ``OSError`` escapes ``decrypt_payload``."""
+    sealed = _encrypted(tmp_path, site_root, cipher, manifest_builder)
+    destination = tmp_path / "plain.tar.gz"
+
+    def failing_fdopen(fd: int, mode: str) -> io.BufferedWriter:
+        return io.BufferedWriter(_FailingWrites(fd, mode))
+
+    monkeypatch.setattr(tar_module.os, "fdopen", failing_fdopen)
+    with pytest.raises(ArchiveWriteError) as caught:
+        decrypt_payload(
+            _target(sealed), _view(sealed), cipher=cipher, destination=destination
+        )
+    assert caught.value.path == destination
+    assert not destination.exists()
+
+
+def test_an_archive_read_failure_is_an_archive_read_error(
+    tmp_path: Path,
+    site_root: Path,
+    cipher: PayloadCipher,
+    manifest_builder: Builder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sealed = _encrypted(tmp_path, site_root, cipher, manifest_builder)
+    destination = tmp_path / "plain.tar.gz"
+    real_body = tar_module._payload_body  # noqa: SLF001
+
+    class _Eio(io.RawIOBase):
+        def readable(self) -> bool:
+            return True
+
+        def readinto(self, buffer: object, /) -> int:
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+
+    def failing_body(*args: Any) -> Any:  # noqa: ANN401
+        real_body(*args)
+        return _Eio()
+
+    monkeypatch.setattr(tar_module, "_payload_body", failing_body)
+    with pytest.raises(ArchiveReadError) as caught:
+        decrypt_payload(
+            _target(sealed), _view(sealed), cipher=cipher, destination=destination
+        )
+    assert caught.value.path == sealed
+    assert not destination.exists()
+
+
+def test_an_unopenable_payload_is_a_read_error_not_a_write_error(
+    tmp_path: Path, site_root: Path, cipher: PayloadCipher, manifest_builder: Builder
+) -> None:
+    sealed = _encrypted(tmp_path, site_root, cipher, manifest_builder)
+    missing = tmp_path / "no-such-payload.tar.gz"
+    with pytest.raises(ArchiveReadError) as caught:
+        extract_archive(
+            _target(sealed),
+            tmp_path / "out",
+            _view(sealed),
+            roles=frozenset({MemberRole.SITE_ROOT}),
+            payload=missing,
+        )
+    assert caught.value.path == missing
+
+
+def test_read_member_refuses_a_repeated_name(tmp_path: Path) -> None:
+    """BL-E002-050: extraction would see the last copy, so neither is read."""
+    config = f"{V0_SITE_ROOT}/wp-config.php"
+    path = _v0(tmp_path / "twice.tar.gz", gz=True, extra=[(config, b"<?php // 2\n")])
+    with pytest.raises(MemberReadRefusedError, match="repeated"):
+        PROBE.read_member(_target(path), _view(path), config, max_bytes=1 << 20)
+
+
+def test_read_member_still_reads_a_single_copy(tmp_path: Path) -> None:
+    path = _v0(tmp_path / "once.tar.gz", gz=True)
+    config = f"{V0_SITE_ROOT}/wp-config.php"
+    data = PROBE.read_member(_target(path), _view(path), config, max_bytes=1 << 20)
+    assert data == WP_CONFIG.read_bytes()

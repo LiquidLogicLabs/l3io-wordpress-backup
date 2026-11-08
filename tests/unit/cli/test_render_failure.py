@@ -158,3 +158,37 @@ def test_the_record_message_is_one_line_at_debug(
     (failed,) = [r for r in records if r["event"] == "command_failed"]
     assert "\n" not in failed["message"]
     assert failed["exit_reason"] == "REFUSED"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["backup", "--wp-dir", "/nonexistent", "--bogus"],
+        ["verify"],
+        ["--log-level", "LOUD", "verify", "--archive", "x"],
+    ],
+    ids=["unrecognised", "missing-required", "bad-value"],
+)
+def test_an_argparse_usage_error_names_its_exit_code(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """BL-E002-058: argparse's own errors end like every other failure."""
+    with pytest.raises(SystemExit) as caught:
+        main(argv)
+    assert caught.value.code == int(ExitCode.USAGE)
+    err = capsys.readouterr().err
+    assert f"[exit 2 USAGE: {DESCRIPTIONS[ExitCode.USAGE]}]" in err
+
+
+def test_a_restore_check_after_parsing_shows_the_restore_usage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """BL-E003-101: not the top-level ``{backup,restore,...}`` usage."""
+    argv = ["restore", "--wp-dir", str(tmp_path), "--archive", str(tmp_path / "a")]
+    with pytest.raises(SystemExit) as caught:
+        main([*argv, "--drop-database"])
+    assert caught.value.code == int(ExitCode.USAGE)
+    err = capsys.readouterr().err
+    assert err.startswith("usage: wpbackup2 restore ")
+    assert "{backup,restore" not in err
+    assert DESCRIPTIONS[ExitCode.USAGE] in err

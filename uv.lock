@@ -625,8 +625,8 @@ test = [
 requires-dist = [
     { name = "l3io-age-passphrase", marker = "extra == 'database'", specifier = ">=0.1.1,<0.2", index = "https://test.pypi.org/simple/" },
     { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.4,<0.2", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.2,<0.4", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-database", extras = ["encryption"], marker = "extra == 'database'", specifier = ">=0.3.2,<0.4", index = "https://test.pypi.org/simple/" },
+    { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.3,<0.4", index = "https://test.pypi.org/simple/" },
+    { name = "l3io-wordpress-database", extras = ["encryption"], marker = "extra == 'database'", specifier = ">=0.3.3,<0.4", index = "https://test.pypi.org/simple/" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
@@ -671,16 +671,16 @@ wheels = [
 
 [[package]]
 name = "l3io-wordpress-database"
-version = "0.3.2"
+version = "0.3.3"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pymysql", extra = ["rsa"] },
     { name = "structlog" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/96/b9/ad23546c24abfe1352e5b69c1d1b2af5a8425d15d38dcda2b38ae06bdb3d/l3io_wordpress_database-0.3.2.tar.gz", hash = "sha256:1d28cff2ab24ce99531bbb28f9ae1bff2d6136d628c6a732cd10eb26cc4365de", size = 56559, upload-time = "2026-11-06T11:20:44.686Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/ee/fc/2479821b73377630dd07fdcb4915b3bfb55073ae9949d61715bf154cfa26/l3io_wordpress_database-0.3.3.tar.gz", hash = "sha256:7c0a6509dd8eacea53ed205978173ec48f25c6864183d1a78737c3e653b2f907", size = 57151, upload-time = "2026-11-07T22:27:05.442Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/19/7f/55f899c5ad19ea66653db585fe1cc46838fa1da374f1e2d4de5ea8e48281/l3io_wordpress_database-0.3.2-py3-none-any.whl", hash = "sha256:5ad1a504b9adad9266fba433b017efea91d9460acc339c36ba1016257518592f", size = 67690, upload-time = "2026-11-06T11:20:43.735Z" },
+    { url = "https://test-files.pythonhosted.org/packages/74/18/eebce5035cfd2a0b6395f8f94725d40530bf47c44c0fb555f8bc3071962e/l3io_wordpress_database-0.3.3-py3-none-any.whl", hash = "sha256:87d1e74124a1a456f3532297a85478bb6c30ce8ccadf47872e76691b86a68cfa", size = 68373, upload-time = "2026-11-07T22:27:04.148Z" },
 ]
 
 [package.optional-dependencies]

@@ -292,6 +292,30 @@ def _join(readers: Sequence[threading.Thread]) -> None:
         reader.join(timeout=max(0.0, deadline - time.monotonic()))
 
 
+#: How often :func:`_wait_unreaped` polls; ``Popen.wait`` polls likewise.
+_POLL_S: Final = 0.01
+
+
+def _wait_unreaped(pid: int, argv: Sequence[str], timeout: float) -> bool:
+    """Wait for child ``pid`` to exit, leaving it unreaped (BL-E008-018).
+
+    While the leader is a zombie its pid cannot be reused, so the group
+    :func:`_kill_group` then signals is still its own; the caller reaps it
+    afterwards. Returns ``False`` where ``os.waitid`` is missing (the caller
+    then waits as before). Raises ``subprocess.TimeoutExpired``.
+    """
+    waitid = getattr(os, "waitid", None)
+    if waitid is None:  # pragma: no cover - Linux and macOS have it
+        return False
+    deadline = time.monotonic() + timeout
+    flags = os.WEXITED | os.WNOWAIT | os.WNOHANG
+    while waitid(os.P_PID, pid, flags) is None:
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(list(argv), timeout)
+        time.sleep(_POLL_S)
+    return True
+
+
 def run_bounded(
     argv: Sequence[str],
     *,
@@ -346,7 +370,8 @@ def run_bounded(
     for reader in readers:
         reader.start()
     try:
-        returncode = process.wait(timeout=timeout)
+        if not _wait_unreaped(process.pid, argv, timeout):  # pragma: no cover
+            process.wait(timeout=timeout)
     except BaseException:
         # A timeout, SIGTERM's RunTerminated or Ctrl-C: the whole group
         # goes, so no child outlives the Run that started it.
@@ -355,6 +380,7 @@ def run_bounded(
         _join(readers)
         raise
     _kill_group(process.pid)
+    returncode = process.wait()  # reaped only now, after the group's kill
     _join(readers)
     if exceeded.is_set():
         raise ChildOutputLimitError(limit)

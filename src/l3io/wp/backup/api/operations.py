@@ -255,7 +255,7 @@ def verify(
         on_warning=on_warning,
     )
     if not result.passed:
-        raise VerificationFailedError(result)
+        raise VerificationFailedError(result, str(request.archive.path))
     return result
 
 

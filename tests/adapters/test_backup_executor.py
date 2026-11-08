@@ -668,9 +668,9 @@ def test_the_early_credential_check_runs_for_every_dumping_mode(
     dumps_at_check: list[int] = []
     real = backup_cli.require_wp_config_credentials
 
-    def spy(credentials: object) -> None:
+    def spy(credentials: object, **kwargs: object) -> None:
         dumps_at_check.append(len(database.calls))
-        real(credentials)
+        real(credentials, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(backup_cli, "require_wp_config_credentials", spy)
     final = tmp_path / f"{mode}.tar.gz"

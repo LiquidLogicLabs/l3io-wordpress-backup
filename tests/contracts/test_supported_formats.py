@@ -21,6 +21,7 @@ from l3io.wp.backup.domain.archive_format import (
     MANIFEST_MEMBER,
     SUPPORTED_FORMAT_VERSIONS,
     classify,
+    ignore_unknown,
     manifest_from_json,
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -38,7 +39,9 @@ def _format_version(archive: Path) -> int:
         assert first.name == MANIFEST_MEMBER, archive
         handle = outer.extractfile(first)
         assert handle is not None
-        return manifest_from_json(handle.read().decode("utf-8")).format_version
+        return manifest_from_json(
+            handle.read().decode("utf-8"), on_unknown=ignore_unknown
+        ).format_version
 
 
 def test_the_fixture_glob_is_not_empty() -> None:

@@ -52,6 +52,7 @@ from l3io.wp.backup.adapters.staging import (
     InvalidLoadDatabaseNameError,
     StagingCheckFailedError,
 )
+from l3io.wp.backup.adapters.workspace import WorkspaceNotRemovedError
 from l3io.wp.backup.cli.exit import RUN_ID_ATTR, render_failure
 from l3io.wp.backup.cli.logging import RUN_ID_KEY
 from l3io.wp.backup.cli.restore import (
@@ -234,6 +235,7 @@ __all__: list[str] = [
     "UnsupportedStorageSchemeError",
     "UsageError",
     "VerificationFailedError",
+    "WorkspaceNotRemovedError",
     "WpCliConfigFoundError",
     "WpCliFailedError",
     "WpCliOutputUnrecognisedError",
@@ -288,7 +290,7 @@ def public_boundary(fn: Callable[_P, _R]) -> Callable[_P, _R]:
     subclass this module does not export, such as a private one) is a defect:
     it is logged once at ERROR as ``unexpected_exception`` and re-raised as
     ``UnexpectedError(...) from`` it. The record carries the failed Run's
-    ``run_id`` when one was stamped on the exception; it follows the Run's
+    ``l3io_run_id`` when one was stamped on the exception; it follows the Run's
     ``run_finished``, which ``open_run`` wrote as the exception left it.
 
     Arguments that do not fit ``fn``'s signature (a missing required keyword

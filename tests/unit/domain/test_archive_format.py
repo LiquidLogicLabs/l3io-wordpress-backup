@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import json
 import os
 from collections.abc import Mapping
@@ -17,6 +18,7 @@ from l3io.wp.backup.domain.archive_format import (
     FORMAT_VERSION,
     INNER_MANIFEST_MEMBER,
     INNER_UNPARSABLE,
+    MANIFEST_MEMBER,
     PAYLOAD_MEMBER,
     RESERVED_SOURCE_KEYS,
     Manifest,
@@ -24,11 +26,14 @@ from l3io.wp.backup.domain.archive_format import (
     ManifestMember,
     ManifestOrigin,
     ManifestPayload,
+    MemberIndex,
     MemberKind,
     MemberRole,
     OriginKind,
     SourceValue,
     check_inner_manifest,
+    classify,
+    ignore_unknown,
     inner_manifest_bytes,
     is_safe_member_path,
     manifest_from_json,
@@ -200,12 +205,17 @@ def test_member_path_refuses_an_escaping_path(relative: str) -> None:
 @pytest.mark.parametrize("encrypted", [False, True])
 def test_a_full_manifest_round_trips(encrypted: bool) -> None:
     manifest = full_manifest(encrypted=encrypted)
-    assert manifest_from_json(manifest_to_json(manifest)) == manifest
+    assert (
+        manifest_from_json(manifest_to_json(manifest), on_unknown=ignore_unknown)
+        == manifest
+    )
     assert {m.kind for m in manifest.members} == set(MemberKind)
 
 
 def test_the_optional_keys_round_trip() -> None:
-    back = manifest_from_json(manifest_to_json(full_manifest(encrypted=False)))
+    back = manifest_from_json(
+        manifest_to_json(full_manifest(encrypted=False)), on_unknown=ignore_unknown
+    )
     assert back.origin == ManifestOrigin(
         OriginKind.SAFETY_SNAPSHOT, "overwrite", "run-1"
     )
@@ -221,14 +231,14 @@ def test_a_non_utf8_file_name_round_trips_through_utf8_bytes() -> None:
     member = ManifestMember(path, MemberRole.SITE_ROOT, MemberKind.FILE, 3, None)
     manifest = dataclasses.replace(_minimal(), members=(member,))
     encoded = manifest_to_json(manifest).encode("utf-8")
-    back = manifest_from_json(encoded.decode("utf-8"))
+    back = manifest_from_json(encoded.decode("utf-8"), on_unknown=ignore_unknown)
     assert back.members[0].path == path
     assert back == manifest
 
 
 def test_a_manifest_without_optional_keys_matches_the_golden_bytes() -> None:
     assert manifest_to_json(_minimal()) == GOLDEN
-    assert manifest_from_json(GOLDEN) == _minimal()
+    assert manifest_from_json(GOLDEN, on_unknown=ignore_unknown) == _minimal()
     document = json.loads(GOLDEN)
     assert not {"origin", "exclusions", "config_path"} & document.keys()
 
@@ -238,7 +248,10 @@ def test_unknown_keys_are_ignored() -> None:
     document["from_the_future"] = {"x": 1}
     document["payload"]["extra"] = True
     document["members"][0]["mode"] = 420
-    assert manifest_from_json(json.dumps(document)) == _minimal()
+    assert (
+        manifest_from_json(json.dumps(document), on_unknown=ignore_unknown)
+        == _minimal()
+    )
 
 
 def test_an_unknown_origin_kind_reads_as_none_and_is_reported() -> None:
@@ -250,6 +263,27 @@ def test_an_unknown_origin_kind_reads_as_none_and_is_reported() -> None:
     )
     assert back.origin is None
     assert reported == [("origin.kind", "scheduled_rotation")]
+
+
+def test_every_reader_must_choose_what_to_do_with_an_unknown_value() -> None:
+    """BL-E002-034: ``on_unknown`` has no default, so none is dropped silently."""
+    parameter = inspect.signature(manifest_from_json).parameters["on_unknown"]
+    assert parameter.default is inspect.Parameter.empty
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_classify_carries_the_unknown_value_for_the_adapter_to_log() -> None:
+    document = json.loads(manifest_to_json(full_manifest(encrypted=False)))
+    document["origin"]["kind"] = "scheduled_rotation"
+    index = MemberIndex(
+        names=(MANIFEST_MEMBER,),
+        first_member=MANIFEST_MEMBER,
+        manifest_text=json.dumps(document),
+        readable_to_end=True,
+        gzip=False,
+    )
+    view = classify(index)
+    assert view.unknown_values == (("origin.kind", "scheduled_rotation"),)
 
 
 @pytest.mark.parametrize(
@@ -273,12 +307,12 @@ def test_a_malformed_field_is_refused(mutate: object) -> None:
     document = json.loads(GOLDEN)
     mutate(document)  # type: ignore[operator]
     with pytest.raises(MalformedManifestError):
-        manifest_from_json(json.dumps(document))
+        manifest_from_json(json.dumps(document), on_unknown=ignore_unknown)
 
 
 def test_text_that_is_not_json_is_malformed() -> None:
     with pytest.raises(MalformedManifestError) as caught:
-        manifest_from_json("{not json")
+        manifest_from_json("{not json", on_unknown=ignore_unknown)
     assert isinstance(caught.value.__cause__, json.JSONDecodeError)
 
 

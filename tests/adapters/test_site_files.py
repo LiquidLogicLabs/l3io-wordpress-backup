@@ -82,7 +82,7 @@ def test_clean_honours_keep_and_never_removes_the_root(
         removed = files.clean(
             site,
             keep=frozenset(
-                {PurePosixPath("wp-config.php"), PurePosixPath("wp-content/uploads")}
+                {PurePosixPath("wp-config.php"), PurePosixPath("wp-content")}
             ),
         )
     assert removed == 3
@@ -176,6 +176,15 @@ def test_an_oserror_mid_clean_stops_and_names_the_entry(
     assert (site / "wp-content").exists()
     assert (site / "wp-includes").exists()  # after the failure: left alone
     assert removed == []
+
+
+def test_a_nested_keep_path_is_refused_before_anything_is_removed(
+    files: LocalSiteFiles, site: Path
+) -> None:
+    """BL-E002-088: it could only keep its whole ancestor (old plugins too)."""
+    with pytest.raises(ValueError, match="top-level"):
+        files.clean(site, keep=frozenset({PurePosixPath("wp-content/uploads")}))
+    assert files.entry_count(site) == 5
 
 
 @pytest.mark.parametrize("bad", ["/etc", "../x"])

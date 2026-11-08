@@ -30,7 +30,6 @@ secrets.
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -573,14 +572,18 @@ def password_at_call_time(source: CredentialSource) -> Callable[[], str]:
     return resolve
 
 
-def require_wp_config_credentials(source: CredentialSource) -> None:
+def require_wp_config_credentials(
+    source: CredentialSource, *, environ: Mapping[str, str]
+) -> None:
     """Resolve ``source`` once, so a half-defined pair fails before anything runs.
 
     Called only where no explicit spec was given (FR-1), so ``source`` is the
     environment-then-``wp-config.php`` chain. The result is discarded;
     ``dump`` resolves again from the source. Raises ``CredentialsError``
     naming the source label and, for a half pair, the missing key or
-    variable — never a value.
+    variable — never a value. ``environ`` is the mapping the chain was built
+    from, which names the unset variable of a half pair; this adapter never
+    reads ``os.environ`` itself (BL-E005-007).
     """
     _require_extra()
     from l3io.wp import database as wpdb
@@ -600,7 +603,7 @@ def require_wp_config_credentials(source: CredentialSource) -> None:
         key = (
             cause.key
             if isinstance(cause, wpdb.MissingConfigValueError)
-            else unset_partner(os.environ, "wordpress")
+            else unset_partner(environ, "wordpress")
         )
         raise CredentialsError(label, missing_key=key) from exc
     except wpdb.CredentialsAbsentError as exc:
@@ -650,7 +653,7 @@ class _RegisteringSource:
     class; its text is untrusted, so it is not chained.
     """
 
-    __slots__ = ("_inner", "_region_flag", "_secrets")
+    __slots__ = ("_inner", "_region_flag", "_secrets", "_selected")
 
     def __init__(
         self, inner: CredentialSource, secrets: SecretRegistry, region_flag: str
@@ -658,6 +661,9 @@ class _RegisteringSource:
         self._inner = inner
         self._secrets = secrets
         self._region_flag = region_flag
+        #: The source last logged: a Run resolves one source several times
+        #: (check, dump, ensure), and logs its choice once (BL-E005-008).
+        self._selected: str | None = None
 
     def __repr__(self) -> str:
         return f"RegisteringSource({self.source!r})"
@@ -675,6 +681,7 @@ class _RegisteringSource:
 
         label = self.source
         failure: str | None = None
+        unobtainable: Exception | None = None
         try:
             resolved = self._inner.resolve()
         except wpdb.MissingDependencyError as exc:
@@ -685,10 +692,21 @@ class _RegisteringSource:
                 "(AwsSecretCredentialSpec.region) or set AWS_DEFAULT_REGION"
             )
             raise CredentialsError(label, reason=reason) from exc
+        except wpdb.CredentialsUnobtainableError as exc:
+            if isinstance(exc.__cause__, wpdb.DatabaseError | None):
+                raise
+            # BL-E005-006: a foreign cause (an AWS secret that is not JSON) is
+            # untrusted: a JSONDecodeError's ``doc`` is the whole SecretString.
+            # The error keeps its type and text; its chain and frames go.
+            unobtainable = exc
         except (wpdb.DatabaseError, BackupError):
             raise
         except Exception as exc:
             failure = type(exc).__name__
+        if unobtainable is not None:
+            unobtainable.__cause__ = None
+            unobtainable.__context__ = None
+            raise unobtainable.with_traceback(None)
         if failure is not None:
             # Raised outside the handler, so not even __context__ holds the
             # untrusted exception.
@@ -698,7 +716,9 @@ class _RegisteringSource:
             # ADR-0018 amendment (BL-E005-005): too short to redact, so
             # refused here, before any connection uses it.
             raise CredentialTooShortError(label, minimum=MIN_SECRET_LENGTH)
-        _log.info("credential_source_selected", credential_source=resolved.source)
+        if resolved.source != self._selected:
+            self._selected = resolved.source
+            _log.info("credential_source_selected", credential_source=resolved.source)
         return resolved
 
 

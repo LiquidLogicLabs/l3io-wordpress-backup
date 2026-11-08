@@ -87,6 +87,7 @@ from l3io.wp.backup.domain.archive_format import (
     ArchiveView,
     ConfigLocation,
     ExtractResult,
+    Integrity,
     Manifest,
     ManifestMember,
     ManifestPayload,
@@ -96,6 +97,8 @@ from l3io.wp.backup.domain.archive_format import (
     MemberRole,
     SkippedLink,
     TarMemberType,
+    VerificationFailure,
+    VerificationReason,
     VerificationResult,
     format_label,
     inner_manifest_bytes,
@@ -773,6 +776,63 @@ class _Counter(io.RawIOBase):
         return size
 
 
+class _ReadSide(io.RawIOBase):
+    """Passes reads through, keeping the ``OSError`` one raised (BL-E002-049).
+
+    A stream that both reads the Archive and writes a destination can then
+    tell a read failure (:class:`ArchiveReadError`) from a write failure
+    (:class:`ArchiveWriteError`).
+    """
+
+    def __init__(self, source: IO[bytes]) -> None:
+        super().__init__()
+        self._source = source
+        self.failed: OSError | None = None
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: bytearray | memoryview, /) -> int:  # type: ignore[override]
+        view = memoryview(buffer).cast("B")
+        try:
+            data = self._source.read(len(view))
+        except OSError as exc:
+            self.failed = exc
+            raise
+        size = len(data)
+        view[:size] = data
+        return size
+
+
+class _WriteSide(io.RawIOBase):
+    """Passes writes through, keeping the ``OSError`` one raised (BL-E002-049)."""
+
+    def __init__(self, target: IO[bytes]) -> None:
+        super().__init__()
+        self._target = target
+        self.failed: OSError | None = None
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data: bytes | bytearray | memoryview, /) -> int:  # type: ignore[override]
+        try:
+            return self._target.write(data)
+        except OSError as exc:
+            self.failed = exc
+            raise
+
+    def flush(self) -> None:
+        """Flush the target too, so its buffered write errors are kept here."""
+        if self._target.closed:  # this wrapper's own close, after the target's
+            return
+        try:
+            self._target.flush()
+        except OSError as exc:
+            self.failed = exc
+            raise
+
+
 # --------------------------------------------------------------------------
 # Reading: the probe
 # --------------------------------------------------------------------------
@@ -962,8 +1022,10 @@ class TarArchiveProbe:
 
         Reads through the plain payload as :func:`extract_archive` does. Refuses
         (:class:`MemberReadRefusedError`) a path not in the member index, one
-        that is not a regular file and one larger than ``max_bytes``. Writes
-        nothing.
+        that is not a regular file, one larger than ``max_bytes`` and one whose
+        name occurs more than once in the tar (extraction would see the last
+        copy, this the first; BL-E002-050), so the stream is read to its end.
+        Writes nothing.
         """
         if _is_reserved(path):
             raise MemberReadRefusedError(path, "the reserved inner Manifest name")
@@ -973,11 +1035,14 @@ class TarArchiveProbe:
         if member.kind is not MemberKind.FILE:
             raise MemberReadRefusedError(path, "not a regular file")
         archive = _archive_path(source)
+        found: bytes | None = None
         try:
             with _inner(archive, view, payload) as tar:
                 for info in tar:
                     if info.name != path:
                         continue
+                    if found is not None:
+                        raise MemberReadRefusedError(path, "repeated in the archive")
                     if not info.isfile():
                         raise MemberReadRefusedError(path, "not a regular file")
                     if info.size > max_bytes:
@@ -986,10 +1051,12 @@ class TarArchiveProbe:
                     handle = tar.extractfile(info)
                     if handle is None:  # pragma: no cover - isfile() guarantees one
                         raise MemberReadRefusedError(path, "not a regular file")
-                    return handle.read(info.size)
+                    found = handle.read(info.size)
         except _STREAM_ERRORS as exc:
             raise ArchiveReadError(archive, _reason(exc)) from exc
-        raise ArchiveReadError(archive, f"member {path!r} is not in the archive")
+        if found is None:
+            raise ArchiveReadError(archive, f"member {path!r} is not in the archive")
+        return found
 
 
 # --------------------------------------------------------------------------
@@ -1044,6 +1111,9 @@ def verify_archive_manifest(
         scan = _stream_outer(path)
         view, result = verify_probe(scan.index(), scan.digests)
         record.bytes = scan.bytes_read
+        for field, value in () if view is None else view.unknown_values:
+            # E002-S01-001: an unknown value reads as absent, with a WARNING.
+            _log.warning("manifest_value_unknown", field=field, value=repr(value))
         # An Archive that was never classified was read as no format at all.
         record.fields.update(
             format_version=None if view is None else format_label(view.format_version),
@@ -1064,10 +1134,23 @@ def verify_archive_manifest(
 
 
 def verify_or_raise(path: Path) -> None:
-    """The publish gate: raise :class:`VerificationFailedError` unless it passes."""
+    """The publish gate: raise :class:`VerificationFailedError` unless it passes.
+
+    This package writes only v1 Archives, so the gate also requires
+    ``VERIFIED``: a v0-shaped ``STRUCTURAL_ONLY`` pass would be a writer
+    defect, and is refused as ``UNRECOGNISED_FORMAT`` (BL-E002-048).
+    """
     result = verify_archive(path)
+    if result.passed and result.integrity is not Integrity.VERIFIED:
+        unrecognised = VerificationFailure(None, VerificationReason.UNRECOGNISED_FORMAT)
+        result = VerificationResult(
+            passed=False,
+            integrity=result.integrity,
+            format_version=result.format_version,
+            failures=(unrecognised,),
+        )
     if not result.passed:
-        raise VerificationFailedError(result)
+        raise VerificationFailedError(result, str(path))
 
 
 # --------------------------------------------------------------------------
@@ -1117,7 +1200,15 @@ def _inner(
         ):
             yield tar
     elif payload is not None:
-        with tarfile.open(payload, mode="r:gz", tarinfo=_BoundedTarInfo) as tar:
+        try:
+            handle = payload.open("rb")
+        except OSError as exc:
+            # The decrypted payload is read, not written (BL-E002-049).
+            raise ArchiveReadError(payload, _reason(exc)) from exc
+        with (
+            handle,
+            tarfile.open(fileobj=handle, mode="r:gz", tarinfo=_BoundedTarInfo) as tar,
+        ):
             yield tar
     elif view.encrypted:
         msg = "an encrypted archive needs payload= (the file decrypt_payload wrote)"
@@ -1357,7 +1448,9 @@ def extract_archive(
     than its header states. :func:`require_patched_tarfile` runs first, before
     anything is read. Only this function is gated: ``read_member`` and
     ``decrypt_payload`` stream members and write none to a destination.
-    Members written before a refusal stay written.
+    Members written before a refusal stay written. A ``payload`` that cannot be
+    opened is :class:`ArchiveReadError`; any other ``OSError`` while extracting
+    is :class:`ArchiveWriteError` naming ``destination``.
     """
     _check_exclude(exclude)
     require_patched_tarfile()
@@ -1414,8 +1507,11 @@ def decrypt_payload(
 
     Streams the outer tar's payload member through ``cipher.decrypt``. Any
     failure — the cipher's own errors propagate unchanged — removes
-    ``destination``. A view that is not encrypted raises ``ValueError``. A
-    wrong passphrase or a damaged stream is logged first as ERROR
+    ``destination``. An ``OSError`` reading the Archive is
+    :class:`ArchiveReadError`, one writing ``destination``
+    :class:`ArchiveWriteError` (BL-E002-049). A view that
+    is not encrypted raises ``ValueError``. A wrong passphrase or a damaged
+    stream is logged first as ERROR
     ``member_decryption_failed`` with the payload's name and ``reason``
     (``wrong_passphrase`` or ``corrupt``).
     """
@@ -1431,10 +1527,15 @@ def decrypt_payload(
         )
     except OSError as exc:
         raise ArchiveWriteError(destination, _reason(exc)) from exc
+    reads: _ReadSide | None = None
+    writes: _WriteSide | None = None
     try:
         with os.fdopen(fd, "wb") as writer, _outer_tar(archive) as outer:
             os.fchmod(writer.fileno(), _STAGED_MODE)
-            cipher.decrypt(_payload_body(outer, view.payload.name, archive), writer)
+            reads = _ReadSide(_payload_body(outer, view.payload.name, archive))
+            writes = _WriteSide(writer)
+            cipher.decrypt(io.BufferedReader(reads), cast("IO[bytes]", writes))
+            writes.flush()
     except (PassphraseRejectedError, PayloadDamagedError) as exc:
         destination.unlink(missing_ok=True)
         reason = (
@@ -1447,6 +1548,14 @@ def decrypt_payload(
     except (tarfile.TarError, EOFError, zlib.error, gzip.BadGzipFile) as exc:
         destination.unlink(missing_ok=True)
         raise ArchiveReadError(archive, _reason(exc)) from exc
+    except OSError as exc:
+        destination.unlink(missing_ok=True)
+        if reads is not None and reads.failed is exc:
+            raise ArchiveReadError(archive, _reason(exc)) from exc
+        if writes is not None and writes.failed is not None:
+            # This one, or the close flushing what that write left buffered.
+            raise ArchiveWriteError(destination, _reason(exc)) from exc
+        raise  # the cipher's own error, unchanged
     except BaseException:
         destination.unlink(missing_ok=True)
         raise

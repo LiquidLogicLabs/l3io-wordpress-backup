@@ -381,6 +381,8 @@ class Harness:
     #: The restore root's step-6 survey fact (E003-S02-004); :meth:`target`'s
     #: database exists, so ``True`` unless a test removes both.
     live_database_exists: bool = True
+    #: The operator's ``--archive`` name (``RestoreInputs.archive_name``).
+    archive_name: str | None = None
     #: The FR-7 waivers: ``--force`` by default, since the target is populated.
     overrides: OverrideSet = field(
         default_factory=lambda: OverrideSet(waived=frozenset(Override))
@@ -506,6 +508,7 @@ class Harness:
             payload=self.workspace / PAYLOAD_MEMBER if self.view.encrypted else None,
             workspace=self.workspace,
             live_database_exists=self.live_database_exists,
+            archive_name=self.archive_name,
         )
 
     @property

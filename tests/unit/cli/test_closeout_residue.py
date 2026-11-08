@@ -124,3 +124,19 @@ def test_the_signal_set_is_term_hup_and_quit() -> None:
     assert {s.name for s in cli_root.TERMINATING_SIGNALS} >= {"SIGTERM"}
     if hasattr(signal, "SIGHUP"):
         assert {"SIGHUP", "SIGQUIT"} <= {s.name for s in cli_root.TERMINATING_SIGNALS}
+
+
+def test_a_second_signal_during_cleanup_does_not_interrupt_it() -> None:
+    """BL-E002-081: the handler raises once; a second TERM cannot abort cleanup."""
+    befores = {sig: signal.getsignal(sig) for sig in cli_root.TERMINATING_SIGNALS}
+    cleaned = False
+    with cli_root._sigterm_raises():  # noqa: SLF001
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except RunTerminated:
+            for sig in cli_root.TERMINATING_SIGNALS:
+                assert signal.getsignal(sig) == signal.SIG_IGN
+            os.kill(os.getpid(), signal.SIGTERM)  # ignored: cleanup goes on
+            cleaned = True
+    assert cleaned
+    assert {sig: signal.getsignal(sig) for sig in befores} == befores

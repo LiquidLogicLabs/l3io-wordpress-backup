@@ -43,7 +43,7 @@ def test_one_run_id_per_run_and_it_is_a_uuid4(workdir: Path) -> None:
     assert ctx.started_at.utcoffset() is not None
     assert ctx.started_at.utcoffset().total_seconds() == 0  # type: ignore[union-attr]
     started, finished = _events(logs, "run_started"), _events(logs, "run_finished")
-    assert [e["run_id"] for e in started + finished] == [ctx.run_id] * 2
+    assert [e["l3io_run_id"] for e in started + finished] == [ctx.run_id] * 2
     assert started[0]["operation"] == "backup"
     assert str(started[0]["started_at"]).endswith("Z")
     assert finished[0]["exit_code"] == 0
@@ -134,7 +134,11 @@ def test_a_failure_still_finishes_the_run_and_removes_the_workspace(
     with capture_logs() as logs, pytest.raises(type(raised)):
         run()
     (finished,) = _events(logs, "run_finished")
-    assert finished["exit_code"] == 1
+    # BL-E002-056: an interrupt exits with the interpreter's status (130),
+    # which is not the table's, so no code is claimed for it.
+    claimed = isinstance(raised, Exception)
+    assert finished["exit_code"] == (1 if claimed else None)
+    assert finished["exit_reason"] == ("FAILED" if claimed else None)
     assert finished["error"] == type(raised).__name__
     assert finished["log_level"] == "error"
     assert not seen[0].workspace.exists()
@@ -190,4 +194,4 @@ def test_command_failed_carries_the_failed_runs_id(workdir: Path) -> None:
         report_failure(raised.value, secrets=secrets)
     (finished,) = _events(logs, "run_finished")
     (failed,) = _events(logs, "command_failed")
-    assert failed["l3io_run_id"] == finished["run_id"]
+    assert failed["l3io_run_id"] == finished["l3io_run_id"]

@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import fcntl
 import hashlib
 import json
 import os
@@ -65,6 +64,21 @@ _log = structlog.get_logger(__name__)
 def default_lock_dir() -> Path:
     """The per-user lock directory: ``<user state dir>/locks``."""
     return platformdirs.user_state_path(APP_NAME) / "locks"
+
+
+# ``fcntl`` is imported where it is used, not at module import: on a platform
+# without it (native Windows) importing this module must not crash a command
+# before preflight refuses the platform (BL-E008-008).
+def _lock_exclusive(fd: int) -> None:
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(fd: int) -> None:
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 @dataclass(slots=True)
@@ -199,7 +213,7 @@ class FcntlLockHandle:
                 held.record_path.unlink(missing_ok=True)
             finally:
                 try:
-                    fcntl.flock(held.fd, fcntl.LOCK_UN)
+                    _unlock(held.fd)
                 finally:
                     os.close(held.fd)
         _log.debug(
@@ -286,7 +300,7 @@ class FcntlSiteLock:
             except BaseException:
                 del _REGISTRY[lock_path]
                 try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    _unlock(fd)
                 finally:
                     os.close(fd)
                 raise
@@ -306,7 +320,7 @@ class FcntlSiteLock:
             raise SiteLockLocationError(lock_path, reason) from exc
         try:
             os.fchmod(fd, _FILE_MODE)
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_exclusive(fd)
         except OSError as exc:
             os.close(fd)
             if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):

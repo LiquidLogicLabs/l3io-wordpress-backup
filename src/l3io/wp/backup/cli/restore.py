@@ -842,6 +842,11 @@ class RestoreRequest:
     credentials: CredentialSpec | None = None
     allow_unencrypted: bool = False
     allow_root: bool = False
+    #: The flags that produced ``mode`` and ``overrides`` as the operator typed
+    #: them (``--mode all --cleanfirst --drop-database``), logged on
+    #: ``restore_mode_resolved`` (FR-6, BL-E003-013); ``None`` for a library
+    #: call, which passes the Mode itself.
+    mode_flags: str | None = None
 
     def __post_init__(self) -> None:
         if not self.opted_out_by:
@@ -1275,6 +1280,7 @@ def drive_restore(
             restore_mode=request.mode.value,
             overrides=sorted(o.value for o in request.overrides.waived),
             snapshot_policy=request.snapshot.value,
+            flags=request.mode_flags,
         )
         # Step 2: the journal, keyed by the canonical Site Root only.
         pair: tuple[RunJournalQuery, RunJournalCommand] | None = None
@@ -1510,6 +1516,7 @@ def drive_restore(
             workspace=run.workspace,
             live_database_exists=target.database is not None
             and target.database.database_exists,
+            archive_name=str(request.archive.path),
         )
         taken: list[SnapshotResult] = []
 
@@ -1563,7 +1570,10 @@ def drive_restore(
                     ),
                     on_warning,
                 )
-                _log.info("safety_snapshot_encrypted", path=str(result.path))
+                # WARNING, as the unencrypted case: under --log-format json
+                # this record is the only place the notice reaches stderr, so
+                # it must pass the default and a WARNING level.
+                _log.warning("safety_snapshot_encrypted", path=str(result.path))
             return taken[-1]
 
         # Step 8: the executor runs every phase.
@@ -1832,6 +1842,14 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         archive=storage_target_from_cli(args.archive),
         mode=mode,
         overrides=overrides,
+        mode_flags=render_flags(
+            flag_combination(
+                mode=args.mode,
+                cleanfirst=args.cleanfirst,
+                drop_database=args.drop_database,
+                force=args.force,
+            )
+        ),
         snapshot=snapshot_policy_from_cli(no_safety_snapshot=args.no_safety_snapshot),
         snapshot_dir=None if args.snapshot_dir is None else Path(args.snapshot_dir),
         config_policy=config_policy_from_cli(

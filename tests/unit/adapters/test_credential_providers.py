@@ -25,6 +25,7 @@ wpdb = pytest.importorskip("l3io.wp.database")
 from l3io.wp.database import CredentialSource, ResolvedCredentials  # noqa: E402
 
 from l3io.wp.backup.adapters import credential_providers  # noqa: E402
+from l3io.wp.backup.adapters import database as database_adapter  # noqa: E402
 from l3io.wp.backup.adapters.credential_providers import (  # noqa: E402
     ADMIN_PASSWORD_VAR,
     ADMIN_USER_VAR,
@@ -222,7 +223,7 @@ def test_a_half_set_pair_stops_the_chain_before_wp_config(
         None, wp_config=recording, environ=_environ(), secrets=SecretRegistry()
     )
     with pytest.raises(CredentialsError) as caught:
-        require_wp_config_credentials(source)
+        require_wp_config_credentials(source, environ=_environ())
     assert recording.calls == 0
     other = {WORDPRESS_USER_VAR, WORDPRESS_PASSWORD_VAR} - {set_var}
     assert caught.value.missing_key == other.pop()
@@ -241,7 +242,7 @@ def test_no_wordpress_source_with_an_answer_names_every_step(
         secrets=SecretRegistry(),
     )
     with pytest.raises(CredentialsError) as caught:
-        require_wp_config_credentials(source)
+        require_wp_config_credentials(source, environ=_environ())
     assert caught.value.source == source.source
     assert "defines neither" in caught.value.reason
     # The variables that would also have answered are named (review F-6).
@@ -396,6 +397,21 @@ def test_an_environment_password_is_registered_when_resolved(
     assert [e["credential_source"] for e in selected] == [WP_ENV_LABEL, ADMIN_ENV_LABEL]
     assert selected[0]["log_level"] == "info"
     assert "env-value" not in repr(logs)
+
+
+def test_the_choice_is_logged_once_however_often_it_resolves(
+    wp_config: CredentialSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E005-008: check, dump and ensure each resolve; one record says so."""
+    _set_pair(monkeypatch, WORDPRESS_USER_VAR, WORDPRESS_PASSWORD_VAR)
+    wordpress = wordpress_source(
+        None, wp_config=wp_config, environ=_environ(), secrets=SpyRegistry()
+    )
+    with capture_logs() as logs:
+        for _ in range(3):
+            wordpress.resolve()
+    selected = [e for e in logs if e["event"] == "credential_source_selected"]
+    assert [e["credential_source"] for e in selected] == [WP_ENV_LABEL]
 
 
 def test_a_wp_config_password_is_registered_when_resolved(
@@ -894,3 +910,59 @@ def test_the_admin_required_message_names_every_way_to_give_one() -> None:
         ADMIN_PASSWORD_VAR,
     ):
         assert name in message
+
+
+class _NotJson:
+    """A source whose secret is not JSON: database chains the parse error."""
+
+    def __init__(self, secret: str, cause: BaseException) -> None:
+        self.secret = secret
+        self.cause = cause
+
+    @property
+    def source(self) -> str:
+        return "aws-secrets-manager:planted"
+
+    def resolve(self) -> ResolvedCredentials:
+        msg = "the secret is not a JSON object"
+        raise wpdb.CredentialsUnobtainableError(msg) from self.cause
+
+
+def test_a_foreign_cause_holding_the_secret_is_not_kept() -> None:
+    """BL-E005-006: a JSONDecodeError's ``doc`` is the whole SecretString."""
+    planted = f"not-json-{uuid.uuid4().hex}"
+    try:
+        json.loads(planted)
+    except json.JSONDecodeError as exc:
+        cause = exc
+    wrapped = database_adapter._registering(  # noqa: SLF001
+        _NotJson(planted, cause), SecretRegistry(), region_flag="--region"
+    )
+    with pytest.raises(wpdb.CredentialsUnobtainableError) as caught:
+        wrapped.resolve()
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    seen: list[BaseException] = []
+    link: BaseException | None = caught.value
+    while link is not None:
+        seen.append(link)
+        link = link.__cause__ or link.__context__
+    assert not any(isinstance(e, json.JSONDecodeError) for e in seen)
+    assert planted not in repr(vars(caught.value))
+
+
+def _reads_os_environ(source: str) -> bool:
+    return any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "environ"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "os"
+        for node in ast.walk(ast.parse(source))
+    )
+
+
+def test_the_database_adapter_never_reads_the_process_environment() -> None:
+    """BL-E005-007 (AD-4): the half pair is named from the chain's ``environ``."""
+    source = Path(database_adapter.__file__).read_text(encoding="utf-8")
+    assert not _reads_os_environ(source)
+    assert _reads_os_environ(source + "\nimport os\nos.environ.get('X')\n")

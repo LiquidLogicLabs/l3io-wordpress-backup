@@ -36,6 +36,7 @@ from l3io.wp.backup.cli.verify import VerifyRequest, drive_verify
 from l3io.wp.backup.domain.archive_format import (
     MANIFEST_MEMBER,
     classify,
+    ignore_unknown,
     manifest_from_json,
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -138,7 +139,7 @@ def test_the_committed_fixture_authenticates_with_its_sidecar() -> None:
 
 
 def _structure(text: str) -> dict[str, Any]:
-    manifest = manifest_from_json(text)
+    manifest = manifest_from_json(text, on_unknown=ignore_unknown)
     document: dict[str, Any] = json.loads(text)
     assert manifest.encrypted is True
     del document["created_at"], document["payload"]["size"]

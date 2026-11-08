@@ -134,6 +134,10 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_tar_type",
             "_walk",
             "decrypt_payload",
+            # BL-E002-049: decrypt_payload's read and write sides, passing each
+            # chunk through unbuffered; driven by its call below.
+            "_ReadSide",
+            "_WriteSide",
             "extract_archive",
             "verify_archive",
             # verify_archive's body; driven through verify_or_raise below.
@@ -376,10 +380,13 @@ if mode in ("backup", "backup-buffered", "backup-noop"):
         }))
         raise SystemExit(0)
     import tarfile
-    from l3io.wp.backup.domain.archive_format import MANIFEST_MEMBER, manifest_from_json
+    from l3io.wp.backup.domain.archive_format import (
+        MANIFEST_MEMBER, ignore_unknown, manifest_from_json,
+    )
     with tarfile.open(final, mode="r|*") as outer:
         manifest = manifest_from_json(
-            outer.extractfile(outer.next()).read().decode("utf-8")
+            outer.extractfile(outer.next()).read().decode("utf-8"),
+            on_unknown=ignore_unknown,
         )
     extra = {
         "indexed_bytes": sum(m.size for m in manifest.members),

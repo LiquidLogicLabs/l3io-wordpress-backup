@@ -253,7 +253,7 @@ def run_verify(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         prompt=terminal_prompt() if request.authenticate else None,
     )
     if not result.passed:
-        raise VerificationFailedError(result)
+        raise VerificationFailedError(result, str(target.path))
     emit_result(
         f"{target.path}: OK, {_describe(result, authenticated=args.authenticate)}"
     )

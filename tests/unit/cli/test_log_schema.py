@@ -86,14 +86,21 @@ def test_every_emitted_record_matches_the_schema(
     assert set(verify) - record - phase <= VERIFY_EXTRAS
 
 
+#: The keys owner decision 12 keeps for a host (BL-E006-019).
+UNPREFIXED = frozenset({"run_id", "dry_run"})
+
+
 def test_a_run_binds_only_prefixed_keys() -> None:
     """BL-E006-019 (owner decision 2026-11-07): a host's own keys survive a Run.
 
     The scope is whatever the Run binds, read back from structlog's context:
     every key it adds is ``l3io_``-prefixed, and a host's ``run_id`` and
-    ``dry_run`` are the host's values throughout and after the call.
+    ``dry_run`` are the host's values throughout and after the call — in the
+    context and in every record the Run emits through ``merge_contextvars``,
+    where an explicit ``run_id=`` field on a record would replace the host's.
     """
     import structlog
+    from structlog.testing import capture_logs
 
     from l3io.wp.backup.cli.context import open_run
 
@@ -101,11 +108,21 @@ def test_a_run_binds_only_prefixed_keys() -> None:
     structlog.contextvars.bind_contextvars(run_id="host-run", dry_run="host")
     try:
         before = structlog.contextvars.get_contextvars()
-        with open_run(operation="verify") as ctx:
+        with (
+            capture_logs(processors=[structlog.contextvars.merge_contextvars]) as logs,
+            open_run(operation="verify") as ctx,
+        ):
             during = structlog.contextvars.get_contextvars()
         after = structlog.contextvars.get_contextvars()
     finally:
         structlog.contextvars.clear_contextvars()
+    events = [record["event"] for record in logs]
+    assert "run_started" in events, events
+    assert "run_finished" in events, events
+    for record in logs:
+        assert (record.get("run_id"), record.get("dry_run")) == ("host-run", "host"), (
+            record
+        )
     added = set(during) - set(before)
     assert added == {"l3io_run_id", "l3io_dry_run"}
     assert all(key.startswith("l3io_") for key in added)
@@ -113,3 +130,28 @@ def test_a_run_binds_only_prefixed_keys() -> None:
     assert during["run_id"] == "host-run"
     assert during["dry_run"] == "host"
     assert after == before
+
+
+@pytest.mark.usefixtures("fake_database")
+@pytest.mark.parametrize("what_if", [False, True], ids=["real", "dry-run"])
+def test_no_emitted_record_carries_an_unprefixed_key(
+    site: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], what_if: bool
+) -> None:
+    """BL-E006-019: no record the package writes has ``run_id`` or ``dry_run``.
+
+    Every record of a whole ``wpbackup2 backup`` through the JSON pipeline,
+    real and Dry Run, ``run_started`` and ``run_finished`` included: a key
+    reaching the output from an explicit event field, a bind or the renderer
+    fails the same way.
+    """
+    final = tmp_path / "out.tar.gz"
+    argv = ["--log-format", "json", "backup", "--wp-dir", str(site)]
+    argv += ["--archive", str(final), *(["--whatIf"] if what_if else [])]
+    assert main(argv) == 0
+    lines = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    events = [line["event"] for line in lines]
+    assert {"run_started", "run_finished"} <= set(events), events
+    assert all(
+        line["l3io_dry_run"] is what_if for line in lines if "l3io_dry_run" in line
+    )
+    assert [line for line in lines if UNPREFIXED & line.keys()] == []

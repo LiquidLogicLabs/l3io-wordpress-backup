@@ -16,7 +16,10 @@ an offence by itself, so a static alias is seen. A name bound at runtime
 also has a ``WpConfigFile`` — the reader/writer, not a credential source.
 A call is exempt only when its name resolves, within the module, to
 ``l3io.wp.config``: a bare name imported from it, or an attribute of a name
-bound to it. Every other spelling of ``WpConfigFile`` is still an offence.
+bound to it. Every other spelling of ``WpConfigFile`` is still an offence,
+and so is a name the module binds anywhere else as well (an assignment, another
+import, a ``def``, a loop or ``with`` target): a rebinding such as
+``WpConfigFile = wpdb.WpConfigFile`` loses the exemption (BL-E002-090).
 """
 
 from __future__ import annotations
@@ -77,7 +80,32 @@ def _config_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
                     modules.add(alias.asname or alias.name)
                 elif node.module == CONFIG_MODULE and alias.name == "WpConfigFile":
                     classes.add(alias.asname or alias.name)
-    return modules, classes
+    rebound = _other_bindings(tree)
+    return modules - rebound, classes - rebound
+
+
+def _other_bindings(tree: ast.Module) -> set[str]:
+    """Names the module binds other than by importing from ``l3io.wp.config``."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            names.add(node.id)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.Import):
+            names.update(
+                alias.asname or alias.name.split(".")[0]
+                for alias in node.names
+                if alias.name != CONFIG_MODULE
+            )
+        elif isinstance(node, ast.ImportFrom):
+            names.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if node.module != CONFIG_MODULE
+                and f"{node.module}.{alias.name}" != CONFIG_MODULE
+            )
+    return names
 
 
 def _is_config_class(call: ast.Call, modules: set[str], classes: set[str]) -> bool:
@@ -182,9 +210,25 @@ def test_config_wp_config_file_is_exempt_only_by_resolved_origin(
     (tmp_path / "adapters" / "unbound.py").write_text(
         "WpConfigFile(p)\n", encoding="utf-8"
     )
+    # BL-E002-090: a rebinding in the same module loses the exemption.
+    (tmp_path / "adapters" / "rebound.py").write_text(
+        "from l3io.wp.config import WpConfigFile\n"
+        "from l3io.wp import database as wpdb\n"
+        "WpConfigFile = wpdb.WpConfigFile\n"
+        "WpConfigFile(p)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "adapters" / "reimported.py").write_text(
+        "from l3io.wp import config as cfg\n"
+        "from l3io.wp import database as cfg\n"
+        "cfg.WpConfigFile(p)\n",
+        encoding="utf-8",
+    )
     found = _offenders(tmp_path, set())
     assert found == [
         "adapters/bad.py:3 calls WpConfigFile",
+        "adapters/rebound.py:4 calls WpConfigFile",
+        "adapters/reimported.py:3 calls WpConfigFile",
         "adapters/unbound.py:1 calls WpConfigFile",
     ]
 

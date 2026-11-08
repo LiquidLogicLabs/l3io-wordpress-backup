@@ -45,6 +45,8 @@ def test_a_corrupted_copy_fails_naming_the_payload(
     )
     err = capsys.readouterr().err
     assert f"CHECKSUM_MISMATCH ({PAYLOAD_MEMBER!r})" in err
+    # BL-E002-055: a job verifying several Archives can tell which one failed.
+    assert repr(str(copy)) in err
 
 
 @pytest.mark.parametrize("archive", V0_PASSING, ids=lambda p: p.name)

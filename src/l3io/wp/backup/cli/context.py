@@ -236,13 +236,16 @@ def open_run(
                 secrets=registry,
             )
         )
+        # The Run's own keys, prefixed (BL-E006-019): an explicit ``run_id``
+        # field would replace a host's bound ``run_id`` in this record. Stated
+        # here as well as bound, so a host without ``merge_contextvars`` still
+        # sees the Run's boundaries named.
         _log.info(
             "run_started",
-            run_id=run_id,
+            **{RUN_ID_KEY: run_id, DRY_RUN_KEY: dry_run},
             started_at=started_at.isoformat().replace("+00:00", "Z"),
             operation=operation,
             version=__version__,
-            dry_run=dry_run,
         )
         try:
             with ExitStack() as held:
@@ -285,16 +288,21 @@ def open_run(
                 else _outcome(run_state)
             )
             registry.log_registered()
+            # An interrupt that is not an Exception (KeyboardInterrupt) exits
+            # with the interpreter's status, so no code is claimed for it
+            # (BL-E002-056).
+            claimed = error is None or isinstance(error, Exception)
             emit = _log.info if exit_code is ExitCode.OK else _log.error
             emit(
                 "run_finished",
-                run_id=run_id,
-                exit_code=int(exit_code),
-                exit_reason=exit_code.name,
+                **{RUN_ID_KEY: run_id},
+                exit_code=int(exit_code) if claimed else None,
+                exit_reason=exit_code.name if claimed else None,
                 duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
                 error=error_type,
             )
-            run_span.set_outcome(exit_code=int(exit_code), error_type=error_type)
+            if claimed:
+                run_span.set_outcome(exit_code=int(exit_code), error_type=error_type)
 
 
 def _stamp_run_id(exc: BaseException, run_id: str) -> None:

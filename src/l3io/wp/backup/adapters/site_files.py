@@ -25,7 +25,7 @@ from l3io.wp.backup.domain.errors import (
     UnsafeCleanTargetError,
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
-from l3io.wp.backup.ports.site_files import require_site_relative
+from l3io.wp.backup.ports.site_files import require_site_relative, require_top_level
 
 __all__ = ["LocalSiteFiles", "refuse_unsafe_clean_target"]
 
@@ -113,7 +113,8 @@ class LocalSiteFiles:
         """Remove every top-level entry of ``site_root`` not in ``keep``.
 
         ``keep`` names top-level entries (Site-Root-relative); a deeper path
-        keeps its top-level ancestor whole. A symlink is unlinked, never
+        is refused (``ValueError``, BL-E002-088), since it could only keep its
+        top-level ancestor whole. A symlink is unlinked, never
         followed — a symlinked directory's target is untouched — and
         ``site_root`` itself is never removed.
 
@@ -127,6 +128,7 @@ class LocalSiteFiles:
         entry, and the entries after it are left in place.
         """
         require_site_relative(keep, argument="keep")
+        require_top_level(keep, argument="keep")
         root = site_root.absolute()
         refuse_unsafe_clean_target(root)
         kept = {path.parts[0] for path in keep if path.parts}

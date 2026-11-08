@@ -147,7 +147,8 @@ def phase(key: PhaseKey) -> Iterator[PhaseRecord]:
         record = PhaseRecord(name=name, key=key)
         token = _current.set(record)
         started = time.monotonic_ns()
-        outcome, exit_code = "failed", ExitCode.FAILED
+        outcome = "failed"
+        exit_code: ExitCode | None = ExitCode.FAILED
         try:
             yield record
             if record.failure is None:
@@ -156,15 +157,21 @@ def phase(key: PhaseKey) -> Iterator[PhaseRecord]:
             else:
                 exit_code = record.failure
         except BaseException as exc:
-            exit_code = exit_code_of(exc)
+            # Not an Exception (KeyboardInterrupt): the process exits with the
+            # interpreter's status, not this table's, so no code is claimed
+            # (BL-E002-056).
+            exit_code = exit_code_of(exc) if isinstance(exc, Exception) else None
             raise
         finally:
             _current.reset(token)
             _emit(record, started, outcome, exit_code)
-            span.set_outcome(exit_code=int(exit_code), archive_bytes=record.bytes)
+            if exit_code is not None:
+                span.set_outcome(exit_code=int(exit_code), archive_bytes=record.bytes)
 
 
-def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: ExitCode) -> None:
+def _emit(
+    record: PhaseRecord, started: int, outcome: str, exit_code: ExitCode | None
+) -> None:
     emit = _log.error if outcome == "failed" else _log.info
     extra = {k: v for k, v in record.fields.items() if k not in _FIXED_KEYS}
     emit(
@@ -173,7 +180,7 @@ def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: ExitCode) 
         duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
         bytes=record.bytes,
         outcome=outcome,
-        exit_code=int(exit_code),
+        exit_code=None if exit_code is None else int(exit_code),
         **extra,
     )
 

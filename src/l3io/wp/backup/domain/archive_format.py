@@ -104,6 +104,7 @@ __all__ = [
     "classify",
     "created_at_text",
     "format_label",
+    "ignore_unknown",
     "inner_manifest_bytes",
     "is_safe_member_path",
     "manifest_from_json",
@@ -383,14 +384,22 @@ def _document(manifest: Manifest) -> dict[str, object]:
 UnknownValueHook = Callable[[str, str], None]
 
 
-def manifest_from_json(
-    text: str, *, on_unknown: UnknownValueHook | None = None
-) -> Manifest:
+def ignore_unknown(field: str, value: str) -> None:
+    """An :data:`UnknownValueHook` for a reader that has nothing to report.
+
+    Passed by name, so a reader that drops an unknown value says so where it
+    calls :func:`manifest_from_json` (BL-E002-034).
+    """
+    del field, value
+
+
+def manifest_from_json(text: str, *, on_unknown: UnknownValueHook) -> Manifest:
     """Parse a Manifest. Unknown keys are ignored; malformed fields raise.
 
     An ``origin.kind`` this build does not know reads as ``origin=None`` and is
     reported through ``on_unknown("origin.kind", value)`` (forward
-    compatibility). An unknown member ``kind`` is malformed.
+    compatibility); the hook is required, so no reader drops it silently
+    (BL-E002-034). An unknown member ``kind`` is malformed.
     """
     return _manifest(_object(_loads(text), "manifest"), on_unknown)
 
@@ -636,7 +645,7 @@ def _inner_manifest(inner_bytes: bytes) -> Manifest:
             "sha256": _LEFT_OUT_SHA256,
         },
     }
-    return _manifest(doc, None)
+    return _manifest(doc, ignore_unknown)
 
 
 def _join(path: str, name: str) -> str:
@@ -691,7 +700,10 @@ def check_inner_manifest(outer_text: str, inner_bytes: bytes) -> str | None:
     :data:`INNER_UNPARSABLE`. Both check sites call this; neither compares
     fields itself.
     """
-    outer = _without_payload_digest(manifest_from_json(outer_text))
+    # The outer Manifest's unknown values were reported when it was classified.
+    outer = _without_payload_digest(
+        manifest_from_json(outer_text, on_unknown=ignore_unknown)
+    )
     try:
         inner = _inner_manifest(inner_bytes)
     except (MalformedManifestError, UnicodeDecodeError):
@@ -776,7 +788,9 @@ class ArchiveView:
     ``config_path`` is the v1 Manifest's value copied as found (Epic 7 converts
     it with ``ConfigLocation`` and refuses anything else, AD-11), or for v0
     ``"wp-root/wp-config.php"`` when that member is present. ``backup_scope``
-    is the v1 Manifest's value, ``None`` for v0.
+    is the v1 Manifest's value, ``None`` for v0. ``unknown_values`` holds each
+    ``(field, value)`` the read dropped because this build does not know it
+    (an ``origin.kind``), for the adapter to log as a WARNING (BL-E002-034).
     """
 
     format_version: int | None
@@ -787,6 +801,7 @@ class ArchiveView:
     encrypted: bool
     payload: ManifestPayload | None
     backup_scope: str | None
+    unknown_values: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "members", tuple(self.members))
@@ -928,7 +943,10 @@ def _classify_v1(text: str | None) -> ArchiveView:
     version = _int(_object(_loads(text), "manifest"), "format_version")
     if version not in SUPPORTED_FORMAT_VERSIONS:
         raise UnsupportedFormatVersionError(found=version)
-    manifest = manifest_from_json(text)
+    unknown: list[tuple[str, str]] = []
+    manifest = manifest_from_json(
+        text, on_unknown=lambda field, value: unknown.append((field, value))
+    )
     return ArchiveView(
         format_version=manifest.format_version,
         members=tuple(
@@ -941,6 +959,7 @@ def _classify_v1(text: str | None) -> ArchiveView:
         encrypted=manifest.encrypted,
         payload=manifest.payload,
         backup_scope=manifest.backup_scope,
+        unknown_values=tuple(unknown),
     )
 
 

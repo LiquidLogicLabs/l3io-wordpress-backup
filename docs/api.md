@@ -46,7 +46,7 @@ A host that wants the package's renderer and redaction calls
 its records. A host that wants trace ids in its records adds `add_trace_ids`
 to its own chain, or calls
 `configure_logging(level, fmt, trace_processors=(add_trace_ids,))`. The record
-schema, the `run_id` correlation and binding your own `correlation_id` are in
+schema, the `l3io_run_id` correlation and binding your own `correlation_id` are in
 [`logging.md`](logging.md).
 
 A host that configures nothing gets structlog's defaults: every record the
@@ -76,12 +76,17 @@ standard process variables it uses.
 | `L3IO_WP_BACKUP_ADMIN_USER`, `L3IO_WP_BACKUP_ADMIN_PASSWORD` | a restore resolves the database administrator account and no `admin=` spec was given. |
 | `PATH` | the package locates an external tool (`wp` and the readiness probes). Only absolute entries are searched. `PATH` is also passed to the WP-CLI and probe child processes. |
 | `HOME` | passed to the WP-CLI and probe child processes, which use it for their own cache and configuration. No other variable of yours reaches them. |
-| `TMPDIR`, `TEMP`, `TMP` | the Run's private workspace is created, through `tempfile`. The workspace holds the database dump while a Run is in progress. |
+| `TMPDIR`, `TEMP`, `TMP` | the Run's private workspace is created, through `tempfile`. The workspace holds the database dump (and a decrypted payload) while a Run is in progress. A Run killed outright (`SIGKILL`, power loss) leaves it behind; each later Run of the same OS user removes `l3io-wp-backup-*` workspaces untouched for 24 hours, logging each path (`stale_residue_removed`). Pointing `TMPDIR` at a memory-backed filesystem (tmpfs) keeps that plaintext off disk altogether. |
 
 An `AwsSecretCredentialSpec` reaches AWS Secrets Manager through the AWS SDK,
 which reads the standard `AWS_*` variables and configuration files.
 `l3io-wordpress-database`, `l3io-wordpress-config` and an OpenTelemetry SDK
 the host configures read their own variables; those are documented by each.
+The client programs `l3io-wordpress-database` (>= 0.3.3) starts get explicit
+environments, not yours: `mysql` and `mysqldump` only a `PATH` of its absolute
+entries and `LC_ALL=C`; `age` (the `cli` passphrase backend), run by absolute
+path, only that `PATH`, `HOME`, `LC_ALL=C` and `AGE_PASSPHRASE_FD`
+(BL-E004-055).
 
 **What the Run reports.** When a non-package exception escapes an entry point,
 the caller receives `UnexpectedError`, with the original on `__cause__`. If
@@ -93,7 +98,7 @@ callable that raises, for example) writes no `run_finished`; only the
 boundary's `unexpected_exception` record names it.
 
 The boundary's `unexpected_exception` record carries the original's class
-(`cause_type`), the entry point, the `run_id` when known, and a `traceback`
+(`cause_type`), the entry point, the `l3io_run_id` when known, and a `traceback`
 field of the frames with the original's **message withheld**: a dependency's
 text is untrusted, and the Run's secret registry is already closed when the
 boundary logs, so the record could not be redacted. The original, message
@@ -114,10 +119,10 @@ rich or `dict_tracebacks(show_locals=True)` tracebacks, `pytest --showlocals`)
 can record such a `str`. Prefer `prompt=` or the environment to `passphrase=`
 where such a tool runs, and scrub locals in it. Span status descriptions name a
 non-package exception by class only. The database dependency's own
-`l3io.wp.database.*` spans, which nest under this package's phase spans, record
-the failure's message and stack trace as an `exception` event and in the status
-with no redaction; a host that exports traces should scrub `exception.*`
-events and the status of those spans.
+`l3io.wp.database.*` spans, which nest under this package's phase spans, carry
+a failure as `error.type=<exception class>` and status ERROR with no
+description, and record no `exception` event, so neither the message nor the
+stack trace is exported (`l3io-wordpress-database` >= 0.3.3, BL-E006-010).
 
 **Process state and output.** A call does not configure logging, install a
 signal handler or change the working directory, `os.environ` or the tracer
@@ -1766,13 +1771,33 @@ Fields: `message`, `arguments`, each holding the argument of the same name.
 
 An Archive failed verification; `result` says why.
 
+`archive` names the Archive the operator gave, when the raiser knows it,
+so a job verifying several can tell which failed (BL-E002-055).
+
 ```python
-VerificationFailedError(result: VerificationResult)
+VerificationFailedError(result: VerificationResult, archive: str | None = None)
 ```
 
 Base: `BackupError`. Exit code: `VERIFICATION_FAILED` (8).
 
-Fields: `result`, each holding the argument of the same name.
+Fields: `result`, `archive`, each holding the argument of the same name.
+
+### `WorkspaceNotRemovedError`
+
+The Run's workspace survived its removal, and may hold a plaintext Dump.
+
+Raised only when the Run had otherwise succeeded (BL-E002-041), so it
+does not exit `OK` with a copy of the database left behind; a failing
+Run keeps its own error and the WARNING. `path` is the workspace; the
+message names only its prefix, since the path is logged at `DEBUG` only.
+
+```python
+WorkspaceNotRemovedError(path: Path)
+```
+
+Base: `BackupError`. Exit code: `FAILED` (1).
+
+Fields: `path`, holding the argument of the same name.
 
 ### `WpCliConfigFoundError`
 

@@ -62,7 +62,16 @@ __all__ = ["TERMINATING_SIGNALS", "main", "run_from_cli"]
 
 
 def _terminate(signum: int, frame: FrameType | None) -> None:
+    """Raise once: every terminating signal is ignored from here on.
+
+    A second signal (a supervisor's retry, a stop pressed twice) would raise
+    again inside the cleanup this one starts and could abort the workspace's
+    removal part-way (BL-E002-081). :func:`_sigterm_raises` restores the
+    previous handlers when the Run is over.
+    """
     del frame
+    for sig in TERMINATING_SIGNALS:
+        signal.signal(sig, signal.SIG_IGN)
     raise RunTerminated(signal.Signals(signum).name)
 
 
@@ -97,6 +106,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.action is None:
         parser.print_help(sys.stderr)
         return int(ExitCode.USAGE)
+    # BL-E003-101: a check after parsing reports with its command's usage.
+    usage = parser.for_command(args.action)
     try:
         if args.action == RESTORE_COMMAND:
             from l3io.wp.backup.cli.restore import check_restore_arguments
@@ -119,26 +130,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             missing = require_backup_wp_dir(vars(args))
             if missing is not None:
-                parser.error(missing)
+                usage.error(missing)
 
             wordpress_spec(
                 aws_secret_id=args.db_credentials_aws_secret_id,
                 aws_region=args.db_credentials_aws_region,
             )
     except UsageError as exc:
-        parser.error(str(exc))
+        usage.error(str(exc))
     unavailable = not_yet_implemented(args.action, vars(args))
     if unavailable is not None:
-        parser.error(unavailable)
+        usage.error(unavailable)
     if args.action == RESTORE_COMMAND and not args.archive:
-        parser.error("restore needs --archive (the archive to restore from)")
+        usage.error("restore needs --archive (the archive to restore from)")
     if args.action not in (
         BACKUP_COMMAND,
         RESTORE_COMMAND,
         VERIFY_COMMAND,
         DOCTOR_COMMAND,
     ):
-        parser.error(f"{args.action!r} is not implemented in this build")
+        usage.error(f"{args.action!r} is not implemented in this build")
     configure_logging(args.log_level, args.log_format)
     secrets = SecretRegistry()
     try:

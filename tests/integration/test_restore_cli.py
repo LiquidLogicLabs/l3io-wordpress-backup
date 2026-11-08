@@ -130,7 +130,7 @@ def test_each_mode_end_to_end(
     original = site.site.database
     ran = run_cli(site.argv(archive, *_flags(AUTHORIZED[mode])), capsys)
     assert ran.code == int(ExitCode.OK), ran.err[-3000:]
-    run_ids = {r["run_id"] for r in ran.records if "run_id" in r}
+    run_ids = {r["l3io_run_id"] for r in ran.records if "l3io_run_id" in r}
     assert len(run_ids) == 1
     assert len(ran.events("restore_mode_resolved")) == 1
     assert ran.events("restore_mode_resolved")[0]["restore_mode"] == mode.value

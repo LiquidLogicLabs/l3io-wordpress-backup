@@ -129,7 +129,7 @@ def test_a_driver_that_opens_a_dry_run_binds_the_noop_set(
     assert result.integrity is None  # nothing was verified
     assert not final.exists()
     started = [e for e in logs if e["event"] == "run_started"]
-    assert [e["dry_run"] for e in started] == [True]
+    assert [e["l3io_dry_run"] for e in started] == [True]
 
 
 def test_a_joined_driver_binds_nothing_and_inherits_the_outer_selection(

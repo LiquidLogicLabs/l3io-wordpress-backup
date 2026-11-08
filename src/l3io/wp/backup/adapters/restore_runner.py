@@ -481,7 +481,7 @@ def _check_config(run: _Run) -> None:
         in_root = _same_dir(run.config_file.parent, run.site_root)
         member = config_member(inputs.view)
         if member is None or not in_root or not restores_files(run.plan.mode):
-            raise ArchiveHasNoConfigError(str(inputs.archive.path))
+            raise ArchiveHasNoConfigError(inputs.archive_label)
     writes = RestorePhase.REWRITE_CONFIG in run.plan.phases
     if writes and not run.config_existed and not relocation.lay_down_config:
         raise TargetConfigMissingError(str(run.config_file))
@@ -530,7 +530,7 @@ def _check_space(run: _Run) -> None:
         try:
             compressed = archive.stat().st_size
         except OSError as exc:
-            raise ArchiveNotFoundError(archive) from exc
+            raise ArchiveNotFoundError(Path(run.inputs.archive_label)) from exc
         payload = 0
     need = space_need(
         sizes.values(),
@@ -628,9 +628,9 @@ def _verify(run: _Run, record: PhaseRecord) -> None:
         format_version=format_label(result.format_version),
     )
     if not result.passed:
-        raise VerificationFailedError(result)
+        raise VerificationFailedError(result, inputs.archive_label)
     if view != inputs.view:
-        raise ArchiveChangedError(str(inputs.archive.path))
+        raise ArchiveChangedError(inputs.archive_label)
     run.integrity = result.integrity
     if inputs.view.encrypted:
         if run.cipher is None or run.payload is None:
@@ -891,7 +891,7 @@ def _archive_config(run: _Run) -> str:
     inputs = run.inputs
     member = config_member(inputs.view)
     if member is None:
-        raise ArchiveHasNoConfigError(str(inputs.archive.path))
+        raise ArchiveHasNoConfigError(inputs.archive_label)
     body = run.ports.adapters.archive_probe.read_member(
         inputs.archive,
         inputs.view,

@@ -82,7 +82,7 @@ def _events(logs: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
 
 
 def _run_ids(logs: list[dict[str, Any]]) -> set[str]:
-    return {str(e["run_id"]) for e in logs if "run_id" in e}
+    return {str(e["l3io_run_id"]) for e in logs if "l3io_run_id" in e}
 
 
 @pytest.fixture
@@ -395,8 +395,11 @@ def test_restore_with_every_keyword_builds_the_request_run_restore_builds(
     assert expected.cipher is not None
     assert built.opted_out_by == "snapshot=SnapshotPolicy.SKIP"
     assert expected.opted_out_by == NO_SNAPSHOT_FLAG
+    # A library call passes the Mode itself: no CLI flags to log (BL-E003-013).
+    assert built.mode_flags is None
+    assert expected.mode_flags is not None
     assert dataclasses.replace(built, cipher=None, opted_out_by=NO_SNAPSHOT_FLAG) == (
-        dataclasses.replace(expected, cipher=None)
+        dataclasses.replace(expected, cipher=None, mode_flags=None)
     )
     # The secret-bearing values are registered before the driver is called.
     secrets: SecretRegistry = call["secrets"]

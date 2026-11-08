@@ -221,12 +221,12 @@ def test_every_failure_code_is_produced(
     observed = CASES[code](_Env(tmp_path, monkeypatch))
     assert observed
     assert all(value == int(code) for value in observed), observed
-    if code is not ExitCode.USAGE:
-        err = capsys.readouterr().err
-        assert DESCRIPTIONS[code] in err
-        if code is ExitCode.LOCKED:
-            # The stderr message names the holder (FR-28).
-            assert HOLDER_RUN_ID in err
+    # USAGE included since BL-E002-058: argparse's own errors carry the suffix.
+    err = capsys.readouterr().err
+    assert DESCRIPTIONS[code] in err
+    if code is ExitCode.LOCKED:
+        # The stderr message names the holder (FR-28).
+        assert HOLDER_RUN_ID in err
 
 
 def test_success_exits_zero(

@@ -723,12 +723,17 @@ class MalformedManifestError(BackupError):
 
 
 class VerificationFailedError(BackupError):
-    """An Archive failed verification; ``result`` says why."""
+    """An Archive failed verification; ``result`` says why.
+
+    ``archive`` names the Archive the operator gave, when the raiser knows it,
+    so a job verifying several can tell which failed (BL-E002-055).
+    """
 
     exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
 
-    def __init__(self, result: VerificationResult) -> None:
+    def __init__(self, result: VerificationResult, archive: str | None = None) -> None:
         self.result = result
+        self.archive = archive
         first = result.failures[0] if result.failures else None
         detail = (
             "no reason recorded"
@@ -737,7 +742,8 @@ class VerificationFailedError(BackupError):
             if first.member is None
             else f"{first.reason.value} ({first.member!r})"
         )
-        super().__init__(f"archive verification failed: {detail}")
+        named = "" if archive is None else f" for {archive!r}"
+        super().__init__(f"archive verification failed{named}: {detail}")
 
 
 class PassphraseRejectedError(BackupError):

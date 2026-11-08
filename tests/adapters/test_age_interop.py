@@ -19,6 +19,7 @@ import os
 import pty
 import re
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -200,3 +201,75 @@ def test_the_passphrase_never_reaches_an_argument_vector(
     assert seen, "the cli backend ran no age process"
     assert all(passphrase not in " ".join(argv) for argv in seen)
     assert age  # the binary the module requires is the one database ran
+
+
+#: The whole environment database 0.3.3 gives ``age`` (BL-E004-055).
+AGE_CHILD_KEYS = frozenset({"PATH", "HOME", "LC_ALL", "AGE_PASSPHRASE_FD"})
+
+
+def _recording_age(shim: Path, records: Path, real_age: str) -> None:
+    """An ``age`` on ``PATH`` that saves its own environment, then execs ``real_age``.
+
+    It copies ``/proc/$$/environ``: the environment the kernel handed this
+    process at ``execve``, before the shell could add or drop anything, and
+    the same one ``exec`` passes to the real ``age``. Every path is literal,
+    because the environment it records is the one under test.
+    """
+    cat = shutil.which("cat")
+    assert cat is not None
+    shim.mkdir()
+    script = shim / "age"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'{shlex.quote(cat)} "/proc/$$/environ"'
+        f' > {shlex.quote(str(records))}/"$$.env"\n'
+        f'exec {shlex.quote(real_age)} "$@"\n'
+    )
+    script.chmod(0o755)
+
+
+def test_the_age_child_gets_only_its_own_environment(
+    age: str, tmp_path: Path, passphrase: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL-E004-055: the parent's secrets never reach the ``age`` child.
+
+    The parent holds the database password variable, another planted secret
+    and a relative ``PATH`` entry. A recording ``age`` shim, first on
+    ``PATH``, saves what the child really received, for an encryption and a
+    decryption under the ``cli`` backend. Against database 0.3.2, which passed
+    the whole environment, the planted variables are in the record and this
+    fails.
+    """
+    if not Path("/proc/self/environ").is_file():
+        pytest.skip("needs /proc/<pid>/environ")
+    records, shim = tmp_path / "records", tmp_path / "shim"
+    records.mkdir()
+    _recording_age(shim, records, str(Path(age).resolve()))
+    db_secret = f"db-password-sentinel-{uuid.uuid4().hex}"
+    planted = f"planted-sentinel-{uuid.uuid4().hex}"
+    monkeypatch.setenv("L3IO_WP_BACKUP_DB_PASSWORD", db_secret)
+    monkeypatch.setenv("L3IO_TEST_PLANTED_SECRET", planted)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(shim), "relative-bin", os.environ["PATH"]])
+    )
+    monkeypatch.setenv(BACKEND_ENV, "cli")
+
+    sealed, recovered = io.BytesIO(), io.BytesIO()
+    PassphraseCipher(passphrase).encrypt(io.BytesIO(b"payload"), sealed)
+    sealed.seek(0)
+    PassphraseCipher(passphrase).decrypt(sealed, recovered)
+    assert recovered.getvalue() == b"payload"
+
+    seen = sorted(records.glob("*.env"))
+    # The guard's reach: both runs went through the shim, so both were examined.
+    assert len(seen) == 2, [p.name for p in seen]
+    for record in seen:
+        env = dict(
+            entry.split("=", 1) for entry in record.read_text().split("\0") if entry
+        )
+        assert set(env) <= AGE_CHILD_KEYS, sorted(set(env) - AGE_CHILD_KEYS)
+        assert env["LC_ALL"] == "C"
+        assert all(Path(p).is_absolute() for p in env["PATH"].split(os.pathsep))
+        blob = record.read_text()
+        for secret in (db_secret, planted, passphrase):
+            assert secret not in blob

@@ -37,7 +37,7 @@ from pathlib import Path
 
 import structlog
 
-from l3io.wp.backup.domain.errors import ArchiveWriteError
+from l3io.wp.backup.domain.errors import ArchiveWriteError, BackupError
 from l3io.wp.backup.domain.storage_target import DEFAULT_ARCHIVE_NAME_GLOB
 
 __all__ = [
@@ -45,6 +45,7 @@ __all__ = [
     "STAGED_SUFFIX",
     "STALE_AFTER_SECONDS",
     "WORKSPACE_PREFIX",
+    "WorkspaceNotRemovedError",
     "private_directories",
     "run_workspace",
     "sweep_stale",
@@ -61,9 +62,32 @@ STALE_AFTER_SECONDS = 24 * 60 * 60
 _log = structlog.get_logger(__name__)
 
 
+class WorkspaceNotRemovedError(BackupError):
+    """The Run's workspace survived its removal, and may hold a plaintext Dump.
+
+    Raised only when the Run had otherwise succeeded (BL-E002-041), so it
+    does not exit ``OK`` with a copy of the database left behind; a failing
+    Run keeps its own error and the WARNING. ``path`` is the workspace; the
+    message names only its prefix, since the path is logged at ``DEBUG`` only.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(
+            "the Run's private workspace could not be removed and may hold a "
+            f"plaintext database dump; remove the {WORKSPACE_PREFIX}* directory "
+            "under the temporary directory (a later Run removes it once it is "
+            "24 hours old)"
+        )
+
+
 @contextmanager
 def run_workspace(parent: Path | None) -> Iterator[Path]:
-    """A private ``0700`` directory for one Run, removed when the block exits."""
+    """A private ``0700`` directory for one Run, removed when the block exits.
+
+    A workspace that cannot be removed is a WARNING; on a block that exited
+    normally it is also :class:`WorkspaceNotRemovedError`.
+    """
     try:
         created = Path(tempfile.mkdtemp(prefix=WORKSPACE_PREFIX, dir=parent))
     except OSError as exc:
@@ -72,12 +96,22 @@ def run_workspace(parent: Path | None) -> Iterator[Path]:
     _log.debug("workspace_created", path=str(created))
     try:
         yield created
-    finally:
-        shutil.rmtree(created, ignore_errors=True)
-        if created.exists():
-            # The path only at DEBUG (AD-12); the warning names no path.
-            _log.warning("workspace_not_removed")
-            _log.debug("workspace_not_removed_path", path=str(created))
+    except BaseException:
+        _remove(created)
+        raise
+    if not _remove(created):
+        raise WorkspaceNotRemovedError(created)
+
+
+def _remove(created: Path) -> bool:
+    """Remove the workspace; ``False``, with a WARNING, when it survives."""
+    shutil.rmtree(created, ignore_errors=True)
+    if not created.exists():
+        return True
+    # The path only at DEBUG (AD-12); the warning names no path.
+    _log.warning("workspace_not_removed")
+    _log.debug("workspace_not_removed_path", path=str(created))
+    return False
 
 
 def private_directories(path: Path) -> None:

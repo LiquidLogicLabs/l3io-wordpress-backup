@@ -739,6 +739,27 @@ def test_a_failed_verification_changes_nothing(tmp_path: Path, archive: Path) ->
     assert h.snapshots == []
 
 
+def test_restore_errors_name_the_operators_archive_not_the_workspace_copy(
+    tmp_path: Path, archive: Path
+) -> None:
+    """BL-E002-055 / BL-E003-068: the workspace copy is deleted with the Run."""
+    h = _harness(tmp_path, archive)
+    h.archive_name = "/backups/operator-named.tar.gz"
+    h.view = dataclasses.replace(h.view, config_path="../wp-config.php")
+    with pytest.raises(ArchiveChangedError) as caught:
+        h.run()
+    assert caught.value.archive == h.archive_name
+    (tmp_path / "again").mkdir()
+    h = _harness(tmp_path / "again", archive)
+    h.archive_name = "/backups/operator-named.tar.gz"
+    data = archive.read_bytes()
+    archive.write_bytes(data[: len(data) // 2])
+    with pytest.raises(VerificationFailedError) as failed:
+        h.run()
+    assert failed.value.archive == h.archive_name
+    assert repr(h.archive_name) in str(failed.value)
+
+
 def test_a_changed_archive_is_refused(tmp_path: Path, archive: Path) -> None:
     h = _harness(tmp_path, archive)
     h.view = dataclasses.replace(h.view, config_path="../wp-config.php")

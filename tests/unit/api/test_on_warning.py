@@ -54,6 +54,63 @@ def _codes(root: Path) -> set[str]:
     return found
 
 
+def _notices_without_a_warning_record(source: str) -> set[str]:
+    """``RunWarning`` codes in ``source`` no ``_log.warning``/``error`` names.
+
+    Under ``--log-format json`` ``emit_warning`` prints nothing: the caller's
+    record is the notice's only trace on stderr, so it must pass the default
+    level and ``--log-level WARNING``.
+    """
+    tree = ast.parse(source)
+    codes = _codes_in(tree)
+    logged = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"warning", "error", "critical"}
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+        ):
+            logged.add(str(node.args[0].value))
+    return codes - logged
+
+
+def _codes_in(tree: ast.AST) -> set[str]:
+    return {
+        str(keyword.value.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "RunWarning"
+        for keyword in node.keywords
+        if keyword.arg == "code" and isinstance(keyword.value, ast.Constant)
+    }
+
+
+def test_every_notice_is_logged_at_warning_or_above() -> None:
+    modules = [
+        path
+        for path in PACKAGE.rglob("*.py")
+        if _codes_in(ast.parse(path.read_text(encoding="utf-8")))
+    ]
+    assert modules
+    for path in modules:
+        source = path.read_text(encoding="utf-8")
+        assert _notices_without_a_warning_record(source) == set(), path
+
+
+def test_a_notice_logged_at_info_is_found() -> None:
+    source = (PACKAGE / "cli" / "restore.py").read_text(encoding="utf-8")
+    planted = source.replace(
+        '_log.warning("safety_snapshot_encrypted"',
+        '_log.info("safety_snapshot_encrypted"',
+        1,
+    )
+    assert planted != source
+    assert _notices_without_a_warning_record(planted) == {"safety_snapshot_encrypted"}
+
+
 class _Cipher:
     """A ``PayloadCipher`` that is never asked to run (the executor is faked)."""
 
@@ -319,5 +376,5 @@ def test_an_encrypted_snapshot_is_logged_as_well_as_warned(rig: Rig) -> None:
             on_warning=[].append,
         )
     (record,) = [r for r in logs if r["event"] == "safety_snapshot_encrypted"]
-    assert record["log_level"] == "info"
+    assert record["log_level"] == "warning"
     assert record["path"]

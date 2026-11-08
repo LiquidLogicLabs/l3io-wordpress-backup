@@ -25,6 +25,7 @@ from l3io.wp.backup.domain.archive_format import (
     PAYLOAD_MEMBER,
     Manifest,
     MemberRole,
+    ignore_unknown,
     manifest_from_json,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -48,7 +49,9 @@ def _read(final: Path) -> tuple[Manifest, set[str]]:
         payload_file = outer.extractfile(PAYLOAD_MEMBER)
         assert manifest_file is not None
         assert payload_file is not None
-        manifest = manifest_from_json(manifest_file.read().decode("utf-8"))
+        manifest = manifest_from_json(
+            manifest_file.read().decode("utf-8"), on_unknown=ignore_unknown
+        )
         with tarfile.open(fileobj=payload_file, mode="r|gz") as inner:
             names = {info.name for info in inner}
     return manifest, names

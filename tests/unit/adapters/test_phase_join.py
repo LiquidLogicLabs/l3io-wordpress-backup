@@ -96,3 +96,19 @@ def test_logged_names_keep_decision_11_spelling() -> None:
     assert phase_name(RestorePhase.LOAD_DUMP) == "LOAD_DUMP"
     assert phase_name(BackupStep.WRITE_ARCHIVE) == "WRITE_ARCHIVE"
     assert phase_name("JOURNAL") == "JOURNAL"
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected"),
+    [(RuntimeError("defect"), 1), (KeyboardInterrupt(), None)],
+    ids=["exception", "interrupt"],
+)
+def test_an_interrupted_phase_claims_no_exit_code(
+    raised: BaseException, expected: int | None
+) -> None:
+    """BL-E002-056: Ctrl-C exits 130, which is not the table's; nothing is claimed."""
+    with capture_logs() as logs, pytest.raises(type(raised)), phase(BackupStep.DUMP):
+        raise raised
+    (record,) = [r for r in logs if r["event"] == "phase_completed"]
+    assert record["exit_code"] == expected
+    assert record["outcome"] == "failed"

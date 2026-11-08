@@ -124,7 +124,7 @@ def test_half_a_credential_pair_names_the_key_not_the_value(
     )
     _, credentials = site_descriptor_from_wp_config(tmp_path, config_file=config)
     with pytest.raises(CredentialsError) as caught:
-        require_wp_config_credentials(credentials)
+        require_wp_config_credentials(credentials, environ=os.environ)
     assert caught.value.missing_key == missing
     assert caught.value.source == f"wp-config:{config}"
     assert "never-shown" not in str(caught.value)
@@ -144,13 +144,13 @@ def test_a_config_with_no_credentials_still_yields_a_descriptor(
     )
     assert archived.db_name == "site"
     with pytest.raises(CredentialsError) as caught:
-        require_wp_config_credentials(credentials)
+        require_wp_config_credentials(credentials, environ=os.environ)
     assert caught.value.missing_key is None
 
 
 def test_a_full_credential_pair_is_required_without_error(tmp_path: Path) -> None:
     _, credentials = site_descriptor_from_wp_config(tmp_path, config_file=FIXTURE)
-    require_wp_config_credentials(credentials)
+    require_wp_config_credentials(credentials, environ=os.environ)
 
 
 def test_an_unreadable_config_names_the_path(tmp_path: Path) -> None:

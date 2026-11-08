@@ -17,6 +17,7 @@ from l3io.wp.backup.domain.archive_format import (
     Manifest,
     ManifestMember,
     ManifestPayload,
+    ignore_unknown,
     manifest_from_json,
 )
 
@@ -91,7 +92,7 @@ def read_archive(path: Path, *, decrypt: XorCipher | None = None) -> ReadArchive
     return ReadArchive(
         outer=[info.name for info in infos],
         outer_types=[info.type for info in infos],
-        manifest=manifest_from_json(text),
+        manifest=manifest_from_json(text, on_unknown=ignore_unknown),
         manifest_text=text,
         payload=payload,
         inner=members,

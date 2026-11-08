@@ -209,7 +209,7 @@ def test_a_verify_run_logs_one_v0_record(
     records = [r for r in lines if r["event"] == "phase_completed"]
     assert [r["phase"] for r in records] == ["VERIFY"]
     (record,) = records
-    run_id = next(r["run_id"] for r in lines if r["event"] == "run_started")
+    run_id = next(r["l3io_run_id"] for r in lines if r["event"] == "run_started")
     assert (
         record["format_version"],
         record["integrity"],

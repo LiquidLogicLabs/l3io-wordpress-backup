@@ -55,15 +55,19 @@ WarningSink = Callable[[RunWarning], None]
 def emit_warning(warning: RunWarning, sink: WarningSink | None) -> None:
     """``warning`` to ``sink``, or its message on stderr when there is none.
 
-    The structured WARNING record is the caller's, logged either way. An
-    exception the sink raises propagates.
+    The structured record is the caller's, logged either way, and must be at
+    WARNING or above: under ``--log-format json`` it is the notice's only
+    trace on stderr. An exception the sink raises propagates.
     """
     if sink is not None:
         sink(warning)
         return
     if configured_format() == "json":
         # stderr stays one JSON object per line (owner decision 2026-11-07,
-        # BL-E002-103 UX-5): the caller's WARNING record carries the notice.
+        # BL-E002-103 UX-5), so nothing is printed here: the notice reaches
+        # the operator only through the record the caller logs. That holds
+        # only if the caller logs it at WARNING or above, so it survives the
+        # default level and --log-level WARNING; every caller of this does.
         return
     print(warning.message, file=sys.stderr)
 

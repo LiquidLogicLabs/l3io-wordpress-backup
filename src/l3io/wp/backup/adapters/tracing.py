@@ -28,10 +28,10 @@ implementation in ``adapters.redaction``); only enum values, booleans and
 integers are set raw. No exception event is recorded (``record_exception``
 is off), so none of *this package's* spans carries a stack trace, and the
 status description of a non-package exception names its class only. The
-database dependency's own ``l3io.wp.database.*`` spans nest under ours and are
-**not** covered: they record the exception's message and stack trace as an
-``exception`` event with no redaction (BL-E006-010 tracks it with that package;
-``docs/api.md`` tells a host to scrub them).
+database dependency's own ``l3io.wp.database.*`` spans nest under ours; from
+database 0.3.3 (the floor, BL-E006-010) a failed one carries only
+``error.type`` and an ERROR status with no description, and records no
+exception event.
 Attribute values are computed only while ``span.is_recording()``: a
 non-recording span costs no redaction call.
 
