@@ -4431,3 +4431,323 @@ resolved:
   resolved_at: '2026-11-08T02:28:35Z'
   ref: BL-E004-055
   note: 'Duplicate of BL-E004-055 (age CLI backend inherits the whole environment): owner decision 6 (d2d2fa3) bundles it into one database release; BL-E004-055 stays open by design until that ships'
+- key: BL-E002-034
+  epic: '002'
+  sprint: '01'
+  title: manifest_from_json on_unknown hook defaults to None, so an unknown origin.kind can be dropped without the required WARNING
+  source: code-review (E002-S01-001)
+  source_phase: code-review
+  source_ref: E002-S01-001
+  severity: Low
+  status: resolved
+  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-06)
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:02Z'
+  ref: ea7aef4
+  note: manifest_from_json on_unknown is a required keyword (domain ignore_unknown names the opt-out); classify carries ArchiveView.unknown_values; adapters/tar.verify_archive_manifest logs WARNING manifest_value_unknown per value; tests in test_archive_format.py and test_tar_probe.py
+- key: BL-E002-041
+  epic: '002'
+  sprint: '01'
+  title: 'F-08 run_workspace ignores rmtree errors: an unremovable workspace (plaintext Dump) only logs a WARNING and the run still exits 0'
+  source: code-review (E002-S01-010)
+  source_phase: code-review
+  source_ref: E002-S01-010
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:04Z'
+  ref: ea7aef4
+  note: 'adapters/workspace.run_workspace: a workspace that survives removal after a block that exited normally raises the new WorkspaceNotRemovedError (exit 1, path field, message names only the prefix; exported from api/errors, docs/api.md, docs/logging.md); a failing Run keeps its own error and the WARNING; tests in tests/adapters/test_workspace.py'
+- key: BL-E002-048
+  epic: '002'
+  sprint: '01'
+  title: 'F-05: publish gate accepts a v0-shaped STRUCTURAL_ONLY archive; require Integrity.VERIFIED for the backup publish gate'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:06Z'
+  ref: ea7aef4
+  note: adapters/tar.verify_or_raise (the publish gate) also requires Integrity.VERIFIED; a v0-shaped STRUCTURAL_ONLY pass is refused as UNRECOGNISED_FORMAT; test in tests/adapters/test_tar_probe.py (gzip and plain v0)
+- key: BL-E002-049
+  epic: '002'
+  sprint: '01'
+  title: 'F-06: extract_archive/decrypt_payload map some read/write OSErrors to the wrong file or let a raw OSError escape (AD-14)'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:08Z'
+  ref: ea7aef4
+  note: "adapters/tar.py: decrypt_payload tags its read side and write side, so an Archive read OSError is ArchiveReadError, a destination write (or its close flush) ArchiveWriteError, and the cipher's own errors propagate unchanged (no raw OSError escapes); extract_archive maps a payload= that cannot be opened to ArchiveReadError(payload) instead of ArchiveWriteError(destination); residual: an EIO mid-extraction still names the destination; tests in test_tar_probe.py"
+- key: BL-E002-050
+  epic: '002'
+  sprint: '01'
+  title: 'F-07: read_member returns the first duplicate inner member while extraction would see the last; refuse a repeated name in read_member'
+  source: code-review (E002-S01-003)
+  source_phase: code-review
+  source_ref: E002-S01-003
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:10Z'
+  ref: ea7aef4
+  note: adapters/tar.TarArchiveProbe.read_member reads the stream to its end and refuses (MemberReadRefusedError "repeated in the archive") a name that occurs twice, so it can never return a copy extraction would not use; tests in test_tar_probe.py
+- key: BL-E002-055
+  epic: '002'
+  sprint: '01'
+  title: "F-03: a failed verify's stderr and command_failed record no longer name the Archive path"
+  source: code-review (E002-S01-005)
+  source_phase: code-review
+  source_ref: E002-S01-005
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:12Z'
+  ref: ea7aef4
+  note: "VerificationFailedError gains an `archive` field and names it in its message (\"archive verification failed for '<path>': ...\"); cli/verify, api.verify, the publish gate and the restore's VERIFY pass it; docs/api.md; tests in tests/integration/test_verify_cli.py (no database needed) and test_restore_runner.py"
+- key: BL-E003-068
+  epic: '003'
+  sprint: '02'
+  title: 'L-10: restore error messages name the workspace copy of the Archive, which is deleted with the Run'
+  source: code-review (E003-S02-006)
+  source_phase: code-review
+  source_ref: E003-S02-006
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:15Z'
+  ref: ea7aef4
+  note: RestoreInputs gains archive_name (the operator's --archive) and archive_label; restore_runner's ArchiveHasNoConfigError, ArchiveChangedError, VerificationFailedError and the v0 ArchiveNotFoundError name it instead of the workspace copy deleted with the Run; cli/restore passes str(request.archive.path); test in test_restore_runner.py
+- key: BL-E002-056
+  epic: '002'
+  sprint: '01'
+  title: 'F-04: on KeyboardInterrupt run_finished claims exit_code 1/FAILED while the process exits 130'
+  source: code-review (E002-S01-005)
+  source_phase: code-review
+  source_ref: E002-S01-005
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:17Z'
+  ref: ea7aef4
+  note: A Run or phase ended by an interrupt that is not an Exception (KeyboardInterrupt) logs run_finished/phase_completed with exit_code (and exit_reason) null and sets no span exit code, instead of claiming 1/FAILED while the process exits 130 (cli/context.open_run, adapters/phase.phase); docs/logging.md; tests in test_run_context.py and test_phase_join.py
+- key: BL-E002-058
+  epic: '002'
+  sprint: '01'
+  title: "F-06: argparse usage errors on stderr do not name the USAGE code's meaning (end-to-end test exempts USAGE)"
+  source: code-review (E002-S01-005)
+  source_phase: code-review
+  source_ref: E002-S01-005
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:19Z'
+  ref: ea7aef4
+  note: "cli/parser.CliParser overrides error(): argparse's own usage errors end with \"[exit 2 USAGE: the command line was invalid]\" like every other failure; tests/integration/test_exit_codes_end_to_end.py no longer exempts USAGE; tests in test_render_failure.py"
+- key: BL-E003-101
+  epic: '003'
+  sprint: '02'
+  title: Restore usage errors print top-level usage
+  source: ux-review (UX-S02-06)
+  source_phase: ux-review
+  source_ref: UX-S02-06
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:21Z'
+  ref: ea7aef4
+  note: "CliParser.commands/for_command: a check after parsing (check_restore_arguments, backup's --wp-dir, not-yet-implemented flags) reports with the subcommand's usage, not the top-level one (the missing --archive case was already the restore usage since --archive became required, 48324e4); test in test_render_failure.py"
+- key: BL-E002-081
+  epic: '002'
+  sprint: '02'
+  title: 'Site Lock: a second SIGTERM during Run cleanup can interrupt workspace removal (handler stays installed through finally)'
+  source: code-review (E002-S02-008)
+  source_phase: code-review
+  source_ref: E002-S02-008
+  severity: Low
+  status: resolved
+  description: F2 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:23Z'
+  ref: ea7aef4
+  note: cli/__init__._terminate sets every terminating signal to SIG_IGN before raising RunTerminated, so a second SIGTERM/SIGHUP/SIGQUIT cannot interrupt the cleanup (workspace removal) the first started; _sigterm_raises restores the previous handlers; test in test_closeout_residue.py
+- key: BL-E002-088
+  epic: '002'
+  sprint: '02'
+  title: "F5: clean keeps a nested keep path's whole top-level ancestor (keep={wp-content/uploads} keeps old plugins/themes); refuse or honour nested keep in real adapter and no-op alike"
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:25Z'
+  ref: ea7aef4
+  note: 'ports/site_files.require_top_level: clean refuses (ValueError, before anything is removed) a keep path that is not one top-level entry, in LocalSiteFiles and NoopSiteFiles alike, instead of keeping its whole ancestor; tests in tests/adapters/test_site_files.py and tests/unit/adapters/test_noop_restore.py'
+- key: BL-E002-090
+  epic: '002'
+  sprint: '02'
+  title: "F7: credential-source guard's l3io.wp.config WpConfigFile exemption is module-wide; a rebinding (WpConfigFile = wpdb.WpConfigFile) in the same module passes"
+  source: code-review (E002-S02-009)
+  source_phase: code-review
+  source_ref: E002-S02-009
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:27Z'
+  ref: ea7aef4
+  note: 'tests/contracts/test_credential_sources_built_once.py: the l3io.wp.config WpConfigFile exemption is withdrawn for a name the module also binds any other way (assignment, another import, def/class, loop/with target), so WpConfigFile = wpdb.WpConfigFile is an offence; planted rebinding and re-import cases'
+- key: BL-E003-013
+  epic: '003'
+  sprint: ''
+  title: "E003-S01-001 L130: restore_mode_resolved's raw CLI flags never reach drive_restore — emit in run_restore or carry in RestoreRequest"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:29Z'
+  ref: ea7aef4
+  note: RestoreRequest gains mode_flags (the flags as typed, via render_flags over the AD-25 combination); run_restore fills it and drive_restore logs it as `flags` on restore_mode_resolved (None for a library call, which passes the Mode itself); test in test_restore_root.py
+- key: BL-E005-006
+  epic: '005'
+  sprint: '01'
+  title: AWS failure keeps a chained JSONDecodeError whose .doc holds the secret string (redteam L-1)
+  source: epic-arch-review (L-1)
+  source_phase: epic-arch-review
+  source_ref: L-1
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:31Z'
+  ref: ea7aef4
+  note: 'adapters/database._RegisteringSource.resolve: a CredentialsUnobtainableError whose cause is not a database error (an AWS secret that is not JSON: JSONDecodeError.doc is the SecretString) is re-raised with the same type and text but no __cause__/__context__ and no inner frames; test in tests/unit/adapters/test_credential_providers.py'
+- key: BL-E005-007
+  epic: '005'
+  sprint: '01'
+  title: unset_partner reads os.environ in an adapter; step chosen from passed mapping (arch AD-4, review F-5, redteam L-5)
+  source: epic-arch-review (AD-4)
+  source_phase: epic-arch-review
+  source_ref: AD-4
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:33Z'
+  ref: ea7aef4
+  note: adapters/database.require_wp_config_credentials takes the chain's environ (keyword, required) and names a half pair's unset variable from it; drive_backup passes its environ; the adapter no longer imports os; AST test that adapters/database.py never reads os.environ, with a plant
+- key: BL-E005-008
+  epic: '005'
+  sprint: '01'
+  title: credential_source_selected logged on every resolve, not once per Run (arch AD-5, review F-3)
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:35Z'
+  ref: ea7aef4
+  note: adapters/database._RegisteringSource logs credential_source_selected only when the resolved source differs from the one it last logged, so a Run that resolves one source several times (check, dump, ensure) logs its choice once; test in test_credential_providers.py
+- key: BL-E008-008
+  epic: '008'
+  sprint: '01'
+  title: On native Windows adapters/lock.py imports fcntl at module import, so commands crash before the platform refusal
+  source: code-review
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:37Z'
+  ref: ea7aef4
+  note: adapters/lock.py imports fcntl inside _lock_exclusive/_unlock instead of at module import, so a platform without fcntl reaches the preflight platform refusal; test loads lock.py with fcntl unimportable (tests/adapters/test_site_lock.py)
+- key: BL-E004-056
+  epic: '004'
+  sprint: ''
+  title: 'RT-8: plaintext workspace survives SIGKILL and nothing sweeps stale l3io-wp-backup-* dirs; document TMPDIR on tmpfs'
+  source: epic-redteam (RT-8)
+  source_phase: epic-redteam
+  source_ref: RT-8
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:39Z'
+  ref: ea7aef4
+  note: The sweep of stale l3io-wp-backup-* workspaces landed with owner decision 4 (63a4c71); docs/api.md TMPDIR row now documents the SIGKILL residue, the 24-hour sweep (stale_residue_removed) and TMPDIR on tmpfs (doc only, no test)
+- key: BL-E008-018
+  epic: '008'
+  sprint: ''
+  title: run_bounded signals a process group after its leader was reaped
+  source: epic-adversarial (A-07)
+  source_phase: epic-adversarial
+  source_ref: A-07
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:41Z'
+  ref: ea7aef4
+  note: adapters/preflight.run_bounded waits for the leader with os.waitid(WEXITED|WNOWAIT|WNOHANG) polling (_wait_unreaped), kills the group while the leader is still a zombie (its pid cannot be reused), and only then reaps it with process.wait(); test in tests/unit/adapters/test_preflight.py
+- key: BL-E003-111
+  epic: '003'
+  sprint: ''
+  title: 'AD-5: the ADR-0015 no-database-type-in-cli rule has no mechanical check; adapters/staging.py imports l3io.wp.database directly'
+  source: epic-arch-review (AD-5)
+  source_phase: epic-arch-review
+  source_ref: AD-5
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:44Z'
+  ref: ea7aef4
+  note: "tests/contracts/test_no_database_import_in_cli.py: an AST contract over every cli/ module (derived from the tree) that refuses any run-time import of l3io.wp.database (module, function-level, from l3io.wp import database); TYPE_CHECKING-only annotation imports allowed and stated; planted spellings; staging.py's own import was already gone (BL-E003-098, 48324e4). import-linter cannot forbid a subpackage of the external l3io namespace, so no contract was added there"
+- key: BL-E006-010
+  epic: '006'
+  sprint: ''
+  title: l3io-wordpress-database spans record exception message and stack trace unredacted under our phase spans; ask that package's owner
+  source: epic-redteam (RT-3)
+  source_phase: epic-redteam
+  source_ref: RT-3
+  severity: Medium
+  status: resolved
+  description: Documented in docs/api.md and ADR-0011 amendment. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:46Z'
+  ref: ea7aef4
+  note: "l3io-wordpress-database floor raised to 0.3.3 (pyproject database and aws extras, uv.lock): its spans carry error.type and an ERROR status with no description and record no exception event; tests/adapters/test_tracing_database_nesting.py::test_no_span_carries_the_database_errors_text plants a sentinel in a database error (dump via Running, check_dump via operation) and asserts no exported span, database's or ours, has it in an event, attribute or status description; fails against 0.3.2 (exception event). ADR-0011 amendment, docs/api.md and adapters/tracing.py docstring updated"
+- key: BL-E004-055
+  epic: '004'
+  sprint: ''
+  title: "RT-7/AR-3 residual: database's cli age backend passes the whole environment to the age child and resolves age with an unfiltered PATH; file upstream, E007 minimal-environment (BL-E002-117) covers the child env"
+  source: epic-redteam (RT-7)
+  source_phase: epic-redteam
+  source_ref: RT-7
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
+  resolution: fixed
+  resolved_at: '2026-11-08T03:44:48Z'
+  ref: ea7aef4
+  note: l3io-wordpress-database 0.3.3 runs age by absolute path with only PATH (absolute entries), HOME, LC_ALL=C and AGE_PASSPHRASE_FD, and mysql/mysqldump with a sanitized PATH and LC_ALL=C; tests/adapters/test_age_interop.py::test_the_age_child_gets_only_its_own_environment puts a recording age shim first on PATH (it copies /proc/$$/environ, then execs the real age) with L3IO_WP_BACKUP_DB_PASSWORD, a planted secret and a relative PATH entry in the parent, and asserts both cli-backend runs received only those keys; fails against 0.3.2. Needs age 1.3+ (fails, not skips, under CI). docs/api.md environment section updated

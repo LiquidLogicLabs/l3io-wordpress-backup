@@ -7,16 +7,6 @@ next:
   '006': 26
   '008': 36
 backlog:
-- key: BL-E003-013
-  epic: '003'
-  sprint: ''
-  title: "E003-S01-001 L130: restore_mode_resolved's raw CLI flags never reach drive_restore — emit in run_restore or carry in RestoreRequest"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md (MINORs)
 - key: BL-E003-021
   epic: '003'
   sprint: ''
@@ -77,86 +67,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-002/arch/reviewer-l3io-arch-review-2026-11-03.md
-- key: BL-E002-034
-  epic: '002'
-  sprint: '01'
-  title: manifest_from_json on_unknown hook defaults to None, so an unknown origin.kind can be dropped without the required WARNING
-  source: code-review (E002-S01-001)
-  source_phase: code-review
-  source_ref: E002-S01-001
-  severity: Low
-  status: backlog
-  description: See /home/ravenwolf.org/sanderson/source/git/ravensorb/wordpress/l3io-wordpress-backup/_bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-001.md (F-06)
-- key: BL-E002-041
-  epic: '002'
-  sprint: '01'
-  title: 'F-08 run_workspace ignores rmtree errors: an unremovable workspace (plaintext Dump) only logs a WARNING and the run still exits 0'
-  source: code-review (E002-S01-010)
-  source_phase: code-review
-  source_ref: E002-S01-010
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-010.md
-- key: BL-E002-048
-  epic: '002'
-  sprint: '01'
-  title: 'F-05: publish gate accepts a v0-shaped STRUCTURAL_ONLY archive; require Integrity.VERIFIED for the backup publish gate'
-  source: code-review (E002-S01-003)
-  source_phase: code-review
-  source_ref: E002-S01-003
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
-- key: BL-E002-049
-  epic: '002'
-  sprint: '01'
-  title: 'F-06: extract_archive/decrypt_payload map some read/write OSErrors to the wrong file or let a raw OSError escape (AD-14)'
-  source: code-review (E002-S01-003)
-  source_phase: code-review
-  source_ref: E002-S01-003
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
-- key: BL-E002-050
-  epic: '002'
-  sprint: '01'
-  title: 'F-07: read_member returns the first duplicate inner member while extraction would see the last; refuse a repeated name in read_member'
-  source: code-review (E002-S01-003)
-  source_phase: code-review
-  source_ref: E002-S01-003
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-003.md
-- key: BL-E002-055
-  epic: '002'
-  sprint: '01'
-  title: "F-03: a failed verify's stderr and command_failed record no longer name the Archive path"
-  source: code-review (E002-S01-005)
-  source_phase: code-review
-  source_ref: E002-S01-005
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
-- key: BL-E002-056
-  epic: '002'
-  sprint: '01'
-  title: 'F-04: on KeyboardInterrupt run_finished claims exit_code 1/FAILED while the process exits 130'
-  source: code-review (E002-S01-005)
-  source_phase: code-review
-  source_ref: E002-S01-005
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
-- key: BL-E002-058
-  epic: '002'
-  sprint: '01'
-  title: "F-06: argparse usage errors on stderr do not name the USAGE code's meaning (end-to-end test exempts USAGE)"
-  source: code-review (E002-S01-005)
-  source_phase: code-review
-  source_ref: E002-S01-005
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-01/closure/review-E002-S01-005.md
 - key: BL-E002-066
   epic: '002'
   sprint: '01'
@@ -187,36 +97,6 @@ backlog:
   severity: Low
   status: backlog
   description: See epic-002/sprint-01/closure/ux-review.md
-- key: BL-E002-081
-  epic: '002'
-  sprint: '02'
-  title: 'Site Lock: a second SIGTERM during Run cleanup can interrupt workspace removal (handler stays installed through finally)'
-  source: code-review (E002-S02-008)
-  source_phase: code-review
-  source_ref: E002-S02-008
-  severity: Low
-  status: backlog
-  description: F2 in _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-008.md
-- key: BL-E002-088
-  epic: '002'
-  sprint: '02'
-  title: "F5: clean keeps a nested keep path's whole top-level ancestor (keep={wp-content/uploads} keeps old plugins/themes); refuse or honour nested keep in real adapter and no-op alike"
-  source: code-review (E002-S02-009)
-  source_phase: code-review
-  source_ref: E002-S02-009
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
-- key: BL-E002-090
-  epic: '002'
-  sprint: '02'
-  title: "F7: credential-source guard's l3io.wp.config WpConfigFile exemption is module-wide; a rebinding (WpConfigFile = wpdb.WpConfigFile) in the same module passes"
-  source: code-review (E002-S02-009)
-  source_phase: code-review
-  source_ref: E002-S02-009
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-002/sprint-02/closure/review-E002-S02-009.md
 - key: BL-E002-096
   epic: '002'
   sprint: '02'
@@ -285,16 +165,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
-- key: BL-E003-068
-  epic: '003'
-  sprint: '02'
-  title: 'L-10: restore error messages name the workspace copy of the Archive, which is deleted with the Run'
-  source: code-review (E003-S02-006)
-  source_phase: code-review
-  source_ref: E003-S02-006
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/review-E003-S02-006.md
 - key: BL-E003-088
   epic: '003'
   sprint: '02'
@@ -335,16 +205,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-101
-  epic: '003'
-  sprint: '02'
-  title: Restore usage errors print top-level usage
-  source: ux-review (UX-S02-06)
-  source_phase: ux-review
-  source_ref: UX-S02-06
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-109
   epic: '003'
   sprint: ''
@@ -352,16 +212,6 @@ backlog:
   source: epic-arch-review (AD-3)
   source_phase: epic-arch-review
   source_ref: AD-3
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
-- key: BL-E003-111
-  epic: '003'
-  sprint: ''
-  title: 'AD-5: the ADR-0015 no-database-type-in-cli rule has no mechanical check; adapters/staging.py imports l3io.wp.database directly'
-  source: epic-arch-review (AD-5)
-  source_phase: epic-arch-review
-  source_ref: AD-5
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/epic-closure/arch-drift-review.md
@@ -375,36 +225,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-001.md (F-5)
-- key: BL-E005-006
-  epic: '005'
-  sprint: '01'
-  title: AWS failure keeps a chained JSONDecodeError whose .doc holds the secret string (redteam L-1)
-  source: epic-arch-review (L-1)
-  source_phase: epic-arch-review
-  source_ref: L-1
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
-- key: BL-E005-007
-  epic: '005'
-  sprint: '01'
-  title: unset_partner reads os.environ in an adapter; step chosen from passed mapping (arch AD-4, review F-5, redteam L-5)
-  source: epic-arch-review (AD-4)
-  source_phase: epic-arch-review
-  source_ref: AD-4
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
-- key: BL-E005-008
-  epic: '005'
-  sprint: '01'
-  title: credential_source_selected logged on every resolve, not once per Run (arch AD-5, review F-3)
-  source: epic-arch-review (AD-5)
-  source_phase: epic-arch-review
-  source_ref: AD-5
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-005/epic-closure/
 - key: BL-E004-049
   epic: '004'
   sprint: '01'
@@ -415,26 +235,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-004/sprint-01/closure/review-E004-S01-003.md
-- key: BL-E004-055
-  epic: '004'
-  sprint: ''
-  title: "RT-7/AR-3 residual: database's cli age backend passes the whole environment to the age child and resolves age with an unfiltered PATH; file upstream, E007 minimal-environment (BL-E002-117) covers the child env"
-  source: epic-redteam (RT-7)
-  source_phase: epic-redteam
-  source_ref: RT-7
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
-- key: BL-E004-056
-  epic: '004'
-  sprint: ''
-  title: 'RT-8: plaintext workspace survives SIGKILL and nothing sweeps stale l3io-wp-backup-* dirs; document TMPDIR on tmpfs'
-  source: epic-redteam (RT-8)
-  source_phase: epic-redteam
-  source_ref: RT-8
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-004/epic-closure/redteam-report.md
 - key: BL-E004-059
   epic: '004'
   sprint: ''
@@ -565,16 +365,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/arch-drift-review.md
-- key: BL-E006-010
-  epic: '006'
-  sprint: ''
-  title: l3io-wordpress-database spans record exception message and stack trace unredacted under our phase spans; ask that package's owner
-  source: epic-redteam (RT-3)
-  source_phase: epic-redteam
-  source_ref: RT-3
-  severity: Medium
-  status: backlog
-  description: Documented in docs/api.md and ADR-0011 amendment. See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md
 - key: BL-E006-015
   epic: '006'
   sprint: ''
@@ -626,14 +416,6 @@ backlog:
   source: owner-decision (E006 closure 5)
   severity: Low
   status: backlog
-- key: BL-E008-008
-  epic: '008'
-  sprint: '01'
-  title: On native Windows adapters/lock.py imports fcntl at module import, so commands crash before the platform refusal
-  source: code-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/sprint-01/closure/review-E008-S01-001.md. Review L.
 - key: BL-E008-015
   epic: '008'
   sprint: ''
@@ -641,16 +423,6 @@ backlog:
   source: epic-adversarial (A-04)
   source_phase: epic-adversarial
   source_ref: A-04
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
-- key: BL-E008-018
-  epic: '008'
-  sprint: ''
-  title: run_bounded signals a process group after its leader was reaped
-  source: epic-adversarial (A-07)
-  source_phase: epic-adversarial
-  source_ref: A-07
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/adversarial-review.md
