@@ -115,13 +115,3 @@ backlog:
   severity: Low
   status: backlog
   description: Follow-up to BL-E008-011; v1 documents the ~4.3x bound. Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 16 (and 26).
-- key: BL-E003-127
-  epic: '003'
-  sprint: '01'
-  title: 'RT-007 (split from BL-E003-040): Archive wp-config applied whole under --overwrite-wp-config; no warning on non-constant PHP'
-  source: closeout-split (RT-007)
-  source_phase: closeout-split
-  source_ref: RT-007
-  severity: Low
-  status: backlog
-  description: Sub-finding RT-007 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md (RT-007).

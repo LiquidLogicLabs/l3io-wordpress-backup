@@ -5911,3 +5911,17 @@ resolved:
   resolved_at: '2026-11-08T07:05:11Z'
   ref: a073c2e
   note: "Owner decision 37: the two unreachable manifest_text-is-None branches (adapters/restore_runner._verify pragma no cover, cli/verify._authenticate's folded check) removed; an encrypted view is a v1 Manifest's, so the text is cast with the invariant stated; existing verify/restore tests green"
+- key: BL-E003-127
+  epic: '003'
+  sprint: '01'
+  title: 'RT-007 (split from BL-E003-040): Archive wp-config applied whole under --overwrite-wp-config; no warning on non-constant PHP'
+  source: closeout-split (RT-007)
+  source_phase: closeout-split
+  source_ref: RT-007
+  severity: Low
+  status: resolved
+  description: Sub-finding RT-007 of bundle BL-E003-040, split by owner decision 35 (2026-11-07). See _bmad-output/implementation-artifacts/epic-003/sprint-01/closure/redteam-report.md (RT-007).
+  resolution: wontfix
+  resolved_at: '2026-11-08T13:45:27Z'
+  ref: 49910dd
+  note: "Owner decision 45: no run-time warning (config 0.1.4 cannot detect added PHP; the Archive's other PHP is restored the same way); docs/restore.md states the file is applied whole, code included"
