@@ -130,8 +130,9 @@ def place_config(
     """Where the restore's ``wp-config.php`` is, raising a refusal before any effect.
 
     ``manifest_config_path`` is the Manifest's ``config_path`` when the
-    Archive has a ``config``-role member, else ``None`` (a v0 Archive, whose
-    view names a member, not a location). In order:
+    Archive has a ``config``-role member, else ``None`` (a v0 Archive, or a
+    v1 one whose config is in its Site Root tree: the location is then the
+    tree's, ``SITE_ROOT``). In order:
 
     1. a value that is not a ``ConfigLocation`` is
        :class:`UnsupportedConfigLocationError`, whatever the target has;
@@ -193,8 +194,9 @@ def place_config(
 def recorded_location(view: ArchiveView) -> ConfigLocation | None:
     """The location the Manifest records for a ``config``-role member, or ``None``.
 
-    Only an Archive with a ``config``-role member records one; a v0 view's
-    ``config_path`` names a member, not a location. A value outside
+    Only an Archive with a ``config``-role member records one. Without one,
+    the config is in the Site Root tree, which a v0 view's ``config_path`` and
+    a v1 one's both name as ``SITE_ROOT`` (owner decision 46). A value outside
     ``ConfigLocation`` is :class:`UnsupportedConfigLocationError`
     (:func:`manifest_location`), whatever ``--wp-config`` says.
     """

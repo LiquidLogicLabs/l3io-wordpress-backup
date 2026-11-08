@@ -31,10 +31,12 @@ from l3io.wp.backup.domain.archive_format import (
     V0_DUMP_MEMBER,
     V0_SITE_ROOT,
     ArchiveView,
+    ConfigLocation,
     Integrity,
     MemberRole,
     VerificationReason,
     classify,
+    config_member,
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from tests.archive_fixtures import SIDECAR_SUFFIXES, archive_files
@@ -156,7 +158,11 @@ def test_a_passing_fixture_is_structural_only(path: Path) -> None:
     assert result.failures == ()
     assert view.payload is None  # no Manifest: nothing claims a checksum
     assert view.dump_present is expected.dump
-    assert view.config_path == (CONFIG if expected.config else None)
+    # Owner decision 46: a location, as a v1 in-tree config records it.
+    location = ConfigLocation.SITE_ROOT if expected.config else None
+    assert view.config_path == location
+    member = config_member(view)
+    assert (member.path if member else None) == (CONFIG if expected.config else None)
     for member in view.members:
         role = (
             MemberRole.DUMP if member.path == V0_DUMP_MEMBER else MemberRole.SITE_ROOT

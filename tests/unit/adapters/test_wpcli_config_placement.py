@@ -207,8 +207,9 @@ def test_a_v0_archive_lays_its_config_at_the_default(tmp_path: Path) -> None:
     v0, _ = verify_archive_view(V0_FIXTURE)
     assert v0 is not None
     assert v0.format_version is None  # v0: no Manifest
-    # Gate E004 AG-11: a v0 view names a member, and has no config role.
-    assert v0.config_path == "wp-root/wp-config.php"
+    # Owner decision 46: a v0 view names the location, as a v1 in-tree config
+    # does; it has no config role, so it records none for the placement.
+    assert v0.config_path == ConfigLocation.SITE_ROOT
     assert not any(m.role is MemberRole.CONFIG for m in v0.members)
     root = _root(tmp_path, {})
     with capture_logs() as logs:

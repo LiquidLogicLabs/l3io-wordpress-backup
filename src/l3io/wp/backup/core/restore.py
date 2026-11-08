@@ -45,6 +45,7 @@ from l3io.wp.backup.core.backup import DUMP_REQUIREMENT
 from l3io.wp.backup.domain.archive_format import (
     WP_CONFIG_NAME,
     ArchiveView,
+    ConfigLocation,
     Integrity,
     MemberKind,
     MemberRole,
@@ -936,11 +937,13 @@ def _config_at_cutover(
     """Whether a ``wp-config.php`` will exist at ``config_file`` for the cutover.
 
     The target has one, a lay-down places one, or ``EXTRACT`` brings the
-    Archive's in-tree copy into a Site Root that holds the config path.
+    Archive's in-tree copy into a Site Root that holds the config path. The
+    copy is in the tree when ``config_path`` is ``ConfigLocation.SITE_ROOT``,
+    for a v0 Archive as for a v1 one (owner decision 46).
     """
     if target.config_exists or relocation.lay_down_config:
         return True
-    in_tree = view.config_path == CONFIG_FILE_NAME
+    in_tree = view.config_path == ConfigLocation.SITE_ROOT
     return restores_files(mode) and in_tree and config_file.parent == site.site_root
 
 

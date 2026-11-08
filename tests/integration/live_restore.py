@@ -70,6 +70,7 @@ from l3io.wp.backup.domain.archive_format import (
     ManifestMember,
     ManifestPayload,
     MemberRole,
+    config_member,
 )
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
@@ -414,8 +415,10 @@ def restore(
         site, _ = site_descriptor_from_wp_config(root, config_file=located.path)
     else:
         laid = workspace / "archive-wp-config.php"
+        member = config_member(view)
+        assert member is not None, "neither the target nor the Archive has a config"
         body = TarArchiveProbe().read_member(
-            archive, view, "site-root/wp-config.php", max_bytes=1 << 20, payload=None
+            archive, view, member.path, max_bytes=1 << 20, payload=None
         )
         laid.write_bytes(body)
         site, _ = site_descriptor_from_archive_config(root.resolve(), config_file=laid)

@@ -48,7 +48,6 @@ tar header stays authoritative at extraction.
 
 from __future__ import annotations
 
-import contextlib
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -811,10 +810,14 @@ class ViewMember:
 class ArchiveView:
     """An Archive classified: its format, members and what verification can prove.
 
-    ``config_path`` is the v1 Manifest's value copied as found (Epic 7 converts
-    it with ``ConfigLocation`` and refuses anything else, AD-11), or for v0
-    ``"wp-root/wp-config.php"`` when that member is present. ``backup_scope``
-    is the v1 Manifest's value, ``None`` for v0. ``unknown_values`` holds each
+    ``config_path`` is a location, a ``ConfigLocation`` value, never a member
+    path: the v1 Manifest's value copied as found (Epic 7 converts it with
+    ``ConfigLocation`` and refuses anything else, AD-11), or for v0
+    ``ConfigLocation.SITE_ROOT`` when ``wp-root/wp-config.php`` is present,
+    the value a v1 Archive with its config in the Site Root tree records
+    (owner decision 46). :func:`config_member` resolves it to a member.
+    ``backup_scope`` is the v1 Manifest's value, ``None`` for v0.
+    ``unknown_values`` holds each
     ``(field, value)`` the read dropped because this build does not know it
     (an ``origin.kind``), for the adapter to log as a WARNING (BL-E002-034).
     """
@@ -968,17 +971,23 @@ def member_relative(view: ArchiveView, path: str) -> tuple[MemberRole, str] | No
 
 
 def config_member(view: ArchiveView) -> ViewMember | None:
-    """The Archive's config: the ``config``-role file, else the one it names."""
+    """The Archive's config: the ``config``-role file, else the tree's copy.
+
+    The tree's copy is ``wp-config.php`` at the top of the Site Root role
+    (``site-root/`` for v1, ``wp-root/`` for v0), and only when ``config_path``
+    is ``ConfigLocation.SITE_ROOT``: a config kept one level up is always a
+    ``config``-role member. ``config_path`` is a location, never matched as a
+    member name (owner decision 46).
+    """
     for member in view.members:
         if member.role is MemberRole.CONFIG and member.kind is MemberKind.FILE:
             return member
-    if view.config_path is None:
+    if view.config_path != ConfigLocation.SITE_ROOT:
         return None
-    names = {view.config_path}
-    with contextlib.suppress(UnsafeMemberPathError):
-        names.add(member_path(MemberRole.SITE_ROOT, view.config_path))
+    root = V0_SITE_ROOT if view.format_version is None else MemberRole.SITE_ROOT.value
+    name = f"{root}/{CONFIG_RELATIVE}"
     return next(
-        (m for m in view.members if m.path in names and m.kind is MemberKind.FILE),
+        (m for m in view.members if m.path == name and m.kind is MemberKind.FILE),
         None,
     )
 
@@ -1034,7 +1043,7 @@ def _classify_v0(names: tuple[str, ...]) -> ArchiveView:
         format_version=None,
         members=members,
         dump_present=has_dump,
-        config_path=_V0_CONFIG if _V0_CONFIG in names else None,
+        config_path=ConfigLocation.SITE_ROOT.value if _V0_CONFIG in names else None,
         integrity=Integrity.STRUCTURAL_ONLY,
         encrypted=False,
         payload=None,

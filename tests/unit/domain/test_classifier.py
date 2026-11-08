@@ -14,6 +14,7 @@ from l3io.wp.backup.domain.archive_format import (
     SUPPORTED_FORMAT_VERSIONS,
     V0_DUMP_MEMBER,
     V0_SITE_ROOT,
+    ConfigLocation,
     Integrity,
     ManifestPayload,
     MemberKind,
@@ -131,7 +132,7 @@ def test_v0_with_a_dump() -> None:
         (V0_DUMP_MEMBER, MemberRole.DUMP, MemberKind.FILE),
         (f"{V0_SITE_ROOT}/wp-config.php", MemberRole.SITE_ROOT, MemberKind.FILE),
     ]
-    assert view.config_path == f"{V0_SITE_ROOT}/wp-config.php"
+    assert view.config_path == ConfigLocation.SITE_ROOT  # owner decision 46
     assert (view.encrypted, view.payload) == (False, None)
 
 

@@ -131,6 +131,20 @@ owner asked for, which a commit subject cannot hold.
   Site Root check is a guard against a mistyped `--wp-dir`, not proof of a
   WordPress Site (ADR-0022 amendment), and `docs/restore.md` defines its terms.
 
+### Fixed, close-out batch (owner decision 46, 2026-11-08)
+
+- **A v0 Archive's `wp-config.php` counts for the database cutover**
+  (BL-E004-036). A v0 Archive keeps its config in its tree
+  (`wp-root/wp-config.php`). Its `config_path` now names the location,
+  `wp-config.php`, as a v1 Archive with an in-tree config records it, and no
+  longer the member path. So a restore in `all` or `all-clean` Mode onto a
+  target with no `wp-config.php` uses the Archive's copy for the cutover when
+  nothing else lays a config down, as it already did for v1. Before, the plan
+  was refused with `NoConfigForCutoverError` (exit 3). `wpbackup2 restore` and
+  the library's `restore()` were not affected: they lay the v0 config down
+  before the plan is built. The refusal reached code that builds the restore
+  plan directly, with no relocation.
+
 ### Changed library surface (owner decision 36, 2026-11-07)
 
 - **`UsageError.arguments` names library parameters** (BL-E006-015). On every
