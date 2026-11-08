@@ -73,7 +73,7 @@ site = work / "www"
 site.mkdir()
 (site / "wp-config.php").write_text(
     "<?php\ndefine('DB_NAME', 'wptest');\ndefine('DB_USER', 'wp');\n"
-    "define('DB_PASSWORD', 'not-a-real-secret');\ndefine('DB_HOST', 'db.invalid');\n"
+    "define('DB_PASSWORD', 'not-a-real-secret');\ndefine('DB_HOST', 'localhost');\n"
     "$table_prefix = 'wp_';\n",
     encoding="utf-8",
 )
@@ -199,7 +199,7 @@ def test_a_provider_installed_after_import_is_honoured(
 
 
 #: Record keys whose values differ between any two Runs, traced or not.
-_VOLATILE = ("trace_id", "span_id", "duration_ms", "timestamp", "run_id")
+_VOLATILE = ("trace_id", "span_id", "duration_ms", "timestamp", "l3io_run_id")
 #: Phases whose ``bytes`` is the written Archive's size, which depends on the
 #: paths and time its Manifest records.
 _SIZED_BY_THE_RUN = frozenset({"WRITE_ARCHIVE"})

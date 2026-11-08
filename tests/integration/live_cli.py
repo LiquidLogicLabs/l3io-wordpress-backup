@@ -41,6 +41,7 @@ from tests.integration.live_restore import (
     port,
     root_connection,
 )
+from tests.root_mode import allow_root_argv
 
 
 @dataclass
@@ -90,6 +91,7 @@ class CliSite:
             self.admin_user,
             "--admin-password",
             self.admin_password,
+            *allow_root_argv(),
             *flags,
         ]
 

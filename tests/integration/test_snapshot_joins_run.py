@@ -141,13 +141,13 @@ def test_the_snapshot_joins_one_run_and_the_lock_is_free_after(tmp_path: Path) -
     assert events.count("run_started") == 1
     assert events.count("run_finished") == 1
     assert events.count("site_lock_acquired") == 1
-    run_ids = {r["run_id"] for r in records if "run_id" in r}
+    run_ids = {r["l3io_run_id"] for r in records if "l3io_run_id" in r}
     assert len(run_ids) == 1
     # The harness verifies its fixture Archive before the Run opens.
     inside = records[events.index("run_started") :]
     phases = {str(r["phase"]) for r in inside if r["event"] == "phase_completed"}
-    assert {"snapshot", BackupStep.WRITE_ARCHIVE.value} <= phases
-    assert all(r.get("run_id") in run_ids for r in inside)
+    assert {"SNAPSHOT", BackupStep.WRITE_ARCHIVE.value} <= phases
+    assert all(r.get("l3io_run_id") in run_ids for r in inside)
     out = json.loads(done.stdout.strip().splitlines()[-1])
     snapshot, site_root = Path(out["snapshot"]), Path(out["site_root"])
     assert snapshot.exists()
@@ -232,8 +232,8 @@ def test_a_destructive_all_clean_restore_joins_one_run(
     assert len({r["run_id"] for r in records if "run_id" in r}) == 1
     phases = {str(r["phase"]) for r in records if r["event"] == "phase_completed"}
     assert {
-        RestorePhase.SNAPSHOT.value,
-        RestorePhase.LOAD_DUMP.value,
+        RestorePhase.SNAPSHOT.name,
+        RestorePhase.LOAD_DUMP.name,
         BackupStep.WRITE_ARCHIVE.value,
     } <= phases
     (written,) = [r for r in records if r["event"] == "safety_snapshot_written"]

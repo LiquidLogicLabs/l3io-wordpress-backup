@@ -34,6 +34,8 @@ from structlog.typing import Processor
 from l3io.wp.backup.adapters.redaction import redact_open_runs
 
 __all__ = [
+    "DRY_RUN_KEY",
+    "RUN_ID_KEY",
     "configure_logging",
     "configured_format",
     "processor_chain",
@@ -41,6 +43,12 @@ __all__ = [
 ]
 
 _HANDLER_NAME: Final = "l3io.wp.backup"
+
+#: The structlog contextvars keys a Run binds (BL-E006-019, owner decision
+#: 2026-11-07): prefixed, so a host's own ``run_id``/``dry_run`` is not
+#: overwritten for the call.
+RUN_ID_KEY: Final = "l3io_run_id"
+DRY_RUN_KEY: Final = "l3io_dry_run"
 
 _configured: list[Literal["console", "json"]] = []
 

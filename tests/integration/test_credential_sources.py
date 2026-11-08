@@ -49,7 +49,11 @@ def _drive(sentinel: CredentialSentinel) -> Path:
         credentials=None,
         cipher=None,
     )
-    backup_cli.drive_backup(request, ctx=None, secrets=backup_cli.SecretRegistry())
+    # BL-E006-013 (owner decision 2026-11-07): the driver reads only the
+    # environ it is handed; the CLI and the library hand it os.environ.
+    backup_cli.drive_backup(
+        request, ctx=None, secrets=backup_cli.SecretRegistry(), environ=os.environ
+    )
     return target
 
 

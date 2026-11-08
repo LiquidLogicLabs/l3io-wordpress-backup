@@ -38,11 +38,14 @@ joined Run opens no root of its own). No command line is placed on a span
 (``command_args=None``): a library call has none of its own. The CLI binds
 the no-op tracer.
 
-**Notices.** ``restore``'s operator notices (an unauthenticated Archive, the
-Safety Snapshot's encryption) go to ``on_warning`` as ``RunWarning`` values
-when it is given, and to stderr when it is not; their WARNING log records
-are written either way, and an exception the callback raises propagates.
-``backup`` and ``verify`` take the same parameter and give no notice today.
+**Notices.** Every entry point's operator notices go to ``on_warning`` as
+``RunWarning`` values when it is given, and to stderr when it is not; their
+WARNING log records are written either way, and an exception the callback
+raises propagates (owner decision 2026-11-07, BL-E008-012). ``restore``'s: an
+unauthenticated Archive, the Safety Snapshot's encryption, a passphrase below
+the encryption floor, running as root. ``backup``'s: a passphrase variable set
+without ``encrypt=True``, a target inside the Site Root. ``verify`` gives none
+today.
 
 **Errors (AD-14).** Each entry point is wrapped in ``api/errors.py``'s
 ``public_boundary``: a package exception passes through unchanged, and any
@@ -67,6 +70,7 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.tracing import OpenTelemetryTracer
 from l3io.wp.backup.api.errors import public_boundary
 from l3io.wp.backup.cli.backup import (
+    NO_ENVIRONMENT,
     BackupRequest,
     BackupResult,
     default_exclusion_policy,
@@ -90,7 +94,7 @@ from l3io.wp.backup.cli.restore import (
     drive_restore,
     require_database_restored,
 )
-from l3io.wp.backup.cli.verify import NO_ENVIRONMENT, VerifyRequest, drive_verify
+from l3io.wp.backup.cli.verify import VerifyRequest, drive_verify
 from l3io.wp.backup.core.exclusions import ExclusionSet
 from l3io.wp.backup.domain.archive_format import VerificationResult
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -148,6 +152,8 @@ def backup(
     prompt: Callable[[str], str] | None = None,
     dry_run: bool = False,
     on_warning: WarningSink | None = None,
+    confirm_db_host: str | None = None,
+    allow_target_in_site_root: bool = False,
 ) -> BackupResult:
     """Back up the Site whose root is ``site``; returns what was published.
 
@@ -162,8 +168,12 @@ def backup(
     ``L3IO_WP_BACKUP_PASSPHRASE`` set without it is logged as the CLI logs it
     (``passphrase_ignored``).
     ``dry_run=True`` plans, checks and writes nothing.
+    ``confirm_db_host`` names a non-local ``DB_HOST`` a dumping backup may
+    send credentials to (``DatabaseHostUnconfirmedError`` otherwise), and
+    ``allow_target_in_site_root=True`` allows a ``target`` inside the Site
+    Root (``TargetInsideSiteRootError`` otherwise), as ``--confirm-db-host``
+    and ``--allow-target-in-site-root`` (owner decisions 2026-11-07).
     """
-    del on_warning  # backup gives no notice today (see **Notices**)
     registry = _registry()
     cipher: PayloadCipher | None = None
     extra_tools: tuple[ToolRequirement, ...] = ()
@@ -177,7 +187,7 @@ def backup(
         msg = "a passphrase was given but encrypt=True was not: nothing would use it"
         raise UsageError(msg, arguments=("passphrase", "encrypt"))
     else:
-        note_unused_passphrase(os.environ)
+        note_unused_passphrase(os.environ, on_warning)
     site_root = Path(site)
     stated = None if wp_config is None else Path(wp_config)
     archive = _target(target)
@@ -193,6 +203,8 @@ def backup(
         ),
         dry_run=dry_run,
         extra_tools=extra_tools,
+        confirm_db_host=confirm_db_host,
+        allow_target_in_site_root=allow_target_in_site_root,
     )
     return drive_backup(
         request,
@@ -200,6 +212,8 @@ def backup(
         tracer=OpenTelemetryTracer(),
         secrets=registry,
         command_args=None,
+        on_warning=on_warning,
+        environ=os.environ,
     )
 
 
@@ -222,7 +236,6 @@ def verify(
     A failed verification raises ``VerificationFailedError`` carrying the
     result, as the CLI exits ``VERIFICATION_FAILED``.
     """
-    del on_warning  # verify gives no notice today (see **Notices**)
     if passphrase is not None and not authenticate:
         msg = (
             "a passphrase was given but authenticate=True was not: nothing would use it"
@@ -239,6 +252,7 @@ def verify(
         passphrase=passphrase,
         environ=os.environ if authenticate else NO_ENVIRONMENT,
         prompt=prompt,
+        on_warning=on_warning,
     )
     if not result.passed:
         raise VerificationFailedError(result)
@@ -267,6 +281,7 @@ def restore(
     resolve_run_id: str | None = None,
     dry_run: bool = False,
     on_warning: WarningSink | None = None,
+    allow_root: bool = False,
 ) -> RestoreOutcome:
     """Restore ``archive`` into the Site at ``site_root``; returns what was done.
 
@@ -280,7 +295,9 @@ def restore(
     refused (``ArchiveNotEncryptedError``) unless ``allow_unencrypted=True``,
     as ``--allow-unencrypted`` (ADR-0016 amendment 2026-11-07). A real
     restore whose database report does not say restored raises
-    ``DatabaseNotRestoredError``, as the CLI exits ``FAILED``.
+    ``DatabaseNotRestoredError``, as the CLI exits ``FAILED``. A process
+    running as root is refused (``RootRestoreRefusedError``) unless
+    ``allow_root=True``, as ``--allow-root`` (owner decision 2026-11-07).
     """
     registry = _registry()
     flags = RelocationFlags.none() if relocation is None else relocation
@@ -304,7 +321,7 @@ def restore(
         secrets=registry,
         label=RESTORE_PROMPT,
     )
-    note_short_restore_passphrase(resolved)
+    note_short_restore_passphrase(resolved, on_warning)
     cipher = build_payload_cipher(
         passphrase=None if resolved is None else resolved.value, secrets=registry
     )
@@ -328,6 +345,7 @@ def restore(
         opted_out_by=SNAPSHOT_SKIPPED_BY,
         require_encrypted=require_encrypted,
         allow_unencrypted=allow_unencrypted,
+        allow_root=allow_root,
     )
     outcome = drive_restore(
         request,
@@ -336,6 +354,7 @@ def restore(
         secrets=registry,
         command_args=None,
         on_warning=on_warning,
+        environ=os.environ,
     )
     require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
     return outcome
@@ -359,4 +378,5 @@ def doctor(
         target=None if archive is None else _target(archive),
         secrets=SecretRegistry(),
         tracer=OpenTelemetryTracer(),
+        environ=os.environ,
     )

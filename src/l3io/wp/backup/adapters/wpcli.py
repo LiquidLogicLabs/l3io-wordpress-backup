@@ -57,6 +57,11 @@ which looks it up again by name with that same function, on the same
 (BL-E007-016). A ``PATH`` entry changing between the
 two lookups is not detected. ``wp`` disappearing after the preflight surfaces
 as ``WpCliFailedError`` at ``SEARCH_REPLACE``, journaled incomplete.
+Accepted for v1 (owner decision 2026-11-07, BL-E005-010): changing a ``PATH``
+directory of the user running the restore already lets that user run any code
+as themselves, so the window grants nothing new. The binaries the database
+library starts (the client tools, ``age``) are resolved by that library, not
+here.
 
 The factory is annotated with ``core/relocation.py::RelocationRequest``,
 because ``adapters/`` may not import ``cli/`` where ``RelocationFlags`` lives.

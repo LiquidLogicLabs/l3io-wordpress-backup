@@ -2,7 +2,8 @@
 
 :func:`open_run` creates a :class:`RunContext` **without adapters**: a random
 ``run_id`` (UUIDv4, so it leaks neither time nor path), bound into
-``structlog.contextvars`` so every record carries it (AD-10); the Run's
+``structlog.contextvars`` as ``l3io_run_id`` (with ``l3io_dry_run``;
+BL-E006-019) so every record carries it (AD-10); the Run's
 ``SecretRegistry`` — the one the composition root created and resolved the
 passphrase into, adopted as given, or a fresh one when given ``None``; the
 root span; and the private workspace (AD-12). It logs ``run_started`` and, in
@@ -60,8 +61,9 @@ from l3io.wp.backup.adapters.clock import SystemClock
 from l3io.wp.backup.adapters.noop import GuardedTracer, NoopTracer
 from l3io.wp.backup.adapters.phase import ACTIVE_TRACER
 from l3io.wp.backup.adapters.redaction import SecretRegistry, open_registry
-from l3io.wp.backup.adapters.workspace import run_workspace
+from l3io.wp.backup.adapters.workspace import run_workspace, sweep_stale_workspaces
 from l3io.wp.backup.cli.exit import RUN_ID_ATTR, exit_code_for
+from l3io.wp.backup.cli.logging import DRY_RUN_KEY, RUN_ID_KEY
 from l3io.wp.backup.domain.errors import (
     AdaptersAlreadyBoundError,
     AdaptersNotBoundError,
@@ -217,7 +219,9 @@ def open_run(
     error: BaseException | None = None
     run_state = _RunState()
     with ExitStack() as stack:
-        tokens = structlog.contextvars.bind_contextvars(run_id=run_id, dry_run=dry_run)
+        tokens = structlog.contextvars.bind_contextvars(
+            **{RUN_ID_KEY: run_id, DRY_RUN_KEY: dry_run}
+        )
         stack.callback(structlog.contextvars.reset_contextvars, **tokens)
         stack.enter_context(open_registry(registry))
         tracer_token = ACTIVE_TRACER.set((guarded, registry))
@@ -248,6 +252,9 @@ def open_run(
                     root, locker = request
                     lock = locker.acquire(root, _holder(run_id, started_at))
                     held.callback(lock.release)
+                # BL-E002-065/BL-E003-086: a dead Run's plaintext residue,
+                # swept under the Site Lock before this Run's workspace exists.
+                sweep_stale_workspaces(workspace_parent, now=time.time())
                 workspace = held.enter_context(run_workspace(workspace_parent))
                 ctx = RunContext(
                     _state=run_state,

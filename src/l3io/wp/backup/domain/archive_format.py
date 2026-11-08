@@ -51,6 +51,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
+from datetime import UTC, datetime
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Literal, TypeVar, cast
@@ -101,6 +102,7 @@ __all__ = [
     "ViewMember",
     "check_inner_manifest",
     "classify",
+    "created_at_text",
     "format_label",
     "inner_manifest_bytes",
     "is_safe_member_path",
@@ -109,6 +111,7 @@ __all__ = [
     "manifest_to_json",
     "member_path",
     "member_relative",
+    "parse_created_at",
     "source_from_descriptor",
 ]
 
@@ -265,6 +268,35 @@ class Manifest:
     def __post_init__(self) -> None:
         object.__setattr__(self, "source", MappingProxyType(dict(self.source)))
         object.__setattr__(self, "members", tuple(self.members))
+
+
+#: ``created_at``'s write form: ISO-8601 UTC, whole seconds, ``Z`` suffix.
+_CREATED_AT_FORMAT: Final = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def created_at_text(when: datetime) -> str:
+    """``when`` as a new Manifest's ``created_at`` (BL-E002-005).
+
+    The one serializer: ISO-8601 in UTC with whole seconds and a ``Z``
+    suffix, e.g. ``2026-11-07T21:04:05Z``, the spelling log records use.
+    A naive ``when`` is taken as local time, as ``datetime.astimezone`` does.
+    """
+    return when.astimezone(UTC).strftime(_CREATED_AT_FORMAT)
+
+
+def parse_created_at(text: str) -> datetime:
+    """A Manifest's ``created_at`` as an aware UTC ``datetime``.
+
+    Accepts the write form (``...T21:04:05Z``) and the earlier one, an offset
+    and optional fraction (``...T21:04:05.123456+00:00``), which existing v1
+    Archives carry. A value without an offset, or not ISO-8601, is
+    :class:`ValueError`.
+    """
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        msg = f"created_at has no UTC offset: {text!r}"
+        raise ValueError(msg)
+    return parsed.astimezone(UTC)
 
 
 def source_from_descriptor(descriptor: SiteDescriptor) -> Mapping[str, SourceValue]:

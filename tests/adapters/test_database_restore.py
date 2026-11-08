@@ -40,6 +40,7 @@ from l3io.wp.backup.domain.errors import (  # noqa: E402
     DatabaseRefusedError,
     DatabaseUnreachableError,
     LoadFailedError,
+    LoadReadinessError,
     MissingExtraError,
     ProvisioningFailedError,
 )
@@ -403,8 +404,44 @@ def test_load_needs_no_administrator(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda *_, **__: wpdb.TransferResult(0, 0.0, "mysql", None, _verdict("load")),
     )
     assert bare.load_dump(WHERE, Path("/dev/null")).performed
-    with pytest.raises(AdminCredentialsRequiredError):
-        bare.check_load(WHERE, source=None)
+
+
+def test_check_load_needs_no_administrator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BL-E002-104: the check answers as the WordPress account the load runs as."""
+    seen: list[str] = []
+
+    def check_load(connection: object, credentials: object, **_: object) -> object:
+        seen.append(credentials.source)  # type: ignore[attr-defined]
+        return _verdict("load")
+
+    monkeypatch.setattr(wpdb, "check_load", check_load)
+    wordpress = wpdb.Explicit("wordpress", "x" * 12)
+    bare = WpDatabase(wordpress, secrets=SecretRegistry())
+    assert bare.check_load(WHERE, source=None).ready
+    assert seen == [wordpress.source]
+
+
+@pytest.mark.parametrize(
+    "error", [wpdb.DatabaseError("sentinel-load-check-3f9a"), OSError("x")]
+)
+@pytest.mark.parametrize("with_admin", [True, False], ids=["admin", "no-admin"])
+def test_a_failed_load_check_is_a_readiness_error_naming_the_wordpress_account(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, *, with_admin: bool
+) -> None:
+    monkeypatch.setattr(wpdb, "check_load", _raising(error))
+    database = WpDatabase(
+        wpdb.Explicit("wordpress", "never-shown-wp"),
+        secrets=SecretRegistry(),
+        admin=wpdb.Explicit("root", "never-shown-admin") if with_admin else None,
+    )
+    with pytest.raises(LoadReadinessError) as caught:
+        database.check_load(WHERE, source=None)
+    assert caught.value.__cause__ is error
+    assert int(caught.value.exit_code) == 7
+    assert caught.value.source == wpdb.Explicit("wordpress", "x").source
+    assert caught.value.database == WHERE.name
+    assert "sentinel-load-check-3f9a" not in str(caught.value)
+    assert "never-shown" not in str(caught.value)
 
 
 def test_ensure_copies_the_result_with_warning_codes(
@@ -508,7 +545,7 @@ def test_revoke_returns_changed_and_records_it(
     assert record["changed"] is True
 
 
-@pytest.mark.parametrize("method", sorted(set(CALLS) - {"load_dump"}))
+@pytest.mark.parametrize("method", sorted(set(CALLS) - {"load_dump", "check_load"}))
 def test_without_an_administrator_nothing_is_called(
     monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:

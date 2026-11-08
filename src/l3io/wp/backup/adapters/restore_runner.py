@@ -105,6 +105,7 @@ from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
     BackupError,
     ConfigWriteFailedError,
+    ExtractionRefusedError,
     MemberReadRefusedError,
     PayloadDamagedError,
     RefusedError,
@@ -131,6 +132,7 @@ from l3io.wp.backup.ports.restore import RestorePorts
 __all__ = [
     "CONFIG_MAX_BYTES",
     "ArchiveChangedError",
+    "ExtractionRefusedAfterCleanError",
     "TargetConfigMissingError",
     "config_member",
     "execute_restore",
@@ -165,6 +167,36 @@ class ArchiveChangedError(BackupError):
         super().__init__(
             f"archive {archive!r} changed between planning and verification; "
             "nothing was changed"
+        )
+
+
+class ExtractionRefusedAfterCleanError(BackupError):
+    """Extraction refused a member after ``CLEAN`` had cleared the Site Root.
+
+    BL-E002-069 (owner decision 2026-11-07): not ``REFUSED`` — the Site was
+    changed — but ``VERIFICATION_FAILED``: the Archive is not what it claims.
+    ``member`` and ``reason`` are the refusal's; ``snapshot`` is the Safety
+    Snapshot's path, or ``None`` when none was taken.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.VERIFICATION_FAILED
+
+    def __init__(
+        self, member: str | None, reason: str, *, snapshot: str | None
+    ) -> None:
+        self.member = member
+        self.reason = reason
+        self.snapshot = snapshot
+        where = "" if member is None else f" at member {member!r}"
+        undo = (
+            f"restore it from the Safety Snapshot {snapshot!r}"
+            if snapshot is not None
+            else "no Safety Snapshot was taken"
+        )
+        super().__init__(
+            f"extraction refused{where}: {reason}; the Site WAS changed (its "
+            f"Site Root was cleared before extraction): {undo}; check the "
+            "archive with `wpbackup2 verify --archive <archive>`"
         )
 
 
@@ -330,7 +362,7 @@ def execute_restore(
                 run.begun = True
             if step in _DESTROYING and not run.rechecked:
                 _recheck(run)
-            with phase(step.value) as record:
+            with phase(step) as record:
                 _dispatch(run, step, record)
     except BaseException:
         if run.begun and is_orderly_failure(tuple(run.journal.entries)):
@@ -397,7 +429,18 @@ def _dispatch(run: _Run, step: RestorePhase, record: PhaseRecord) -> None:
         case RestorePhase.CLEAN:
             _clean(run, record)
         case RestorePhase.EXTRACT:
-            _extract(run, record)
+            try:
+                _extract(run, record)
+            except ExtractionRefusedError as exc:
+                if RestorePhase.CLEAN not in run.plan.phases:
+                    raise
+                # BL-E002-069 (owner decision 2026-11-07): after CLEAN the
+                # Site was changed, so this is not a no-effect refusal.
+                raise ExtractionRefusedAfterCleanError(
+                    exc.member,
+                    exc.reason,
+                    snapshot=run.inputs.header.snapshot_path,
+                ) from exc
         case RestorePhase.REWRITE_CONFIG:
             _rewrite_config(run)
         case RestorePhase.LOAD_DUMP:
@@ -578,7 +621,7 @@ def _snapshot_claim(run: _Run) -> SpaceClaim | None:
 def _verify(run: _Run, record: PhaseRecord) -> None:
     inputs = run.inputs
     view, result, text = verify_archive_manifest(
-        Path(inputs.archive.path), phase_name=RestorePhase.VERIFY.value
+        Path(inputs.archive.path), phase_key=RestorePhase.VERIFY
     )
     record.fields.update(
         integrity=result.integrity.value,
@@ -600,7 +643,7 @@ def _verify(run: _Run, record: PhaseRecord) -> None:
             raise PayloadDamagedError
         field = check_inner_manifest(
             text,
-            read_inner_manifest(run.payload, phase_name=RestorePhase.VERIFY.value),
+            read_inner_manifest(run.payload, phase_key=RestorePhase.VERIFY),
         )
         if field is not None:
             record.fields.update(reason="inner_manifest_mismatch", field=field)

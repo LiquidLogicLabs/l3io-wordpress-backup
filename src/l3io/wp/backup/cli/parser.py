@@ -59,9 +59,11 @@ __all__ = [
     "RESTORE_MODE_GROUP",
     "RESTORE_OPTIONS_GROUP",
     "VERIFY_COMMAND",
+    "WP_DIR_REQUIRED",
     "build_parser",
     "exit_code_epilog",
     "not_yet_implemented",
+    "require_backup_wp_dir",
 ]
 
 BACKUP_COMMAND = "backup"
@@ -219,9 +221,33 @@ def _add_db_credentials(parser: argparse.ArgumentParser) -> None:
     )
 
 
+#: argparse's own message for a missing required flag, kept verbatim for
+#: ``--wp-dir`` (BL-E008-013): optional only with ``--list-default-excludes``.
+WP_DIR_REQUIRED: Final = "the following arguments are required: --wp-dir"
+
+
+def require_backup_wp_dir(values: Mapping[str, object]) -> str | None:
+    """The usage message when a backup lacks ``--wp-dir``, else ``None``.
+
+    BL-E008-013 (owner decision 2026-11-07): the parser registers ``--wp-dir``
+    as optional so ``--list-default-excludes`` runs without it; every other
+    backup still needs it, with argparse's own message and exit 2.
+    """
+    if values.get("wp_dir") is None and not values.get("list_default_excludes"):
+        return WP_DIR_REQUIRED
+    return None
+
+
 def _add_backup(backup: argparse.ArgumentParser) -> None:
+    # Required after parsing, except with --list-default-excludes
+    # (require_backup_wp_dir; BL-E008-013).
     backup.add_argument(
-        "--wp-dir", help="Path to the root of the WordPress directory", required=True
+        "--wp-dir",
+        help=(
+            "Path to the root of the WordPress directory (required, except "
+            "with --list-default-excludes)"
+        ),
+        default=None,
     )
     # UX-1 (BL-E002-101): as on restore, an addition AD-22 permits; the frozen
     # spelling stays on the top-level parser. SUPPRESS: absent here, the
@@ -283,7 +309,26 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Print the default exclusion set and exit without backing up "
-            "(takes no other backup flag besides --wp-dir)"
+            "(needs no --wp-dir; takes no other backup flag)"
+        ),
+    )
+    # Owner decisions 2026-11-07 (AD-22 additions): BL-E002-063, BL-E002-064.
+    backup.add_argument(
+        "--confirm-db-host",
+        metavar="HOST",
+        default=None,
+        help=(
+            "Confirm a database host that is not local (anything but localhost, "
+            "127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, or "
+            "the backup is refused before any connection"
+        ),
+    )
+    backup.add_argument(
+        "--allow-target-in-site-root",
+        action="store_true",
+        help=(
+            "Write the archive inside the Site Root (refused by default: the web "
+            "server may serve it); prefer a target outside the Site Root"
         ),
     )
     _add_db_credentials(backup)
@@ -369,7 +414,10 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Replace the target's existing wp-config.php with the archive's "
-            "(only with a mode that restores files)"
+            "(only with a mode that restores files). Do not use it when the "
+            "target's DB_* constants are PHP expressions (such as the WordPress "
+            "Docker image's getenv_docker(...)): they are written back as their "
+            "current values, not as the expressions; keep the default instead"
         ),
     )
     options.add_argument(
@@ -521,6 +569,15 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
             "line; make it readable only by you)"
         ),
     )
+    # Owner decision 2026-11-07 (BL-E002-098; an AD-22 addition).
+    options.add_argument(
+        "--allow-root",
+        action="store_true",
+        help=(
+            "Restore even though running as root (refused by default: "
+            "extraction as root can be raced by a symlink swap in the Site Root)"
+        ),
+    )
     options.add_argument(
         "--allow-unencrypted",
         action="store_true",
@@ -533,6 +590,17 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
 
 
 def _add_verify(verify: argparse.ArgumentParser) -> None:
+    # BL-E002-077 (owner decision 2026-11-07): accepted in either position and
+    # answered with a note, never silently ignored. SUPPRESS: absent here, the
+    # top-level value stands.
+    verify.add_argument(
+        "--whatIf",
+        "--what-if",
+        dest="what_if",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Accepted for symmetry: verify is read-only, so it changes nothing",
+    )
     verify.add_argument(
         "--archive", help="Path or file: URL of the archive to check.", required=True
     )

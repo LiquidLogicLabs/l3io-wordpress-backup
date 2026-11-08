@@ -10,6 +10,12 @@ final name is still free, renames the file into place with :func:`os.replace`
 inside ``phase("PUBLISH")``. Any failure discards the staged file; nothing is
 ever left at the final name. The verifier has no default, so a store that skips
 verification cannot be built by omission.
+
+Before staging, :meth:`~LocalArchiveStore.stage` sweeps the destination
+directory for this target's stray ``.partial`` files a hard-killed Run left
+(the target's own name, or this package's default name), older than 24 h and
+owned by this user (``adapters/workspace.sweep_stale``; BL-E002-065, owner
+decision 2026-11-07). A Dry Run binds the no-op store, which sweeps nothing.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ import contextlib
 import io
 import os
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Final, cast
@@ -25,7 +32,11 @@ from typing import IO, Final, cast
 import structlog
 
 from l3io.wp.backup.adapters.phase import phase
-from l3io.wp.backup.adapters.workspace import private_directories
+from l3io.wp.backup.adapters.workspace import (
+    STAGED_SUFFIX,
+    private_directories,
+    sweep_stale_partials,
+)
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.domain.errors import ArchiveExistsError, ArchiveWriteError
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -34,7 +45,7 @@ __all__ = ["LocalArchiveStore"]
 
 _log = structlog.get_logger(__name__)
 
-_STAGED_SUFFIX: Final = ".partial"
+_STAGED_SUFFIX: Final = STAGED_SUFFIX
 
 
 def _final_path(target: StorageTarget) -> Path:
@@ -136,7 +147,7 @@ class _LocalStagedArchive:
             msg = "this staged archive was already published or discarded"
             raise ArchiveWriteError(self._final, msg)
         try:
-            with phase(BackupStep.VERIFY.value) as record:
+            with phase(BackupStep.VERIFY) as record:
                 record.bytes = self._close()
                 self._verify(self._staged)
             with phase(BackupStep.PUBLISH.value) as record:
@@ -182,6 +193,7 @@ class LocalArchiveStore:
         """
         final = _final_path(target)
         directory = final.parent
+        sweep_stale_partials(directory, final.name, now=time.time())
         try:
             if self._create_directory:
                 private_directories(directory)

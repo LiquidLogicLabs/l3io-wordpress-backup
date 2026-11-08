@@ -23,6 +23,13 @@ and passed by name; ``importlib.import_module("pyrage")`` and
 ``cffi`` loading a crypto library; ``shlex``-quoted command lines whose first
 word is quoted; another process API (``pty``, ``multiprocessing``,
 ``pexpect``).
+
+**The forbidden imports are a hand-kept list** (``FORBIDDEN``): there is no
+source of truth naming every Python crypto library to derive it from. A crypto
+library other than those named (``nacl`` or ``Crypto``, say) is not caught
+until it is added here. Accepted as a stated limit
+(owner decision 2026-11-07, BL-E004-067); review covers a new dependency, and
+``pyproject.toml``'s dependency list is short enough to read.
 """
 
 from __future__ import annotations

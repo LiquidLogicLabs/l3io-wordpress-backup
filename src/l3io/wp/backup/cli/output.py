@@ -61,6 +61,10 @@ def emit_warning(warning: RunWarning, sink: WarningSink | None) -> None:
     if sink is not None:
         sink(warning)
         return
+    if configured_format() == "json":
+        # stderr stays one JSON object per line (owner decision 2026-11-07,
+        # BL-E002-103 UX-5): the caller's WARNING record carries the notice.
+        return
     print(warning.message, file=sys.stderr)
 
 

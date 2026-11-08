@@ -34,6 +34,7 @@ from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.restore import ConfigPolicy, RestoreMode, SnapshotPolicy
 from tests.qualified_names import ImportTable, module_package
 from tests.restore_root_rig import ALL_WAIVED, Rig, report_for
+from tests.root_mode import allow_root_kwargs
 
 pytestmark = pytest.mark.usefixtures("fake_database")
 
@@ -113,6 +114,7 @@ def _calls(site: Path, tmp_path: Path, rig: Rig) -> dict[str, Callable[[], objec
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
             snapshot_dir=rig.work / "snapshots",
+            **allow_root_kwargs(),
         ),
         "restore-refused": lambda: api.restore(
             rig.site_root / "missing",
@@ -121,6 +123,7 @@ def _calls(site: Path, tmp_path: Path, rig: Rig) -> dict[str, Callable[[], objec
             overrides=ALL_WAIVED,
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
+            **allow_root_kwargs(),
         ),
     }
 

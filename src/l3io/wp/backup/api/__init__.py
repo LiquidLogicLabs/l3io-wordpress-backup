@@ -1,10 +1,10 @@
 """Importable composition root (AD-16, AD-22, FR-22).
 
 ``backup``, ``verify`` and ``restore`` drive the same composition sequence as
-``wpbackup2``: each opens the Run (AD-16) — or joins the ``RunContext`` it is
-handed and creates nothing — through the driver the CLI calls, and returns a
-frozen value or raises a package exception. Nothing here configures logging:
-a host that wants this package's renderer calls ``configure_logging`` itself.
+``wpbackup2``: each opens the Run (AD-16) through the driver the CLI calls, and
+returns a frozen value or raises a package exception. Nothing here configures
+logging: a host that wants this package's renderer calls ``configure_logging``
+itself.
 
 Every other name is re-exported by identity, never redefined: the values the
 entry points take and return, ``enumerate_defaults`` (the library's
@@ -45,7 +45,6 @@ from l3io.wp.backup.api import errors as _errors
 from l3io.wp.backup.api.errors import *  # noqa: F403 - AD-14: the exception set
 from l3io.wp.backup.api.operations import backup, doctor, restore, verify
 from l3io.wp.backup.cli.backup import BackupResult
-from l3io.wp.backup.cli.context import RunContext
 from l3io.wp.backup.cli.logging import configure_logging
 from l3io.wp.backup.cli.output import RunWarning
 from l3io.wp.backup.cli.restore import RelocationFlags, RestoreOutcome
@@ -85,7 +84,6 @@ __all__: list[str] = [
     "RelocationFlags",
     "RestoreMode",
     "RestoreOutcome",
-    "RunContext",
     "RunWarning",
     "Secret",
     "SiteDescriptor",
@@ -101,3 +99,6 @@ __all__: list[str] = [
     "verify",
 ]
 __all__ += _errors.__all__
+# ``RunContext`` is not public (owner decision 2026-11-07, BL-E008-028): no
+# entry point accepts or returns one. It returns with ``open_run()`` post-v1
+# (BL-E006-025).

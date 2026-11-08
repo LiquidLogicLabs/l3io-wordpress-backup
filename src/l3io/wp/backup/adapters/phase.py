@@ -10,6 +10,14 @@ and re-raised unchanged. :func:`join_phase` lets a step that may run inside
 its own phase (verification, inside the store's ``VERIFY``) annotate that
 record rather than emit a second one.
 
+**A phase is joined by identity, not by its logged name.** Backup's
+``BackupStep.VERIFY`` and restore's ``RestorePhase.VERIFY`` are both logged
+``VERIFY`` (BL-E002-109), so a name cannot tell them apart. :func:`phase` takes
+a :data:`PhaseKey` (the step's enum member, or a plain string for a phase with
+no enum) and :func:`join_phase` joins the innermost open phase only when its
+key is the same key: same type and same value. A restore's ``VERIFY`` and the
+Safety Snapshot backup's ``VERIFY`` never join each other.
+
 ``exit_code`` is ``0`` on success and, on failure, the exception's
 ``exit_code`` (``domain.errors.exit_code_of`` — the same mapping the CLI's
 ``exit_code_for`` applies, which ``adapters/`` may not import), so the failing
@@ -31,22 +39,27 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Final
+from enum import Enum
+from typing import Final, TypeAlias
 
 import structlog
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.domain.errors import exit_code_of
 from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.domain.restore import RestorePhase
 from l3io.wp.backup.ports.tracing import Redactor, Tracer
 
 __all__ = [
     "ACTIVE_TRACER",
     "SKIPPED_OUTCOME",
+    "PhaseKey",
     "PhaseRecord",
     "join_open_phase",
     "join_phase",
     "phase",
+    "phase_name",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -66,6 +79,25 @@ _current: ContextVar[PhaseRecord | None] = ContextVar("phase", default=None)
 ACTIVE_TRACER: ContextVar[tuple[Tracer, Redactor] | None] = ContextVar(
     "active_tracer", default=None
 )
+
+
+#: What identifies a phase: a backup step, a restore phase, or a plain name
+#: for a phase with no enum (the Run Journal's ``JOURNAL``).
+PhaseKey: TypeAlias = BackupStep | RestorePhase | str
+
+
+def phase_name(key: PhaseKey) -> str:
+    """The name ``key``'s record and span carry (upper case, BL-E002-109)."""
+    if isinstance(key, RestorePhase):
+        return key.name
+    if isinstance(key, Enum):
+        return str(key.value)
+    return key
+
+
+def _same_phase(a: PhaseKey, b: PhaseKey) -> bool:
+    """Whether two keys are one phase: same type and value, never only a name."""
+    return type(a) is type(b) and a == b
 
 
 def _tracer() -> tuple[Tracer, Redactor]:
@@ -90,6 +122,7 @@ class PhaseRecord:
     """
 
     name: str
+    key: PhaseKey = ""
     bytes: int = 0
     fields: dict[str, object] = field(default_factory=dict)
     failure: ExitCode | None = None
@@ -106,11 +139,12 @@ class PhaseRecord:
 
 
 @contextmanager
-def phase(name: str) -> Iterator[PhaseRecord]:
-    """Run the body as phase ``name`` and emit its ``phase_completed`` record."""
+def phase(key: PhaseKey) -> Iterator[PhaseRecord]:
+    """Run the body as phase ``key`` and emit its ``phase_completed`` record."""
+    name = phase_name(key)
     tracer, secrets = _tracer()
     with tracer.phase_span(name, secrets=secrets) as span:
-        record = PhaseRecord(name=name)
+        record = PhaseRecord(name=name, key=key)
         token = _current.set(record)
         started = time.monotonic_ns()
         outcome, exit_code = "failed", ExitCode.FAILED
@@ -145,18 +179,22 @@ def _emit(record: PhaseRecord, started: int, outcome: str, exit_code: ExitCode) 
 
 
 @contextmanager
-def join_phase(name: str) -> Iterator[PhaseRecord]:
-    """The innermost open phase when it is ``name``; otherwise a new one."""
+def join_phase(key: PhaseKey) -> Iterator[PhaseRecord]:
+    """The innermost open phase when it is the phase ``key``; otherwise a new one.
+
+    Matched by key (type and value), never by the logged name: a restore's
+    ``RestorePhase.VERIFY`` is not a backup's ``BackupStep.VERIFY``.
+    """
     current = _current.get()
-    if current is not None and current.name == name:
+    if current is not None and _same_phase(current.key, key):
         yield current
         return
-    with phase(name) as record:
+    with phase(key) as record:
         yield record
 
 
 @contextmanager
-def join_open_phase(fallback: str) -> Iterator[PhaseRecord]:
+def join_open_phase(fallback: PhaseKey) -> Iterator[PhaseRecord]:
     """The innermost open phase, whatever its name; else a new ``fallback``.
 
     For the Dry Run's command no-ops: the executor decides which phase a call

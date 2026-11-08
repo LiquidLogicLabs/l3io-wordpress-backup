@@ -141,7 +141,7 @@ def test_the_printed_report_names_what_ensure_did_and_says_restored() -> None:
     assert "database: created 'wp_live_stage'" in text
     assert "WordPress user created" in text
     assert "loaded 2048 bytes" in text
-    assert lines[-1] == "database: restored"
+    assert lines[0] == "database restored"
 
 
 def test_an_account_that_existed_is_reported_as_existing() -> None:
@@ -165,8 +165,8 @@ def test_a_dry_run_report_says_would_and_never_created_or_restored() -> None:
     ensure = EnsureOutcome(False, False, False, False, ("x",), performed=False)
     report = _report(ensure=ensure, restored=False, performed=False, loaded_bytes=0)
     lines = database_report_lines(report)
-    assert all("would" in line for line in lines[:3])
-    assert lines[-1] == "database: not restored (Dry Run)"
+    assert lines[0] == "database NOT restored: Dry Run"
+    assert all("would" in line for line in lines[1:4])
     assert not [
         line for line in lines if "created" in line or line.endswith("restored")
     ]

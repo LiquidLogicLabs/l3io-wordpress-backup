@@ -51,9 +51,10 @@ what keeps the live site intact if the load or the check fails (ADR-0022).
 
 So after a successful `database`, `database-clean`, `all` or `all-clean`
 restore **the site permanently runs on the staging database's name**; nothing
-renames it back. The report says so on its first line:
+renames it back. The report gives its verdict first, then says so:
 
 ```
+database restored
 database: the site now runs on 'example_wp_l3s_90e53fd8' (was 'example_wp')
 ```
 
@@ -77,7 +78,7 @@ live part is cut to 51 characters, so a name never exceeds MySQL's 64.
 | 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made |
 | 4    | `CREDENTIALS`         | a Mode that touches the database has no administrator credentials                           |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
-| 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, or the Site Lock's state directory is unusable |
+| 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
 | 8    | `VERIFICATION_FAILED` | the Archive is malformed or corrupt, or a passphrase is wrong                                |
 | 9    | `LOCKED`              | another Run holds this Site's lock                                                          |
 
@@ -331,6 +332,23 @@ drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
   restored Site's `wp-config.php`, mu-plugins and drop-ins as root. Run the
   restore as the Site's owner instead where you can.
 
+**It is not confined (accepted for v1, owner decision 2026-11-07,
+BL-E008-014).** The restored Site's `wp-config.php`, mu-plugins and drop-ins
+run in the `wp` child **as the OS user running the restore**, with that user's
+real `HOME` and every file it can read or write; no sandbox, namespace or
+seccomp filter is applied. The limits above (environment, working directory,
+time, output) narrow what the child inherits, not what it may do. Only a URL
+relocation (`--new-site-url`, `--new-site-home-url`) runs `wp`; a restore
+without one runs no Site code. What makes the code trustworthy is the Archive:
+an **encrypted** Archive is authenticated by `age` before anything is changed,
+so the code that runs is the code that was backed up with your passphrase. An
+**unencrypted** Archive is not authenticated, and whoever could write it could
+have put PHP in it. Such a restore logs the WARNING `archive_unauthenticated`
+(and, under `--log-format console`, prints it) before any effect, URL
+relocation included; restore an unencrypted Archive with a relocation only
+from a source you trust, or pass `--require-encrypted`. Optional confinement of
+the `wp` child is planned after v1.
+
 ## TLS to the database
 
 A restore's database connections use verified TLS (`verify-identity`, against
@@ -352,6 +370,12 @@ The Run Journal and the Site Lock live in the per-user state directory of the
 OS user running the restore. A restore of the same Site by another OS user
 neither sees that journal nor waits for that lock, so run every restore of a
 Site as the same user.
+
+The lock is keyed by the Site Root's resolved path (symlinks followed), as
+spelled. Two spellings of one directory that resolve differently are two locks
+(an accepted limit, BL-E002-083): on a case-insensitive filesystem (macOS by
+default) `/srv/Site` and `/srv/site`, and on Linux a bind mount of the Site
+Root at a second path. Always name a Site by the same path.
 
 A Run killed part-way leaves its journal open. The next restore of the Site is
 refused (exit 3), naming the interrupted Run, its phase, how to undo it and the
@@ -465,8 +489,9 @@ Root or the live database after the Safety Snapshot is taken and before the
 restore finishes is in neither the snapshot nor the Archive, and `CLEAN` or a
 Mode that drops the live database removes it. The re-survey before the first
 destructive step refuses only a part that went from empty to holding content,
-not a change to a part that was already non-empty. Take the Site offline (or
-stop its writers) before running `restore`.
+not a change to a part that was already non-empty (an accepted limit,
+BL-E003-113: nothing short of stopping the Site's writers can detect it). Take
+the Site offline (or stop its writers) before running `restore`.
 
 1. **Preflight** — the required tools, the passphrase backend when the Archive
    is encrypted, the interpreter's tarfile fixes, free space, and (for a Mode
@@ -515,8 +540,27 @@ check it with `wpbackup2 verify --archive <archive>`.
 When the Run takes a Safety Snapshot of the files, the Site Root's current file
 bytes are charged to the snapshot directory's filesystem. Destinations on the
 same filesystem (the target, the workspace and the snapshot directory) are
-summed against its one free space. The database part of a snapshot is not
-sized in advance: its Dump size is not known before the dump.
+summed against its one free space.
+
+Not checked in advance (accepted limits, owner decision 2026-11-07):
+
+- **The database part of a Safety Snapshot** is charged 0 bytes: its Dump size
+  is not known before the dump, and no live-database size is queried
+  (BL-E003-048). A snapshot that runs out of space fails while it is written,
+  before anything is destroyed, and the restore stops with `REFUSED`.
+- **The database server's disk** is not checked at all (BL-E003-116). The Dump
+  is loaded into a staging database on the server, beside the live one until
+  the cutover, so the server needs room for a second copy of the Site's
+  database; this tool cannot see that disk. A load that fills it fails in
+  `LOAD_DUMP` before the cutover, and the live database is left as it was.
+  Check the server's free space first for a large Site.
+
+**Memory when reading an Archive (owner decision 2026-11-07, BL-E008-011).** The
+Manifest is read whole and parsed before anything is authenticated, taking
+about 4.3 times its size in memory. The Manifest cap is 256 MiB, so the worst
+case is about 1.1 GB; an ordinary Site's Manifest is a few MB. `verify` reads
+it the same way. A streaming parse, then an on-disk member index for truly
+bounded memory, are planned after v1.
 
 ## Safety Snapshot
 
@@ -558,7 +602,16 @@ destroyed. An unencrypted
 snapshot holds the Site's `wp-config.php` (with its database password) and a
 Dump of its database. **Nothing removes snapshots, or the `wp-config.php`
 copies `--overwrite-wp-config` saves beside them:** each stays in its directory
-until you delete it, so delete those you no longer need.
+until you delete it, so delete those you no longer need (accepted for v1,
+BL-E003-087; a snapshot `prune` command is planned after v1).
+
+**A `--snapshot-dir` below a one-level-up config's directory is refused.** When
+the Site keeps its `wp-config.php` one level up (`~/public_html` with
+`~/wp-config.php`), every directory below that config's directory counts as
+possibly web-served, so a snapshot directory anywhere under `~` is refused,
+even one no web server serves (BL-E003-033, accepted). The default, the
+per-user state directory, is also under `~` in that layout; pass
+`--snapshot-dir` naming a directory outside it, such as one under `/var/backups`.
 
 ## `wp-config.php`
 
@@ -577,6 +630,18 @@ refused with this flag (exit 3; omit it to keep the target's), as is one whose
 `wp-config.php` is larger than 1 MiB, before anything is changed. The
 Archive's copy is read into memory and written only once, over the target's
 file; no other copy of it is written, and a Dry Run writes none.
+
+**Not for a target whose `DB_*` are PHP expressions.** The target's four
+`DB_*` constants are carried into the Archive's file as their current
+**values**, not as the source text that defines them. A target that computes
+them, such as the official WordPress Docker image's
+`define( 'DB_NAME', getenv_docker('WORDPRESS_DB_NAME', 'wordpress') );`, would
+have each expression replaced by a fixed string, and stop following its
+environment. Restore such a target with the default (keep the target's
+`wp-config.php`) and do not pass `--overwrite-wp-config`. The default path
+never rewrites an expression it does not need to. Copying a define's source
+text verbatim needs an API in `l3io-wordpress-config`; it is planned after v1
+(owner decision 2026-11-07).
 
 ### Where the config is, and where it is laid down
 
@@ -720,5 +785,12 @@ restore complete (Restore Mode files, archive /backups/example.tar.gz, site /srv
 
 A Mode that loads the database adds the database report before the Safety
 Snapshot line: the database the site now runs on and the one it ran on, what
-was created, the bytes loaded, the previous database's fate, and finally
-`database: restored`.
+was created, the bytes loaded and the previous database's fate, after the
+verdict on the first line: `database restored`, or `database NOT restored:
+<reason>` (owner decision 2026-11-07, BL-E003-106; the JSON form is
+unchanged).
+
+A restore run as root is refused (exit 2) unless `--allow-root` is given;
+with it, a WARNING `restore_running_as_root` names the extraction race (a
+symlink swapped in between a member's check and its open). Run restores as
+the site's owner instead (owner decision 2026-11-07, BL-E002-098).

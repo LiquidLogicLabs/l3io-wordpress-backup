@@ -47,7 +47,8 @@ Libraries were checked before choosing (2026-10-28/29):
 **Option B.**
 
 **Layout.** The Archive is an uncompressed outer tar with exactly two members, in this
-order:
+order *(amended 2026-11-07, see the last amendment: the outer tar is now written inside a
+gzip stream at compression level 0; the members and their order are unchanged)*:
 
 1. `manifest.json`: first and never encrypted, as AD-6 requires.
 2. The payload: `payload.tar.gz` when not encrypted, `payload.tar.gz.age` when encrypted.
@@ -253,3 +254,31 @@ encrypting a *new* Archive. A restore's Safety Snapshot is encrypted with the re
 passphrase whatever its length (it protects a copy of the same site that passphrase already
 protects), and a WARNING says so when it is under 12, so Archives made with a shorter
 passphrase stay restorable with a snapshot.
+
+## Amendment — 2026-11-07: the outer tar is gzip-wrapped at level 0 (Shawn, owner decision 21)
+
+BL-E002-032: the default Archive name ends in `.tar.gz`, but the outer container was a plain tar,
+so `tar xzf`, `file` and MIME sniffing all disagreed with the name. Owner decision 21, option (c)
+with zero compression:
+
+- **Writing.** The writer wraps the outer tar in a gzip stream at **compression level 0** (deflate
+  stored blocks), through the standard library's `gzip.GzipFile` and `tarfile` — no gzip or tar
+  code is written here. The payload inside is already gzip (or `age` ciphertext), so nothing is
+  compressed twice and the wrapper costs a few bytes per 64 KiB. The gzip header names no file and
+  carries the Run clock's `created_at` as its mtime. The constant is
+  `adapters/tar.py::OUTER_COMPRESSLEVEL`.
+- **Layout unchanged.** Inside the wrapper, the Manifest is still the first member and never
+  encrypted, the payload follows, and the inner-Manifest binding of the 2026-11-06 amendment is
+  untouched. **`format_version` stays 1:** the wrapper is a transport encoding, not a layout
+  change, and the Manifest is still read before any key exists.
+- **Reading, both encodings, permanently.** Every reader of the outer tar (the probe, extraction,
+  decryption, single-member reads) detects the gzip magic from the first bytes and reads through
+  `gzip.GzipFile`, whose CRC and length check makes a cut stream visible; a plain-tar v1 Archive —
+  every Archive written before this amendment, and the committed fixtures under
+  `tests/fixtures/archives/v1/` — is read as before. The verifier no longer treats a gzip outer
+  stream on a v1 Archive as unrecognised.
+- **Streaming.** The wrapper is a fixed-size streaming encoder; AD-21's bound is unaffected and
+  `tests/contracts/test_streaming.py` still asserts it on the real path.
+- **Tests.** A round trip in both encodings, `tarfile.open(mode="r:gz")` on a new Archive, a guard
+  that the writer uses level 0 (stored deflate blocks), and the old plain v1 fixtures verifying and
+  restoring.

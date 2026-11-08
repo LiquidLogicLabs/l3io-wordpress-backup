@@ -142,7 +142,7 @@ def test_each_mode_touches_exactly_its_parts(
     assert issued == set(report.phases) - {P.PREFLIGHT, P.VERIFY}
     # One phase_completed per planned phase; the omitted ones emit nothing.
     emitted = [e["phase"] for e in logs if e["event"] == "phase_completed"]
-    assert emitted == [p.value for p in report.phases]
+    assert emitted == [p.name for p in report.phases]
     assert report.integrity is Integrity.VERIFIED
     assert (report.database is not None) is restores_database(mode)
 
@@ -796,7 +796,7 @@ def _verify_record(logs: list[dict[str, object]]) -> dict[str, object]:
     return next(
         e
         for e in logs
-        if e.get("event") == "phase_completed" and e.get("phase") == P.VERIFY.value
+        if e.get("event") == "phase_completed" and e.get("phase") == P.VERIFY.name
     )
 
 
@@ -905,7 +905,7 @@ def test_a_failure_after_the_cutover_leaves_the_journal_blocking(
     failed = [
         e for e in logs if e["event"] == "phase_completed" and e["outcome"] == "failed"
     ]
-    assert [e["phase"] for e in failed] == ["load-dump"]
+    assert [e["phase"] for e in failed] == ["LOAD_DUMP"]
 
 
 def test_an_orderly_load_failure_after_extract_is_not_orderly(
@@ -1003,7 +1003,7 @@ def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
     planned = [e for e in logs if e["event"] == "safety_snapshot_planned"]
     assert [e["integrity"] for e in planned] == ["would verify"]
     done = [e for e in logs if e["event"] == "phase_completed"]
-    assert "snapshot" in [e["phase"] for e in done]
+    assert "SNAPSHOT" in [e["phase"] for e in done]
 
 
 def test_a_relocating_dry_run_changes_nothing_and_plans_keys_only(
@@ -1409,3 +1409,48 @@ def test_the_existence_probe_is_the_file_the_rewrite_acts_on(
         h.run()
     assert str(moved) in str(caught.value)
     assert not FILE_CALLS & set(h.log.methods())
+
+
+# --------------------------------------------------------------------------
+# BL-E002-069 (owner decision 2026-11-07): a refusal after CLEAN exits 8
+# --------------------------------------------------------------------------
+
+
+def _refuse_extract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.restore_harness import RecordingSiteFiles
+
+    def refuse(*_a: object, **_k: object) -> object:
+        member, reason = "wp-content/evil", "a hard link"
+        raise ExtractionRefusedError(member, reason)
+
+    monkeypatch.setattr(RecordingSiteFiles, "extract", refuse)
+
+
+def test_an_extraction_refusal_after_clean_is_verification_failed(
+    tmp_path: Path, archive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from l3io.wp.backup.adapters.restore_runner import (
+        ExtractionRefusedAfterCleanError,
+    )
+
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES_CLEAN)
+    _refuse_extract(monkeypatch)
+    with pytest.raises(ExtractionRefusedAfterCleanError) as caught:
+        h.run()
+    error = caught.value
+    assert error.exit_code is ExitCode.VERIFICATION_FAILED
+    assert error.member == "wp-content/evil"
+    assert "WAS changed" in str(error)
+    assert error.snapshot is not None
+    assert error.snapshot in str(error)
+    assert isinstance(error.__cause__, ExtractionRefusedError)
+
+
+def test_an_extraction_refusal_without_clean_stays_refused(
+    tmp_path: Path, archive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.FILES)
+    _refuse_extract(monkeypatch)
+    with pytest.raises(ExtractionRefusedError) as caught:
+        h.run()
+    assert caught.value.exit_code is ExitCode.REFUSED

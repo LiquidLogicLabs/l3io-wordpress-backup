@@ -136,7 +136,7 @@ def test_stdlib_and_structlog_records_share_the_run_id_and_correlation_id(
     finally:
         structlog.contextvars.clear_contextvars()
     lines = _lines(capsys.readouterr().err)
-    assert {line["run_id"] for line in lines} == {ctx.run_id}
+    assert {line["l3io_run_id"] for line in lines} == {ctx.run_id}
     assert {line["correlation_id"] for line in lines} == {"caller-7"}
     loggers = {line["logger"] for line in lines}
     assert {"l3io.wp.config", "l3io.wp.database"} <= loggers

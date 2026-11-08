@@ -171,8 +171,8 @@ def test_the_cli_layer_note_is_derived_and_enforced(text: str) -> None:
     public = public_names()
     derived = {name for name, obj in public.items() if needs_cli_line(obj)}
     # Scope: the derivation reaches the re-exports E006-S01-001 recorded.
+    # RunContext left the surface (owner decision 2026-11-07, BL-E008-028).
     assert {
-        "RunContext",
         "BackupResult",
         "RestoreOutcome",
         "RelocationFlags",
@@ -180,9 +180,9 @@ def test_the_cli_layer_note_is_derived_and_enforced(text: str) -> None:
     assert "NonEmptyTargetRefusal" not in derived  # a BackupError: governed elsewhere
 
     planted = sections(text)
-    planted["RunContext"] = planted["RunContext"].replace(CLI_LINE, "")
-    assert section_defects(planted, {"RunContext": public["RunContext"]}) == [
-        f"RunContext: defined under cli/ and its section lacks {CLI_LINE!r}"
+    planted["BackupResult"] = planted["BackupResult"].replace(CLI_LINE, "")
+    assert section_defects(planted, {"BackupResult": public["BackupResult"]}) == [
+        f"BackupResult: defined under cli/ and its section lacks {CLI_LINE!r}"
     ]
 
 

@@ -43,7 +43,7 @@ def _seed(site: Path) -> None:
 
 
 def _read(final: Path) -> tuple[Manifest, set[str]]:
-    with tarfile.open(final, mode="r:") as outer:
+    with tarfile.open(final, mode="r:*") as outer:
         manifest_file = outer.extractfile(MANIFEST_MEMBER)
         payload_file = outer.extractfile(PAYLOAD_MEMBER)
         assert manifest_file is not None

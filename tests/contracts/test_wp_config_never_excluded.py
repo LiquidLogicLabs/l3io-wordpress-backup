@@ -101,3 +101,25 @@ def test_an_ancestor_of_a_nested_protected_path_is_never_pruned(
     # A sibling, and a file sharing an ancestor's name, are still excluded.
     assert policy.decide(PurePosixPath("conf/other"), is_dir=True).excluded
     assert policy.decide(PurePosixPath("conf/site"), is_dir=False).excluded
+
+
+#: BL-E004-063 (owner decision 2026-11-07): every spelling a case-insensitive
+#: filesystem resolves to the protected file, derived from PROTECTED_PATHS.
+CASE_SPELLINGS = sorted(
+    {f(p) for p in PROTECTED_PATHS for f in (str.upper, str.title, str.swapcase)}
+    - PROTECTED_PATHS
+)
+
+
+@pytest.mark.parametrize("spelling", CASE_SPELLINGS)
+@pytest.mark.parametrize(
+    "patterns", [("*",), ("WP-CONFIG.PHP",), ("Wp-Config.Php",), ("*.PHP",)]
+)
+def test_no_case_spelling_of_a_protected_path_is_excluded(
+    spelling: str, patterns: tuple[str, ...]
+) -> None:
+    policy = ExclusionSet.from_patterns(patterns, include_defaults=False)
+    decision = policy.decide(PurePosixPath(spelling), is_dir=False)
+    if decision.pattern is not None:
+        assert decision.protected, (spelling, patterns)
+    assert not decision.excluded, (spelling, patterns)

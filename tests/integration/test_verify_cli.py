@@ -94,7 +94,7 @@ def test_a_missing_archive_is_an_error(
 ) -> None:
     assert (
         main(["verify", "--archive", str(tmp_path / "absent.tar.gz")])
-        == ExitCode.FAILED
+        == ExitCode.USAGE  # BL-E002-074 (owner decision 2026-11-07)
     )
     assert "does not exist" in capsys.readouterr().err
 

@@ -136,7 +136,7 @@ def test_a_foreign_exception_arrives_as_unexpected_error(
     assert records[0]["cause_type"] == _qualified(original)
     assert records[0]["api_function"] == "backup"
     assert "exc_info" not in records[0]
-    assert "run_id" not in records[0]
+    assert "l3io_run_id" not in records[0]
 
 
 def test_an_exception_group_keeps_its_members_on_the_cause(
@@ -160,7 +160,7 @@ def test_every_entry_point_wraps_and_carries_the_stamped_run_id(
         _call(monkeypatch, entry, original, tmp_path, site)
     assert caught.value.api_function == entry
     [record] = [e for e in logs if e["event"] == "unexpected_exception"]
-    assert record["run_id"] == "run-123"
+    assert record["l3io_run_id"] == "run-123"
     assert record["api_function"] == entry
 
 

@@ -466,7 +466,7 @@ def _cutover(
     )
     _log.info(
         "phase_completed",
-        phase=_PHASE.value,
+        phase=_PHASE.name,
         step="cutover",
         duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
         bytes=0,

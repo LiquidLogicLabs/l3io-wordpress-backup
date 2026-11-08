@@ -23,12 +23,14 @@ from structlog.testing import capture_logs
 pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup import api
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.api import operations
 from l3io.wp.backup.cli import restore as restore_mod
 from l3io.wp.backup.cli.output import RunWarning
 from l3io.wp.backup.core.restore import SnapshotResult
 from l3io.wp.backup.domain.archive_format import Integrity
 from tests.restore_root_rig import Rig
+from tests.root_mode import running_as_root
 
 PACKAGE = Path(api.__file__).resolve().parents[1]
 #: The modules whose drivers the library calls.
@@ -106,12 +108,74 @@ def test_the_scan_finds_the_notices() -> None:
     assert _codes(PACKAGE / "cli") == _codes(PACKAGE)
 
 
+def _site(root: Path) -> Path:
+    root.mkdir()
+    (root / "wp-config.php").write_text(
+        "<?php\ndefine('DB_NAME', 'wp');\ndefine('DB_USER', 'wp');\n"
+        "define('DB_PASSWORD', 'not-a-real-secret');\n"
+        "define('DB_HOST', 'localhost');\n$table_prefix = 'wp_';\n",
+        encoding="utf-8",
+    )
+    (root / "index.php").write_text("<?php\n", encoding="utf-8")
+    return root
+
+
+def _every_entry_points_notices(
+    rig: Rig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sink: Callable[[RunWarning], None],
+) -> None:
+    """Drive every notice the package defines, each through its entry point's sink.
+
+    BL-E008-012 (owner decision 2026-11-07): ``restore``, ``backup`` and the
+    CLI-flag notices all take the sink, so one derived set covers them all.
+    """
+    from l3io.wp.backup.cli.credentials import new_db_password
+    from l3io.wp.backup.cli.passphrase import (
+        PASSPHRASE_ENV,
+        ResolvedPassphrase,
+        note_short_restore_passphrase,
+    )
+    from l3io.wp.backup.domain.secret import Secret
+
+    _drive(rig, sink)
+    _drive(rig, sink, cipher=_Cipher(), allow_unencrypted=True)
+    monkeypatch.setattr(restore_mod, "_running_as_root", lambda: True)
+    _drive(rig, sink, allow_root=True)
+    monkeypatch.undo()
+    note_short_restore_passphrase(
+        ResolvedPassphrase(Secret("sentinel9"), "argument"), sink
+    )
+    new_db_password(
+        explicit="sentinel-flag-value-29a",
+        file=None,
+        environ={},
+        secrets=SecretRegistry(),
+        user_given=True,
+        on_warning=sink,
+    )
+    site = _site(tmp_path / "site")
+    with monkeypatch.context() as patch:
+        patch.setenv(PASSPHRASE_ENV, "sentinel-env-passphrase-29")
+        with capture_logs():
+            api.backup(
+                site,
+                scope=api.BackupScope.FILES,
+                target=site / "inside.tar.gz",
+                allow_target_in_site_root=True,
+                on_warning=sink,
+            )
+
+
 def test_every_notice_reaches_the_callback_and_nothing_reaches_stderr(
-    rig: Rig, capsys: pytest.CaptureFixture[str]
+    rig: Rig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     seen: list[RunWarning] = []
-    _drive(rig, seen.append)
-    _drive(rig, seen.append, cipher=_Cipher(), allow_unencrypted=True)
+    _every_entry_points_notices(rig, tmp_path, monkeypatch, seen.append)
     assert {w.code for w in seen} == _codes(PACKAGE)
     assert capsys.readouterr().err == ""
     for warning in seen:
@@ -150,7 +214,11 @@ def test_a_callbacks_exception_propagates(rig: Rig) -> None:
     def sink(warning: RunWarning) -> None:
         raise Refused(warning.code)
 
-    with capture_logs(), pytest.raises(Refused, match="archive_unauthenticated"):
+    # As root (CI) the rig passes allow_root, whose notice comes first.
+    first = (
+        "restore_running_as_root" if running_as_root() else "archive_unauthenticated"
+    )
+    with capture_logs(), pytest.raises(Refused, match=first):
         restore_mod.drive_restore(
             rig.request(), ctx=None, secrets=None, on_warning=sink
         )

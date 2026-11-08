@@ -83,7 +83,7 @@ def test_backup_inside_a_run_opens_nothing_and_carries_its_run_id(
     assert "phase_completed" in events, "the backup logged nothing"
     assert "run_started" not in events
     assert "run_finished" not in events
-    assert {e.get("run_id") for e in logs} == {bound_run.run_id}
+    assert {e.get("l3io_run_id") for e in logs} == {bound_run.run_id}
     assert result.performed is True
     assert result.integrity is Integrity.VERIFIED
     assert final.is_file()

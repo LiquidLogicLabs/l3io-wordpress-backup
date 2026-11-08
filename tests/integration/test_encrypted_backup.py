@@ -224,7 +224,7 @@ def test_an_inspector_without_the_passphrase_reads_no_content(
     for value in sentinels.values():
         assert value.encode() not in raw
     assert passphrase.encode() not in raw
-    with tarfile.open(final, mode="r:") as outer:
+    with tarfile.open(final, mode="r:*") as outer:
         assert outer.getnames() == [MANIFEST_MEMBER, ENCRYPTED_PAYLOAD_MEMBER]
         manifest_file = outer.extractfile(MANIFEST_MEMBER)
         payload_file = outer.extractfile(ENCRYPTED_PAYLOAD_MEMBER)

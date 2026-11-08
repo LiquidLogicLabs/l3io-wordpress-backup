@@ -29,7 +29,7 @@ def _json_lines(err: str) -> list[dict[str, object]]:
 @pytest.mark.parametrize(
     ("argv", "error"),
     [
-        (["backup", "--wp-dir", "{missing}"], "InvalidSiteDescriptorError"),
+        (["backup", "--wp-dir", "{missing}"], "SiteRootNotFoundError"),
         (["backup", "--wp-dir", "{site}", "--archive", "s3://h/x"], "UsageError"),
         (["verify", "--archive", "{missing}"], "ArchiveNotFoundError"),
     ],
@@ -77,7 +77,7 @@ def test_the_console_format_also_prints_the_plain_line(
 ) -> None:
     missing = tmp_path / "missing"
     code = main(["--log-format", "console", "backup", "--wp-dir", str(missing)])
-    assert code == ExitCode.FAILED
+    assert code == ExitCode.USAGE  # BL-E002-074
     err = capsys.readouterr().err
     assert any(line.startswith("wpbackup2: error: ") for line in err.splitlines())
     assert "command_failed" in err

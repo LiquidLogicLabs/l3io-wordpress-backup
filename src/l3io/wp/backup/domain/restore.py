@@ -125,6 +125,13 @@ class RestorePhase(Enum):
     the **last journaled step of** ``LOAD_DUMP``, taken only after the load is
     checked, so a failed load never leaves ``wp-config.php`` pointing at a
     half-loaded database. Epic 3's phase-sequence test asserts it.
+
+    **Two spellings, one per medium (BL-E002-109, owner decision 2026-11-07).**
+    A log record's ``phase`` field and a span name carry the member's
+    ``name`` (``LOAD_DUMP``), upper case with underscores like backup's
+    ``BackupStep``; the Run Journal stores the ``value`` (``load-dump``), its
+    on-disk format unchanged. ``tests/unit/cli/test_phase_names_upper.py``
+    asserts every logged ``phase`` is upper case.
     """
 
     PREFLIGHT = "preflight"

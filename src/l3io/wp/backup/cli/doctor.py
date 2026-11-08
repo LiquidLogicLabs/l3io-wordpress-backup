@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from l3io.wp.backup.adapters.database import (
@@ -35,7 +36,7 @@ from l3io.wp.backup.adapters.database import (
 from l3io.wp.backup.adapters.preflight import Diagnosis, diagnose
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import real_adapters
-from l3io.wp.backup.cli.backup import storage_target_from_cli
+from l3io.wp.backup.cli.backup import NO_ENVIRONMENT, storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, open_run
 from l3io.wp.backup.cli.credentials import wordpress_source
 from l3io.wp.backup.cli.exit import exit_code_for
@@ -50,7 +51,9 @@ from l3io.wp.backup.ports.tracing import Tracer
 __all__ = ["drive_doctor", "render_text", "run_doctor"]
 
 
-def _site_readiness(run: RunContext, site_root: Path) -> Readiness:
+def _site_readiness(
+    run: RunContext, site_root: Path, environ: Mapping[str, str]
+) -> Readiness:
     """The Site's dump readiness; a ``BackupError`` becomes a blocker."""
     try:
         try:
@@ -63,7 +66,7 @@ def _site_readiness(run: RunContext, site_root: Path) -> Readiness:
         config = locate_wp_config(root, stated=None)
         site, wp_config = site_descriptor_from_wp_config(root, config_file=config.path)
         source = wordpress_source(
-            None, wp_config=wp_config, environ=os.environ, secrets=run.secrets
+            None, wp_config=wp_config, environ=environ, secrets=run.secrets
         )
         adapters = real_adapters(
             wordpress_source=source, secrets=run.secrets, tracer=run.tracer
@@ -80,13 +83,20 @@ def drive_doctor(
     target: StorageTarget | None,
     secrets: SecretRegistry | None = None,
     tracer: Tracer | None = None,
+    environ: Mapping[str, str] = NO_ENVIRONMENT,
 ) -> Diagnosis:
-    """FR-27's diagnosis in a Run of its own, with no Site Lock; never prints."""
+    """FR-27's diagnosis in a Run of its own, with no Site Lock; never prints.
+
+    ``environ`` is the caller's (``os.environ`` from the CLI root and the
+    library); no driver reads ``os.environ`` itself (BL-E006-013).
+    """
     with open_run(operation="doctor", secrets=secrets, tracer=tracer) as run:
-        database = None if site_root is None else _site_readiness(run, site_root)
+        database = (
+            None if site_root is None else _site_readiness(run, site_root, environ)
+        )
         diagnosis = diagnose(
             preflight=binary_preflight(run, optional=True),
-            environ=os.environ,
+            environ=environ,
             target=target,
             database=database,
         )
@@ -136,6 +146,7 @@ def run_doctor(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         site_root=None if args.wp_dir is None else Path(args.wp_dir),
         target=target,
         secrets=secrets,
+        environ=os.environ,
     )
     as_json = bool(args.json) or not sys.stdout.isatty()
     text = (

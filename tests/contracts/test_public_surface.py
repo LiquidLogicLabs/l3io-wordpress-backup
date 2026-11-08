@@ -420,3 +420,12 @@ def test_the_repr_check_catches_a_shown_credential() -> None:
         any(w in n for w in SECRET_WORDS for n in getattr(c, "__annotations__", {}))
         for c in _public_classes()
     )
+
+
+def test_run_context_is_not_public() -> None:
+    """BL-E008-028 (owner decision 2026-11-07): no entry point takes or returns
+    one; it returns with ``open_run()`` post-v1 (BL-E006-025)."""
+    from l3io.wp.backup import api
+
+    assert "RunContext" not in api.__all__
+    assert not hasattr(api, "RunContext")

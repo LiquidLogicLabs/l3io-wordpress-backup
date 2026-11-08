@@ -72,6 +72,7 @@ from l3io.wp.backup.domain.errors import (
     DumpFailedError,
     InvalidSiteDescriptorError,
     LoadFailedError,
+    LoadReadinessError,
     MissingExtraError,
     ProvisioningFailedError,
     RefusedError,
@@ -105,6 +106,7 @@ __all__ = [
     "admin_source",
     "blocked_dump_error",
     "check_admin_tls",
+    "database_host_is_local",
     "database_location_from_db_host",
     "database_name_is_valid",
     "locate_wp_config",
@@ -316,6 +318,20 @@ def database_name_is_valid(name: str) -> bool:
     return True
 
 
+def database_host_is_local(host: str) -> bool:
+    """Whether ``host`` is database's default local set, or a socket path.
+
+    The set is database's ``DEFAULT_LOCAL_HOSTS`` (``localhost``,
+    ``127.0.0.1`` and the IPv6 loopback), the one the TLS policy uses; a host
+    that is an absolute path is a Unix socket. Case-insensitive, as host names
+    are. ``MissingExtraError`` without the ``database`` extra (AD-8).
+    """
+    _require_extra()
+    from l3io.wp import database as wpdb
+
+    return host.startswith("/") or host.lower() in wpdb.DEFAULT_LOCAL_HOSTS
+
+
 def _require_extra() -> None:
     """Raise ``MissingExtraError`` when the ``database`` extra is absent (AD-8)."""
     try:
@@ -499,14 +515,23 @@ def _unusable_connection(exc: Exception) -> str:
     return UNUSABLE_CONNECTION
 
 
+#: The failure classes :meth:`WpDatabase._mapped` builds for a generic error.
+_Failed = (
+    type[ProvisioningFailedError] | type[LoadFailedError] | type[LoadReadinessError]
+)
+
+
 def _failure(
-    failed: type[ProvisioningFailedError] | type[LoadFailedError],
-    reason: str,
-    location: DatabaseLocation,
-) -> ProvisioningFailedError | LoadFailedError:
-    """``failed`` built for ``reason``; a load names the database it loaded into."""
+    failed: _Failed, reason: str, location: DatabaseLocation, source: str
+) -> ProvisioningFailedError | LoadFailedError | LoadReadinessError:
+    """``failed`` built for ``reason``; a load names the database it loaded into.
+
+    A load-readiness failure also names the credential ``source`` it ran as.
+    """
     if failed is LoadFailedError:
         return LoadFailedError(reason, database=location.name)
+    if failed is LoadReadinessError:
+        return LoadReadinessError(reason, database=location.name, source=source)
     return ProvisioningFailedError(reason)
 
 
@@ -978,13 +1003,17 @@ class WpDatabase:
     def check_load(
         self, location: DatabaseLocation, *, source: Path | None
     ) -> Readiness:
-        """Database's ``check_load`` for the WordPress account; no ``replace``."""
-        self._require_admin()
+        """Database's ``check_load`` for the WordPress account; no ``replace``.
+
+        No administrator: the check answers as the account the load runs as
+        (BL-E002-104), so a failure to run it is :class:`LoadReadinessError`
+        (``NOT_READY``) naming that account's credential source.
+        """
         _require_extra()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
-        with self._mapped(location, self._credentials.source, LoadFailedError):
+        with self._mapped(location, self._credentials.source, LoadReadinessError):
             verdict = wpdb.check_load(connection, self._credentials, source=source)
         return _readiness(verdict)
 
@@ -1138,7 +1167,7 @@ class WpDatabase:
         self,
         location: DatabaseLocation,
         credential_source: str,
-        failed: type[ProvisioningFailedError] | type[LoadFailedError],
+        failed: _Failed,
     ) -> Iterator[None]:
         """Re-raise database's errors as the package's own (AD-14).
 
@@ -1186,10 +1215,12 @@ class WpDatabase:
         except wpdb.InvalidIdentifierError as exc:
             raise InvalidSiteDescriptorError(_unusable_connection(exc)) from exc
         except wpdb.DatabaseError as exc:
-            raise _failure(failed, type(exc).__name__, location) from exc
+            raise _failure(
+                failed, type(exc).__name__, location, credential_source
+            ) from exc
         except OSError as exc:
             raise _failure(
-                failed, exc.strerror or type(exc).__name__, location
+                failed, exc.strerror or type(exc).__name__, location, credential_source
             ) from exc
 
     def _refusal(

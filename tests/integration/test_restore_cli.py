@@ -136,7 +136,7 @@ def test_each_mode_end_to_end(
     assert ran.events("restore_mode_resolved")[0]["restore_mode"] == mode.value
     assert ran.events("target_checked")
     assert ran.events("planned_action")
-    order = [p.value for p in RESTORE_PHASE_ORDER]
+    order = [p.name for p in RESTORE_PHASE_ORDER]
     phases = [
         str(r["phase"])
         for r in ran.events("phase_completed")
@@ -152,7 +152,8 @@ def test_each_mode_end_to_end(
     (written,) = ran.events("safety_snapshot_written")
     snapshot = Path(written["path"])
     assert manifest_origin(snapshot)["restore_mode"] == mode.value
-    assert "safety snapshot is NOT encrypted" in ran.err
+    # JSON lines on stderr (BL-E002-103 UX-5): the WARNING record is the notice.
+    assert ran.events("safety_snapshot_unencrypted")
     # The parts the Mode restores changed; the others did not.
     index = (site.root / "index.php").read_bytes()
     assert (index == INDEX) is restores_files(mode)

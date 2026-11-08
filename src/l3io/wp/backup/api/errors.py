@@ -43,6 +43,7 @@ from l3io.wp.backup.adapters.journal import CorruptJournalError, JournalWriteErr
 from l3io.wp.backup.adapters.preflight import ChildOutputLimitError
 from l3io.wp.backup.adapters.restore_runner import (
     ArchiveChangedError,
+    ExtractionRefusedAfterCleanError,
     TargetConfigMissingError,
 )
 from l3io.wp.backup.adapters.staging import (
@@ -52,6 +53,7 @@ from l3io.wp.backup.adapters.staging import (
     StagingCheckFailedError,
 )
 from l3io.wp.backup.cli.exit import RUN_ID_ATTR, render_failure
+from l3io.wp.backup.cli.logging import RUN_ID_KEY
 from l3io.wp.backup.cli.restore import (
     ArchiveIdentityUnconfirmedError,
     DatabaseNotRestoredError,
@@ -86,6 +88,7 @@ from l3io.wp.backup.domain.errors import (
     ConfigWriteFailedError,
     CredentialsError,
     CredentialTooShortError,
+    DatabaseHostUnconfirmedError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
@@ -96,6 +99,7 @@ from l3io.wp.backup.domain.errors import (
     InvalidRelocationValueError,
     InvalidSiteDescriptorError,
     LoadFailedError,
+    LoadReadinessError,
     MalformedManifestError,
     ManifestTooLargeError,
     MemberReadRefusedError,
@@ -110,14 +114,17 @@ from l3io.wp.backup.domain.errors import (
     ProvisioningFailedError,
     RefusedError,
     RelocationNeedsDatabaseRestoreError,
+    RootRestoreRefusedError,
     RunContextActiveError,
     RunTerminated,
     SearchReplaceIncompleteError,
     SiteLockedError,
     SiteLockLocationError,
     SiteLockReleaseError,
+    SiteRootNotFoundError,
     StoredUrlInvalidError,
     StoredUrlMissingError,
+    TargetInsideSiteRootError,
     UnboundAdapterError,
     UnknownInterruptedRunError,
     UnreadableSiteRootError,
@@ -158,6 +165,7 @@ __all__: list[str] = [
     "CredentialsError",
     "CutoverTargetUnusableError",
     "DatabaseAuthPluginRefusedError",
+    "DatabaseHostUnconfirmedError",
     "DatabaseNotRestoredError",
     "DatabaseRefusedError",
     "DatabaseTlsHandshakeError",
@@ -167,6 +175,7 @@ __all__: list[str] = [
     "EncryptionConfigError",
     "ExistingDatabaseUserError",
     "ExpansionRatioError",
+    "ExtractionRefusedAfterCleanError",
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
     "IncompleteRelocationCredentialsError",
@@ -179,6 +188,7 @@ __all__: list[str] = [
     "InvalidSiteDescriptorError",
     "JournalWriteError",
     "LoadFailedError",
+    "LoadReadinessError",
     "MalformedManifestError",
     "ManifestTooLargeError",
     "MemberReadRefusedError",
@@ -196,18 +206,21 @@ __all__: list[str] = [
     "ProvisioningFailedError",
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
+    "RootRestoreRefusedError",
     "RunContextActiveError",
     "RunTerminated",
     "SearchReplaceIncompleteError",
     "SiteLockLocationError",
     "SiteLockReleaseError",
     "SiteLockedError",
+    "SiteRootNotFoundError",
     "SnapshotFailedError",
     "StagingCheckFailedError",
     "StoredUrlInvalidError",
     "StoredUrlMissingError",
     "TargetChangedError",
     "TargetConfigMissingError",
+    "TargetInsideSiteRootError",
     "UnboundAdapterError",
     "UnexpectedError",
     "UnknownInterruptedRunError",
@@ -295,7 +308,9 @@ def public_boundary(fn: Callable[_P, _R]) -> Callable[_P, _R]:
                 raise
             cause_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
             run_id = getattr(exc, RUN_ID_ATTR, None)
-            run_fields: dict[str, object] = {} if run_id is None else {"run_id": run_id}
+            run_fields: dict[str, object] = (
+                {} if run_id is None else {RUN_ID_KEY: run_id}
+            )
             _log.error(
                 "unexpected_exception",
                 cause_type=cause_type,

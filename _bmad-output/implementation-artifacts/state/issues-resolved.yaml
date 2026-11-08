@@ -3726,3 +3726,101 @@ resolved:
   resolved_at: '2026-11-07T22:55:44Z'
   ref: '48324e4'
   note: "close-out 5a: cli/backup.py execute_backup_plan refuses (UsageError, before any effect) an exclusion policy whose source/patterns differ from the plan's, as it does a cipher/ENCRYPT mismatch; test in tests/adapters"
+- key: BL-E003-089
+  epic: '003'
+  sprint: '02'
+  title: Hostile Archive can park a Site behind a blocking journal
+  source: redteam (RT-S02-010)
+  source_phase: redteam
+  source_ref: RT-S02-010
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: wontfix
+  resolved_at: '2026-11-07T23:24:56Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md (#23/#30): by design'
+- key: BL-E007-015
+  epic: '007'
+  sprint: '01'
+  title: Archive Manifest config_path=../wp-config.php creates a file in the parent of the Site Root (designed FR-29; bounded)
+  source: epic-redteam (RT-8)
+  source_phase: epic-redteam
+  source_ref: RT-8
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
+  resolution: wontfix
+  resolved_at: '2026-11-07T23:24:58Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md (#23/#30): by design'
+- key: BL-E002-112
+  epic: '002'
+  sprint: ''
+  title: Backup plan interpreter and exclusion policy live in cli/backup.py (AD-4 boundary by convention only)
+  source: epic-arch-review (AD-3)
+  source_phase: epic-arch-review
+  source_ref: AD-3
+  severity: Low
+  status: resolved
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-3). '
+  resolution: wontfix
+  resolved_at: '2026-11-07T23:25:00Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md (#23/#30): by design'
+- key: BL-E003-105
+  epic: '003'
+  sprint: '02'
+  title: On failure the snapshot path goes to stdout while the error goes to stderr
+  source: ux-review (UX-S02-10)
+  source_phase: ux-review
+  source_ref: UX-S02-10
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
+  resolution: wontfix
+  resolved_at: '2026-11-07T23:25:01Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md (#23/#30): by design'
+- key: BL-E002-118
+  epic: '002'
+  sprint: ''
+  title: Passphrase minimum of 4 characters exists for redaction, not as policy
+  source: epic-redteam (RT-5)
+  source_phase: epic-redteam
+  source_ref: RT-5
+  severity: Low
+  status: resolved
+  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-5). '
+  resolution: obsolete
+  resolved_at: '2026-11-07T23:25:03Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md #24'
+- key: BL-E006-014
+  epic: '006'
+  sprint: ''
+  title: A joined dry-run context with dry_run=False silently becomes a rehearsal; refuse it with UsageError
+  source: epic-adversarial (AR-7)
+  source_phase: epic-adversarial
+  source_ref: AR-7
+  severity: Low
+  status: resolved
+  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
+  resolution: obsolete
+  resolved_at: '2026-11-07T23:25:05Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md #24'
+- key: BL-E003-026
+  epic: '003'
+  sprint: ''
+  title: "E003: estimates not redone after the reorg and scope growth — sprint-01 rollup still holds S01-006's hours; E003-S01-001 still standard/7.5 h"
+  source: arch-gate (bmad-agent-architect)
+  source_phase: arch-gate
+  source_ref: bmad-agent-architect
+  severity: Low
+  status: resolved
+  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
+  resolution: obsolete
+  resolved_at: '2026-11-07T23:25:07Z'
+  ref: d2d2fa3
+  note: 'owner decision 2026-11-07, closeout/owner-decisions.md #24'

@@ -123,6 +123,9 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "_digest",
             "_inner",
             "_open",
+            # The outer-tar reader of both encodings (owner decision 21): driven
+            # by the read-back's decrypt_payload and read_member below.
+            "_outer_tar",
             "_payload_body",
             "_reason",
             "_stream_outer",
@@ -374,7 +377,7 @@ if mode in ("backup", "backup-buffered", "backup-noop"):
         raise SystemExit(0)
     import tarfile
     from l3io.wp.backup.domain.archive_format import MANIFEST_MEMBER, manifest_from_json
-    with tarfile.open(final, mode="r|") as outer:
+    with tarfile.open(final, mode="r|*") as outer:
         manifest = manifest_from_json(
             outer.extractfile(outer.next()).read().decode("utf-8")
         )

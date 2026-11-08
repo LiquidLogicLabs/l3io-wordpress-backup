@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 import structlog
@@ -26,7 +27,9 @@ import structlog
 from l3io.wp.backup.adapters import database as _database
 from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
 from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
+from l3io.wp.backup.cli.output import RunWarning, WarningSink, emit_warning
 from l3io.wp.backup.cli.parser import NEW_DB_PASSWORD_VAR
+from l3io.wp.backup.cli.passphrase import note_empty_source
 from l3io.wp.backup.domain.credentials import (
     AwsSecretCredentialSpec,
     CredentialSpec,
@@ -44,6 +47,7 @@ __all__ = [
     "admin_source",
     "admin_spec",
     "new_db_password",
+    "note_password_on_command_line",
     "wordpress_source",
     "wordpress_spec",
 ]
@@ -164,6 +168,26 @@ def _read_password_file(path: Path) -> str:
     return password
 
 
+def note_password_on_command_line(
+    flag: str, on_warning: WarningSink | None = None
+) -> None:
+    """A password flag's value is in the process list: a notice and a WARNING.
+
+    The notice goes to ``on_warning`` or stderr (owner decision 2026-11-07,
+    BL-E008-012); it names the flag, never the value.
+    """
+    _log.warning("password_on_command_line", flag=flag)
+    emit_warning(
+        RunWarning(
+            code="password_on_command_line",
+            message=f"{flag} puts the password in the process list, where other "
+            "users can read it; prefer its file or environment variable",
+            fields=MappingProxyType({"flag": flag}),
+        ),
+        on_warning,
+    )
+
+
 def new_db_password(
     *,
     explicit: Secret | str | None,
@@ -172,6 +196,7 @@ def new_db_password(
     secrets: SecretRegistry,
     user_given: bool,
     explicit_source: str = NEW_DB_PASSWORD_FLAG,
+    on_warning: WarningSink | None = None,
 ) -> Secret | None:
     """The relocated account's password: the flag, the file, then the variable.
 
@@ -184,18 +209,27 @@ def new_db_password(
     The value is registered with ``secrets`` as it
     is read, and one shorter than ``MIN_SECRET_LENGTH`` is refused with
     ``CredentialTooShortError`` (ADR-0018 amendment). ``None`` when no source
-    gives one; an empty value counts as none.
+    gives one. A source that is set but empty counts as none: WARNING
+    ``credential_source_empty`` names it and the next source is consulted
+    (owner decision 2026-11-07, BL-E008-005).
     """
     source = explicit_source
-    value: Secret | str | None = explicit or None
-    if value is not None:
-        source = explicit_source
-        if explicit_source == NEW_DB_PASSWORD_FLAG:
-            _log.warning("password_on_command_line", flag=NEW_DB_PASSWORD_FLAG)
-    elif file is not None:
+    value: Secret | str | None = None
+    if explicit is not None:
+        if explicit:
+            value = explicit
+            if explicit_source == NEW_DB_PASSWORD_FLAG:
+                note_password_on_command_line(NEW_DB_PASSWORD_FLAG, on_warning)
+        else:
+            note_empty_source(explicit_source)
+    if value is None and file is not None:
         source, value = NEW_DB_PASSWORD_FILE_FLAG, _read_password_file(file) or None
-    elif user_given and environ.get(NEW_DB_PASSWORD_VAR):
-        source, value = NEW_DB_PASSWORD_VAR, environ[NEW_DB_PASSWORD_VAR]
+        if value is None:
+            note_empty_source(NEW_DB_PASSWORD_FILE_FLAG)
+    if value is None and user_given and NEW_DB_PASSWORD_VAR in environ:
+        source, value = NEW_DB_PASSWORD_VAR, environ[NEW_DB_PASSWORD_VAR] or None
+        if value is None:
+            note_empty_source(NEW_DB_PASSWORD_VAR)
     if value is None:
         return None
     secret = as_secret(value)

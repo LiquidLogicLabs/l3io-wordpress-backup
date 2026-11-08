@@ -75,7 +75,7 @@ def test_every_line_of_a_backup_carries_one_run_id(
     lines: list[dict[str, Any]] = [json.loads(line) for line in err.splitlines()]
     assert lines, "nothing was written to stderr"
 
-    run_ids = {line.get("run_id") for line in lines}
+    run_ids = {line.get("l3io_run_id") for line in lines}
     assert len(run_ids) == 1
     assert None not in run_ids
     assert {line.get("correlation_id") for line in lines} == {"caller-correlation"}

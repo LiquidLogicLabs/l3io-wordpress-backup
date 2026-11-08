@@ -121,7 +121,7 @@ def test_a_backup_produces_one_archive_and_leaves_the_site_unchanged(
     assert main(["backup", "--wp-dir", str(site), "--archive", str(final)]) == 0
 
     assert list(out.iterdir()) == [final]
-    with tarfile.open(final, mode="r:") as outer:
+    with tarfile.open(final, mode="r:*") as outer:
         assert outer.getnames() == [MANIFEST_MEMBER, PAYLOAD_MEMBER]
         manifest_file = outer.extractfile(MANIFEST_MEMBER)
         payload_file = outer.extractfile(PAYLOAD_MEMBER)

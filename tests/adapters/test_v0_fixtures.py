@@ -214,7 +214,7 @@ def test_a_verify_run_logs_one_v0_record(
         record["format_version"],
         record["integrity"],
         record["passed"],
-        record["run_id"],
+        record["l3io_run_id"],
     ) == ("v0", "STRUCTURAL_ONLY", True, run_id)
     assert "VERIFIED" not in text
 

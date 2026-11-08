@@ -67,7 +67,7 @@ class ReadArchive:
 
 def read_archive(path: Path, *, decrypt: XorCipher | None = None) -> ReadArchive:
     """Read ``path`` back with stdlib ``tarfile``."""
-    with tarfile.open(path, mode="r:") as outer:
+    with tarfile.open(path, mode="r:*") as outer:
         infos = outer.getmembers()
         manifest_file = outer.extractfile(infos[0])
         assert manifest_file is not None

@@ -1,11 +1,11 @@
 next:
-  '002': 122
-  '003': 117
+  '002': 123
+  '003': 118
   '004': 70
   '005': 14
   '007': 21
   '006': 26
-  '008': 32
+  '008': 36
 backlog:
 - key: BL-E002-005
   epic: '002'
@@ -42,16 +42,6 @@ backlog:
   source: arch-gate (l3io-arch-review)
   source_phase: arch-gate
   source_ref: l3io-arch-review
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
-- key: BL-E003-026
-  epic: '003'
-  sprint: ''
-  title: "E003: estimates not redone after the reorg and scope growth — sprint-01 rollup still holds S01-006's hours; E003-S01-001 still standard/7.5 h"
-  source: arch-gate (bmad-agent-architect)
-  source_phase: arch-gate
-  source_ref: bmad-agent-architect
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/arch/recheck-*-2026-10-28.md
@@ -415,26 +405,6 @@ backlog:
   kind: spec-proposal
   ref: _bmad-output/implementation-artifacts/epic-002/epic-closure/spec-proposals/AD-1.md
   description: 'Confirm or reject: /l3io-doctor triage. Spec: _bmad-output/planning-artifacts/architecture/architecture-py-wordpress-backup-2026-09-15/ARCHITECTURE-SPINE.md#ad-17--restore-phase-order-is-data-not-a-diagram. From: _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md.'
-- key: BL-E002-112
-  epic: '002'
-  sprint: ''
-  title: Backup plan interpreter and exclusion policy live in cli/backup.py (AD-4 boundary by convention only)
-  source: epic-arch-review (AD-3)
-  source_phase: epic-arch-review
-  source_ref: AD-3
-  severity: Low
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/arch-drift-review.md (AD-3). '
-- key: BL-E002-118
-  epic: '002'
-  sprint: ''
-  title: Passphrase minimum of 4 characters exists for redaction, not as policy
-  source: epic-redteam (RT-5)
-  source_phase: epic-redteam
-  source_ref: RT-5
-  severity: Low
-  status: backlog
-  description: 'See _bmad-output/implementation-artifacts/epic-002/epic-closure/redteam-report.md (RT-5). '
 - key: BL-E002-120
   epic: '002'
   sprint: ''
@@ -543,16 +513,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-089
-  epic: '003'
-  sprint: '02'
-  title: Hostile Archive can park a Site behind a blocking journal
-  source: redteam (RT-S02-010)
-  source_phase: redteam
-  source_ref: RT-S02-010
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
 - key: BL-E003-094
   epic: '003'
   sprint: '02'
@@ -600,16 +560,6 @@ backlog:
   source: ux-review (UX-S02-09)
   source_phase: ux-review
   source_ref: UX-S02-09
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
-- key: BL-E003-105
-  epic: '003'
-  sprint: '02'
-  title: On failure the snapshot path goes to stdout while the error goes to stderr
-  source: ux-review (UX-S02-10)
-  source_phase: ux-review
-  source_ref: UX-S02-10
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-003/sprint-02/closure/
@@ -893,16 +843,6 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
-- key: BL-E007-015
-  epic: '007'
-  sprint: '01'
-  title: Archive Manifest config_path=../wp-config.php creates a file in the parent of the Site Root (designed FR-29; bounded)
-  source: epic-redteam (RT-8)
-  source_phase: epic-redteam
-  source_ref: RT-8
-  severity: Low
-  status: backlog
-  description: See _bmad-output/implementation-artifacts/epic-007/epic-closure/redteam-report.md
 - key: BL-E007-018
   epic: '007'
   sprint: '01'
@@ -950,16 +890,6 @@ backlog:
   source: epic-adversarial (AR-6)
   source_phase: epic-adversarial
   source_ref: AR-6
-  severity: Low
-  status: backlog
-  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
-- key: BL-E006-014
-  epic: '006'
-  sprint: ''
-  title: A joined dry-run context with dry_run=False silently becomes a rehearsal; refuse it with UsageError
-  source: epic-adversarial (AR-7)
-  source_phase: epic-adversarial
-  source_ref: AR-7
   severity: Low
   status: backlog
   description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/adversarial-review.md'
@@ -1208,3 +1138,50 @@ backlog:
   severity: Low
   status: backlog
   description: See _bmad-output/implementation-artifacts/epic-008/epic-closure/arch-drift-review.md
+- key: BL-E008-032
+  epic: '008'
+  sprint: ''
+  title: "post-v1 (owner-deferred, 2026-11-07): --overwrite-wp-config copies the target's DB_* with get()/set(), which quotes PHP expressions (e.g. Docker image getenv_docker(...)) into string literals; ask l3io-wordpress-config for a copy-define-source-verbatim API and use it. v1: documented in --overwrite-wp-config help and docs/restore.md"
+  source: config agent report (l3io-wordpress-config 0.1.4, 2026-11-07)
+  severity: Medium
+  status: backlog
+- key: BL-E002-122
+  epic: '002'
+  sprint: ''
+  title: "post-v1 (owner-deferred, 2026-11-07): extract a root restore into a private staging directory and move entries in with openat/renameat (new ADR); then drop --allow-root's race warning"
+  source: close-out owner decisions 2026-11-07
+  severity: Low
+  status: backlog
+  description: Follow-up to BL-E002-098 (decision (c) now, (a) after release). Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 1.
+- key: BL-E008-033
+  epic: '008'
+  sprint: ''
+  title: "post-v1 (owner-deferred, 2026-11-07): optional confinement of the relocation wp child (restored Site PHP runs with the operator's privileges and HOME)"
+  source: close-out owner decisions 2026-11-07
+  severity: Low
+  status: backlog
+  description: Follow-up to BL-E008-014; accepted and documented for v1. Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 7.
+- key: BL-E003-117
+  epic: '003'
+  sprint: ''
+  title: 'post-v1 (owner-deferred, 2026-11-07): snapshot prune command: retention for Safety Snapshots and saved configs'
+  source: close-out owner decisions 2026-11-07
+  severity: Low
+  status: backlog
+  description: Follow-up to BL-E003-087 (accepted and documented for v1). Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 22 (and 26).
+- key: BL-E008-034
+  epic: '008'
+  sprint: ''
+  title: 'post-v1 (owner-deferred, 2026-11-07): read-only pre-dump Manifest measurement so the 256 MiB cap is checked at plan time and by a Dry Run'
+  source: close-out owner decisions 2026-11-07
+  severity: Low
+  status: backlog
+  description: Follow-up to BL-E008-003/BL-E008-010; v1 enforces the cap at write time. Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 15.
+- key: BL-E008-035
+  epic: '008'
+  sprint: ''
+  title: 'post-v1 (owner-deferred, 2026-11-07): streaming Manifest parse, then an on-disk member index, for truly bounded read-side memory (with BL-E008-001)'
+  source: close-out owner decisions 2026-11-07
+  severity: Low
+  status: backlog
+  description: Follow-up to BL-E008-011; v1 documents the ~4.3x bound. Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 16 (and 26).

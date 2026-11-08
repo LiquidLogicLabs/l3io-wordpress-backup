@@ -123,9 +123,10 @@ events and the status of those spans.
 signal handler or change the working directory, `os.environ` or the tracer
 provider. It does three things to the host process that you should know:
 
-- During a call it binds `run_id` and `dry_run` in structlog's context
-  variables, and restores them afterwards; a host key of the same name is
-  hidden for the call.
+- During a call it binds `l3io_run_id` and `l3io_dry_run` in structlog's
+  context variables, and restores them afterwards. The `l3io_` prefix (owner
+  decision 2026-11-07, BL-E006-019) keeps a host's own `run_id` and `dry_run`
+  keys untouched.
 - While a `wp` child runs during a restore, the whole process is marked
   non-dumpable (`PR_SET_DUMPABLE`, Linux), so the child cannot read this
   process's `/proc` entries. For that time (up to four hours per child) the
@@ -177,9 +178,15 @@ than ignored, so an Archive is never written plain by omission, and a
 (`passphrase_ignored`).
 `dry_run=True` plans, checks and writes nothing. `on_warning` is accepted
 for parity with `restore`; `backup` gives no notice today.
+A backup that dumps the database refuses a non-local `DB_HOST` (anything but
+`localhost`, `127.0.0.1`, `::1` or a socket path) before any connection with
+`DatabaseHostUnconfirmedError` unless `confirm_db_host` names that host, and a
+`target` that resolves inside the Site Root is refused with
+`TargetInsideSiteRootError` unless `allow_target_in_site_root=True` (owner
+decisions 2026-11-07; `--confirm-db-host`, `--allow-target-in-site-root`).
 
 ```python
-backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> BackupResult
+backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, confirm_db_host: str | None = None, allow_target_in_site_root: bool = False) -> BackupResult
 ```
 
 | Parameter | Type | Default |
@@ -195,6 +202,8 @@ backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarge
 | `prompt` | `Callable[[str], str] \| None` | `None` |
 | `dry_run` | `bool` | `False` |
 | `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
+| `confirm_db_host` | `str \| None` | `None` |
+| `allow_target_in_site_root` | `bool` | `False` |
 
 Returns: `BackupResult`.
 
@@ -246,7 +255,10 @@ relocation. A passphrase (`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE` or
 `L3IO_WP_BACKUP_NEW_DB_PASSWORD` if `relocation.new_db_user` is set. Notices go
 to `on_warning` as `RunWarning` values when given, else to stderr. A real
 restore whose database report does not say restored raises
-`DatabaseNotRestoredError`, as the CLI exits `FAILED`.
+`DatabaseNotRestoredError`, as the CLI exits `FAILED`. A process running as
+root is refused with `RootRestoreRefusedError` before the Run opens unless
+`allow_root=True` (`--allow-root`; owner decision 2026-11-07), and then a
+WARNING `restore_running_as_root` names the extraction race.
 
 **Forwarding user input.** `mode` and `overrides` are values, not the CLI's
 flag-combination table (AD-25): `RestoreMode.ALL_CLEAN` clears the Site Root
@@ -258,7 +270,7 @@ the operator spell out flag by flag, so it should check that input against
 what those users may authorize.
 
 ```python
-restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, admin_tls: AdminTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> RestoreOutcome
+restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, admin_tls: AdminTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, allow_root: bool = False) -> RestoreOutcome
 ```
 
 | Parameter | Type | Default |
@@ -282,6 +294,7 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 | `resolve_run_id` | `str \| None` | `None` |
 | `dry_run` | `bool` | `False` |
 | `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
+| `allow_root` | `bool` | `False` |
 
 Returns: `RestoreOutcome`.
 
@@ -550,31 +563,6 @@ RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ..
 
 Defined in the CLI layer; import it from l3io.wp.backup.api.
 
-### `RunContext`
-
-One Run: its identity, logger, clock, registry, tracer and workspace.
-
-```python
-RunContext(run_id: str, started_at: datetime, workspace: Path, logger: structlog.stdlib.BoundLogger, clock: Clock, secrets: SecretRegistry, tracer: Tracer, run_span: RunSpan, dry_run: bool = False, site_lock: LockHandle | None = None)
-```
-
-| Field | Type | Default |
-|---|---|---|
-| `run_id` | `str` | required |
-| `started_at` | `datetime` | required |
-| `workspace` | `Path` | required |
-| `logger` | `structlog.stdlib.BoundLogger` | required |
-| `clock` | `Clock` | required |
-| `secrets` | `SecretRegistry` | required |
-| `tracer` | `Tracer` | required |
-| `run_span` | `RunSpan` | required |
-| `dry_run` | `bool` | `False` |
-| `site_lock` | `LockHandle \| None` | `None` |
-
-Do not construct a `RunContext`. No public entry point accepts or returns one: the `context=` parameter was removed before v1 and returns with the neutral library module (BL-E008-001, BL-E006-024).
-
-Defined in the CLI layer; import it from l3io.wp.backup.api.
-
 ### `SiteDescriptor`
 
 Everything the Run knows about one Site, validated at construction.
@@ -822,7 +810,7 @@ The Archive does not exist or cannot be opened.
 ArchiveNotFoundError(path: PurePath)
 ```
 
-Base: `BackupError`. Exit code: `FAILED` (1).
+Base: `BackupError`. Exit code: `USAGE` (2): the path the caller named is not there (owner decision 2026-11-07, BL-E002-074).
 
 Fields: `path`, each holding the argument of the same name.
 
@@ -974,6 +962,18 @@ Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `host`, `port`, `plugin`, each holding the argument of the same name.
 
+### `DatabaseHostUnconfirmedError`
+
+A backup that dumps the database found a non-local `DB_HOST` (anything but `localhost`, `127.0.0.1`, `::1` or a socket path) that `--confirm-db-host` (`confirm_db_host=`) did not name. Raised before any connection, whatever the credential source (BL-E002-063).
+
+```python
+DatabaseHostUnconfirmedError(*, host: str, confirmed: str | None, flag: str)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `host`, `confirmed`, `flag`, each holding the argument of the same name.
+
 ### `DatabaseNotRestoredError`
 
 A real Run's plan loaded the Dump and the report does not say restored.
@@ -1081,6 +1081,18 @@ ExpansionRatioError(*, expanded: int, compressed: int)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `expanded`, `compressed`, each holding the argument of the same name.
+
+### `ExtractionRefusedAfterCleanError`
+
+Extraction refused a member after `CLEAN` had cleared the Site Root, so the Site was changed; the message says so and names the Safety Snapshot (BL-E002-069).
+
+```python
+ExtractionRefusedAfterCleanError(member: str | None, reason: str, *, snapshot: str | None)
+```
+
+Base: `BackupError`. Exit code: `VERIFICATION_FAILED` (8).
+
+Fields: `member`, `reason`, `snapshot`, each holding the argument of the same name.
 
 ### `ExtractionRefusedError`
 
@@ -1226,6 +1238,18 @@ Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `reason`, `database`, `exit_status`, each holding the argument of the same name.
 
+### `LoadReadinessError`
+
+The load-readiness check, run as the WordPress account, could not run.
+
+```python
+LoadReadinessError(reason: str, *, database: str, source: str)
+```
+
+Base: `BackupError`. Exit code: `NOT_READY` (7).
+
+Fields: `reason`, `database`, `source`, each holding the argument of the same name. `check_load` answers as the WordPress account the load runs as, never the administrator (owner decision 2026-11-07); `source` names that account's credential source, never a value.
+
 ### `MalformedManifestError`
 
 A Manifest's JSON is not a valid v1 Manifest.
@@ -1346,7 +1370,7 @@ Encryption was requested, or the Archive is encrypted, and no passphrase.
 PassphraseRequiredError(operation: Literal['backup', 'restore', 'verify'])
 ```
 
-Base: `RefusedError`. Exit code: `REFUSED` (3).
+Base: `RefusedError`. Exit code: `CREDENTIALS` (4): a missing key is a credentials failure (owner decision 2026-11-07, BL-E002-069).
 
 Fields: `operation`, each holding the argument of the same name.
 
@@ -1426,6 +1450,18 @@ Base: `UsageError`. Exit code: `USAGE` (2).
 
 Fields: `flags`, `mode`, each holding the argument of the same name.
 
+### `RootRestoreRefusedError`
+
+A restore was started as root without `--allow-root` (`allow_root=True`). Raised before the Run opens (BL-E002-098).
+
+```python
+RootRestoreRefusedError(*, flag: str)
+```
+
+Base: `UsageError`. Exit code: `USAGE` (2).
+
+Fields: `flag`, holding the argument of the same name.
+
 ### `RunContextActiveError`
 
 AD-16 — a Run was opened while another is active in this context.
@@ -1498,6 +1534,18 @@ Base: `BackupError`. Exit code: `LOCKED` (9).
 
 Fields: `site_root`, `lock_path`, `holder_run_id`, `holder_pid`, `holder_started_at`, `holder_hostname`, each holding the argument of the same name.
 
+### `SiteRootNotFoundError`
+
+The Site Root the caller named (`--wp-dir`, `site`, `site_root`) does not exist (BL-E002-074).
+
+```python
+SiteRootNotFoundError(path: str)
+```
+
+Base: `InvalidSiteDescriptorError`. Exit code: `USAGE` (2).
+
+Fields: `path`, holding the argument of the same name.
+
 ### `SnapshotFailedError`
 
 FR-8: the Safety Snapshot was not written and verified; nothing destroyed.
@@ -1545,6 +1593,18 @@ StoredUrlMissingError(option: str)
 Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `option`, each holding the argument of the same name.
+
+### `TargetInsideSiteRootError`
+
+A backup's Archive target resolves inside the Site Root and `--allow-target-in-site-root` (`allow_target_in_site_root=True`) was not given. Raised before any effect (BL-E002-064).
+
+```python
+TargetInsideSiteRootError(*, target: PurePath, site_root: PurePath, flag: str)
+```
+
+Base: `UsageError`. Exit code: `USAGE` (2).
+
+Fields: `target`, `site_root`, `flag`, each holding the argument of the same name.
 
 ### `TargetChangedError`
 

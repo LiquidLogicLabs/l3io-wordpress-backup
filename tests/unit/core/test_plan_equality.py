@@ -41,7 +41,7 @@ def site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "define('DB_NAME', 'wptest');\n"
         "define('DB_USER', 'wp');\n"
         "define('DB_PASSWORD', 'not-a-real-secret');\n"
-        "define('DB_HOST', 'db.invalid');\n"
+        "define('DB_HOST', 'localhost');\n"
         "$table_prefix = 'wp_';\n",
         encoding="utf-8",
     )

@@ -64,6 +64,7 @@ from tests.conftest import (  # noqa: E402
     seal_archive,
     write_wp_config,
 )
+from tests.root_mode import allow_root_argv  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "core"
@@ -751,13 +752,15 @@ def test_restore_cli_is_credential_clean(
         "--force",
         "--snapshot-dir",
         str(tmp_path / "snapshots"),
+        *allow_root_argv(),
         *common,
     ]
     assert main(full) == int(ExitCode.OK)
     restored = capsys.readouterr()
     s.add("restore stdout", restored.out)
     s.add("restore stderr", restored.err)
-    assert "safety snapshot is NOT encrypted" in restored.err
+    # JSON lines on stderr (BL-E002-103 UX-5): the WARNING record is the notice.
+    assert '"event": "safety_snapshot_unencrypted"' in restored.err
     empty = tmp_path / "empty-target"
     empty.mkdir()
     refused = [*full[:4], str(empty), *full[5:]]
@@ -798,7 +801,7 @@ def test_a_password_typed_into_archive_database_is_never_echoed(
     stated = spelling.format(
         user=os.environ.get("DB_USER", "wp"),
         pw=s.password,
-        host=os.environ.get("DB_HOST", "db.invalid"),
+        host=os.environ.get("DB_HOST", "localhost"),
         name=os.environ.get("DB_NAME", "wptest"),
     )
     argv = [
@@ -816,6 +819,7 @@ def test_a_password_typed_into_archive_database_is_never_echoed(
         str(tmp_path / "snapshots"),
         "--archive-database",
         stated,
+        *allow_root_argv(),
         "--admin-username",
         "wpadmin",
         "--admin-password",

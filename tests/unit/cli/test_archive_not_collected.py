@@ -54,6 +54,8 @@ def test_a_files_backup_inside_the_site_root_does_not_contain_its_partial(
             str(archive),
             "--mode",
             "files",
+            # BL-E002-064: inside the Site Root only when allowed.
+            "--allow-target-in-site-root",
         ]
     )
     assert code == 0
@@ -127,7 +129,8 @@ def test_a_second_default_backup_from_the_site_root_does_not_hold_the_first(
     earlier.write_bytes(b"an earlier archive")
     leftover = site / ".wpbackup2-rtdb-20261103184136.tar.gz.l9cp4mzz.partial"
     leftover.write_bytes(b"a killed run's staged file")
-    assert main(["backup", "--wp-dir", ".", "--mode", "files"]) == 0
+    argv = ["backup", "--wp-dir", ".", "--mode", "files", "--allow-target-in-site-root"]
+    assert main(argv) == 0
     written = sorted(set(site.glob("wpbackup2-rtdb-*.tar.gz")) - {earlier})
     assert len(written) == 1
     with tarfile.open(written[0]) as outer:

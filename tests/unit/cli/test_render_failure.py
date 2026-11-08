@@ -151,7 +151,8 @@ def test_the_record_message_is_one_line_at_debug(
 
     argv = ["--log-level", "DEBUG", "--log-format", "json", "backup"]
     archive = site / "index.php"
-    code = main([*argv, "--wp-dir", str(site), "--archive", str(archive)])
+    allowed = "--allow-target-in-site-root"  # BL-E002-064
+    code = main([*argv, "--wp-dir", str(site), "--archive", str(archive), allowed])
     assert code == ExitCode.REFUSED
     records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     (failed,) = [r for r in records if r["event"] == "command_failed"]

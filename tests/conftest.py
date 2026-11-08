@@ -195,8 +195,8 @@ def _environ() -> dict[str, str]:
 
 
 def write_wp_config(path: Path, *, password: str, user: str | None = None) -> None:
-    """A ``wp-config.php`` for the CI database (or ``db.invalid``)."""
-    host = os.environ.get("DB_HOST", "db.invalid")
+    """A ``wp-config.php`` for the CI database (or ``localhost``)."""
+    host = os.environ.get("DB_HOST", "localhost")
     user = user or os.environ.get("DB_USER", "wp")
     path.write_text(
         "<?php\n"

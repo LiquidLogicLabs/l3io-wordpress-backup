@@ -232,6 +232,10 @@ ADDITIONS = [
     (DOCTOR_COMMAND, "--wp-dir"),
     (DOCTOR_COMMAND, "--archive"),
     (DOCTOR_COMMAND, "--json"),
+    # Close-out owner decisions 2026-11-07: BL-E002-098, -063, -064.
+    (RESTORE_COMMAND, "--allow-root"),
+    (BACKUP_COMMAND, "--confirm-db-host"),
+    (BACKUP_COMMAND, "--allow-target-in-site-root"),
 ]
 
 

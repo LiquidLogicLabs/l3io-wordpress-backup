@@ -385,7 +385,8 @@ def test_no_wp_database_restore_method_is_unbound_and_each_checks_the_admin() ->
     Scope, derived: the members of both Protocols, less the backup pair.
     With an administrator bound, each call reaches database (whose
     unresolvable double fails as a package error, never ``UnboundAdapterError``);
-    without one, each but ``load_dump`` refuses before any connection.
+    without one, each but ``load_dump`` and ``check_load`` refuses before any
+    connection.
     """
     pytest.importorskip("l3io.wp.database")
     from l3io.wp.backup.adapters.database import WpDatabase
@@ -420,7 +421,8 @@ def test_no_wp_database_restore_method_is_unbound_and_each_checks_the_admin() ->
         with pytest.raises(BackupError) as caught:
             method(*positional, **keywords)
         assert not isinstance(caught.value, UnboundAdapterError), name
-        if name != "load_dump":
+        # load_dump and check_load run as the WordPress account (BL-E002-104).
+        if name not in {"load_dump", "check_load"}:
             with pytest.raises(AdminCredentialsRequiredError, match="--admin-username"):
                 getattr(bare, name)(*positional, **keywords)
 

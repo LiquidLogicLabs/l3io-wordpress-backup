@@ -84,12 +84,13 @@ def written(
     return _write(tmp_path, members, manifest_builder, workspace)
 
 
-def test_the_outer_tar_is_uncompressed_and_holds_manifest_then_payload(
+def test_the_outer_tar_is_gzip_wrapped_and_holds_manifest_then_payload(
     written: tuple[Path, Manifest], archive_reader: Callable[..., Any]
 ) -> None:
     path, _ = written
     with path.open("rb") as handle:
-        assert handle.read(2) != b"\x1f\x8b"  # not gzip
+        # Owner decision 21: a level-0 gzip stream (tests/adapters/test_outer_gzip.py).
+        assert handle.read(2) == b"\x1f\x8b"
     read = archive_reader(path)
     assert read.outer == [MANIFEST_MEMBER, PAYLOAD_MEMBER]
     assert read.payload[:2] == b"\x1f\x8b"  # the payload is gzip
@@ -555,6 +556,6 @@ def test_every_written_header_carries_the_manifests_run_clock_time(
     members = _members(site_root, dump_file)
     path, manifest = _write(tmp_path, members, manifest_builder, workspace, cipher)
     stamp = datetime.fromisoformat(manifest.created_at).timestamp()
-    with tarfile.open(path, mode="r:") as outer:
+    with tarfile.open(path, mode="r:*") as outer:
         headers = outer.getmembers()
     assert [h.mtime for h in headers] == [stamp, stamp]

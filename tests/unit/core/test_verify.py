@@ -204,10 +204,12 @@ def test_a_second_manifest_or_extra_member_is_undeclared(
     ]
 
 
-def test_a_gzip_outer_tar_is_not_v1() -> None:
+@pytest.mark.parametrize("wrapped", [True, False], ids=["gzip", "plain"])
+def test_both_outer_encodings_are_v1(*, wrapped: bool) -> None:
+    """Owner decision 21: gzip-wrapped (new) and plain (earlier) outer tars."""
     index, digests = good()
-    _, result = verify_probe(dataclasses.replace(index, gzip=True), digests)
-    assert [f.reason for f in result.failures] == [R.UNRECOGNISED_FORMAT]
+    _, result = verify_probe(dataclasses.replace(index, gzip=wrapped), digests)
+    assert result.passed, result.failures
 
 
 def test_a_payload_name_disagreeing_with_encrypted_is_unreadable() -> None:

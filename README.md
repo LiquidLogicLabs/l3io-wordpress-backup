@@ -52,6 +52,12 @@ wpbackup2 backup --wp-dir /www/wordpress --archive ~/backup.tar.gz
 
 To rehearse a backup first, add `--whatIf` (before or after `backup`). The Dry Run resolves the credentials, runs the preflight and asks the database whether it can be dumped, all for real; then it prints the ordered plan and writes nothing. Its last line says so. It does not detect what only writing finds: a full disk, a file that cannot be read, or an Archive larger than the Manifest cap. A Site Lock is taken as for a real Run, so a Dry Run waits for nobody and is refused (exit 9) while another Run of the same Site by the same OS user holds the lock.
 
+**Output for cron mail.** stderr is the log stream. On a terminal it is human-readable; anywhere else (cron, a pipe, journald) it is strict JSON lines, one object per line, so a log collector can parse every line. Where a person reads the output instead — a cron job that mails it — pass `--log-format console` before the subcommand to get human-readable lines there too, failures and warnings included:
+
+```
+wpbackup2 --log-format console backup --wp-dir /www/wordpress --archive ~/backup.tar.gz
+```
+
 To check an archive without touching a site:
 
 ```
@@ -59,6 +65,8 @@ wpbackup2 verify --archive ~/backup.tar.gz
 ```
 
 Without a key, `verify` proves the archive's checksums are **consistent** with its manifest, not that the archive is **authentic**: the manifest is unprotected, so anyone who can rewrite the archive can rewrite its checksums too. It says so (`authenticity not checked (no key)`). For an encrypted archive, `--authenticate` decrypts the whole payload with its passphrase — taken from `L3IO_WP_BACKUP_PASSPHRASE` or a terminal prompt, never from the command line — and `age` authenticates every chunk. A wrong passphrase or a tampered payload exits 8; a plain archive is refused, since there is nothing to authenticate. **Encryption protects file contents only.** The manifest stays readable in clear in an encrypted archive: the site path, the database name, every file path and size, and the exclusions are visible to anyone who can read the archive, without the passphrase. To refuse a plain archive where an encrypted one is expected (for example one substituted by someone who can write the storage target), restore with `--require-encrypted`; without it a plain archive is restored with a warning, since plain archives are not authenticated.
+
+**Memory when reading an archive.** `verify` and `restore` read the whole manifest into memory and parse it before anything is authenticated, taking about 4.3 times its size. A manifest is capped at 256 MiB, so the worst case is about 1.1 GB; an ordinary site's manifest is a few MB. A streaming manifest reader is planned after v1.
 
 To restore (see [docs/restore.md](docs/restore.md) for every mode, the refusals and their exit codes):
 
@@ -131,14 +139,16 @@ exit codes:
 
 ```text
 $ wpbackup2 backup --help
-usage: wpbackup2 backup [-h] --wp-dir WP_DIR [--whatIf] [--archive ARCHIVE] [--wp-config PATH]
+usage: wpbackup2 backup [-h] [--wp-dir WP_DIR] [--whatIf] [--archive ARCHIVE] [--wp-config PATH]
                         [--mode {files,db,all}] [--encrypt-with-passphrase] [--exclude PATTERN]
-                        [--no-default-excludes] [--list-default-excludes]
-                        [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
+                        [--no-default-excludes] [--list-default-excludes] [--confirm-db-host HOST]
+                        [--allow-target-in-site-root] [--db-credentials-aws-secret-id ID]
+                        [--db-credentials-aws-region REGION]
 
 options:
   -h, --help            show this help message and exit
-  --wp-dir WP_DIR       Path to the root of the WordPress directory
+  --wp-dir WP_DIR       Path to the root of the WordPress directory (required, except with --list-
+                        default-excludes)
   --whatIf, --what-if   Dry Run: run every check and query for real, print the ordered plan, and
                         write nothing (also accepted before `backup`)
   --archive ARCHIVE     Archive path or file: URL (default: ./wpbackup2-<db>-<UTC
@@ -153,8 +163,15 @@ options:
   --no-default-excludes
                         Do not apply the default exclusion set
   --list-default-excludes
-                        Print the default exclusion set and exit without backing up (takes no
-                        other backup flag besides --wp-dir)
+                        Print the default exclusion set and exit without backing up (needs no
+                        --wp-dir; takes no other backup flag)
+  --confirm-db-host HOST
+                        Confirm a database host that is not local (anything but localhost,
+                        127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, or the
+                        backup is refused before any connection
+  --allow-target-in-site-root
+                        Write the archive inside the Site Root (refused by default: the web server
+                        may serve it); prefer a target outside the Site Root
 
 database credentials:
   --db-credentials-aws-secret-id ID
@@ -176,7 +193,7 @@ usage: wpbackup2 restore [-h] --wp-dir WP_DIR --archive ARCHIVE [--mode {files,d
                          [--admin-credentials-aws-region REGION] [--only-appointed-in-asg]
                          [--new-site-url URL] [--new-site-home-url URL] [--new-db-host HOST]
                          [--new-db-name NAME] [--new-db-user USER] [--new-db-password PASSWORD]
-                         [--new-db-password-file PATH] [--allow-unencrypted]
+                         [--new-db-password-file PATH] [--allow-root] [--allow-unencrypted]
                          [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
 
 options:
@@ -207,7 +224,10 @@ restore options:
   --wp-config PATH      Use this wp-config.php instead of searching for it
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
-                        a mode that restores files)
+                        a mode that restores files). Do not use it when the target's DB_*
+                        constants are PHP expressions (such as the WordPress Docker image's
+                        getenv_docker(...)): they are written back as their current values, not as
+                        the expressions; keep the default instead
   --reset-existing-db-user
                         When the target has no wp-config.php and the archive's database account
                         already exists: reset its password to the archive's (refused otherwise)
@@ -252,6 +272,8 @@ restore options:
   --new-db-password-file PATH
                         Read the password of --new-db-user from this file (its first line; make it
                         readable only by you)
+  --allow-root          Restore even though running as root (refused by default: extraction as
+                        root can be raced by a symlink swap in the Site Root)
   --allow-unencrypted   Restore an archive that is not encrypted even though a passphrase was
                         given (without it, that is refused as a possible substitution)
 
@@ -264,15 +286,16 @@ database credentials:
 
 ```text
 $ wpbackup2 verify --help
-usage: wpbackup2 verify [-h] --archive ARCHIVE [--authenticate]
+usage: wpbackup2 verify [-h] [--whatIf] --archive ARCHIVE [--authenticate]
 
 options:
-  -h, --help         show this help message and exit
-  --archive ARCHIVE  Path or file: URL of the archive to check.
-  --authenticate     Decrypt the encrypted payload to prove the archive authentic; without it,
-                     verify proves only that its checksums are consistent. The passphrase comes
-                     from L3IO_WP_BACKUP_PASSPHRASE or a prompt. It does not show the archive is
-                     the latest one: an older archive under the same passphrase also passes.
+  -h, --help           show this help message and exit
+  --whatIf, --what-if  Accepted for symmetry: verify is read-only, so it changes nothing
+  --archive ARCHIVE    Path or file: URL of the archive to check.
+  --authenticate       Decrypt the encrypted payload to prove the archive authentic; without it,
+                       verify proves only that its checksums are consistent. The passphrase comes
+                       from L3IO_WP_BACKUP_PASSPHRASE or a prompt. It does not show the archive is
+                       the latest one: an older archive under the same passphrase also passes.
 ```
 
 ```text

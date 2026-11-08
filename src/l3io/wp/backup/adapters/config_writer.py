@@ -6,14 +6,14 @@ functions that use it — AD-8). This is the only module in the package that
 imports ``l3io.wp.config``; :func:`read_defined` is the reader
 ``adapters/database.py`` uses for ``WP_SITEURL``/``WP_HOME``.
 
-``set_constants`` writes no config bytes itself: each key is one
-``WpConfigFile.set``, an atomic, read-back-verified write that keeps the file's
-mode and owner and fsyncs the file and its directory before returning. The
-module's own writes are the two ``--overwrite-wp-config`` effects, which that
-package has no call for: ``save_copy`` (a ``0600`` fsynced copy) and
-``replace_file`` (the Archive copy's text, handed over in memory, with
-``keep`` applied through ``WpConfigString.set``, written beside the config,
-fsynced and moved over it). Neither translates a newline, so CRLF stays CRLF
+``set_constants`` and ``replace_file`` write no config bytes themselves: each
+key is one ``WpConfigFile.set``, and the ``--overwrite-wp-config`` replacement
+(the Archive copy's text, handed over in memory, with ``keep`` applied through
+``WpConfigString.set``) is one ``WpConfigFile.replace_content`` — the library's
+atomic, read-back-verified write that keeps the file's mode and owner and
+fsyncs the file and its directory (0.1.4, BL-E002-091). The module's one own
+write is ``save_copy`` (a ``0600`` fsynced copy of the target's config), which
+that package has no call for. Nothing translates a newline, so CRLF stays CRLF
 byte for byte.
 
 Every ``DB_PASSWORD`` value this module is handed or reads is registered with
@@ -25,12 +25,11 @@ from __future__ import annotations
 
 import os
 import shutil
-import stat
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 import structlog
 
@@ -43,9 +42,6 @@ from l3io.wp.backup.domain.errors import (
     MissingExtraError,
 )
 from l3io.wp.backup.ports.config import WHOLE_FILE
-
-if TYPE_CHECKING:
-    from l3io.wp.config import WpConfigString
 
 __all__ = ["WpConfigWriter", "read_defined", "refuse_unkeepable"]
 
@@ -140,14 +136,6 @@ def _sync_directory_after_commit(directory: Path) -> None:
             path=str(directory),
             reason=exc.strerror or type(exc).__name__,
         )
-
-
-def _keep_owner(fd: int, original: os.stat_result) -> None:
-    """Give ``fd`` the original's owner, then its mode; refuse, never re-own."""
-    current = os.fstat(fd)
-    if (current.st_uid, current.st_gid) != (original.st_uid, original.st_gid):
-        os.fchown(fd, original.st_uid, original.st_gid)
-    os.fchmod(fd, stat.S_IMODE(original.st_mode))
 
 
 def refuse_unkeepable(
@@ -302,27 +290,30 @@ class WpConfigWriter:
         memory, so the replacement's values for
         those keys are never written anywhere. A ``keep`` value of ``None`` (a
         constant the target does not define) cannot be kept and is refused.
-        The temp file takes the original's owner and mode — refusing rather
-        than changing the owner — is fsynced, read back, and ``os.replace``d
-        over ``config_file``; the directory is then fsynced. ``config_file``
-        must exist. On any failure the original is byte-identical and no
-        temp file is left behind.
+        The write is ``l3io-wordpress-config``'s ``WpConfigFile.replace_content``
+        (0.1.4, BL-E002-091): a temp file beside the config takes the
+        original's owner and mode before any content — refusing rather than
+        changing the owner — is fsynced, read back, and ``os.replace``d over
+        ``config_file``; the directory is then fsynced. A text that defines a
+        key twice is refused. ``config_file`` must exist. On any failure the
+        original is byte-identical and no temp file is left behind.
         """
         _require_extra()
-        from l3io.wp.config import WpConfigError, WpConfigString
+        from l3io.wp.config import (
+            ConfigReadError,
+            WpConfigError,
+            WpConfigFile,
+            WpConfigString,
+        )
 
         self._register(keep, source="replace_file")
         started = time.monotonic_ns()
         kept = refuse_unkeepable(config_file, keep)
         try:
-            original = config_file.stat()
-        except OSError as exc:
-            missing = (
-                _ABSENT_REASON
-                if isinstance(exc, FileNotFoundError)
-                else exc.strerror or type(exc).__name__
-            )
-            raise ConfigWriteFailedError(config_file, WHOLE_FILE, missing) from exc
+            target = WpConfigFile(config_file)
+        except ConfigReadError as exc:
+            unread = _ABSENT_REASON if not config_file.exists() else exc.reason
+            raise ConfigWriteFailedError(config_file, WHOLE_FILE, unread) from exc
         try:
             working = WpConfigString(content)
         except ValueError as exc:
@@ -340,7 +331,12 @@ class WpConfigWriter:
                 raise ConfigWriteFailedError(
                     config_file, key, _set_failure(exc)
                 ) from exc
-        self._write_over(config_file, working, original, kept)
+        try:
+            target.replace_content(working.content)
+        except WpConfigError as exc:
+            raise ConfigWriteFailedError(
+                config_file, WHOLE_FILE, _set_failure(exc)
+            ) from exc
         _log.info(
             "config_written",
             path=str(config_file),
@@ -350,52 +346,3 @@ class WpConfigWriter:
             changed=changed,
         )
         return ConfigWriteResult(changed=tuple(changed), performed=True)
-
-    @staticmethod
-    def _write_over(
-        config_file: Path,
-        working: WpConfigString,
-        original: os.stat_result,
-        keep: Mapping[str, str | int | bool],
-    ) -> None:
-        from l3io.wp.config import WpConfigString
-
-        directory = config_file.parent
-        try:
-            fd, name = tempfile.mkstemp(
-                dir=directory, prefix=f".{config_file.name}.", suffix=_TMP_SUFFIX
-            )
-        except OSError as exc:
-            reason = exc.strerror or type(exc).__name__
-            raise ConfigWriteFailedError(config_file, WHOLE_FILE, reason) from exc
-        tmp = Path(name)
-        committed = False
-        failure: str | None = None
-        try:
-            with os.fdopen(fd, "w+", encoding="utf-8", newline="") as handle:
-                try:
-                    _keep_owner(handle.fileno(), original)
-                except PermissionError:
-                    failure = _OWNER_REASON
-                if failure is None:
-                    handle.write(working.content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                    handle.seek(0)
-                    actual = WpConfigString(handle.read())
-                    wrong = [k for k, v in keep.items() if actual.get(k) != v]
-                    if actual.content != working.content or wrong:
-                        failure = _READ_BACK_REASON
-            if failure is None:
-                tmp.replace(config_file)
-                committed = True
-        except (OSError, ValueError) as exc:
-            os_reason = exc.strerror if isinstance(exc, OSError) else None
-            reason = os_reason or type(exc).__name__
-            raise ConfigWriteFailedError(config_file, WHOLE_FILE, reason) from exc
-        finally:
-            if not committed:
-                tmp.unlink(missing_ok=True)
-        if failure is not None:
-            raise ConfigWriteFailedError(config_file, WHOLE_FILE, failure)
-        _sync_directory_after_commit(directory)

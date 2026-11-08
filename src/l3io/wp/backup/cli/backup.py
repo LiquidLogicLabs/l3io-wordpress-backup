@@ -61,8 +61,9 @@ import os
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Final, Literal, cast
 from urllib.parse import unquote, urlsplit
 
@@ -71,6 +72,7 @@ import structlog
 from l3io.wp.backup.adapters.crypto import PassphraseCipher, build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
+    database_host_is_local,
     locate_wp_config,
     require_wp_config_credentials,
     site_descriptor_from_wp_config,
@@ -85,7 +87,12 @@ from l3io.wp.backup.cli.adapter_sets import (
 )
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import wordpress_source, wordpress_spec
-from l3io.wp.backup.cli.output import emit_result
+from l3io.wp.backup.cli.output import (
+    RunWarning,
+    WarningSink,
+    emit_result,
+    emit_warning,
+)
 from l3io.wp.backup.cli.passphrase import (
     note_unused_passphrase,
     require_passphrase,
@@ -105,13 +112,16 @@ from l3io.wp.backup.domain.archive_format import (
     ManifestMember,
     ManifestOrigin,
     ManifestPayload,
+    created_at_text,
     source_from_descriptor,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.errors import (
     ArchiveExistsError,
-    InvalidSiteDescriptorError,
+    DatabaseHostUnconfirmedError,
+    SiteRootNotFoundError,
+    TargetInsideSiteRootError,
     UsageError,
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry, ExclusionDecision
@@ -137,7 +147,10 @@ from l3io.wp.backup.ports.preflight import Preflight
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
+    "ALLOW_TARGET_IN_SITE_ROOT_FLAG",
+    "CONFIRM_DB_HOST_FLAG",
     "DRY_RUN_TRAILER",
+    "NO_ENVIRONMENT",
     "BackupRequest",
     "BackupResult",
     "PlannedAction",
@@ -154,6 +167,8 @@ __all__ = [
 _log = structlog.get_logger(__name__)
 
 _EXCLUSION_SOURCES: Final = ("default", "custom", "none")
+#: A driver's ``environ`` when its caller gives none: nothing is read.
+NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 _LOCAL_HOSTS: Final = ("", "localhost")
 #: Replaced by the writer with the payload it actually wrote.
 _PENDING_PAYLOAD: Final = ManifestPayload(name=PAYLOAD_MEMBER, size=0, sha256="0" * 64)
@@ -264,6 +279,11 @@ class BackupRequest:
     ``target=None`` means the default Archive name in the current directory.
     ``dry_run`` selects the no-op command adapters (AD-4) when the driver
     opens the Run; ``extra_tools`` reaches preflight through the plan.
+    ``confirm_db_host`` is ``--confirm-db-host``: a dumping backup whose
+    ``DB_HOST`` is not local is refused unless it names that host
+    (BL-E002-063). ``allow_target_in_site_root`` is
+    ``--allow-target-in-site-root``: without it a target inside the Site Root
+    is refused (BL-E002-064). Owner decisions 2026-11-07.
     """
 
     site_root: Path
@@ -275,6 +295,61 @@ class BackupRequest:
     exclusion: ExclusionPolicy = field(default_factory=default_exclusion_policy)
     dry_run: bool = False
     extra_tools: tuple[ToolRequirement, ...] = ()
+    confirm_db_host: str | None = None
+    allow_target_in_site_root: bool = False
+
+
+#: The flags that allow what :func:`drive_backup` otherwise refuses.
+CONFIRM_DB_HOST_FLAG: Final = "--confirm-db-host"
+ALLOW_TARGET_IN_SITE_ROOT_FLAG: Final = "--allow-target-in-site-root"
+
+
+def _require_local_or_confirmed(site: SiteDescriptor, confirmed: str | None) -> None:
+    """BL-E002-063: a non-local ``DB_HOST`` must be named, before any connection.
+
+    Provider-agnostic: whatever supplies the credentials, a backup would send
+    them to this host. Host names compare case-insensitively.
+    """
+    if database_host_is_local(site.db_host):
+        return
+    if confirmed is not None and confirmed.lower() == site.db_host.lower():
+        _log.info("db_host_confirmed", db_host=site.db_host)
+        return
+    raise DatabaseHostUnconfirmedError(
+        host=site.db_host, confirmed=confirmed, flag=CONFIRM_DB_HOST_FLAG
+    )
+
+
+def _require_target_outside(
+    target: StorageTarget,
+    site_root: Path,
+    *,
+    allow: bool,
+    on_warning: WarningSink | None,
+) -> None:
+    """BL-E002-064: a target inside the Site Root is refused unless allowed."""
+    resolved = Path(target.path).resolve()
+    if not resolved.is_relative_to(site_root):
+        return
+    if not allow:
+        raise TargetInsideSiteRootError(
+            target=resolved, site_root=site_root, flag=ALLOW_TARGET_IN_SITE_ROOT_FLAG
+        )
+    _log.warning(
+        "archive_target_in_site_root",
+        path=str(resolved),
+        site_root=str(site_root),
+        allowed_by=ALLOW_TARGET_IN_SITE_ROOT_FLAG,
+    )
+    emit_warning(
+        RunWarning(
+            code="archive_target_in_site_root",
+            message=f"the archive is written inside the Site Root, where the web "
+            f"server may serve it: {resolved}",
+            fields=MappingProxyType({"path": str(resolved)}),
+        ),
+        on_warning,
+    )
 
 
 def plan_backup(
@@ -464,7 +539,7 @@ def execute_backup_plan(
     ) -> Manifest:
         return Manifest(
             format_version=FORMAT_VERSION,
-            created_at=now.astimezone(UTC).isoformat(),
+            created_at=created_at_text(now),
             backup_scope=plan.scope.value,
             source=source_from_descriptor(site),
             encrypted=False,
@@ -615,8 +690,19 @@ def drive_backup(
     command_args: Sequence[str] | None = None,
     on_plan: Callable[[Sequence[PlannedAction]], None] | None = None,
     site_lock: SiteLock | None = None,
+    on_warning: WarningSink | None = None,
+    environ: Mapping[str, str] = NO_ENVIRONMENT,
 ) -> BackupResult:
     """The backup driver: returns or raises ``BackupError``; never prints.
+
+    ``environ`` is what the credential builders read (``L3IO_WP_BACKUP_DB_*``),
+    as ``drive_verify`` takes it: the CLI root passes ``os.environ``, the
+    library ``backup`` too, and no driver reads ``os.environ`` itself
+    (owner decision 2026-11-07, BL-E006-013).
+
+    Its operator notices (``RunWarning``) go to ``on_warning`` when given,
+    else to stderr (``cli/output.emit_warning``), as ``drive_restore``'s do
+    (owner decision 2026-11-07, BL-E008-012).
 
     The Site Lock for the canonical Site Root is held for the whole Run
     (``site_lock=None`` binds ``cli.adapter_sets.real_site_lock()``); a Run
@@ -630,10 +716,7 @@ def drive_backup(
     try:
         site_root = Path(request.site_root).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        msg = "site root does not exist"
-        raise InvalidSiteDescriptorError(
-            msg, paths=(str(Path(request.site_root).absolute()),)
-        ) from exc
+        raise SiteRootNotFoundError(str(Path(request.site_root).absolute())) from exc
     with join_or_open(
         ctx,
         operation="backup",
@@ -653,10 +736,20 @@ def drive_backup(
         target = request.target or storage_target_from_cli(
             default_archive_name(site.db_name, run.clock.now())
         )
+        # Owner decisions 2026-11-07: both refusals precede the credential
+        # source, the plan and any connection.
+        _require_target_outside(
+            target,
+            site_root,
+            allow=request.allow_target_in_site_root,
+            on_warning=on_warning,
+        )
+        if request.scope is not BackupScope.FILES:
+            _require_local_or_confirmed(site, request.confirm_db_host)
         credentials = wordpress_source(
             request.credentials,
             wp_config=wp_config,
-            environ=os.environ,
+            environ=environ,
             secrets=run.secrets,
         )
         plan = plan_backup(
@@ -740,8 +833,8 @@ def _refuse_flags_with_list(values: Mapping[str, object]) -> None:
     """``UsageError``: ``--list-default-excludes`` takes no other backup flag.
 
     It prints and exits without a Run, so any other flag would be accepted
-    and silently ignored (E008 closure A-02). ``--wp-dir`` stays required by
-    the parser (AD-22's frozen surface) and is the one flag it may carry. The
+    and silently ignored (E008 closure A-02). ``--wp-dir`` is optional with it
+    (BL-E008-013, owner decision 2026-11-07) and the one flag it may carry. The
     flags checked are the backup parser's own, so a flag added later is
     covered without touching this function.
     """
@@ -807,6 +900,8 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         exclusion=default_exclusion_policy() if exclusion is None else exclusion,
         dry_run=bool(args.what_if),
         extra_tools=extra_tools,
+        confirm_db_host=args.confirm_db_host,
+        allow_target_in_site_root=bool(args.allow_target_in_site_root),
     )
     planned: list[str] = []
     try:
@@ -814,6 +909,7 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
             request,
             ctx=None,
             secrets=secrets,
+            environ=os.environ,
             on_plan=lambda actions: planned.extend(a.text for a in actions),
         )
     except BaseException:

@@ -121,10 +121,9 @@ def _v1(
     digests: Mapping[str, MemberDigest],
     index: MemberIndex,
 ) -> list[VerificationFailure]:
-    failures = []
-    if index.gzip:
-        failures.append(_fail(None, _R.UNRECOGNISED_FORMAT))
-    failures += _outer_members(payload, index)
+    # Both outer encodings are v1: gzip-wrapped (written since owner decision
+    # 21) and plain (earlier v1 Archives). ``index.gzip`` is not a format fact.
+    failures = _outer_members(payload, index)
     failures += _outer_types(digests)
     failures += _payload(view, payload, digests)
     failures += _member_index(view)

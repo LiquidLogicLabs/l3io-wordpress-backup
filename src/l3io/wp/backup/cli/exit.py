@@ -30,6 +30,7 @@ import traceback
 from collections.abc import Callable
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry, open_registry
+from l3io.wp.backup.cli.logging import RUN_ID_KEY
 from l3io.wp.backup.cli.output import emit_failure
 from l3io.wp.backup.domain.errors import BackupError, exit_code_of
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
@@ -122,7 +123,7 @@ def report_failure(exc: Exception, *, secrets: SecretRegistry) -> ExitCode:
     """
     code = exit_code_for(exc)
     run_id = getattr(exc, RUN_ID_ATTR, None)
-    run_fields: dict[str, object] = {} if run_id is None else {"run_id": run_id}
+    run_fields: dict[str, object] = {} if run_id is None else {RUN_ID_KEY: run_id}
     try:
         with open_registry(secrets):
             emit_failure(

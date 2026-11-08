@@ -103,12 +103,13 @@ from l3io.wp.backup.cli.adapter_sets import (
     real_adapters,
     real_site_lock,
 )
-from l3io.wp.backup.cli.backup import backup, storage_target_from_cli
+from l3io.wp.backup.cli.backup import NO_ENVIRONMENT, backup, storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import (
     admin_source,
     admin_spec,
     new_db_password,
+    note_password_on_command_line,
     wordpress_source,
     wordpress_spec,
 )
@@ -166,6 +167,8 @@ from l3io.wp.backup.domain.errors import (
     InvalidSiteDescriptorError,
     PassphraseRequiredError,
     RefusedError,
+    RootRestoreRefusedError,
+    SiteRootNotFoundError,
     UnknownInterruptedRunError,
     UsageError,
 )
@@ -206,6 +209,7 @@ from l3io.wp.backup.ports.site_files import SiteFilesQuery
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
+    "ALLOW_ROOT_FLAG",
     "NO_SNAPSHOT_FLAG",
     "RESTORE_EXTENSION",
     "RESTORE_PROMPT",
@@ -374,8 +378,20 @@ def _flag(done: bool, yes: str, no: str) -> str:
     return yes if done else no
 
 
+#: Why a performed load is not reported restored: one of the three FR-9 facts
+#: (load, post-load check, cutover) did not hold.
+_NOT_RESTORED_REASON: Final = (
+    "the load, its post-load check or the cutover did not complete"
+)
+
+
 def database_report_lines(report: DatabaseRestoreReport) -> tuple[str, ...]:
-    """The report as human lines; a Dry Run's says "would", never "restored"."""
+    """The report as human lines; a Dry Run's says "would", never "restored".
+
+    The verdict comes first (BL-E003-106, owner decision 2026-11-07):
+    ``database restored`` or ``database NOT restored: <reason>``, then the
+    details. The JSON form (:func:`database_report_json`) is unchanged.
+    """
     after, before = report.live_database_after, report.live_database_before
     if not report.performed:
         would = [
@@ -386,7 +402,7 @@ def database_report_lines(report: DatabaseRestoreReport) -> tuple[str, ...]:
         ]
         if report.previous_database == "dropped":
             would.append(f"database: would drop the previous database {before!r}")
-        return (*would, "database: not restored (Dry Run)")
+        return ("database NOT restored: Dry Run", *would)
     ensure = report.ensure
     lines = [
         f"database: the site now runs on {after!r} (was {before!r})",
@@ -406,8 +422,12 @@ def database_report_lines(report: DatabaseRestoreReport) -> tuple[str, ...]:
         f"database: warning {code}: {_WARNING_TEXT.get(code, code)}"
         for code in ensure.warnings
     )
-    lines.append(_flag(report.restored, "database: restored", "database: NOT restored"))
-    return tuple(lines)
+    verdict = _flag(
+        report.restored,
+        "database restored",
+        f"database NOT restored: {_NOT_RESTORED_REASON}",
+    )
+    return (verdict, *lines)
 
 
 def database_report_json(report: DatabaseRestoreReport) -> str:
@@ -796,8 +816,9 @@ class RestoreRequest:
     WordPress account's spec (``--db-credentials-aws-*``); ``None`` means
     ``wp-config.php``. With a ``cipher`` (a passphrase was given) a plain
     Archive is refused unless ``allow_unencrypted`` (ADR-0016 amendment
-    2026-11-07). No field carries an ``l3io.wp.database`` type
-    (ADR-0015 amendment).
+    2026-11-07). Running as root is refused unless ``allow_root``
+    (``--allow-root``; BL-E002-098, owner decision 2026-11-07). No field
+    carries an ``l3io.wp.database`` type (ADR-0015 amendment).
     """
 
     site_root: Path
@@ -820,6 +841,7 @@ class RestoreRequest:
     require_encrypted: bool = False
     credentials: CredentialSpec | None = None
     allow_unencrypted: bool = False
+    allow_root: bool = False
 
     def __post_init__(self) -> None:
         if not self.opted_out_by:
@@ -868,10 +890,7 @@ def _canonical(site_root: Path) -> Path:
     try:
         canonical = Path(site_root).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        msg = "site root does not exist"
-        raise InvalidSiteDescriptorError(
-            msg, paths=(str(Path(site_root).absolute()),)
-        ) from exc
+        raise SiteRootNotFoundError(str(Path(site_root).absolute())) from exc
     if not canonical.is_dir():
         msg = "site root is not a directory"
         raise InvalidSiteDescriptorError(msg, paths=(str(site_root),))
@@ -1118,7 +1137,7 @@ def _log_plan(plan: RestorePlan, target: TargetState) -> None:
         _log.info(
             "planned_action",
             ordinal=action.ordinal,
-            phase=action.phase.value,
+            phase=action.phase.name,
             action=action.text,
             fields=dict(action.fields),
         )
@@ -1151,6 +1170,41 @@ def _require_reset_consent(
         raise ExistingDatabaseUserError(user=user, location=location)
 
 
+#: The flag that allows a restore running as root (BL-E002-098).
+ALLOW_ROOT_FLAG: Final = "--allow-root"
+
+
+def _running_as_root() -> bool:
+    geteuid = getattr(os, "geteuid", None)
+    return geteuid is not None and geteuid() == 0
+
+
+def _require_root_allowed(*, allow: bool, on_warning: WarningSink | None) -> None:
+    """BL-E002-098 (owner decision 2026-11-07, option c): root needs the flag.
+
+    Refused (``USAGE``) before the Run opens; with the flag the Run proceeds
+    and a WARNING names the extraction race. WP-CLI's own root warning
+    (``wp_cli_running_as_root``) still applies after this.
+    """
+    if not _running_as_root():
+        return
+    if not allow:
+        raise RootRestoreRefusedError(flag=ALLOW_ROOT_FLAG)
+    risk = (
+        "extraction as root checks a member and then opens it; a symlink "
+        "swapped in between by a local user can redirect the write"
+    )
+    _log.warning("restore_running_as_root", allowed_by=ALLOW_ROOT_FLAG, risk=risk)
+    emit_warning(
+        RunWarning(
+            code="restore_running_as_root",
+            message=f"restoring as root ({ALLOW_ROOT_FLAG}): {risk}",
+            fields=MappingProxyType({"allowed_by": ALLOW_ROOT_FLAG}),
+        ),
+        on_warning,
+    )
+
+
 def drive_restore(
     request: RestoreRequest,
     *,
@@ -1160,8 +1214,14 @@ def drive_restore(
     command_args: Sequence[str] | None = None,
     site_lock: SiteLock | None = None,
     on_warning: WarningSink | None = None,
+    environ: Mapping[str, str] = NO_ENVIRONMENT,
 ) -> RestoreOutcome:
     """The restore driver: returns a :class:`RestoreOutcome` or raises; never prints.
+
+    ``environ`` is what the credential builders read (the administrator's
+    and the relocated account's variables): the CLI root and the library pass
+    ``os.environ``; no driver reads it itself (owner decision 2026-11-07,
+    BL-E006-013).
 
     Its operator notices (``RunWarning``) go to ``on_warning`` when given,
     else to stderr (``cli/output.emit_warning``); a notice's WARNING record is
@@ -1176,6 +1236,7 @@ def drive_restore(
     (8); the outcome (9). An error escaping after ``SNAPSHOT`` completed
     carries ``snapshot_path``.
     """
+    _require_root_allowed(allow=request.allow_root, on_warning=on_warning)
     if request.config_policy is ConfigPolicy.OVERWRITE and not restores_files(
         request.mode
     ):
@@ -1252,7 +1313,7 @@ def drive_restore(
         # BL-E002-114: an override below the host's TLS policy is USAGE here,
         # before any connection.
         check_admin_tls(request.admin_tls, site.db_host)
-        admin = admin_source(request.admin, environ=os.environ, secrets=run.secrets)
+        admin = admin_source(request.admin, environ=environ, secrets=run.secrets)
         # The restored account is wp-config.php's alone: the survey, the
         # reset-consent check and the restored config all name its DB_USER, so
         # L3IO_WP_BACKUP_DB_* (a backup's override) must not pick another
@@ -1269,7 +1330,7 @@ def drive_restore(
             else wordpress_source(
                 relocated_spec,
                 wp_config=wp_config,
-                environ=os.environ,
+                environ=environ,
                 secrets=run.secrets,
             )
         )
@@ -1729,7 +1790,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
     """
     if args.admin_password is not None:
         # RT-03: the notice ``--new-db-password`` gives, never the value.
-        _log.warning("password_on_command_line", flag="--admin-password")
+        note_password_on_command_line("--admin-password")
     # Passthrough: copied verbatim, validated by Epic 7.
     relocation = RelocationFlags(
         new_site_url=args.new_site_url,
@@ -1796,13 +1857,14 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         dry_run=bool(args.what_if),
         require_encrypted=bool(args.require_encrypted),
         allow_unencrypted=bool(args.allow_unencrypted),
+        allow_root=bool(args.allow_root),
         credentials=wordpress_spec(
             aws_secret_id=args.db_credentials_aws_secret_id,
             aws_region=args.db_credentials_aws_region,
         ),
     )
     try:
-        outcome = drive_restore(request, ctx=None, secrets=secrets)
+        outcome = drive_restore(request, ctx=None, secrets=secrets, environ=os.environ)
     except BaseException as exc:
         kept = _kept_snapshot(exc)
         if kept is not None:

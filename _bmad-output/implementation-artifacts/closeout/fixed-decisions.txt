@@ -1,0 +1,37 @@
+BL-E002-098	1	restore as root refused (USAGE) unless --allow-root/allow_root=True; WARNING+notice restore_running_as_root names the race; RootRestoreRefusedError
+BL-E002-063	2	dumping backup refuses a non-local DB_HOST before any connection unless --confirm-db-host/confirm_db_host names it; DatabaseHostUnconfirmedError (REFUSED)
+BL-E002-064	3	backup target resolving inside the Site Root refused (USAGE) unless --allow-target-in-site-root; TargetInsideSiteRootError; CHANGELOG.md entry
+BL-E002-065	4	each Run sweeps this user's stale l3io-wp-backup-* workspaces and its target's .partial files older than 24 h, logged by path; SIGHUP/SIGQUIT handled like SIGTERM
+BL-E003-086	4	same sweep as BL-E002-065 (TMPDIR plaintext residue after SIGKILL)
+BL-E002-069	9	extraction refusal after CLEAN exits 8 (ExtractionRefusedAfterCleanError, names the snapshot); PassphraseRequiredError exits 4; CHANGELOG.md entries
+BL-E002-074	9	nonexistent --wp-dir (SiteRootNotFoundError) and --archive (ArchiveNotFoundError) exit 2; exit-code table test asserts all three
+BL-E002-109	11	restore phases logged upper case (RestorePhase.name) in logs and spans; journal keeps .value; test_phase_names_upper.py
+BL-E006-019	12	Run binds l3io_run_id/l3io_dry_run in contextvars; command_failed carries l3io_run_id; docs/logging.md, docs/api.md; test asserts no un-prefixed key bound
+BL-E002-077	29	verify accepts --whatIf in either position; note on stderr (console) and INFO what_if_not_applicable; verification still runs
+BL-E003-106	31	human database report prints the verdict first (database restored / database NOT restored: <reason>); JSON unchanged
+BL-E006-016	32	empty passphrase argument or variable: WARNING credential_source_empty naming the source, chain continues
+BL-E008-005	32	empty --new-db-password, password file or variable: WARNING credential_source_empty, chain continues (empty file now falls through)
+BL-E008-012	17	api.backup/api.verify pass on_warning to their drivers; passphrase_below_encryption_floor, password_on_command_line, passphrase_ignored, archive_target_in_site_root, restore_running_as_root are sink notices; derived-set test drives all
+BL-E008-028	19	RunContext removed from api.__all__ and docs/api.md; guard test
+BL-E006-013	20	drive_backup/drive_restore (and drive_doctor) take environ; CLI and api pass os.environ; AST guard test_drivers_no_environ.py with planted violations
+BL-E004-063	8	protected-path match is case-insensitive (casefold); test over derived case spellings
+BL-E008-013	18	--wp-dir optional only with --list-default-excludes; post-parse check keeps argparse's message and exit 2
+BL-E002-072	13	AD-23 amended (payload presence is a layout fact; only version comparisons confined to domain/archive_format.py); test_version_branching widened to version constants (derived from the owner) and version literals, with planted violations
+BL-E002-106	13	same AD-23 amendment and widened guard as BL-E002-072
+BL-E002-104	14	check_load needs no administrator; its failures are LoadReadinessError (NOT_READY, exit 7) naming the WordPress account's credential source; api/errors export, docs/api.md, CHANGELOG
+BL-E002-032	21	outer tar written inside gzip.GzipFile at OUTER_COMPRESSLEVEL=0; readers (_outer_tar, probe) accept gzip and plain v1; format_version stays 1; AD-6 + ADR-0024 amended; test_outer_gzip.py; plain v1 fixtures kept
+BL-E002-005	28	created_at_text (Z, whole seconds, UTC) is the one serializer in domain/archive_format.py; parse_created_at reads both forms; test_created_at.py
+BL-E002-091	34	l3io-wordpress-config>=0.1.4,<0.2; replace_file calls WpConfigFile.replace_content; _write_over/_keep_owner deleted; errors map to ConfigWriteFailedError; ADR-0023 revisit resolved by amendment
+BL-E008-014	7	docs/restore.md: wp child runs restored code unconfined as the restoring user; encrypted Archive authenticates it; archive_unauthenticated WARNING before any effect (existing); confinement post-v1
+BL-E002-103	10	README + docs/logging.md: stderr strict JSON lines off a terminal; --log-format console for human-readable cron mail
+BL-E008-003	15	ADR-0019 amended + E008-S01-001 AC amended: Manifest cap enforced at write time, Dry Run does not see it; pre-dump measurement post-v1
+BL-E008-010	15	same amendment as BL-E008-003
+BL-E008-011	16	read-side memory (~4.3x Manifest, ~1.1 GB at the 256 MiB cap, normal sites a few MB) documented in docs/restore.md and README verify section; streaming parse post-v1
+BL-E003-048	22	docs/restore.md: database part of the Safety Snapshot charged 0 bytes (accepted)
+BL-E003-116	22	docs/restore.md: database server disk not checked (accepted)
+BL-E003-087	22	docs/restore.md: snapshots/saved configs never removed (accepted); prune command post-v1
+BL-E003-113	22	docs/restore.md: re-survey cannot see writes to a non-empty part; quiesce (accepted)
+BL-E002-083	22	docs/restore.md: Site Lock keyed by resolved path; case-insensitive and bind-mount spellings are two locks (accepted)
+BL-E005-010	22	adapters/wpcli.py docstring: PATH re-lookup window accepted for v1
+BL-E003-033	22	docs/restore.md: --snapshot-dir under a one-level-up config's directory refused (accepted); use a directory outside it
+BL-E004-067	22	tests/contracts/test_no_direct_crypto.py docstring: hand-kept FORBIDDEN list accepted as a stated limit

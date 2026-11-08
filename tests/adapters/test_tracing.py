@@ -64,6 +64,7 @@ from tests.otel_sdk import (  # noqa: F401 - otel_spans is a fixture
     span_id,
 )
 from tests.restore_root_rig import ALL_WAIVED, Rig
+from tests.root_mode import allow_root_kwargs
 from tests.unit.cli.conftest import (  # noqa: F401 - fixtures, re-registered here
     FakeDatabase,
     fake_database,
@@ -332,6 +333,7 @@ def _restore(rig: Rig, mode: RestoreMode, *, dry_run: bool) -> None:
         config_policy=ConfigPolicy.KEEP,
         snapshot_dir=rig.work / "snapshots",
         dry_run=dry_run,
+        **allow_root_kwargs(),
     )
 
 
@@ -347,13 +349,24 @@ def real_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
 
 
 def _snapshot_backup_nests(spans: Sequence[ReadableSpan]) -> None:
-    """A Safety Snapshot's backup steps sit under the restore's snapshot span."""
+    """A Safety Snapshot's backup steps sit under the restore's snapshot span.
+
+    A restore phase may share a backup step's name (both log ``VERIFY``), so
+    the restore's own phases, the run span's children, are told apart by
+    position; the callers assert those children are exactly the plan, so a
+    snapshot step that escaped to the root fails there.
+    """
     (snapshot,) = [
-        s for s in _phases(spans) if _phase_of(s) == RestorePhase.SNAPSHOT.value
+        s for s in _phases(spans) if _phase_of(s) == RestorePhase.SNAPSHOT.name
     ]
+    run_ids = {span_id(s) for s in _ours(spans) if s.name == RUN_SPAN_NAME}
     steps = {step.value for step in BackupStep}
-    nested = [s for s in _phases(spans) if _phase_of(s) in steps]
-    assert nested
+    nested = [
+        s
+        for s in _phases(spans)
+        if _phase_of(s) in steps and parent_id(s) not in run_ids
+    ]
+    assert BackupStep.VERIFY.value in {_phase_of(s) for s in nested}
     for span in nested:
         assert span_id(snapshot) in _ancestors(span, spans), span.name
 
@@ -371,7 +384,7 @@ def test_a_restore_dry_run_is_one_root_with_the_plan_as_its_children(
     plan = real_rig.plans[-1]
     # A Dry Run's no-op journal logs its own phase between the plan's (AD-4).
     assert [p for p in _children(root, spans) if p != JOURNAL_PHASE] == [
-        p.value for p in plan.phases
+        p.name for p in plan.phases
     ]
     _snapshot_backup_nests(spans)
     assert _forbidden_keys(spans) == []
@@ -394,7 +407,7 @@ def test_a_real_file_restore_has_exactly_the_plan_as_root_children(
         _restore(real_rig, mode, dry_run=False)
     spans = otel_spans.get_finished_spans()
     root = _check_tree(spans, logs, span_id(host))  # type: ignore[arg-type]
-    assert _children(root, spans) == [p.value for p in real_rig.plans[-1].phases]
+    assert _children(root, spans) == [p.name for p in real_rig.plans[-1].phases]
     _snapshot_backup_nests(spans)
 
 

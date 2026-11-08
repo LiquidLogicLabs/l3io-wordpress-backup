@@ -108,3 +108,25 @@ also stays as is.
 - **Revisit when:** operators need a backup rehearsal that measures size or duration. That
   would be a separate, explicit mode (Option A's discard-sink write), not a change to Dry
   Run.
+
+## Amendment — 2026-11-07: the Manifest cap is a write-time refusal (Shawn, owner decision 15)
+
+BL-E008-003 / BL-E008-010: E004 decision D2 (c) and E008-S01-001's acceptance criterion said a
+Manifest over the cap (`domain/archive_format.py::MANIFEST_MAX_BYTES`, 256 MiB) is refused "at plan
+time, with nothing written". The plan reads nothing (this ADR), so the refusal sits in the
+archive-writer command adapter, `TarArchiveWriter.write`: **after the read-only Site Root walk
+(collection) and before any byte of the Archive is written**, with `ManifestTooLargeError`. The
+Dry Run binds that adapter's no-op twin, so **a Dry Run does not see the cap**: it reports success
+for a Site whose real Run is refused. Owner decision 15, option (a) for v1:
+
+- this is the specified behaviour, not a deviation: the cap joins the "refusals only a command can
+  detect" of point 3 above, alongside disk full and a file unreadable mid-stream. The README's Dry
+  Run paragraph names it among what a Dry Run does not detect;
+- no Archive byte is written before the refusal and nothing is published; the staged file and the
+  Run workspace (holding the Dump, which `DUMP` has already taken) are removed as on any failed
+  backup.
+
+**Post-v1 (owner-deferred, 2026-11-07):** a read-only measuring query before `DUMP` that walks the
+member list and sizes the Manifest with the same serializer, run in Dry Runs too, so the refusal
+moves to plan time (option (b)).
+

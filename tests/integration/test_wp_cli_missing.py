@@ -89,6 +89,7 @@ from tests.integration.live_restore import (
     spec_for,
 )
 from tests.restore_root_rig import ALL_WAIVED
+from tests.root_mode import allow_root_kwargs
 
 __all__ = ["admin_account", "cli_site", "live_site"]
 
@@ -325,6 +326,7 @@ def test_ed1_a_relocating_api_dry_run_passes_preflight(
             admin=ExplicitCredentialSpec(site.admin_user, site.admin_password),
             relocation=URLS,
             dry_run=True,
+            **allow_root_kwargs(),
         )
     assert outcome.dry_run
     assert RestorePhase.PREFLIGHT in outcome.phases

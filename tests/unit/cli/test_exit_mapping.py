@@ -66,7 +66,14 @@ def test_every_error_class_exits_non_zero(cls: type[BackupError]) -> None:
     assert cls.exit_code is not ExitCode.OK
 
 
-REFUSALS = [cls for cls in ERROR_CLASSES if issubclass(cls, RefusedError)]
+#: A refusal that declares another code (owner decision 2026-11-07, item 9):
+#: a missing passphrase is a missing key, CREDENTIALS.
+NOT_REFUSED = frozenset({"PassphraseRequiredError"})
+REFUSALS = [
+    cls
+    for cls in ERROR_CLASSES
+    if issubclass(cls, RefusedError) and cls.__name__ not in NOT_REFUSED
+]
 
 
 def test_the_refusal_walk_is_not_empty() -> None:
@@ -99,7 +106,13 @@ DECLARED = {
     # E002-S02-008: an unusable lock directory; the Run does not proceed unlocked.
     "SiteLockLocationError": ExitCode.NOT_READY,
     "MissingExtraError": ExitCode.NOT_READY,
+    "LoadReadinessError": ExitCode.NOT_READY,
     "PreflightFailedError": ExitCode.NOT_READY,
+    # Owner decision 2026-11-07 (item 9: BL-E002-069/074/103).
+    "PassphraseRequiredError": ExitCode.CREDENTIALS,
+    "ArchiveNotFoundError": ExitCode.USAGE,
+    "SiteRootNotFoundError": ExitCode.USAGE,
+    "ExtractionRefusedAfterCleanError": ExitCode.VERIFICATION_FAILED,
 }
 
 

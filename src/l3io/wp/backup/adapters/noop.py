@@ -366,7 +366,7 @@ class NoopDatabase:
     def ensure_database(self, location: DatabaseLocation) -> EnsureOutcome:
         """Nothing created, granted or set."""
         self._require_admin()
-        _skip(RestorePhase.LOAD_DUMP.value, method="ensure_database")
+        _skip(RestorePhase.LOAD_DUMP.name, method="ensure_database")
         self._log.record("NoopDatabase", "ensure_database", location.name)
         return EnsureOutcome(
             created_database=False,
@@ -382,7 +382,7 @@ class NoopDatabase:
     ) -> LoadResult:
         """Nothing loaded; ``source`` is not read."""
         del source
-        _skip(RestorePhase.LOAD_DUMP.value, method="load_dump")
+        _skip(RestorePhase.LOAD_DUMP.name, method="load_dump")
         self._log.record("NoopDatabase", "load_dump", location.name)
         return LoadResult(bytes=0, duration_ms=0.0, performed=False)
 
@@ -392,7 +392,7 @@ class NoopDatabase:
         """``False``: nothing revoked."""
         del confirm
         self._require_admin()
-        _skip(RestorePhase.CLEAN.value, method="revoke_grants", user=user)
+        _skip(RestorePhase.CLEAN.name, method="revoke_grants", user=user)
         self._log.record("NoopDatabase", "revoke_grants", location.name)
         return False
 
@@ -400,7 +400,7 @@ class NoopDatabase:
         """``False``: nothing dropped."""
         del confirm
         self._require_admin()
-        _skip(RestorePhase.CLEAN.value, method="drop_database")
+        _skip(RestorePhase.CLEAN.name, method="drop_database")
         self._log.record("NoopDatabase", "drop_database", location.name)
         return False
 
@@ -501,7 +501,7 @@ class NoopSiteFiles:
         real one checks them, so an unsafe target is refused here too."""
         require_site_relative(keep, argument="keep")
         refuse_unsafe_clean_target(site_root.absolute())
-        _skip(RestorePhase.CLEAN.value, method="clean", keep=_names(keep))
+        _skip(RestorePhase.CLEAN.name, method="clean", keep=_names(keep))
         self._log.record("NoopSiteFiles", "clean", str(site_root))
         return 0
 
@@ -519,7 +519,7 @@ class NoopSiteFiles:
         del source, view, payload
         require_site_relative(exclude, argument="exclude")
         _skip(
-            RestorePhase.EXTRACT.value,
+            RestorePhase.EXTRACT.name,
             method="extract",
             roles=sorted(r.value for r in roles),
             exclude=_names(exclude),
@@ -541,7 +541,7 @@ class NoopConfigWriter:
         self._log = log
 
     def _skipped(self, method: str, target: Path, keys: Iterable[str]) -> None:
-        _skip(RestorePhase.REWRITE_CONFIG.value, method=method, keys=sorted(keys))
+        _skip(RestorePhase.REWRITE_CONFIG.name, method=method, keys=sorted(keys))
         self._log.record("NoopConfigWriter", method, str(target))
 
     def set_constants(
@@ -594,7 +594,7 @@ class NoopSearchReplace:
         """The planned pairs, ``old`` unresolved; nothing replaced."""
         targets = (urls.site_url, urls.home_url)
         news = list(dict.fromkeys(u for u in targets if u is not None))
-        _skip(RestorePhase.SEARCH_REPLACE.value, method="relocate_content")
+        _skip(RestorePhase.SEARCH_REPLACE.name, method="relocate_content")
         self._log.record("NoopSearchReplace", "relocate_content", str(site_root))
         return SearchReplaceReport(
             pairs=tuple(Replacement(old=UNRESOLVED_URL, new=new) for new in news),
@@ -608,7 +608,7 @@ class NoopSearchReplace:
 #: The ``phase`` of a skipped journal call's ``phase_completed`` record. A
 #: journal call is not a restore phase's effect, so it never joins one; the
 #: restore phase it concerns is the record's ``journal_phase`` field.
-JOURNAL_PHASE: Final = "journal"
+JOURNAL_PHASE: Final = "JOURNAL"
 
 
 class NoopRunJournal:

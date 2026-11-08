@@ -70,7 +70,7 @@ def _site(root: Path, *, db_host: str) -> Path:
 
 
 def _read(final: Path) -> tuple[Manifest, set[str]]:
-    with tarfile.open(final, mode="r:") as outer:
+    with tarfile.open(final, mode="r:*") as outer:
         assert outer.getnames() == [MANIFEST_MEMBER, PAYLOAD_MEMBER]
         manifest_file = outer.extractfile(MANIFEST_MEMBER)
         payload_file = outer.extractfile(PAYLOAD_MEMBER)

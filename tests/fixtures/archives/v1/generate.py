@@ -9,6 +9,12 @@ reproducibility is asserted on the Manifest's structure, not on bytes.
 
 Run from the project root: ``uv run python tests/fixtures/archives/v1/generate.py``.
 
+The committed fixtures predate owner decision 21 (2026-11-07): their outer tar
+is plain, not gzip-wrapped. They are kept as they are, as the backward-
+compatibility fixtures every reader must still accept
+(``tests/adapters/test_outer_gzip.py``); regenerating them now writes the
+gzip-wrapped encoding, so do so only when a test requires it.
+
 Written by the real writer (``adapters/tar.write_archive``, E002-S01-010) from
 ``tests/data/wp-config.php``, a few-kilobyte Site Root holding an empty
 directory, a relative symlink inside the Site Root and a hard-linked pair, and

@@ -37,6 +37,7 @@ from tests.integration.live_cli import (
     cli_site,  # noqa: F401 - a fixture
     run_cli,
 )
+from tests.root_mode import allow_root_kwargs
 
 pytestmark = [
     pytest.mark.integration,
@@ -125,6 +126,7 @@ def test_a_restore_of_an_api_backup_runs_the_clis_phases(
             admin=api.ExplicitCredentialSpec(
                 username=site.admin_user, password=site.admin_password
             ),
+            **allow_root_kwargs(),
         )
     assert _one_run(restored) == outcome.run_id
     assert outcome.database is not None

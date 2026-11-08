@@ -58,6 +58,7 @@ from l3io.wp.backup.domain.errors import (
 from l3io.wp.backup.domain.restore import ConfigPolicy, RestoreMode, SnapshotPolicy
 from l3io.wp.backup.domain.secret import Secret
 from tests.restore_root_rig import ALL_WAIVED, Rig, report_for
+from tests.root_mode import allow_root_kwargs
 
 pytestmark = pytest.mark.usefixtures("fake_database")
 
@@ -155,6 +156,7 @@ def test_restore_opens_exactly_one_run(
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
             snapshot_dir=rig.work / "snapshots",
+            **allow_root_kwargs(),
         )
     assert len(_events(logs, "run_started")) == 1
     assert len(_events(logs, "restore_mode_resolved")) == 1
@@ -193,6 +195,7 @@ def test_a_nested_call_without_context_is_refused(
             overrides=ALL_WAIVED,
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
+            **allow_root_kwargs(),
         ),
     }
     with (
@@ -347,7 +350,7 @@ def test_restore_with_every_keyword_builds_the_request_run_restore_builds(
         "--admin-username", "root", "--admin-password", admin_password,
         "--new-site-url", "https://new.example", "--new-site-home-url",
         "https://home.example", "--new-db-host", "db2", "--new-db-name", "n2",
-        "--new-db-user", "u2", "--new-db-password", db_password,
+        "--new-db-user", "u2", "--new-db-password", db_password, "--allow-root",
     ]  # fmt: skip
     monkeypatch.setenv(PASSPHRASE_ENV, passphrase)
     expected: RestoreRequest = _cli_request(
@@ -384,6 +387,7 @@ def test_restore_with_every_keyword_builds_the_request_run_restore_builds(
             require_encrypted=True,
             resolve_run_id="run-1",
             dry_run=True,
+            allow_root=True,
         )
     (call,) = calls
     built: RestoreRequest = call["args"][0]
@@ -412,6 +416,7 @@ def test_restore_defaults_are_the_policy_and_no_relocation(
             overrides=ALL_WAIVED,
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
+            **allow_root_kwargs(),
         )
     built: RestoreRequest = calls[0]["args"][0]
     assert built.admin_tls == api.AdminTls(mode=None, ca_file=None)
@@ -449,6 +454,7 @@ def test_a_relocation_reaches_the_driver_unchanged(rig: Rig) -> None:
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
             relocation=flags,
+            **allow_root_kwargs(),
         )
     assert [r.relocation for r in seen] == [flags]
 
@@ -716,6 +722,7 @@ def test_restore_resolves_through_the_chain_with_the_restore_label(
             snapshot=SnapshotPolicy.TAKE,
             config_policy=ConfigPolicy.KEEP,
             passphrase=passphrase,
+            **allow_root_kwargs(),
         )
     (kwargs,) = seen
     assert kwargs["label"] == restore_cli.RESTORE_PROMPT
@@ -797,7 +804,9 @@ def _restore_all(rig: Rig, **changes: Any) -> Any:  # noqa: ANN401
         "snapshot_dir": rig.work / "snapshots",
     }
     with capture_logs():
-        return api.restore(rig.site_root, **(arguments | changes))
+        return api.restore(
+            rig.site_root, **(arguments | changes), **allow_root_kwargs()
+        )
 
 
 def test_an_unrestored_database_raises(rig: Rig, restored_rule: list[bool]) -> None:

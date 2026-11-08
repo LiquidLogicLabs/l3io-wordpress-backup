@@ -24,7 +24,17 @@ wpdb = pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.cli import main  # noqa: E402
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode  # noqa: E402
+from tests.root_mode import allow_root_argv  # noqa: E402
 from tests.site_lock_holder import HOLDER_RUN_ID, held_elsewhere  # noqa: E402
+
+#: A committed encrypted v1 Archive (its passphrase is a sidecar, unused here).
+ENCRYPTED_FIXTURE: Final = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "archives"
+    / "v1"
+    / "encrypted-passphrase.tar.gz"
+)
 
 #: Codes only a later story can produce, and the story that adds the case.
 PENDING_CASES: Final[dict[ExitCode, str]] = {}
@@ -41,7 +51,7 @@ class _Env:
             "define('DB_NAME', 'wptest');\n"
             "define('DB_USER', 'wp');\n"
             "define('DB_PASSWORD', 'not-a-real-secret');\n"
-            "define('DB_HOST', 'db.invalid');\n"
+            "define('DB_HOST', 'localhost');\n"
             "$table_prefix = 'wp_';\n",
             encoding="utf-8",
         )
@@ -98,7 +108,36 @@ def _failed(env: _Env) -> list[int]:
 
 
 def _usage(env: _Env) -> list[int]:
-    return [run([]), env.backup("--mode", "everything")]
+    # BL-E002-074 (owner decision 2026-11-07): a nonexistent --wp-dir or
+    # --archive is the caller's mistake, USAGE, on every subcommand.
+    missing_site = env.tmp / "no-such-site"
+    missing_archive = env.tmp / "no-such-archive.tar.gz"
+    return [
+        run([]),
+        env.backup("--mode", "everything"),
+        run(["backup", "--wp-dir", str(missing_site), "--archive", str(env.tmp / "o")]),
+        run(["verify", "--archive", str(missing_archive)]),
+        run(
+            [
+                "restore",
+                "--wp-dir",
+                str(missing_site),
+                "--archive",
+                str(missing_archive),
+                *allow_root_argv(),
+            ]
+        ),
+        run(
+            [
+                "restore",
+                "--wp-dir",
+                str(env.site),
+                "--archive",
+                str(missing_archive),
+                *allow_root_argv(),
+            ]
+        ),
+    ]
 
 
 def _refused(env: _Env) -> list[int]:
@@ -108,7 +147,14 @@ def _refused(env: _Env) -> list[int]:
 
 def _credentials(env: _Env) -> list[int]:
     env.dump_raises(wpdb.AuthenticationFailedError("rejected"))
-    return [env.backup()]
+    # BL-E002-069 (owner decision 2026-11-07): an encrypted Archive and no
+    # passphrase is a missing key, CREDENTIALS, not REFUSED.
+    env.monkeypatch.delenv("L3IO_WP_BACKUP_PASSPHRASE", raising=False)
+    encrypted = ENCRYPTED_FIXTURE
+    return [
+        env.backup(),
+        run(["verify", "--authenticate", "--archive", str(encrypted)]),
+    ]
 
 
 def _unreachable(env: _Env) -> list[int]:
@@ -189,3 +235,26 @@ def test_success_exits_zero(
     monkeypatch.chdir(tmp_path)
     assert _Env(tmp_path, monkeypatch).backup("--mode", "files") == ExitCode.OK
     capsys.readouterr()
+
+
+def test_the_three_owner_decided_codes_are_on_their_classes() -> None:
+    """BL-E002-069/074/103 (owner decision 2026-11-07, item 9).
+
+    The USAGE and CREDENTIALS cases above drive them through ``main``; the
+    refusal after CLEAN needs a restore that clears a Site, which
+    ``tests/unit/adapters/test_restore_runner.py`` drives. Here the table's
+    class attributes are pinned, so a later edit cannot move one silently.
+    """
+    from l3io.wp.backup.adapters.restore_runner import (
+        ExtractionRefusedAfterCleanError,
+    )
+    from l3io.wp.backup.domain.errors import (
+        ArchiveNotFoundError,
+        PassphraseRequiredError,
+        SiteRootNotFoundError,
+    )
+
+    assert ExtractionRefusedAfterCleanError.exit_code is ExitCode.VERIFICATION_FAILED
+    assert PassphraseRequiredError.exit_code is ExitCode.CREDENTIALS
+    assert SiteRootNotFoundError.exit_code is ExitCode.USAGE
+    assert ArchiveNotFoundError.exit_code is ExitCode.USAGE

@@ -132,7 +132,8 @@ def test_the_same_passphrase_restores_tree_and_database(
     assert ran.code == int(ExitCode.OK), ran.err[-3000:]
     assert _site_tree(site) == files
     assert site.site.checksums(_live(site)) == tables
-    assert "safety snapshot is encrypted with the passphrase" in ran.err
+    # JSON lines on stderr (BL-E002-103 UX-5): the record is the notice.
+    assert ran.events("safety_snapshot_encrypted")
     credential_sentinel.add("stdout", ran.out)
     credential_sentinel.add("stderr", ran.err)
     credential_sentinel.assert_clean()
@@ -169,7 +170,8 @@ def test_no_passphrase_is_refused_before_verify(
     credential_sentinel.monkeypatch.delenv(PASSPHRASE_ENV, raising=False)
     ran = run_cli(site.argv(archive, *authorizing_flags(MODE)), capsys)
     assert ran.code == int(PassphraseRequiredError.exit_code), ran.err[-3000:]
-    assert PassphraseRequiredError.exit_code is ExitCode.REFUSED
+    # BL-E002-069 (owner decision 2026-11-07): a missing key is CREDENTIALS.
+    assert PassphraseRequiredError.exit_code is ExitCode.CREDENTIALS
     (failed,) = ran.events("command_failed")
     assert failed["error"] == "PassphraseRequiredError"
     phases = {str(r.get("phase")) for r in ran.events("phase_started")}

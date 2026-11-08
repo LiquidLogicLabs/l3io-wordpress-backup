@@ -364,7 +364,7 @@ class FileRunJournal:
         _log.debug(
             "journal_written",
             journal_run_id=record.header.run_id,
-            phase=None if entry is None else entry.phase.value,
+            phase=None if entry is None else entry.phase.name,
             journal_event="begin" if entry is None else _event_name(entry),
             step=None if entry is None else entry.step,
             journal_path=str(self.journal_path),

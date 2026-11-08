@@ -107,11 +107,18 @@ def _validated(relative: PurePosixPath) -> str:
 
 
 def _protects(text: str, *, is_dir: bool) -> bool:
-    """``text`` is a protected path, or a directory holding one."""
-    if text in PROTECTED_PATHS:
+    """``text`` is a protected path, or a directory holding one.
+
+    Case-insensitive (BL-E004-063, owner decision 2026-11-07, as BL-E002-067):
+    on a case-insensitive filesystem ``WP-CONFIG.PHP`` is the file WordPress
+    reads, so no spelling of it may be excluded.
+    """
+    folded = text.casefold()
+    protected = {p.casefold() for p in PROTECTED_PATHS}
+    if folded in protected:
         return True
     return is_dir and any(
-        PurePosixPath(text) in PurePosixPath(p).parents for p in PROTECTED_PATHS
+        PurePosixPath(folded) in PurePosixPath(p).parents for p in protected
     )
 
 

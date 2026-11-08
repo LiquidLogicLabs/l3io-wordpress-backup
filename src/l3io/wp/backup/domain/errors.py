@@ -51,6 +51,7 @@ __all__ = [
     "ConfigWriteFailedError",
     "CredentialTooShortError",
     "CredentialsError",
+    "DatabaseHostUnconfirmedError",
     "DatabaseRefusedError",
     "DatabaseUnreachableError",
     "DumpFailedError",
@@ -61,6 +62,7 @@ __all__ = [
     "InvalidRelocationValueError",
     "InvalidSiteDescriptorError",
     "LoadFailedError",
+    "LoadReadinessError",
     "MalformedManifestError",
     "ManifestTooLargeError",
     "MemberReadRefusedError",
@@ -75,14 +77,17 @@ __all__ = [
     "ProvisioningFailedError",
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
+    "RootRestoreRefusedError",
     "RunContextActiveError",
     "RunTerminated",
     "SearchReplaceIncompleteError",
     "SiteLockLocationError",
     "SiteLockReleaseError",
     "SiteLockedError",
+    "SiteRootNotFoundError",
     "StoredUrlInvalidError",
     "StoredUrlMissingError",
+    "TargetInsideSiteRootError",
     "UnboundAdapterError",
     "UnknownInterruptedRunError",
     "UnreadableSiteRootError",
@@ -292,6 +297,20 @@ class InvalidSiteDescriptorError(BackupError):
         super().__init__(f"invalid site: {reason}{where}")
 
 
+class SiteRootNotFoundError(InvalidSiteDescriptorError):
+    """The ``--wp-dir`` (``site``/``site_root``) the caller named does not exist.
+
+    ``USAGE`` (BL-E002-074, owner decision 2026-11-07). ``path`` is the
+    absolute path as given.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.USAGE
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__("site root does not exist", paths=(path,))
+
+
 class UnsafeMemberPathError(BackupError):
     """An Archive member path would escape its role prefix."""
 
@@ -445,7 +464,13 @@ class DatabaseRefusedError(RefusedError):
 
 
 class PassphraseRequiredError(RefusedError):
-    """Encryption was requested, or the Archive is encrypted, and no passphrase."""
+    """Encryption was requested, or the Archive is encrypted, and no passphrase.
+
+    ``CREDENTIALS`` (BL-E002-069, owner decision 2026-11-07): a missing key is
+    a credentials failure, as ``domain/exit_codes.py`` defines.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.CREDENTIALS
 
     def __init__(self, operation: Literal["backup", "restore", "verify"]) -> None:
         self.operation = operation
@@ -506,6 +531,29 @@ class LoadFailedError(BackupError):
         self.database = database
         self.exit_status = exit_status
         super().__init__(f"database load failed: {reason}")
+
+
+class LoadReadinessError(BackupError):
+    """The load-readiness check, run as the WordPress account, could not run.
+
+    ``check_load`` answers as the account the load itself runs as, not the
+    administrator (BL-E002-104, owner decision 2026-11-07), so a failure of
+    the check is ``NOT_READY``: the Site cannot be loaded as it stands.
+    ``reason`` is structured (a failure class), never the dependency's text;
+    ``database`` is the database checked; ``source`` names the WordPress
+    account's credential source, never a value.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
+
+    def __init__(self, reason: str, *, database: str, source: str) -> None:
+        self.reason = reason
+        self.database = database
+        self.source = source
+        super().__init__(
+            f"could not check that database {database!r} can be loaded as the "
+            f"WordPress account (credentials from {source!r}): {reason}"
+        )
 
 
 class UnsafeCleanTargetError(RefusedError):
@@ -798,7 +846,13 @@ class UnsupportedFormatVersionError(BackupError):
 
 
 class ArchiveNotFoundError(BackupError):
-    """The Archive does not exist or cannot be opened."""
+    """The Archive does not exist or cannot be opened.
+
+    ``USAGE`` (BL-E002-074, owner decision 2026-11-07): the path the caller
+    named is not there.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.USAGE
 
     def __init__(self, path: PurePath) -> None:
         self.path = path
@@ -1074,6 +1128,69 @@ class ConfigLocationConflictError(RefusedError):
         super().__init__(
             f"refused to lay down wp-config.php: {str(path)!r} {reason}; "
             "nothing was changed"
+        )
+
+
+class RootRestoreRefusedError(UsageError):
+    """BL-E002-098 (owner decision 2026-11-07): a restore running as root.
+
+    Extraction as root has a check-then-open race a symlink swap can win, so a
+    root restore is refused before the Run opens unless the caller allows it.
+    ``flag`` names the flag that does (``--allow-root``; the library's
+    ``allow_root=True``); ``arguments`` is ``(flag,)``.
+    """
+
+    def __init__(self, *, flag: str) -> None:
+        self.flag = flag
+        super().__init__(
+            "refused to restore as root: extraction as root can be raced by a "
+            "symlink swap inside the Site Root; run the restore as the site's "
+            f"owner, or pass {flag} to accept that risk",
+            arguments=(flag,),
+        )
+
+
+class DatabaseHostUnconfirmedError(RefusedError):
+    """BL-E002-063 (owner decision 2026-11-07): a non-local ``DB_HOST`` unconfirmed.
+
+    A backup sends the WordPress account's credentials to the Site's
+    ``DB_HOST``. Any host but ``localhost``, ``127.0.0.1``, ``::1`` or a
+    socket path is refused before any connection unless ``flag`` names it.
+    ``host`` is the Site's ``DB_HOST`` host, ``confirmed`` what the flag named
+    (``None`` when not given), and ``flag`` the flag's spelling.
+    """
+
+    def __init__(self, *, host: str, confirmed: str | None, flag: str) -> None:
+        self.host = host
+        self.confirmed = confirmed
+        self.flag = flag
+        given = "" if confirmed is None else f" ({flag} named {confirmed!r}, not it)"
+        super().__init__(
+            f"refused: wp-config.php's DB_HOST {host!r} is not local, and the "
+            f"backup would send the WordPress account's credentials there{given}; "
+            f"confirm it with {flag} {host}"
+        )
+
+
+class TargetInsideSiteRootError(UsageError):
+    """BL-E002-064 (owner decision 2026-11-07): the Archive target is in the Site Root.
+
+    An Archive there can be served by the web server and is collected by the
+    next backup. Refused before any effect unless ``flag`` is given.
+    ``target`` is the resolved target path, ``site_root`` the canonical Site
+    Root and ``flag`` the allowing flag; ``arguments`` is ``("--archive", flag)``.
+    """
+
+    def __init__(self, *, target: PurePath, site_root: PurePath, flag: str) -> None:
+        self.target = target
+        self.site_root = site_root
+        self.flag = flag
+        super().__init__(
+            f"refused: the archive {str(target)!r} is inside the Site Root "
+            f"{str(site_root)!r}, where the web server may serve it; write it "
+            "outside the Site Root (--archive /var/backups/<name>.tar.gz), or "
+            f"pass {flag}",
+            arguments=("--archive", flag),
         )
 
 

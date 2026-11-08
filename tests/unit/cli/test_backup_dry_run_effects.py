@@ -58,6 +58,8 @@ ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
     f"{ADAPTERS}.database": frozenset(
         {
             "LocatedConfig",
+            # BL-E002-063 (owner decision 2026-11-07): a pure host query.
+            "database_host_is_local",
             "locate_wp_config",
             "require_wp_config_credentials",
             "site_descriptor_from_wp_config",

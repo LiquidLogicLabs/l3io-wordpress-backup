@@ -28,11 +28,13 @@ import getpass
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final, Literal
 
 import structlog
 
 from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
+from l3io.wp.backup.cli.output import RunWarning, WarningSink, emit_warning
 from l3io.wp.backup.domain.errors import (
     PassphraseMismatchError,
     PassphraseTooShortError,
@@ -44,6 +46,7 @@ __all__ = [
     "MIN_ENCRYPTION_PASSPHRASE_LENGTH",
     "PASSPHRASE_ENV",
     "ResolvedPassphrase",
+    "note_empty_source",
     "note_short_restore_passphrase",
     "note_unused_passphrase",
     "require_passphrase",
@@ -86,6 +89,20 @@ def _prompted(prompt: Callable[[str], str], label: str) -> str:
         ) from None
 
 
+def note_empty_source(source: str) -> None:
+    """WARNING ``credential_source_empty``: ``source`` was set but empty.
+
+    ``source`` is a flag, parameter or variable **name**, never a value. The
+    chain goes on to its next source (owner decision 2026-11-07, BL-E006-016,
+    BL-E008-005).
+    """
+    _log.warning(
+        "credential_source_empty",
+        source=source,
+        action="ignored; the next source is consulted",
+    )
+
+
 def resolve_passphrase(
     *,
     explicit: Secret | str | None,
@@ -99,9 +116,16 @@ def resolve_passphrase(
     ``label`` is the text ``prompt`` shows.
 
     Raises ``PassphraseUnavailableError`` when the prompt is closed (EOF or
-    interrupt) or the value is shorter than the registry can redact.
+    interrupt) or the value is shorter than the registry can redact. A source
+    that is set but empty is not a passphrase: WARNING
+    ``credential_source_empty`` names it, and the chain continues (owner
+    decision 2026-11-07, BL-E006-016).
     """
     resolved: ResolvedPassphrase | None = None
+    if explicit is not None and not explicit:
+        note_empty_source("passphrase")
+    if PASSPHRASE_ENV in environ and not environ[PASSPHRASE_ENV] and not explicit:
+        note_empty_source(PASSPHRASE_ENV)
     if explicit:
         resolved = ResolvedPassphrase(as_secret(explicit), "argument")
     elif environ.get(PASSPHRASE_ENV):
@@ -151,26 +175,52 @@ def require_passphrase(
     return resolved
 
 
-def note_short_restore_passphrase(resolved: ResolvedPassphrase | None) -> None:
-    """One WARNING when a restore's passphrase is below the encryption floor.
+def note_short_restore_passphrase(
+    resolved: ResolvedPassphrase | None, on_warning: WarningSink | None = None
+) -> None:
+    """One notice when a restore's passphrase is below the encryption floor.
 
     A restore accepts any passphrase, so an Archive encrypted before the floor
     existed stays restorable; the same passphrase also encrypts the Safety
-    Snapshot, which this says, by length only.
+    Snapshot, which this says, by length only. The notice goes to
+    ``on_warning`` or stderr (owner decision 2026-11-07, BL-E008-012), and the
+    WARNING record is logged either way.
     """
     if resolved is not None and len(resolved.value) < MIN_ENCRYPTION_PASSPHRASE_LENGTH:
+        message = "the Safety Snapshot is encrypted with this shorter passphrase"
         _log.warning(
             "passphrase_below_encryption_floor",
             minimum=MIN_ENCRYPTION_PASSPHRASE_LENGTH,
-            message="the Safety Snapshot is encrypted with this shorter passphrase",
+            message=message,
+        )
+        emit_warning(
+            RunWarning(
+                code="passphrase_below_encryption_floor",
+                message=f"passphrase below {MIN_ENCRYPTION_PASSPHRASE_LENGTH} "
+                f"characters: {message}",
+                fields=MappingProxyType(
+                    {"minimum": str(MIN_ENCRYPTION_PASSPHRASE_LENGTH)}
+                ),
+            ),
+            on_warning,
         )
 
 
-def note_unused_passphrase(environ: Mapping[str, str]) -> None:
-    """One WARNING when the variable is set but no encryption was requested."""
+def note_unused_passphrase(
+    environ: Mapping[str, str], on_warning: WarningSink | None = None
+) -> None:
+    """One notice when the variable is set but no encryption was requested.
+
+    To ``on_warning`` or stderr, with the WARNING record logged either way.
+    """
     if environ.get(PASSPHRASE_ENV):
-        _log.warning(
-            "passphrase_ignored",
-            variable=PASSPHRASE_ENV,
-            message="encryption was not requested, so the Archive is unencrypted",
+        message = "encryption was not requested, so the Archive is unencrypted"
+        _log.warning("passphrase_ignored", variable=PASSPHRASE_ENV, message=message)
+        emit_warning(
+            RunWarning(
+                code="passphrase_ignored",
+                message=f"{PASSPHRASE_ENV} is set but {message}",
+                fields=MappingProxyType({"variable": PASSPHRASE_ENV}),
+            ),
+            on_warning,
         )

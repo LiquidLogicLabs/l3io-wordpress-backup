@@ -16,7 +16,10 @@ than leading it outside the tree.
 
 **Writing.** :func:`write_archive` works in three steps: the gzip payload into
 the workspace, then (with a cipher) the encrypted payload beside it, then the
-uncompressed outer tar into ``out`` — the Manifest first, then the payload.
+outer tar into ``out`` — the Manifest first, then the payload — inside a gzip
+stream at compression level :data:`OUTER_COMPRESSLEVEL` (0: stored blocks), so
+the ``.tar.gz`` name is true and ``tar xzf`` reads it, while nothing is
+compressed twice (owner decision 21, BL-E002-032; ADR-0024 amendment).
 Each copy is a fixed-size chunked stream, so memory is bounded independent of
 file and Archive sizes (AD-21); it is linear in the number of entries, which
 the Manifest's member index lists. Every member is re-opened by path and
@@ -45,6 +48,9 @@ callable refuses any hard link, then strips the role prefix, then calls
 target is skipped and reported, every other refusal refuses the Archive — and
 re-checks containment. :func:`decrypt_payload` is the one place a payload is
 decrypted; :meth:`TarArchiveProbe.read_member` the one single-member read.
+Each reads a v1 Archive's outer tar through :func:`_outer_tar`, which accepts
+both encodings a v1 Archive has had: gzip-wrapped (written since owner decision
+21) and plain (every earlier v1 Archive, the committed fixtures included).
 """
 
 from __future__ import annotations
@@ -61,14 +67,13 @@ import tarfile
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import IO, BinaryIO, Final, Literal, cast
 
 import structlog
 
-from l3io.wp.backup.adapters.phase import PhaseRecord, join_phase, phase
+from l3io.wp.backup.adapters.phase import PhaseKey, PhaseRecord, join_phase, phase
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.core.verify import verify_probe
 from l3io.wp.backup.domain.archive_format import (
@@ -98,6 +103,7 @@ from l3io.wp.backup.domain.archive_format import (
     manifest_to_json,
     member_path,
     member_relative,
+    parse_created_at,
 )
 from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
@@ -119,6 +125,7 @@ from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
 __all__ = [
+    "OUTER_COMPRESSLEVEL",
     "ArchiveMemberSource",
     "SiteRootCollection",
     "TarArchiveProbe",
@@ -146,6 +153,11 @@ _STAGED_MODE: Final = 0o600
 _ROLE_ORDER: Final = {MemberRole.DUMP: 0, MemberRole.CONFIG: 1, MemberRole.SITE_ROOT: 2}
 _CHUNK: Final = 1024 * 1024
 _GZIP_MAGIC: Final = b"\x1f\x8b"
+#: The outer gzip stream's level: 0, stored blocks. The payload inside is
+#: already gzip (or ciphertext), so the wrapper makes ``.tar.gz`` true without
+#: compressing twice (owner decision 21). A transport wrapper, not a layout
+#: change: ``format_version`` stays 1.
+OUTER_COMPRESSLEVEL: Final = 0
 _END_OF_ARCHIVE: Final = 2 * tarfile.BLOCKSIZE
 #: The longest end-of-archive run a tar writer pads to: the marker plus a record.
 _MAX_TRAILER: Final = tarfile.RECORDSIZE + _END_OF_ARCHIVE
@@ -542,8 +554,18 @@ def _outer_header(name: str, size: int, mtime: float) -> tarfile.TarInfo:
 def _write_outer(out: IO[bytes], manifest: Manifest, payload: Path) -> None:
     text = manifest_to_json(manifest).encode("utf-8")
     # The Run clock's time, as the Manifest records it (SD-01-5).
-    mtime = datetime.fromisoformat(manifest.created_at).timestamp()
-    with tarfile.open(fileobj=out, mode="w|") as outer:
+    mtime = parse_created_at(manifest.created_at).timestamp()
+    with (
+        # filename="": the gzip header names no path; mtime: the Run clock's.
+        gzip.GzipFile(
+            filename="",
+            mode="wb",
+            fileobj=out,
+            compresslevel=OUTER_COMPRESSLEVEL,
+            mtime=int(mtime),
+        ) as wrapped,
+        tarfile.open(fileobj=cast("IO[bytes]", wrapped), mode="w|") as outer,
+    ):
         manifest_header = _outer_header(MANIFEST_MEMBER, len(text), mtime)
         outer.addfile(manifest_header, io.BytesIO(text))
         with payload.open("rb") as source:
@@ -584,7 +606,7 @@ def write_archive(
             payload=ManifestPayload(name=ENCRYPTED_PAYLOAD_MEMBER, size=0, sha256=""),
         )
         built.append(pending)
-        stamp = datetime.fromisoformat(pending.created_at).timestamp()
+        stamp = parse_created_at(pending.created_at).timestamp()
         return inner_manifest_bytes(pending), stamp
 
     try:
@@ -993,22 +1015,22 @@ def verify_archive(path: Path) -> VerificationResult:
 
 
 def verify_archive_view(
-    path: Path, *, phase_name: str = BackupStep.VERIFY.value
+    path: Path, *, phase_key: PhaseKey = BackupStep.VERIFY
 ) -> tuple[ArchiveView | None, VerificationResult]:
     """:func:`verify_archive`, also returning the classified view (``None`` if none).
 
     For a caller that acts on the verified Archive without streaming it a
-    second time to classify it. ``phase_name`` is the open phase it annotates
-    (the restore's is ``RestorePhase.VERIFY.value``), so a Run emits one
+    second time to classify it. ``phase_key`` is the open phase it annotates
+    (the restore's is ``RestorePhase.VERIFY``), so a Run emits one
     record for it. :func:`verify_archive_manifest` also returns the Manifest's
     text.
     """
-    view, result, _ = verify_archive_manifest(path, phase_name=phase_name)
+    view, result, _ = verify_archive_manifest(path, phase_key=phase_key)
     return view, result
 
 
 def verify_archive_manifest(
-    path: Path, *, phase_name: str = BackupStep.VERIFY.value
+    path: Path, *, phase_key: PhaseKey = BackupStep.VERIFY
 ) -> tuple[ArchiveView | None, VerificationResult, str | None]:
     """:func:`verify_archive_view`, also returning the outer Manifest's text.
 
@@ -1018,7 +1040,7 @@ def verify_archive_manifest(
     compares the Manifest that was verified, from one read (ADR-0024
     amendment). ``verify --authenticate`` and the restore's ``VERIFY`` call it.
     """
-    with join_phase(phase_name) as record:
+    with join_phase(phase_key) as record:
         scan = _stream_outer(path)
         view, result = verify_probe(scan.index(), scan.digests)
         record.bytes = scan.bytes_read
@@ -1063,6 +1085,27 @@ def _payload_body(outer: tarfile.TarFile, name: str, archive: Path) -> IO[bytes]
 
 
 @contextlib.contextmanager
+def _outer_tar(archive: Path) -> Iterator[tarfile.TarFile]:
+    """A v1 Archive's outer tar, streamed (``r|``), in either encoding.
+
+    gzip-wrapped (written since owner decision 21) is detected from the magic
+    and read through :class:`gzip.GzipFile`; a plain tar (every earlier v1
+    Archive) is read as it is. Both stay readable permanently.
+    """
+    with contextlib.ExitStack() as stack:
+        handle = stack.enter_context(_open(archive))
+        body: IO[bytes] = handle
+        if cast("io.BufferedReader", handle).peek(2)[:2] == _GZIP_MAGIC:
+            body = cast(
+                "IO[bytes]",
+                stack.enter_context(gzip.GzipFile(fileobj=handle, mode="rb")),
+            )
+        yield stack.enter_context(
+            tarfile.open(fileobj=body, mode="r|", tarinfo=_BoundedTarInfo)
+        )
+
+
+@contextlib.contextmanager
 def _inner(
     archive: Path, view: ArchiveView, payload: Path | None
 ) -> Iterator[tarfile.TarFile]:
@@ -1080,10 +1123,7 @@ def _inner(
         msg = "an encrypted archive needs payload= (the file decrypt_payload wrote)"
         raise ValueError(msg)
     else:
-        with (
-            _open(archive) as handle,
-            tarfile.open(fileobj=handle, mode="r|", tarinfo=_BoundedTarInfo) as outer,
-        ):
+        with _outer_tar(archive) as outer:
             body = _payload_body(outer, view.payload.name, archive)
             with tarfile.open(
                 fileobj=body, mode="r|gz", tarinfo=_BoundedTarInfo
@@ -1392,11 +1432,7 @@ def decrypt_payload(
     except OSError as exc:
         raise ArchiveWriteError(destination, _reason(exc)) from exc
     try:
-        with (
-            os.fdopen(fd, "wb") as writer,
-            _open(archive) as handle,
-            tarfile.open(fileobj=handle, mode="r|", tarinfo=_BoundedTarInfo) as outer,
-        ):
+        with os.fdopen(fd, "wb") as writer, _outer_tar(archive) as outer:
             os.fchmod(writer.fileno(), _STAGED_MODE)
             cipher.decrypt(_payload_body(outer, view.payload.name, archive), writer)
     except (PassphraseRejectedError, PayloadDamagedError) as exc:
@@ -1408,7 +1444,7 @@ def decrypt_payload(
         )
         _log.error("member_decryption_failed", member=view.payload.name, reason=reason)
         raise
-    except (tarfile.TarError, EOFError, zlib.error) as exc:
+    except (tarfile.TarError, EOFError, zlib.error, gzip.BadGzipFile) as exc:
         destination.unlink(missing_ok=True)
         raise ArchiveReadError(archive, _reason(exc)) from exc
     except BaseException:
@@ -1423,19 +1459,19 @@ def _inner_manifest_failure(record: PhaseRecord, reason: str) -> PayloadDamagedE
 
 
 def read_inner_manifest(
-    payload: Path, *, phase_name: str = BackupStep.VERIFY.value
+    payload: Path, *, phase_key: PhaseKey = BackupStep.VERIFY
 ) -> bytes:
     """The inner Manifest's bytes from the decrypted ``payload`` (ADR-0024 amendment).
 
     Streams the gzip tar :func:`decrypt_payload` wrote once, reading at most
     :data:`MANIFEST_MAX_BYTES` of the reserved member (a larger or non-file
     one reads as empty, so the comparison finds it unparsable). It must occur
-    exactly once and last; otherwise the open ``phase_name`` record gets
+    exactly once and last; otherwise the open ``phase_key`` record gets
     ``reason`` ``inner_manifest_missing``, ``inner_manifest_duplicated`` or
     ``inner_manifest_misplaced`` and :class:`PayloadDamagedError` is raised.
     A payload that is not a readable gzip tar is :class:`ArchiveReadError`.
     """
-    with join_phase(phase_name) as record:
+    with join_phase(phase_key) as record:
         found = 0
         last = False
         text = b""

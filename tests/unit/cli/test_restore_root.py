@@ -65,6 +65,7 @@ from l3io.wp.backup.domain.restore import (
 from tests.conftest import CredentialSentinel
 from tests.restore_harness import ARCHIVE_DB
 from tests.restore_root_rig import ALL_WAIVED, Rig, report_for
+from tests.root_mode import allow_root_argv
 from tests.unit.cli.conftest import RecordingSiteLock
 
 #: Every table key that expresses a Mode (scope from the table).
@@ -632,6 +633,7 @@ def _argv(rig: Rig, *extra: str) -> list[str]:
         "--snapshot-dir",
         str(rig.work / "snapshots"),
         "--force",
+        *allow_root_argv(),
         *extra,
     ]
 
@@ -702,7 +704,18 @@ def test_a_failure_after_the_snapshot_names_it(
         "error": "LoadFailedError",
         "snapshot_path": rig.inputs.header.snapshot_path,
     }
-    assert "safety snapshot is NOT encrypted" in captured.err
+    # stderr is JSON lines under --log-format json (BL-E002-103 UX-5): the
+    # WARNING record carries the notice, naming the snapshot.
+    (warning,) = [
+        r for r in _records(captured.err) if r["event"] == "safety_snapshot_unencrypted"
+    ]
+    assert warning["path"] == rig.inputs.header.snapshot_path
+    assert warning["level"] == "warning"
+
+
+def _records(err: str) -> list[dict[str, object]]:
+    """Every stderr line, each one JSON object."""
+    return [json.loads(line) for line in err.splitlines()]
 
 
 def _performed_snapshots(rig: Rig) -> None:
@@ -761,9 +774,9 @@ def test_an_encrypted_snapshot_says_so_without_the_passphrase(
     assert main(_argv(rig, "--allow-unencrypted")) == int(LoadFailedError.exit_code)
     err = capsys.readouterr().err
     planned = rig.inputs.header.snapshot_path
-    assert "safety snapshot is encrypted with the passphrase" in err
-    assert str(planned) in err
-    assert "NOT encrypted" not in err
+    events = {str(r["event"]): r for r in _records(err)}
+    assert events["safety_snapshot_encrypted"]["path"] == str(planned)
+    assert "safety_snapshot_unencrypted" not in events
     assert credential_sentinel.passphrase is not None
     assert credential_sentinel.passphrase not in err
 
@@ -852,7 +865,7 @@ def test_a_failed_database_check_prints_no_completion_line(
     rig.execute = lambda *a, **k: report_for(a[0], restored=False)  # type: ignore[misc]
     assert main(_console_argv(rig)) == int(DatabaseNotRestoredError.exit_code)
     out = capsys.readouterr().out
-    assert "database: NOT restored" in out
+    assert "database NOT restored: " in out
     assert "restore complete" not in out
 
 
@@ -1094,8 +1107,12 @@ def test_a_structural_only_archive_is_named_on_stderr_even_when_the_run_fails(
         raise LoadFailedError(reason, database="wp")
 
     rig.execute = fail
+    # The human notice is printed under the console format; under json the
+    # WARNING record carries it (BL-E002-103 UX-5).
+    argv = _argv(rig)
+    argv[argv.index("--log-format") + 1] = "console"
     with capture_logs():
-        assert main(_argv(rig)) != int(ExitCode.OK)
+        assert main(argv) != int(ExitCode.OK)
     err = capsys.readouterr().err
     assert err.count(restore_mod.STRUCTURAL_ONLY_WARNING) == 1
     assert restore_mod.UNAUTHENTICATED_WARNING not in err

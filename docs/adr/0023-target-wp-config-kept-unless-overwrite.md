@@ -107,7 +107,8 @@ copies and replaces nothing.
   cutover's key set under `OVERWRITE`), E003-S02-006 (request field and usage check). The
   PRD's FR-6 section links here.
 - **Revisit when:** `l3io-wordpress-config` offers a whole-file atomic replace. The write
-  then moves there, as AD-18.2 prefers.
+  then moves there, as AD-18.2 prefers. *(Resolved 2026-11-07, see the amendment below:
+  0.1.4's `WpConfigFile.replace_content` is that replace, and the write has moved there.)*
 
 ## Concern — resolved 2026-10-28
 
@@ -141,3 +142,26 @@ E007-S01-001 the fix:
 Not covered by that check: `cli/restore.py::_archive_config` still writes the Archive's config
 into the workspace when the target has none, to build the Site Descriptor, as ADR-0016's
 2026-10-27 amendment prescribes. That write is the composition root's, not the executor's.
+
+## Amendment — 2026-11-07: the replace moves into `l3io-wordpress-config` (Shawn, owner decisions 25 and 34)
+
+BL-E002-091: step 4's temp-fsync-replace sequence was a copy of `l3io-wordpress-config`'s private
+atomic write. That package's 0.1.4 publishes it as `WpConfigFile(path).replace_content(text: str) -> bool`,
+which resolves this ADR's revisit note:
+
+- `adapters/config_writer.py::replace_file` still applies `keep` to the Archive's text in memory with
+  `WpConfigString.set`, then hands the whole text to `replace_content`. Our own `_write_over` (and its
+  owner-keeping helper) is deleted; the package now writes no byte of a live `wp-config.php` itself.
+  Its one remaining own write is `save_copy`, the `0600` undo copy, which the library has no call for.
+- The write is unchanged in substance: `mkstemp` beside the file, the original's owner and group, then
+  mode, set before any content (refusing rather than changing the owner), fsync, read-back, `os.replace`,
+  directory fsync, and no partial file on any failure.
+- Two differences, both the library's and both accepted: a replacement text that defines a key twice is
+  refused (`ReadBackError`; PHP keeps the first definition and warns, so a later `set` could change the
+  wrong one), and a text identical to the file is not rewritten (`replace_content` returns `False`; the
+  Run still reports the phase performed).
+- Errors map to the existing class: `ConfigWriteError` and `ReadBackError` become `ConfigWriteFailedError`
+  for the whole file, with the same structured reasons as `set` (owner not kept, read-back failed).
+- `pyproject.toml` raises the floor to `l3io-wordpress-config>=0.1.4,<0.2`.
+  `tests/adapters/test_config_writer.py` asserts the delegation, the duplicate-key refusal and the
+  unchanged-text case beside the existing mode, owner, line-ending and failure tests.

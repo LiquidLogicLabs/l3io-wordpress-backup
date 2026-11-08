@@ -43,11 +43,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Final
+
+import structlog
 
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.phase import PhaseRecord, phase
@@ -57,9 +59,10 @@ from l3io.wp.backup.adapters.tar import (
     read_inner_manifest,
     verify_archive_manifest,
 )
-from l3io.wp.backup.cli.backup import storage_target_from_cli
+from l3io.wp.backup.cli.backup import NO_ENVIRONMENT, storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, join_or_open
-from l3io.wp.backup.cli.output import emit_result
+from l3io.wp.backup.cli.logging import configured_format
+from l3io.wp.backup.cli.output import WarningSink, emit_result
 from l3io.wp.backup.cli.passphrase import resolve_passphrase, terminal_prompt
 from l3io.wp.backup.cli.preflight import refuse_unsupported_platform
 from l3io.wp.backup.core.backup import BackupStep
@@ -81,10 +84,16 @@ from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.tracing import Tracer
 
-__all__ = ["VerifyRequest", "drive_verify", "run_verify"]
+__all__ = [
+    "WHAT_IF_NOTE",
+    "VerifyRequest",
+    "drive_verify",
+    "note_what_if_not_applicable",
+    "run_verify",
+]
 
-#: The environment a keyless verification is handed: none (A2).
-NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
+_log = structlog.get_logger(__name__)
+
 #: The decrypted payload's name in the workspace; deleted once ``age`` accepts it.
 _AUTHENTICATED_PAYLOAD: Final = "authenticate.payload"
 #: The permanent limit of an authenticated pass (ADR-0024 amendment, F-21).
@@ -161,8 +170,13 @@ def drive_verify(
     passphrase: Secret | str | None = None,
     environ: Mapping[str, str] = NO_ENVIRONMENT,
     prompt: Callable[[str], str] | None = None,
+    on_warning: WarningSink | None = None,
 ) -> VerificationResult:
     """The verify driver: returns or raises ``BackupError``; never prints.
+
+    ``on_warning`` receives the Run's operator notices as ``drive_restore``'s
+    and ``drive_backup``'s do (owner decision 2026-11-07, BL-E008-012); a
+    verification gives none today, so nothing reaches it yet.
 
     A failed verification is returned, not raised; a Run opened here still
     finishes with a non-zero ``exit_code`` (``report_failure``). With
@@ -172,6 +186,7 @@ def drive_verify(
     empty: nothing below a root reads ``os.environ``. An unsupported
     platform is refused first, as every other command refuses it.
     """
+    del on_warning  # no verification notice exists yet (see above)
     refuse_unsupported_platform()
     with join_or_open(
         ctx,
@@ -180,7 +195,7 @@ def drive_verify(
         secrets=secrets,
         command_args=command_args,
     ) as handle:
-        with phase(BackupStep.VERIFY.value) as record:
+        with phase(BackupStep.VERIFY) as record:
             view, result, text = verify_archive_manifest(Path(request.archive.path))
             if request.authenticate and result.passed:
                 _authenticate(
@@ -202,6 +217,22 @@ def drive_verify(
         return result
 
 
+#: The note ``verify --whatIf`` writes (BL-E002-077, owner decision 2026-11-07).
+WHAT_IF_NOTE: Final = "verify is read-only; --whatIf changes nothing"
+
+
+def note_what_if_not_applicable() -> None:
+    """Say ``--whatIf`` changes nothing here; verification still runs.
+
+    An INFO ``what_if_not_applicable`` record carries the note; the plain line
+    is printed on stderr too unless stderr is JSON lines (``--log-format
+    json``), which stays one object per line.
+    """
+    _log.info("what_if_not_applicable", message=WHAT_IF_NOTE)
+    if configured_format() != "json":
+        print(WHAT_IF_NOTE, file=sys.stderr)
+
+
 def run_verify(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
     """``wpbackup2 verify``: ``ExitCode.OK`` on a pass; raises on a fail or error.
 
@@ -210,6 +241,8 @@ def run_verify(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     ``--authenticate`` resolves a credential: the passphrase, from
     ``os.environ`` or a terminal prompt — never from ``argv``.
     """
+    if args.what_if:
+        note_what_if_not_applicable()
     target = storage_target_from_cli(args.archive)
     request = VerifyRequest(archive=target, authenticate=args.authenticate)
     result = drive_verify(

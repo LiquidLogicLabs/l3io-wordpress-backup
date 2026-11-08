@@ -169,7 +169,8 @@ def test_a_backup_publishes_one_archive_and_a_record_per_step(
     assert read.contents[dump_name] == DUMP_TEXT
     assert read.manifest.dump_present is True
     assert read.manifest.backup_scope == "all"
-    assert read.manifest.created_at == NOW.isoformat()
+    # BL-E002-005: ISO-8601 UTC, whole seconds, Z suffix.
+    assert read.manifest.created_at == "2026-11-02T12:00:00Z"
     assert read.manifest.config_path == "wp-config.php"
     assert read.manifest.exclusions is not None
     assert read.manifest.exclusions.source == "none"
@@ -374,7 +375,7 @@ def cli_site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Any
         "define('DB_NAME', 'wptest');\n"
         "define('DB_USER', 'wp');\n"
         "define('DB_PASSWORD', 'not-a-real-secret');\n"
-        "define('DB_HOST', 'db.invalid');\n"
+        "define('DB_HOST', 'localhost');\n"
         "$table_prefix = 'wp_';\n",
         encoding="utf-8",
     )

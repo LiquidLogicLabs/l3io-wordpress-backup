@@ -53,7 +53,10 @@ No pattern — default or custom, including `*`, `**`, `*.php` and
 it cannot be restored to a working Site. When a pattern would have matched it,
 the backup logs a WARNING `protected_path_kept` naming the pattern and keeps the
 file. The protected paths are `PROTECTED_PATHS` in the same module; a directory
-holding a protected path is never pruned either.
+holding a protected path is never pruned either. The match is
+case-insensitive (owner decision 2026-11-07, BL-E004-063): `WP-CONFIG.PHP` is
+the file WordPress reads on a case-insensitive filesystem, so no spelling of it
+is excluded.
 
 ## Pattern syntax
 

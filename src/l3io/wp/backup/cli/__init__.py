@@ -23,12 +23,14 @@ redacted too. Usage errors are argparse's own ``SystemExit(2)``, which is
 ``ExitCode.USAGE``. ``KeyboardInterrupt`` is not caught.
 
 **SIGTERM (FR-28).** For the duration of the Run only, :func:`main` installs a
-SIGTERM handler raising :class:`~l3io.wp.backup.domain.errors.RunTerminated`
-(``FAILED``), so the Run's ``finally`` chain releases the Site Lock and removes
-the workspace; SIGINT already raises ``KeyboardInterrupt``. The previous
-handler is restored afterwards. Off the main thread nothing is installed
-(Python allows handlers only there). The library root installs none: a host
-owns its process, and the kernel releases the ``flock`` of one that is killed.
+SIGTERM handler — and the same for SIGHUP and SIGQUIT
+(:data:`TERMINATING_SIGNALS`; owner decision 2026-11-07) — raising
+:class:`~l3io.wp.backup.domain.errors.RunTerminated` (``FAILED``), so the Run's
+``finally`` chain releases the Site Lock and removes the workspace; SIGINT
+already raises ``KeyboardInterrupt``. The previous handler is restored
+afterwards. Off the main thread nothing is installed (Python allows handlers
+only there). The library root installs none: a host owns its process, and the
+kernel releases the ``flock`` of one that is killed.
 """
 
 from __future__ import annotations
@@ -51,11 +53,12 @@ from l3io.wp.backup.cli.parser import (
     VERIFY_COMMAND,
     build_parser,
     not_yet_implemented,
+    require_backup_wp_dir,
 )
 from l3io.wp.backup.domain.errors import RunTerminated, UsageError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 
-__all__ = ["main", "run_from_cli"]
+__all__ = ["TERMINATING_SIGNALS", "main", "run_from_cli"]
 
 
 def _terminate(signum: int, frame: FrameType | None) -> None:
@@ -63,17 +66,28 @@ def _terminate(signum: int, frame: FrameType | None) -> None:
     raise RunTerminated(signal.Signals(signum).name)
 
 
+#: The signals handled like SIGTERM (BL-E002-065, owner decision 2026-11-07:
+#: a closed terminal or Ctrl-backslash cleans up too); those this platform lacks are
+#: skipped.
+TERMINATING_SIGNALS: tuple[signal.Signals, ...] = tuple(
+    getattr(signal, name)
+    for name in ("SIGTERM", "SIGHUP", "SIGQUIT")
+    if hasattr(signal, name)
+)
+
+
 @contextmanager
 def _sigterm_raises() -> Iterator[None]:
-    """SIGTERM raises :class:`RunTerminated` inside the block, then is restored."""
+    """Each terminating signal raises :class:`RunTerminated`, then is restored."""
     if threading.current_thread() is not threading.main_thread():
         yield
         return
-    previous = signal.signal(signal.SIGTERM, _terminate)
+    previous = {sig: signal.signal(sig, _terminate) for sig in TERMINATING_SIGNALS}
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -102,6 +116,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.action == BACKUP_COMMAND:
             from l3io.wp.backup.cli.credentials import wordpress_spec
+
+            missing = require_backup_wp_dir(vars(args))
+            if missing is not None:
+                parser.error(missing)
 
             wordpress_spec(
                 aws_secret_id=args.db_credentials_aws_secret_id,
