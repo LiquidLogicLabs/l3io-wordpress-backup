@@ -5,10 +5,14 @@
 # ACT=true, which would make a real CI run mistake itself for a local one.
 LOCAL_ACT=1
 
-# DB_HOST is deliberately NOT set. act's default network is `host`, so a service
-# label fails DNS and the published port is on 127.0.0.1 — the workflow default,
-# and the same address GitHub's VM runner uses. Only set DB_HOST=db if you also
-# pass --network with a user-defined network.
+# DB_HOST is deliberately NOT set. It must stay a loopback address (wpbackup2
+# treats any other host as remote). Under act, ci.yml's `test` job runs in its
+# own container and a step forwards 127.0.0.1:3306 to its leg's database.
+#
+# ACT_JOB_IMAGE (optional): the image that `test` job runs in under act.
+# Defaults to ghcr.io/catthehacker/ubuntu:act-latest, what ~/.actrc maps
+# ubuntu-latest to; set it if your ~/.actrc maps ubuntu-latest elsewhere.
+# ACT_JOB_IMAGE=
 
 # Leave empty to skip the internal registry mirror job.
 PYPI_CUSTOM_URL=

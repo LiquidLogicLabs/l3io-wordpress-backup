@@ -689,19 +689,70 @@ HOST_PORTS_ENV = "L3IO_ACT_HOST_PORTS"
 _DOCKER_PUBLISH = re.compile(r"\bdocker\s+run\b[^\n]*\s(?:-p|--publish)[\s=]")
 
 
+#: `${{ vars.LOCAL_ACT && '<act value>' || '<github value>' }}` -- the only
+#: expression shape `_act_value` reads. Anything else is "unknown" and treated as
+#: not isolated, so an unrecognised form fails closed (collapse still required).
+_ACT_TERNARY = re.compile(
+    r"^\$\{\{\s*vars\.LOCAL_ACT\s*&&\s*(?P<act>.+?)\s*\|\|\s*'(?P<gh>[^']*)'\s*\}\}$",
+    re.DOTALL,
+)
+
+
+def _act_value(raw: object) -> str | None:
+    """The value a workflow string takes under act, or None when not knowable."""
+    text = str(raw).strip()
+    if "${{" not in text:
+        return text
+    m = _ACT_TERNARY.match(text)
+    if m is None:
+        return None
+    act = m.group("act").strip()
+    return act[1:-1] if act.startswith("'") and act.endswith("'") else act
+
+
+def services_isolated_under_act(job: dict) -> bool:
+    """True when act gives this job's legs nothing to collide on.
+
+    act puts a job with `services:` on its own network, aliasing each service by
+    its id, but attaches the JOB container to that network only when the job
+    declares `container:` (act v0.2.89, run_context.go); without one the job runs
+    on `--network host` and reaches services through published host ports. So the
+    legs are isolated only if (a) `container:` is set under vars.LOCAL_ACT and is
+    '' otherwise -- GitHub's runner treats '' as "no container" -- and (b) no
+    service port, as act evaluates it, names a host port (`3306`, not `3306:3306`).
+    """
+    container = job.get("container")
+    if not isinstance(container, str):
+        return False
+    m = _ACT_TERNARY.match(container.strip())
+    if m is None or m.group("gh") != "":
+        return False
+    for svc in (job.get("services") or {}).values():
+        for port in (svc or {}).get("ports") or []:
+            value = _act_value(port)
+            if value is None or ":" in value:
+                return False
+    return True
+
+
 def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
     """Under act, collapse an axis only where its legs would collide on a host port.
 
-    act runs `--network host`. A job with `services` starts every leg's containers
-    up front, so the legs collide and the axis MUST be collapsed. A job that binds
-    host ports from inside a step declares them in `L3IO_ACT_HOST_PORTS`; its legs
-    start containers one at a time under `make ci`'s `--concurrent-jobs 1`, so a
+    act runs `--network host`. A job with `services` whose legs publish a fixed
+    host port starts every leg's containers up front, so the legs collide and the
+    axis MUST be collapsed -- unless the job is isolated under act (see
+    `services_isolated_under_act`), in which case it must NOT be: the legs share
+    nothing, and collapsing them is how a whole engine went untested locally
+    (mariadb, 2026-11-08). A job that binds host ports from inside a step declares
+    them in `L3IO_ACT_HOST_PORTS`; its legs start containers one at a time, so a
     collapse is PERMITTED but not required. A job with neither has nothing to
     collide on, and collapsing it only stops act checking what the axis covers.
 
     Coverage, stated rather than implied: an undeclared `docker run -p` written
     directly in a step's `run:` is reported. One reached through `make` or a script
-    is NOT visible here -- the declaration is the only signal for those.
+    is NOT visible here -- the declaration is the only signal for those. Isolation
+    is recognised only in the one expression shape `_ACT_TERNARY` reads; any other
+    spelling is treated as not isolated.
     """
     for name, job in (ci_doc.get("jobs") or {}).items():
         env = job.get("env") or {}
@@ -731,18 +782,24 @@ def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
         matrix = (job.get("strategy") or {}).get("matrix") or {}
         axes = {k: str(v) for k, v in matrix.items() if k not in ("include", "exclude")}
         has_services = bool(job.get("services"))
+        isolated = has_services and services_isolated_under_act(job)
         for axis, expr in axes.items():
             collapses = "vars.LOCAL_ACT" in expr
-            if has_services and not collapses:
+            if has_services and not isolated and not collapses:
                 R(
                     "act",
                     f"ci.yml job `{name}` has services but axis `{axis}` is not "
                     "collapsed under vars.LOCAL_ACT -- legs collide on the host port",
                 )
-            if not has_services and not declared and collapses:
+            if (isolated or (not has_services and not declared)) and collapses:
+                why = (
+                    "its services are isolated per leg under act"
+                    if isolated
+                    else "binds no host port"
+                )
                 R(
                     "act",
-                    f"ci.yml job `{name}` binds no host port but collapses axis "
+                    f"ci.yml job `{name}` {why} but collapses axis "
                     f"`{axis}` under vars.LOCAL_ACT -- act stops checking what the "
                     "axis covers",
                 )

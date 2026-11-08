@@ -169,25 +169,42 @@ jobs:
   test:
     name: py${{ matrix.python }} · ${{ matrix.engine.name }}
     runs-on: ubuntu-latest
+    # The FULL grid runs under act too (2026-11-08). It used to collapse to one
+    # leg, because act runs a job container on `--network host`, so every leg's
+    # service published host port 3306 and eleven of twelve failed with "port is
+    # already allocated". That collapse is how the mariadb legs went red on GitHub
+    # with `make ci` green: no local run ever started MariaDB.
+    #
+    # The fix is network isolation, not fewer legs. act gives every job that has
+    # `services:` its own network, with the service aliased `db`, but it attaches
+    # the JOB container to that network only when the job declares `container:`
+    # (act v0.2.89, pkg/runner/run_context.go). So under act the job runs in the
+    # same image ~/.actrc maps ubuntu-latest to, in its own network namespace,
+    # reaches its own database as db:3306 (forwarded to 127.0.0.1:3306 by a
+    # step below), and no leg publishes a fixed host port.
+    #
+    # On GitHub the expression is '', which the runner treats as "no container"
+    # (PipelineTemplateConverter.ConvertToJobContainer returns null for an empty
+    # literal), so GitHub legs still run on the VM and reach 127.0.0.1:3306.
+    # Override the image with vars.ACT_JOB_IMAGE in .act.vars if ~/.actrc maps
+    # ubuntu-latest elsewhere.
+    container: ${{ vars.LOCAL_ACT && (vars.ACT_JOB_IMAGE || 'ghcr.io/catthehacker/ubuntu:act-latest') || '' }}
+    defaults:
+      run:
+        # A job with `container:` defaults to `sh`; pin bash so both places run
+        # these steps under the same shell.
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        # Collapsed to one representative leg under act, full grid on GitHub.
-        # act creates EVERY leg's service container up front, before any job runs,
-        # so twelve legs all try to bind host port 3306 and eleven fail with
-        # "port is already allocated". --concurrent-jobs 1 does not help, because
-        # the allocation happens before execution. Worse, a container that fails to
-        # start is not removed by --rm, so it strands the port until removed by hand.
-        #
         # No `include:` here, deliberately. An include entry whose keys do not match
-        # an existing combination ADDS a leg rather than extending one, so collapsing
-        # the engine list would silently produce phantom legs with an empty python
-        # value. Carrying image and health on the engine object makes that impossible
-        # rather than merely avoided.
-        python: ${{ vars.LOCAL_ACT && fromJSON('["3.11"]') || fromJSON('["3.11","3.12","3.13","3.14"]') }}
-        engine: ${{ vars.LOCAL_ACT
-          && fromJSON('[{"name":"mysql80","image":"mysql:8.0","health":"mysqladmin ping -h 127.0.0.1 -uroot -proot"}]')
-          || fromJSON('[{"name":"mysql80","image":"mysql:8.0","health":"mysqladmin ping -h 127.0.0.1 -uroot -proot"},{"name":"mysql84","image":"mysql:8.4","health":"mysqladmin ping -h 127.0.0.1 -uroot -proot"},{"name":"mariadb","image":"mariadb:11.4","health":"healthcheck.sh --connect --innodb_initialized"}]') }}
+        # an existing combination ADDS a leg rather than extending one. Carrying
+        # image and health on the engine object keeps each engine one value.
+        python: ["3.11", "3.12", "3.13", "3.14"]
+        engine:
+          - { name: mysql80, image: "mysql:8.0", health: "mysqladmin ping -h 127.0.0.1 -uroot -proot" }
+          - { name: mysql84, image: "mysql:8.4", health: "mysqladmin ping -h 127.0.0.1 -uroot -proot" }
+          - { name: mariadb, image: "mariadb:11.4", health: "healthcheck.sh --connect --innodb_initialized" }
     services:
       db:
         image: ${{ matrix.engine.image }}
@@ -195,17 +212,22 @@ jobs:
           MYSQL_ROOT_PASSWORD: root
           MARIADB_ROOT_PASSWORD: root
           MYSQL_DATABASE: wptest
-        ports: ['3306:3306']
+        # GitHub: a fixed host port, because the job runs on the VM. act: the
+        # container port only (Docker picks an unused host port), because the
+        # job reaches the service over the per-job network and twelve legs must
+        # not contend for one host port.
+        ports: ["${{ vars.LOCAL_ACT && '3306' || '3306:3306' }}"]
         options: >-
           --health-cmd="${{ matrix.engine.health }}"
           --health-interval=5s --health-timeout=5s
           --health-retries=20 --health-start-period=30s
     env:
-      # 127.0.0.1 on BOTH GitHub and act. act's default network is `host`
-      # (`--network` defaults to "host"), so a service label fails DNS outright and
-      # the published port appears on the loopback address — the same place GitHub's
-      # VM runner puts it. Do NOT set DB_HOST=db in .act.vars; that only applies if
-      # act is given a user-defined network with --network.
+      # 127.0.0.1 on BOTH GitHub and act, and it must stay a loopback address:
+      # wpbackup2 treats any other DB_HOST as remote (it wants --confirm-db-host
+      # and verifies the server's TLS certificate), so `db` would test a
+      # different code path from GitHub's. GitHub publishes the service port on
+      # the VM's loopback; under act the "forward the database" step below does
+      # the same inside each leg's own container.
       DB_HOST: ${{ vars.DB_HOST || '127.0.0.1' }}
       DB_PASSWORD: root
       # Coverage output is the third thing act leaves root-owned in the bound
@@ -247,6 +269,20 @@ jobs:
           echo "${WP_CLI_SHA512}  /tmp/wp" | sha512sum -c -
           sudo install -m 0755 /tmp/wp /usr/local/bin/wp
           wp --info --allow-root
+      # act only. The job container has its own network namespace (see
+      # `container:` above), so 127.0.0.1 is this leg's alone; forward it to the
+      # leg's own service, `db` on the per-job network, so DB_HOST is the same
+      # loopback address it is on GitHub. socat is the stock tool for this.
+      - name: forward the database to 127.0.0.1:3306 (act only)
+        if: ${{ vars.LOCAL_ACT }}
+        run: |
+          sudo apt-get install -y --no-install-recommends socat
+          nohup setsid socat TCP-LISTEN:3306,bind=127.0.0.1,fork,reuseaddr TCP:db:3306 >/dev/null 2>&1 &
+          for _ in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/3306) 2>/dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::the forward to db:3306 did not come up"; exit 1
       # Gate E004 AG-4 (E004-S01-003): stock `age` for the interop test, and the
       # `cli` passphrase backend database falls back to. Ubuntu's apt `age` is below
       # 1.3 and `age-plugin-batchpass` is not packaged, so the release is pinned and
@@ -280,13 +316,13 @@ jobs:
         run: uv run pytest tests/contracts/test_streaming.py -q
 
   unit:
-    # Every supported interpreter, no database. The `test` job's matrix shrinks to
-    # one leg under act (every leg's service claims host port 3306), so a
-    # regression on a newer CPython could pass `make ci` locally. It did once:
-    # tarfile in 3.13/3.14 stopped calling TarInfo.frombuf, so the E004 header
-    # bound was bypassed there (E004 closure follow-up, 2026-11-06). This job has
-    # no `services:`, so act runs all four legs. Integration tests skip without
-    # DB_HOST.
+    # Every supported interpreter, no database. Added while the `test` job's
+    # matrix still shrank to one leg under act, after a regression on a newer
+    # CPython passed `make ci` locally: tarfile in 3.13/3.14 stopped calling
+    # TarInfo.frombuf, so the E004 header bound was bypassed there (E004 closure
+    # follow-up, 2026-11-06). `test` now runs its full grid under act too; this
+    # job stays as the no-database tier (`make ci-quick` runs it in full).
+    # Integration tests skip without DB_HOST.
     name: unit+contracts · py${{ matrix.python }}
     runs-on: ubuntu-latest
     strategy:

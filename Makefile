@@ -16,11 +16,39 @@
 #   make types        mypy --strict
 #   make test         pytest against a local MySQL (needs one running)
 #   make contracts    the architecture gates (AD-1, AD-4, AD-5, AD-25)
-#   make audit        uv audit over uv.lock (network; not part of ci)
-#   make ci           replay the whole CI pipeline locally via act
+#   make audit        uv audit over uv.lock (network)
+#   make ci           replay every workflow act can run, full matrix (see below)
+#   make ci-quick     the same, one interpreter (3.11) across every engine
 #   make ci-job JOB=  replay one job, e.g. make ci-job JOB=contracts
-#   make ci-dryrun    parse and plan the workflow without running it
+#   make ci-dryrun    dry-run publish/release/security-audit for every trigger
+#   make ci-clean     remove act containers, networks and volumes a run left
+#   make preflight    lint, types, contracts, then `make ci`; records the commit
+#                     it passed for. `make release` refuses without it.
 #   make build        uv build --no-sources
+#
+# WHAT `make ci` RUNS (2026-11-08):
+#   ci.yml, every job and every leg -- lint/types, contracts, test (py3.11-3.14
+#     x mysql80, mysql84, mariadb), unit (py3.11-3.14), clean install
+#     (py3.11-3.14, which builds and installs its own wheel), build;
+#   security-audit.yml for real (uv audit over uv.lock);
+#   ci-dryrun: publish.yml, release.yml and security-audit.yml as act dry runs,
+#     one leg per trigger and choice option, so every `uses:` ref resolves.
+#
+# WHAT STAYS GITHUB-ONLY, and why:
+#   ci.yml `build` -> upload-artifact@v7: act's artifact server rejects v7's
+#     protocol. Skipped under act; nothing depends on it (clean install builds
+#     its own wheel).
+#   publish.yml build/smoke/namespace, run for real: they hand the wheel over
+#     with upload-artifact@v7 / download-artifact@v8 (same protocol gap), and
+#     version-gate needs a release tag. ci.yml's clean install covers the
+#     built-wheel install locally; the PyPI-only `--no-sources` extras check
+#     and the three-distribution namespace check do not run locally.
+#   publish.yml publish-* jobs: need OIDC and environment protection, which act
+#     does not have (and must not fake). Dry-run only.
+#   release.yml: creates tags and dispatches publishes. Dry-run only, by design.
+#   Runner image: act runs ghcr.io/catthehacker/ubuntu:act-latest (Ubuntu
+#     24.04, apt mysql-client 8.0); GitHub's ubuntu-latest is Ubuntu 26.04
+#     (mysql-client 8.4). Client-version-specific behaviour can differ.
 
 ACT_FILES := .act.vars .act.env .act.secrets
 
@@ -46,7 +74,17 @@ ACT_PLACEHOLDER_SECRETS := PYPI_CUSTOM_USERNAME PYPI_CUSTOM_PASSWORD PYPI_TOKEN 
 
 ACT := $(INFISICAL_RUN) act
 
-.PHONY: help act-init infisical-init secrets-check lint format types test contracts audit verify-wheel ci ci-job ci-dryrun ci-list build clean
+# act runs at most 4 legs of one matrix at a time (its default `max-parallel`)
+# and at most ACT_CONCURRENT_JOBS jobs at once, so ci.yml's first stage peaks at
+# static + contracts + 4 test legs (each with its own database) + 4 unit legs.
+# Measured 2026-11-08 (10 CPUs, 31 GB RAM, 29 GB free disk): the full run took
+# 60 min, peaked at 15 act containers, 14.7 GB RAM used and 17.7 GB of disk
+# (each job container grows to ~2.5 GB; --rm frees it when the job ends), and
+# left 11 GB free. Raising the cap does not shorten the run -- the 12 test legs
+# go four at a time regardless -- and lowering it serialises the first stage.
+ACT_CONCURRENT_JOBS ?= 4
+
+.PHONY: help act-init infisical-init secrets-check lint format types test contracts audit verify-wheel ci ci-quick ci-job ci-dryrun ci-list ci-clean preflight build clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -80,7 +118,7 @@ format: ## Apply ruff formatting
 types: ## mypy --strict
 	uv run mypy --strict src
 
-audit: ## Scan uv.lock for known vulnerabilities (needs network; not part of ci)
+audit: ## Scan uv.lock for known vulnerabilities (needs network; ci runs it via security-audit.yml)
 	uv audit --locked --preview-features audit
 
 contracts: ## Architecture contract gates (AD-1, AD-4, AD-5, AD-25)
@@ -95,10 +133,11 @@ test: ## Run the test suite (expects a database on DB_HOST)
 build: ## Build wheel + sdist
 	uv build --no-sources
 
-verify-wheel: build ## Install the BUILT WHEEL into a clean env and import it
-	@# The substantive half of CI's verify-install job, which act cannot run because
-	@# its artifact server rejects upload-artifact@v7. Installing the working tree
-	@# would pass even when the published package cannot resolve — that is the blind
+verify-wheel: build ## Install the BUILT WHEEL into a clean env and import it (no act)
+	@# A quick, act-free subset of ci.yml's verify-install ("clean install") job.
+	@# `make ci` runs that job in full -- it builds its own wheel, so act's
+	@# upload-artifact gap does not touch it. Installing the working tree would
+	@# pass even when the published package cannot resolve -- that is the blind
 	@# spot this closes, so it must be the wheel.
 	@set -eu; wheel=$$(ls -t dist/*.whl | head -1); \
 	  echo "verifying $$wheel"; \
@@ -111,8 +150,52 @@ print('base install clean')"
 
 # ---- local CI replay -------------------------------------------------------
 
-ci: act-init secrets-check ## Replay the full CI pipeline locally
-	$(ACT) push
+ci: act-init secrets-check ## Replay every workflow act can run, full matrix
+	@# Each part runs even if an earlier one failed, so one run reports them all;
+	@# the target fails if any part did. --rm (in ~/.actrc) removes containers,
+	@# and ci-clean sweeps whatever a killed or failed run still left behind.
+	@set -u; fail=""; \
+	echo "== ci.yml: every job, every leg"; \
+	$(ACT) push --concurrent-jobs $(ACT_CONCURRENT_JOBS) || fail="$$fail ci.yml"; \
+	echo "== security-audit.yml"; \
+	$(ACT) push -W .github/workflows/security-audit.yml || fail="$$fail security-audit.yml"; \
+	echo "== dry runs: publish.yml, release.yml, security-audit.yml"; \
+	$(MAKE) --no-print-directory ci-dryrun || fail="$$fail ci-dryrun"; \
+	$(MAKE) --no-print-directory ci-clean; \
+	if [ -n "$$fail" ]; then echo "make ci FAILED:$$fail"; exit 1; fi; \
+	echo "make ci passed"
+
+# Family rule (Shawn, 2026-11-08): nothing is released, tagged or published until
+# CI is fully green on GitHub AND this has passed locally for that commit. It runs
+# the fast local gates first (they fail in seconds), then `make ci` -- every job
+# and leg act can run, security-audit.yml, and the publish/release dry runs; see
+# the header for what stays GitHub-only. Only a full pass writes the record, and
+# it is removed first, so a failed or interrupted run leaves none. The record
+# lives in .git/, never in the tree. `make release` checks it through
+# scripts/release-gate.py, tested in tests/contracts/test_release_gate.py.
+PREFLIGHT_STAMP = $(shell git rev-parse --git-path l3io-preflight)
+
+preflight: ## Everything act can run, for this commit; required by make release
+	@set -eu; \
+	if [ -n "$$(git status --porcelain --untracked-files=no)" ]; then \
+	  echo "tracked files are modified: preflight would not be testing the commit"; exit 1; \
+	fi; \
+	rm -f "$(PREFLIGHT_STAMP)"; \
+	sha=$$(git rev-parse HEAD); \
+	$(MAKE) --no-print-directory lint types contracts; \
+	$(MAKE) --no-print-directory ci; \
+	if [ "$$(git rev-parse HEAD)" != "$$sha" ] || [ -n "$$(git status --porcelain --untracked-files=no)" ]; then \
+	  echo "HEAD or tracked files changed during preflight: not recording a pass"; exit 1; \
+	fi; \
+	echo "$$sha" > "$(PREFLIGHT_STAMP)"; \
+	echo "preflight passed for $$(git rev-parse --short HEAD)"
+
+ci-quick: act-init secrets-check ## ci.yml with one interpreter (3.11) across every engine
+	@# act's --matrix keeps only legs whose `python` is 3.11 and leaves jobs
+	@# without that axis whole: static, contracts, test (3.11 x mysql80, mysql84,
+	@# mariadb), unit 3.11, clean install 3.11, build. One interpreter, but every
+	@# engine -- collapsing the engine axis is how the mariadb legs went untested.
+	$(ACT) push --concurrent-jobs $(ACT_CONCURRENT_JOBS) --matrix python:3.11
 
 ci-job: act-init secrets-check ## Replay one job: make ci-job JOB=contracts
 	@test -n "$(JOB)" || { echo "usage: make ci-job JOB=<job-id>"; exit 2; }
@@ -167,6 +250,19 @@ ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
 
 ci-list: act-init secrets-check ## List the jobs act can see
 	$(ACT) push --list
+
+ci-clean: ## Remove act containers, networks and volumes left by a run
+	@# act names everything it creates `act-<workflow name>-...`, with spaces in
+	@# the name turned into dashes. The prefixes are derived from the workflow
+	@# files' own `name:` fields, not listed here, so a renamed or added workflow
+	@# is still swept.
+	@set -eu; \
+	for n in $$(sed -n 's/^name:[[:space:]]*//p' .github/workflows/*.yml | tr ' ' '-'); do \
+	  docker ps -aq --filter "name=^act-$$n-" | xargs -r docker rm -f >/dev/null 2>&1 || true; \
+	  docker network ls -q --filter "name=^act-$$n-" | xargs -r docker network rm >/dev/null 2>&1 || true; \
+	  docker volume ls -q --filter "name=^act-$$n-" | xargs -r docker volume rm >/dev/null 2>&1 || true; \
+	done; \
+	echo "act leftovers removed"
 
 clean: ## Remove build and cache artifacts
 	rm -rf dist build .artifacts .uv-cache .pytest_cache .mypy_cache .ruff_cache
@@ -225,6 +321,7 @@ release: ## Cut a release: make release patch|minor|major|dev
 	  echo "so push or pull first. Local: $$(git rev-parse --short HEAD)  origin: $$(git rev-parse --short origin/$(RELEASE_BRANCH))"; \
 	  exit 1; \
 	fi; \
+	GH="$(GH)" RELEASE_BRANCH="$(RELEASE_BRANCH)" uv run python scripts/release-gate.py; \
 	latest=$$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1); \
 	echo "  repo         $$($(GH) repo view --json nameWithOwner -q .nameWithOwner)"; \
 	echo "  commit       $$(git rev-parse --short HEAD)"; \

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import pathlib
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from types import ModuleType
 
 import pytest
 import yaml
@@ -407,3 +408,133 @@ def test_a_grep_gate_fails_when_its_tree_is_missing(
 
     assert run(tmp_path) != 0, f"{label} passes over a missing tree"
     assert run(root) == 0, f"{label} fails over this repo"
+
+
+# ---- act runs every leg it can (2026-11-08) ---------------------------------
+#
+# The `test` job's matrix used to collapse to py3.11 x mysql80 under act, so no
+# local run ever started MariaDB, and the mariadb legs went red on GitHub with
+# `make ci` green. The rule -- collapse an axis under act only where its legs
+# would share a host port -- lives in scripts/check-cicd-alignment.py, which
+# sweeps the whole package family. These tests apply that same function to every
+# workflow here, so the rule is enforced on each change and not only when the
+# family sweep is run by hand.
+
+
+def _alignment() -> ModuleType:
+    import importlib.util
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    path = root / "scripts/check-cicd-alignment.py"
+    spec = importlib.util.spec_from_file_location("check_cicd_alignment", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _act_matrix_findings(doc: dict) -> list[str]:
+    findings: list[str] = []
+    _alignment().check_act_matrix(doc, lambda _area, msg: findings.append(msg))
+    return findings
+
+
+def _load(path: pathlib.Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
+def test_act_collapses_an_axis_only_where_legs_share_a_host_port(
+    wf: pathlib.Path,
+) -> None:
+    assert _act_matrix_findings(_load(wf)) == []
+
+
+def _service_jobs() -> list[tuple[str, str]]:
+    return [
+        (wf.name, name)
+        for wf in WORKFLOWS
+        for name, job in _jobs(wf).items()
+        if job.get("services") and (job.get("strategy") or {}).get("matrix")
+    ]
+
+
+SERVICE_JOBS = _service_jobs()
+
+
+def test_there_is_a_service_matrix_to_check() -> None:
+    assert SERVICE_JOBS, "no matrix job with services; the tests below pass vacuously"
+
+
+@pytest.mark.parametrize(("wf", "job"), SERVICE_JOBS, ids=lambda v: str(v))
+def test_every_service_matrix_runs_in_full_under_act(wf: str, job: str) -> None:
+    """Stricter than the family rule, which still PERMITS a collapse where legs
+    share a host port: here every service matrix must be isolated under act, so
+    the collapsed py3.11 x mysql80 layout cannot come back. Isolation plus the
+    rule above (no collapse when isolated) means act runs every leg."""
+    doc = _load(pathlib.Path(__file__).resolve().parents[2] / ".github/workflows" / wf)
+    isolated = _alignment().services_isolated_under_act(doc["jobs"][job])
+    assert isolated, (
+        f"{wf}:{job} is not isolated under act -- give it a LOCAL_ACT-only "
+        "`container:` and publish no fixed host port under act (see ci.yml `test`)"
+    )
+
+
+def _collapse(job: dict) -> None:
+    axis = next(iter(job["strategy"]["matrix"]))
+    job["strategy"]["matrix"][axis] = (
+        "${{ vars.LOCAL_ACT && fromJSON('[]') || fromJSON('[]') }}"
+    )
+
+
+def _host_port(job: dict) -> None:
+    for svc in job["services"].values():
+        svc["ports"] = ["3306:3306"]
+
+
+def _container_on_github(job: dict) -> None:
+    job["container"] = "${{ vars.LOCAL_ACT && 'img' || 'img' }}"
+
+
+def _no_container(job: dict) -> None:
+    job.pop("container", None)
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [_collapse, _host_port, _container_on_github, _no_container],
+    ids=["collapsed-axis", "host-port", "container-on-github", "no-container"],
+)
+@pytest.mark.parametrize(("wf", "job"), SERVICE_JOBS, ids=lambda v: str(v))
+def test_the_act_matrix_rule_rejects_a_planted_violation(
+    wf: str, job: str, plant: Callable[[dict], None]
+) -> None:
+    """Each plant attacks one condition of isolation (or the collapse itself);
+    every one must produce a finding, or the rule is checking less than it says."""
+    doc = _load(pathlib.Path(__file__).resolve().parents[2] / ".github/workflows" / wf)
+    plant(doc["jobs"][job])
+    assert _act_matrix_findings(doc), f"{wf}:{job} -- planted violation not reported"
+
+
+def _narrowed_matrices(doc: dict) -> list[str]:
+    """Jobs whose matrix (any axis, include or exclude) depends on LOCAL_ACT."""
+    return [
+        name
+        for name, job in (doc.get("jobs") or {}).items()
+        if "LOCAL_ACT" in str((job.get("strategy") or {}).get("matrix") or "")
+    ]
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
+def test_no_matrix_is_narrowed_under_act(wf: pathlib.Path) -> None:
+    """Family rule, as in wordpress-database: the full matrix runs locally."""
+    assert _narrowed_matrices(_load(wf)) == []
+
+
+def test_a_narrowed_matrix_is_reported() -> None:
+    doc = _load(
+        pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+    )
+    _collapse(doc["jobs"]["test"])
+    assert _narrowed_matrices(doc) == ["test"]

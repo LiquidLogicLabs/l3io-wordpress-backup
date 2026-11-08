@@ -92,14 +92,18 @@ dependencies = [
 # and is the first config release on TestPyPI. 0.1.4 adds WpConfigFile.replace_content,
 # the atomic whole-file replace config_writer.replace_file calls (BL-E002-091).
 # Nothing below 0.1.4 may be resolved.
-# database 0.3.3 is the floor: its spans name a failure by class only
+# database 0.3.4 is the floor: its client option file carries only the TLS
+# lines each client family accepts (MySQL: ssl-mode; MariaDB: ssl and
+# ssl-verify-server-cert), without which every restore over verified TLS to a
+# non-local host failed with "unknown variable" (sidecar test, 2026-11-08).
+# From 0.3.3: its spans name a failure by class only
 # (`error.type`, ERROR status with no description, no exception event), so no
 # error text or stack leaves through them (BL-E006-010); and its `mysql`,
 # `mysqldump` and `age` children get explicit minimal environments -- a
 # sanitized absolute PATH and LC_ALL=C, plus HOME and AGE_PASSPHRASE_FD for an
 # absolute-path `age` -- so no parent secret reaches them (BL-E004-055).
 database = [
-  "l3io-wordpress-database[encryption]>=0.3.3,<0.4",
+  "l3io-wordpress-database[encryption]>=0.3.4,<0.4",
   "l3io-wordpress-config>=0.1.4,<0.2",
   # Dependency inventory (FR-26, BL-E004-024), the two the `encryption` extra
   # brings:
@@ -122,7 +126,7 @@ database = [
 # FR-14 — AWS Secrets Manager credentials (E005-S01-001). database's own `aws`
 # extra brings boto3 (`boto3<2,>=1.34` in 0.3.3's metadata), imported inside
 # AwsSecretsManager.resolve(), so boto3 stays out of the base install.
-aws = ["l3io-wordpress-database[aws]>=0.3.3,<0.4"]
+aws = ["l3io-wordpress-database[aws]>=0.3.4,<0.4"]
 
 # AD-8 — an optional dependency is an optional import. Nothing here may be
 # imported at module scope; `verify-install` asserts a base install pulls none

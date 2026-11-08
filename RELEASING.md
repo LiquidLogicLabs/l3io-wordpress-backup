@@ -37,9 +37,28 @@ ordering exists to close it.
 (AD-27): all three wheels installed into one interpreter, all three imported,
 and no `__init__.py` at either namespace level.
 
+## The rule: green CI and a local preflight, every time
+
+**Family rule (Shawn, 2026-11-08): nothing is released, tagged or published until
+CI is fully green on GitHub and `make preflight` has passed locally for that
+commit.** It is enforced, not remembered:
+
+- `make preflight` refuses a modified tree, runs `lint`, `types` and `contracts`,
+  then `make ci` (every job and leg act can run, `security-audit.yml`, and the
+  `publish.yml` / `release.yml` dry runs). Only a full pass records HEAD's SHA, in
+  `.git/l3io-preflight`.
+- `make release` (and `release-patch|minor|major|dev`) runs
+  `scripts/release-gate.py` before dispatching. It refuses when the record is not
+  HEAD, when GitHub has no runs for HEAD's full SHA, when any run is not
+  `completed`/`success`, or when a workflow that runs on a push to `main` (derived
+  from the workflow files) has no run. Each refusal is proved by a planted failure
+  in `tests/contracts/test_release_gate.py`.
+- Not covered: dispatching `release.yml` by hand, or pushing a tag directly,
+  bypasses both checks.
+
 ## Per-package steps
 
-1. Ensure the default branch is green in CI.
+1. `make preflight`, push, and let CI go green; `make release` checks both.
 2. Bump the version in `pyproject.toml`; update the changelog.
 3. Tag `vX.Y.Z` and push it. `publish.yml` builds, runs the clean-install smoke
    matrix and the namespace check, then publishes via PyPI trusted publishing.
@@ -78,14 +97,21 @@ Everything except publishing runs locally:
 ```bash
 make act-init             # first time only — creates .act.{vars,env,secrets}
 make secrets-check        # confirms Infisical resolves for this environment
-make ci                   # full pipeline
+make ci                   # every workflow act can run, full matrix
+make ci-quick             # ci.yml with Python 3.11 across every engine
 make ci-job JOB=contracts # one job
+make preflight            # the pre-release run; records the commit it passed for
 ```
+
+The Makefile header lists exactly what `make ci` runs and what stays
+GitHub-only, with the reason for each.
 
 Secrets come from Infisical: `make ci` runs act under `infisical run`, which exports
 them as environment variables — which is how act resolves the bare `-s NAME`
 declarations in `~/.actrc`. Nothing secret is written to disk in this repository.
 `INFISICAL_ENV` and `INFISICAL_PROJECT_ID` are taken from your environment when set.
 
-`publish.yml` is deliberately excluded from act: act has no OIDC and ignores
-`job.permissions`, so it cannot run those jobs meaningfully.
+`publish.yml` and `release.yml` are only dry-run under act: act has no OIDC and
+ignores `job.permissions`, `publish.yml` hands its wheel over with
+upload-artifact v7, which act's artifact server does not speak, and
+`release.yml` creates tags.
