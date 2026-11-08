@@ -51,7 +51,11 @@ from l3io.wp.backup.adapters.credential_providers import (
     wordpress_credentials,
 )
 from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
-from l3io.wp.backup.domain.archive_format import ConfigLocation
+from l3io.wp.backup.domain.archive_format import (
+    WP_CONFIG_NAME,
+    WP_SETTINGS_NAME,
+    ConfigLocation,
+)
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.database import (
     DatabaseLocation,
@@ -79,6 +83,7 @@ from l3io.wp.backup.domain.errors import (
     UsageError,
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
+from l3io.wp.backup.ports.database import AdminTls
 
 if TYPE_CHECKING:
     from l3io.wp.database import (
@@ -96,7 +101,6 @@ __all__ = [
     "INVALID_DATABASE_NAME",
     "INVALID_DB_HOST",
     "TLS_SETTINGS_UNUSABLE",
-    "AdminTls",
     "DatabaseAuthPluginRefusedError",
     "DatabaseTlsHandshakeError",
     "DatabaseTlsVerificationError",
@@ -123,8 +127,8 @@ _EXTRA = "database"
 #: other extra database names (``wpconfig``, ``encryption``) is installed by
 #: this package's ``database`` extra, so the install hint names that.
 _SHARED_EXTRAS: Final = frozenset({"aws"})
-_CONFIG_NAME = "wp-config.php"
-_SETTINGS_NAME = "wp-settings.php"
+_CONFIG_NAME: Final = WP_CONFIG_NAME
+_SETTINGS_NAME: Final = WP_SETTINGS_NAME
 
 #: Finding codes that mean the credentials, not the server, were the problem.
 _CREDENTIAL_CODES = frozenset({"authentication_failed", "credentials_unobtainable"})
@@ -177,20 +181,6 @@ UNUSABLE_CONNECTION: Final = (
 INVALID_DATABASE_NAME: Final = (
     "the database name is not a valid database name; nothing was changed"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class AdminTls:
-    """The restore's TLS override for its database connections.
-
-    ``mode`` is an :data:`ADMIN_TLS_MODES` value or ``None`` (the policy for
-    the host as it is); ``ca_file`` the CA bundle, ``None`` meaning the
-    system store. Declared here so no ``l3io.wp.database`` type reaches
-    ``cli/`` (ADR-0015 amendment).
-    """
-
-    mode: str | None
-    ca_file: Path | None
 
 
 class DatabaseTlsHandshakeError(DatabaseUnreachableError):
@@ -250,26 +240,26 @@ def _tls_settings(admin_tls: AdminTls, host: str) -> TlsSettings:
     if admin_tls.mode is not None:
         if admin_tls.mode not in ADMIN_TLS_MODES:
             msg = f"--admin-tls {admin_tls.mode!r}: choose one of {ADMIN_TLS_MODES}"
-            raise UsageError(msg, arguments=("--admin-tls",))
+            raise UsageError(msg, arguments=("admin_tls",))
         wanted = wpdb.TlsMode(admin_tls.mode.replace("-", "_"))
         if _TLS_ORDER.index(wanted.value) < _TLS_ORDER.index(policy.mode.value):
             msg = (
                 f"--admin-tls {admin_tls.mode} is below the policy for {host!r} "
                 f"({policy.mode.value.replace('_', '-')}); it may only raise it"
             )
-            raise UsageError(msg, arguments=("--admin-tls",))
+            raise UsageError(msg, arguments=("admin_tls",))
         mode = wanted
     if mode is wpdb.TlsMode.OFF:
         if admin_tls.ca_file is not None:
             msg = f"--admin-tls-ca needs TLS, which is off for the local host {host!r}"
-            raise UsageError(msg, arguments=("--admin-tls-ca",))
+            raise UsageError(msg, arguments=("admin_tls.ca_file",))
         return wpdb.TlsSettings()
     try:
         return wpdb.TlsSettings(mode=mode, ca_file=admin_tls.ca_file)
     except wpdb.InvalidArgumentsError as exc:
         # ADV-S02-11: a fixed text; database's message is never forwarded.
         raise UsageError(
-            TLS_SETTINGS_UNUSABLE, arguments=("--admin-tls", "--admin-tls-ca")
+            TLS_SETTINGS_UNUSABLE, arguments=("admin_tls", "admin_tls.ca_file")
         ) from exc
 
 

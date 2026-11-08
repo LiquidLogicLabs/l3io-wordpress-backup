@@ -35,7 +35,6 @@ imports without the ``database`` extra; it imports nothing from
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +42,7 @@ from typing import Final, Literal
 
 import structlog
 
+from l3io.wp.backup.adapters.clock import SystemClock
 from l3io.wp.backup.adapters.database import (
     ADMIN_SOURCE,
     blocked_dump_error,
@@ -52,6 +52,15 @@ from l3io.wp.backup.adapters.database import (
 from l3io.wp.backup.adapters.journal import CorruptJournalError
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
+    DatabaseRestoreReport,
+    RestoreInputs,
+    database_report_fields,
+    database_restored,
+    load_names,
+    planned_cutover_keys,
+    planned_cutover_targets,
+)
+from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
@@ -59,16 +68,9 @@ from l3io.wp.backup.core.restore import (
     STEP_LOSER_DROP_STARTED,
     STEP_LOSER_DROPPED,
     STEP_STAGING_DROPPED,
-    DatabaseRestoreReport,
-    RestoreInputs,
     cutover_progress,
-    database_report_fields,
-    database_restored,
     interrupted_phase,
     last_step,
-    load_names,
-    planned_cutover_keys,
-    planned_cutover_targets,
 )
 from l3io.wp.backup.domain.archive_format import DUMP_RELATIVE, MemberRole
 from l3io.wp.backup.domain.database import (
@@ -93,6 +95,7 @@ from l3io.wp.backup.domain.journal import (
     JournalRecord,
 )
 from l3io.wp.backup.domain.restore import RestorePhase, removes_database
+from l3io.wp.backup.ports.clock import Clock
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
 
@@ -109,6 +112,8 @@ __all__ = [
 ]
 
 _log = structlog.get_logger(__name__)
+#: The default ``Clock`` of :func:`load_staged` when a caller passes none.
+SYSTEM_CLOCK: Final = SystemClock()
 
 #: ``check_load``'s blockers for the state ``ensure_database`` is about to
 #: create (database's ``Code`` values). Allowed only when ``check_ensure`` is
@@ -403,8 +408,11 @@ def _cutover(
     *,
     ports: RestorePorts,
     journal: RunJournalCommand,
+    clock: Clock,
 ) -> tuple[str, ...]:
     """One atomic, verified ``set_constants`` per key, each journaled (AD-18.2).
+
+    Its duration is read from ``clock`` (the Run's ``Clock`` port, BL-E003-100).
 
     Returns the keys written, in order. Each key's value is resolved before
     its ``"cutover_started:<KEY>"`` intent, so a value that cannot be had (a
@@ -418,7 +426,7 @@ def _cutover(
     """
     config_file = Path(inputs.relocation.config_file or inputs.config_path)
     command = ports.adapters.config_command
-    started = time.monotonic_ns()
+    started = clock.monotonic_ns()
     landed: list[str] = []
     for key in keys:
         value: str | None = _cutover_value(key, inputs, ports, target.load.name)
@@ -468,7 +476,7 @@ def _cutover(
         "phase_completed",
         phase=_PHASE.name,
         step="cutover",
-        duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
+        duration_ms=(clock.monotonic_ns() - started) / _NS_PER_MS,
         bytes=0,
         outcome="ok",
         exit_code=int(ExitCode.OK),
@@ -521,8 +529,12 @@ def load_staged(
     *,
     ports: RestorePorts,
     workspace: Path,
+    clock: Clock = SYSTEM_CLOCK,
 ) -> DatabaseRestoreReport:
     """``LOAD_DUMP``: ensure, load, check, cut over, then the loser.
+
+    ``clock`` times the cutover: the Run's ``Clock`` (the restore root passes
+    ``RunContext.clock``), the system clock when none is given.
 
     Raises :class:`StagingCheckFailedError` or :class:`ConfigCutoverError`
     (``FAILED``); database's refusal of a non-empty load target is
@@ -571,7 +583,9 @@ def load_staged(
         except BaseException:
             _drop_staging(target, ensure, ports=ports, journal=journal)
             raise
-        written = _cutover(inputs, target, keys, ensure, ports=ports, journal=journal)
+        written = _cutover(
+            inputs, target, keys, ensure, ports=ports, journal=journal, clock=clock
+        )
         previous = _loser(
             inputs, target, ports=ports, journal=journal, performed=loaded.performed
         )

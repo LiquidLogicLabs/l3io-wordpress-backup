@@ -107,6 +107,7 @@ from l3io.wp.backup.domain.archive_format import (
     member_path,
     member_relative,
     parse_created_at,
+    pending_payload,
 )
 from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
@@ -606,7 +607,7 @@ def write_archive(
         pending = dataclasses.replace(
             manifest_builder(index),
             encrypted=True,
-            payload=ManifestPayload(name=ENCRYPTED_PAYLOAD_MEMBER, size=0, sha256=""),
+            payload=pending_payload(encrypted=True),
         )
         built.append(pending)
         stamp = parse_created_at(pending.created_at).timestamp()

@@ -2,7 +2,7 @@
 
 Epic 3 built the seam (``core/restore.py::RestoreRelocation``); this module
 derives the parts of it that are pure value work, for
-``adapters/wpcli.py::WpCliRestoreExtension.resolve``:
+``adapters/restore_extension.py::WpCliRestoreExtension.resolve``:
 
 * :class:`RelocationRequest` — the seven relocation flags, read-only. It is
   the type ``adapters/`` names, because ``adapters/`` may not import
@@ -83,7 +83,7 @@ __all__ = [
 
 
 class RelocationRequest(Protocol):
-    """The relocation flags, read-only: ``cli/restore.py::RelocationFlags``'s shape."""
+    """The relocation flags, read-only (``cli/restore_request.RelocationFlags``)."""
 
     @property
     def new_site_url(self) -> str | None: ...
@@ -205,18 +205,24 @@ def validate_relocation_values(request: RelocationRequest) -> None:
             continue
         broken = _url_rule_broken(value)
         if broken is not None:
-            raise InvalidRelocationValueError(RELOCATION_FLAGS[name], broken)
+            raise InvalidRelocationValueError(
+                RELOCATION_FLAGS[name], broken, argument=f"relocation.{name}"
+            )
     user, password = request.new_db_user, request.new_db_password
     for name, value in (("new_db_user", user), ("new_db_password", password)):
         if value is not None and len(value) == 0:
             flag = RELOCATION_FLAGS[name]
-            raise InvalidRelocationValueError(flag, "must not be empty")
+            raise InvalidRelocationValueError(
+                flag, "must not be empty", argument=f"relocation.{name}"
+            )
     if (user is None) != (password is None):
         given, missing = "new_db_user", "new_db_password"
         if user is None:
             given, missing = missing, given
         raise IncompleteRelocationCredentialsError(
-            given=RELOCATION_FLAGS[given], missing=RELOCATION_FLAGS[missing]
+            given=RELOCATION_FLAGS[given],
+            missing=RELOCATION_FLAGS[missing],
+            arguments=(f"relocation.{given}", f"relocation.{missing}"),
         )
 
 
@@ -231,7 +237,14 @@ def validate_relocation(request: RelocationRequest, *, mode: RestoreMode) -> Non
     validate_relocation_values(request)
     given_flags = _given(request)
     if given_flags and not restores_database(mode):
-        raise RelocationNeedsDatabaseRestoreError(flags=given_flags, mode=mode.value)
+        named = tuple(
+            f"relocation.{name}"
+            for name in RELOCATION_FLAGS
+            if getattr(request, name) is not None
+        )
+        raise RelocationNeedsDatabaseRestoreError(
+            flags=given_flags, mode=mode.value, arguments=named
+        )
 
 
 def rewrite_values(request: RelocationRequest) -> tuple[tuple[str, str], ...]:
@@ -292,7 +305,7 @@ def relocation_undo(
     (a database Mode's snapshot does not cover files, and a snapshot may be
     skipped), and the journal records only ``DB_NAME``/``DB_HOST``/``DB_USER``.
     These are site URLs, never a credential. ``LOAD_DUMP``'s undo stays
-    ``core/restore.py::undo_for``'s.
+    ``core/restore_journal.py::undo_for``'s.
     """
     keys = [key for key, _ in rewrite_values(request)]
     if not keys:

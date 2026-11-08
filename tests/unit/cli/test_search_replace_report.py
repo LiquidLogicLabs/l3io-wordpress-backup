@@ -8,7 +8,7 @@ report has no counts (``None``), never a guessed number.
 
 from __future__ import annotations
 
-from l3io.wp.backup.cli.restore import search_replace_fields, search_replace_line
+from l3io.wp.backup.cli.restore_report import search_replace_fields, search_replace_line
 from l3io.wp.backup.domain.search_replace import (
     UNRESOLVED_URL,
     Replacement,

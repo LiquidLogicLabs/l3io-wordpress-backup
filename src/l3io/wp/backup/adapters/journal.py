@@ -38,7 +38,7 @@ import structlog
 
 from l3io.wp.backup.adapters.lock import state_root
 from l3io.wp.backup.adapters.workspace import private_state_directories
-from l3io.wp.backup.core.restore import IncompleteRunError, incomplete_run_error
+from l3io.wp.backup.core.restore_journal import IncompleteRunError, incomplete_run_error
 from l3io.wp.backup.domain.errors import (
     BackupError,
     RefusedError,

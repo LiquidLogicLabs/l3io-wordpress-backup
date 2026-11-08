@@ -10,7 +10,8 @@ database's live Site in the ``files`` Mode:
 * the links the real extraction skipped are exactly the ones
   ``core.restore.planned_skipped_links`` (the Dry Run's lexical rule) names
   for the same Archive — path, target and reason;
-* a ``--whatIf`` of the same restore exits ``OK`` and changes nothing;
+* a ``--whatIf`` of the same restore exits ``OK``, changes nothing and
+  lists those same links in its ``skipped_links`` (owner decision 41);
 * the Safety Snapshot the Run took verifies, and restoring it (``files``,
   ``--cleanfirst``) gives back the Site Root as it was before the Run.
 
@@ -21,6 +22,7 @@ throwaway database), so this needs the CI ``db`` service: it skips without
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from pathlib import Path
@@ -122,6 +124,9 @@ def test_unsupported_links_are_skipped_as_planned_and_the_snapshot_round_trips(
     dry = run_cli(["--whatIf", *site.argv(archive, *flags)], capsys)
     assert dry.code == int(ExitCode.OK), dry.err[-3000:]
     assert tree(site.root) == before
+    # Owner decision 41: it lists the links the real Run will skip.
+    listed = json.loads(dry.out)["restore"]["skipped_links"]
+    assert {(r["path"], r["link_target"], r["reason"]) for r in listed} == planned
 
     # The real Run.
     ran = run_cli(site.argv(archive, *flags), capsys)

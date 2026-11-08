@@ -27,7 +27,7 @@ from l3io.wp.backup.core.config_location import (
     existing_location,
     place_config,
 )
-from l3io.wp.backup.domain.archive_format import ConfigLocation
+from l3io.wp.backup.domain.archive_format import ConfigLocation, MemberRole
 from l3io.wp.backup.domain.errors import (
     ConfigLocationConflictError,
     RefusedError,
@@ -204,3 +204,65 @@ def test_config_file_anchors_to_the_root(
     assert path.is_absolute()
     expected_dir = root.parent if location is ConfigLocation.PARENT else root
     assert path.parent == expected_dir
+
+
+# --------------------------------------------------------------------------
+# BL-E007-018: the placement decisions are core's, testable without an adapter
+# --------------------------------------------------------------------------
+
+
+def test_a_url_relocation_refuses_a_stated_config_wordpress_does_not_load() -> None:
+    from l3io.wp.backup.core.config_location import require_stated_config_loaded
+    from l3io.wp.backup.domain.errors import UsageError
+
+    root = PurePosixPath("/srv/www")
+    stated = PurePosixPath("/etc/other/wp-config.php")
+    read = root / "wp-config.php"
+    with pytest.raises(UsageError) as caught:
+        require_stated_config_loaded(
+            stated, loaded=False, read=read, site_root=root, urls_relocated=True
+        )
+    assert caught.value.arguments == ("relocation.wp_config",)
+    assert str(read) in str(caught.value)
+    for loaded, urls in ((True, True), (False, False), (True, False)):
+        require_stated_config_loaded(
+            stated, loaded=loaded, read=read, site_root=root, urls_relocated=urls
+        )
+
+
+def test_a_lay_down_onto_anything_is_refused() -> None:
+    from l3io.wp.backup.core.config_location import (
+        ConfigPlacement,
+        require_lay_down_free,
+    )
+
+    path = PurePosixPath("/srv/www/wp-config.php")
+    lay = ConfigPlacement(
+        location=ConfigLocation.SITE_ROOT, action="lay-down", source="manifest"
+    )
+    with pytest.raises(ConfigLocationConflictError):
+        require_lay_down_free(path, lay, occupied=True)
+    require_lay_down_free(path, lay, occupied=False)
+    use = dataclasses.replace(lay, action="use-existing", source="target")
+    require_lay_down_free(path, use, occupied=True)
+
+
+def test_only_a_config_role_member_records_a_location() -> None:
+    from l3io.wp.backup.core.config_location import recorded_location
+    from tests.restore_builders import view
+
+    in_tree = view()
+    assert recorded_location(in_tree) is None
+    by_role = dataclasses.replace(
+        in_tree,
+        members=(
+            *in_tree.members,
+            dataclasses.replace(
+                in_tree.members[1], path="config/wp-config.php", role=MemberRole.CONFIG
+            ),
+        ),
+        config_path="../wp-config.php",
+    )
+    assert recorded_location(by_role) is ConfigLocation.PARENT
+    with pytest.raises(UnsupportedConfigLocationError):
+        recorded_location(dataclasses.replace(by_role, config_path="/etc/x"))

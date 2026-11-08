@@ -55,23 +55,25 @@ from l3io.wp.backup.adapters.staging import (
 from l3io.wp.backup.adapters.workspace import WorkspaceNotRemovedError
 from l3io.wp.backup.cli.exit import RUN_ID_ATTR, render_failure
 from l3io.wp.backup.cli.logging import RUN_ID_KEY
-from l3io.wp.backup.cli.restore import (
+from l3io.wp.backup.cli.restore_report import DatabaseNotRestoredError
+from l3io.wp.backup.cli.restore_request import (
     ArchiveIdentityUnconfirmedError,
-    DatabaseNotRestoredError,
     ExistingDatabaseUserError,
     NonEmptyTargetRefusal,
 )
 from l3io.wp.backup.core.exclusions import InvalidExclusionPatternError
 from l3io.wp.backup.core.restore import (
     ArchiveHasNoConfigError,
-    ExpansionRatioError,
-    IncompleteRunError,
-    InsufficientSpaceError,
     NoConfigForCutoverError,
     NonEmptyTargetError,
     SnapshotFailedError,
     TargetChangedError,
     UnsafeSnapshotLocationError,
+)
+from l3io.wp.backup.core.restore_journal import IncompleteRunError
+from l3io.wp.backup.core.restore_space import (
+    ExpansionRatioError,
+    InsufficientSpaceError,
 )
 from l3io.wp.backup.domain.errors import (
     AdaptersAlreadyBoundError,

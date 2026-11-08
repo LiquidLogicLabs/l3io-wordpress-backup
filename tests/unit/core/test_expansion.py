@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from l3io.wp.backup.core.restore import (
+from l3io.wp.backup.core.restore_space import (
     FREE_SPACE_MARGIN,
     MAX_EXPANSION_RATIO,
     SNAPSHOT_FILESYSTEM,

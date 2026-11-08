@@ -20,8 +20,15 @@ from typing import IO
 
 from l3io.wp.backup.adapters.restore_runner import execute_restore
 from l3io.wp.backup.adapters.staging import check_staged, load_staged
-from l3io.wp.backup.core import restore as core_restore
+from l3io.wp.backup.core import restore_journal as core_restore
 from l3io.wp.backup.core.restore import (
+    ExecutionReport,
+    RestoreRelocation,
+    load_names,
+    planned_cutover_keys,
+    planned_cutover_targets,
+)
+from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CONFIG,
     STEP_CONFIG_STARTED,
@@ -31,11 +38,6 @@ from l3io.wp.backup.core.restore import (
     STEP_LOSER_DROP_STARTED,
     STEP_LOSER_DROPPED,
     STEP_STAGING_DROPPED,
-    ExecutionReport,
-    RestoreRelocation,
-    load_names,
-    planned_cutover_keys,
-    planned_cutover_targets,
 )
 from l3io.wp.backup.domain.config import ConfigWriteResult
 from l3io.wp.backup.domain.database import (
@@ -55,6 +57,7 @@ from l3io.wp.backup.domain.journal import (
 )
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
 from l3io.wp.backup.ports.adapter_set import AdapterSet
+from l3io.wp.backup.ports.clock import Clock
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
 from tests.restore_harness import TARGET_DB, CommandLog, FakeConfig, Harness
@@ -225,6 +228,8 @@ class StagedHarness(Harness):
     database: FakeDatabase = field(default_factory=FakeDatabase)
     failing_keys: frozenset[str] = frozenset()
     password: str | None = None
+    #: The Run's ``Clock`` for ``load_staged``; the system clock when ``None``.
+    clock: Clock | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -275,7 +280,12 @@ class StagedHarness(Harness):
             ports,
             self.take_snapshot,
             functools.partial(check_staged, ports=ports),
-            functools.partial(load_staged, ports=ports, workspace=self.workspace),
+            functools.partial(
+                load_staged,
+                ports=ports,
+                workspace=self.workspace,
+                **({} if self.clock is None else {"clock": self.clock}),
+            ),
             journal or self.journal,
             self.cipher,
             survey_target=self.target,
@@ -407,8 +417,8 @@ def undo_row(
 def undo_rows(header: JournalHeader) -> frozenset[str]:
     """Every row :func:`undo_row` can give for ``header``.
 
-    Over every ``STEP_*`` constant ``core/restore.py`` declares (the source
-    of truth), each cutover step of ``header.cutover_keys``, no step and an
+    Over every ``STEP_*`` constant ``core/restore_journal.py`` declares (the
+    source of truth), each cutover step of ``header.cutover_keys``, no step and an
     unknown one.
     """
     declared = [v for n, v in vars(core_restore).items() if n.startswith("STEP_")]

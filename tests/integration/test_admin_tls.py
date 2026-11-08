@@ -27,7 +27,6 @@ pytest.importorskip("l3io.wp.database")
 pytest.importorskip("pymysql")
 
 from l3io.wp.backup.adapters.database import (
-    AdminTls,
     DatabaseTlsHandshakeError,
     DatabaseTlsVerificationError,
     WpDatabase,
@@ -37,6 +36,7 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.exit_codes import ExitCode
+from l3io.wp.backup.ports.database import AdminTls
 from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import admin_account  # noqa: F401 - a fixture
 from tests.integration.live_restore import host, port, root_connection

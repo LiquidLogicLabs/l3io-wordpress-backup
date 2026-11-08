@@ -63,7 +63,6 @@ from pathlib import Path
 from typing import Final
 
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
-from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy
 from l3io.wp.backup.adapters.preflight import Diagnosis
 from l3io.wp.backup.adapters.redaction import SecretRegistry
@@ -86,13 +85,12 @@ from l3io.wp.backup.cli.passphrase import (
     require_passphrase,
     resolve_passphrase,
 )
-from l3io.wp.backup.cli.restore import (
-    RESTORE_PROMPT,
+from l3io.wp.backup.cli.restore import RESTORE_PROMPT, drive_restore
+from l3io.wp.backup.cli.restore_report import require_database_restored
+from l3io.wp.backup.cli.restore_request import (
     RelocationFlags,
     RestoreOutcome,
     RestoreRequest,
-    drive_restore,
-    require_database_restored,
 )
 from l3io.wp.backup.cli.verify import VerifyRequest, drive_verify
 from l3io.wp.backup.core.exclusions import ExclusionSet
@@ -111,6 +109,7 @@ from l3io.wp.backup.domain.restore import (
 from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
+from l3io.wp.backup.ports.database import AdminTls
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
 __all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "restore", "verify"]
@@ -128,11 +127,16 @@ def _registry() -> SecretRegistry:
     return SecretRegistry()
 
 
-def _target(value: StorageTarget | str | os.PathLike[str]) -> StorageTarget:
-    """A ``StorageTarget`` unchanged; text or a path through the CLI's one grammar."""
+def _target(
+    value: StorageTarget | str | os.PathLike[str], *, argument: str
+) -> StorageTarget:
+    """A ``StorageTarget`` unchanged; text or a path through the CLI's one grammar.
+
+    ``argument`` is the parameter a refusal names (BL-E006-015).
+    """
     if isinstance(value, StorageTarget):
         return value
-    return storage_target_from_cli(os.fspath(value))
+    return storage_target_from_cli(os.fspath(value), argument=argument)
 
 
 def _require(value: object, expected: type, argument: str) -> None:
@@ -224,7 +228,7 @@ def backup(
         note_unused_passphrase(os.environ, on_warning)
     site_root = Path(site)
     stated = None if wp_config is None else Path(wp_config)
-    archive = _target(target)
+    archive = _target(target, argument="target")
     request = BackupRequest(
         site_root=site_root,
         scope=scope,
@@ -276,7 +280,9 @@ def verify(
         )
         raise UsageError(msg, arguments=("passphrase", "authenticate"))
     registry = _registry()
-    request = VerifyRequest(archive=_target(archive), authenticate=authenticate)
+    request = VerifyRequest(
+        archive=_target(archive, argument="archive"), authenticate=authenticate
+    )
     result = drive_verify(
         request,
         ctx=None,
@@ -369,7 +375,7 @@ def restore(
     )
     request = RestoreRequest(
         site_root=Path(site_root),
-        archive=_target(archive),
+        archive=_target(archive, argument="archive"),
         mode=mode,
         overrides=overrides,
         snapshot=snapshot,
@@ -398,7 +404,7 @@ def restore(
         on_warning=on_warning,
         environ=os.environ,
     )
-    require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
+    require_database_restored(outcome, dry_run=outcome.dry_run)
     return outcome
 
 
@@ -417,7 +423,7 @@ def doctor(
     """
     return drive_doctor(
         site_root=None if site is None else Path(site),
-        target=None if archive is None else _target(archive),
+        target=None if archive is None else _target(archive, argument="archive"),
         secrets=SecretRegistry(),
         tracer=OpenTelemetryTracer(),
         environ=os.environ,

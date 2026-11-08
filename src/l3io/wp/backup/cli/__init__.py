@@ -45,6 +45,7 @@ import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from types import FrameType
+from typing import NoReturn
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.exit import report_failure, report_interrupt
@@ -113,7 +114,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     usage = parser.for_command(args.action)
     try:
         if args.action == RESTORE_COMMAND:
-            from l3io.wp.backup.cli.restore import check_restore_arguments
+            from l3io.wp.backup.cli.restore_request import check_restore_arguments
 
             check_restore_arguments(
                 mode=args.mode,
@@ -180,8 +181,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return int(code)
 
 
-def run_from_cli() -> None:
-    """Console-script entry point.
+def run_from_cli() -> NoReturn:
+    """Console-script entry point; never returns, it raises ``SystemExit``.
 
     A closed stdout (``| head``) does not mask the Run's exit code: the
     ``BrokenPipeError`` is caught and stdout pointed at ``/dev/null`` so the

@@ -30,7 +30,7 @@ pytest.importorskip("pymysql")
 from l3io.wp.backup.adapters.journal import journal_directory, record_from_json
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import verify_archive_view
-from l3io.wp.backup.core.restore import STEP_CONFIG, STEP_CONFIG_STARTED
+from l3io.wp.backup.core.restore_journal import STEP_CONFIG, STEP_CONFIG_STARTED
 from l3io.wp.backup.domain.archive_format import (
     ConfigLocation,
     MemberRole,

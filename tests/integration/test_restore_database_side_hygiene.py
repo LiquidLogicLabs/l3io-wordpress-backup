@@ -36,7 +36,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 
 from l3io.wp.backup import api
-from l3io.wp.backup.cli.restore import RelocationFlags
+from l3io.wp.backup.cli.restore_request import RelocationFlags
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.errors import BackupError
 from l3io.wp.backup.domain.restore import (

@@ -29,6 +29,7 @@ import pytest
 from structlog.testing import capture_logs
 
 import l3io.wp.backup.adapters.wpcli as wpcli
+import l3io.wp.backup.adapters.wpcli_child as wpcli_child
 from l3io.wp.backup.adapters.journal import journal_directory
 from l3io.wp.backup.adapters.preflight import _probe_environment, absolute_search_path
 from l3io.wp.backup.adapters.redaction import SecretRegistry
@@ -142,7 +143,10 @@ def site_root(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def not_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+    # The root predicate, not os.geteuid: the state-directory check judges
+    # ownership by the effective uid (owner decision 44), so a faked uid
+    # would refuse the test's own state directory.
+    monkeypatch.setattr(wpcli, "_running_as_root", lambda: False)
 
 
 def _one_pair_wp(
@@ -207,16 +211,14 @@ def test_the_exact_argv_of_every_step(site_root: Path) -> None:
 def test_allow_root_and_a_warning_only_as_root(
     site_root: Path, monkeypatch: pytest.MonkeyPatch, encrypted: bool
 ) -> None:
-    facts = wpcli.RunFacts()
-    facts.archive_encrypted = encrypted
     for euid in (0, 1000):
-        monkeypatch.setattr(os, "geteuid", lambda euid=euid: euid)
+        monkeypatch.setattr(wpcli, "_running_as_root", lambda euid=euid: euid == 0)
         fake = _one_pair_wp()
-        replacer = WpCliSearchReplace(
-            WP, secrets=SecretRegistry(), facts=facts, run=fake
-        )
+        replacer = WpCliSearchReplace(WP, secrets=SecretRegistry(), run=fake)
         with capture_logs() as logs:
-            report = replacer.relocate_content(site_root, UrlRelocation(NEW, None))
+            report = replacer.relocate_content(
+                site_root, UrlRelocation(NEW, None), archive_encrypted=encrypted
+            )
         assert report.replacements == 3, "the Run proceeds as root"
         flagged = ["--allow-root" in c.argv for c in fake.calls]
         assert all(flagged) if euid == 0 else not any(flagged)
@@ -834,7 +836,7 @@ def test_a_wp_child_that_times_out_is_a_failed_call_not_a_hang(
 def test_the_real_runner_kills_a_child_that_outlives_the_timeout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(wpcli, "CHILD_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(wpcli_child, "CHILD_TIMEOUT_S", 0.5)
     code = "import time; time.sleep(60)"
     with pytest.raises(subprocess.TimeoutExpired):
         wpcli.run_child(

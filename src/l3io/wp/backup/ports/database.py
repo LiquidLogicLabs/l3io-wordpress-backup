@@ -16,6 +16,7 @@ so loading over a non-empty database cannot be expressed through the port
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Protocol, runtime_checkable
 
@@ -28,7 +29,7 @@ from l3io.wp.backup.domain.database import (
     Readiness,
 )
 
-__all__ = ["DatabaseCommand", "DatabaseQuery"]
+__all__ = ["AdminTls", "DatabaseCommand", "DatabaseQuery"]
 
 
 class DatabaseQuery(Protocol):
@@ -98,3 +99,19 @@ class DatabaseCommand(Protocol):
     def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
         """Drop ``location``'s database; whether it was performed."""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class AdminTls:
+    """The restore's TLS override for its database connections.
+
+    ``mode`` is an ``adapters/database.py::ADMIN_TLS_MODES`` value or ``None``
+    (the policy for the host as it is); ``ca_file`` the CA bundle, ``None``
+    meaning the system store. A port-level value (BL-E003-099; ``Path`` keeps
+    it out of ``domain/``): it holds no ``l3io.wp.database`` type (ADR-0015
+    amendment), so ``RestoreRequest`` and the library carry no adapters-layer
+    type; ``adapters/database.py`` validates and applies it.
+    """
+
+    mode: str | None
+    ca_file: Path | None

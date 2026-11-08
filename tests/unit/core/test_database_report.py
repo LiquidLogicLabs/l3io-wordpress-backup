@@ -20,7 +20,7 @@ import pytest
 
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.cli.exit import exit_code_for
-from l3io.wp.backup.cli.restore import (
+from l3io.wp.backup.cli.restore_report import (
     DatabaseNotRestoredError,
     database_report_json,
     database_report_lines,
@@ -104,9 +104,9 @@ def test_a_dry_run_completes_with_a_not_performed_not_restored_report(
     assert (database.performed, database.restored) == (False, False)
     assert database.ensure.performed is False
     assert not any((database.ensure.created_database, database.ensure.created_user))
-    require_database_restored(h.plan(), outcome, dry_run=True)
+    require_database_restored(outcome, dry_run=True)
     with pytest.raises(DatabaseNotRestoredError):
-        require_database_restored(h.plan(), outcome, dry_run=False)
+        require_database_restored(outcome, dry_run=False)
 
 
 def test_a_real_run_reports_restored_from_its_results(tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ def test_a_real_run_reports_restored_from_its_results(tmp_path: Path) -> None:
     outcome = h.run_staged()
     assert outcome.database is not None
     assert (outcome.database.performed, outcome.database.restored) == (True, True)
-    require_database_restored(h.plan(), outcome, dry_run=False)
+    require_database_restored(outcome, dry_run=False)
 
 
 @pytest.mark.parametrize("mode", list(RestoreMode))
@@ -126,7 +126,7 @@ def test_the_report_is_absent_exactly_when_the_plan_has_no_load(
     assert loads is restores_database(mode)
     outcome = h.run_staged()
     assert (outcome.database is None) is (not loads)
-    require_database_restored(h.plan(), outcome, dry_run=False)
+    require_database_restored(outcome, dry_run=False)
 
 
 # --------------------------------------------------------------------------
@@ -189,5 +189,5 @@ def test_a_real_run_with_a_load_never_exits_ok_unrestored(
     h = _harness(tmp_path, RestoreMode.DATABASE)
     outcome = dataclasses.replace(h.run_staged(), database=report)
     with pytest.raises(DatabaseNotRestoredError) as caught:
-        require_database_restored(h.plan(), outcome, dry_run=False)
+        require_database_restored(outcome, dry_run=False)
     assert exit_code_for(caught.value) is ExitCode.FAILED

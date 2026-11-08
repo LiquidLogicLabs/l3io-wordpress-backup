@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from l3io.wp.backup.cli.restore import (
+from l3io.wp.backup.cli.restore_request import (
     check_restore_arguments,
     config_policy_from_cli,
     flag_combination,

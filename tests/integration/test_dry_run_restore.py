@@ -22,7 +22,7 @@ from l3io.wp.backup.adapters.config_writer import WpConfigWriter
 from l3io.wp.backup.adapters.noop import ActionLog
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
-from l3io.wp.backup.core.restore import InsufficientSpaceError
+from l3io.wp.backup.core.restore_space import InsufficientSpaceError
 from l3io.wp.backup.domain.errors import BackupError, VerificationFailedError
 from l3io.wp.backup.domain.restore import RestoreMode
 from tests.restore_harness import Harness, write_v1
@@ -42,11 +42,13 @@ def _state(*roots: Path) -> dict[str, tuple[bytes | None, int]]:
 
 
 def _harness(tmp_path: Path, mode: RestoreMode) -> Harness:
-    h = Harness(
-        work=tmp_path, archive_path=write_v1(tmp_path), mode=mode, real_files=True
+    return Harness(
+        work=tmp_path,
+        archive_path=write_v1(tmp_path),
+        mode=mode,
+        real_files=True,
+        config_writer=WpConfigWriter(SecretRegistry()),
     )
-    h.config = WpConfigWriter(SecretRegistry())  # type: ignore[assignment]
-    return h
 
 
 def _roots(h: Harness) -> tuple[Path, ...]:

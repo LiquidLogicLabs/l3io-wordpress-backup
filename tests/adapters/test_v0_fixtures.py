@@ -16,6 +16,7 @@ and the extraction half of the ``escape-*`` and ``symlink-escape`` fixtures is
 from __future__ import annotations
 
 import json
+import subprocess
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -42,10 +43,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 V0 = PROJECT_ROOT / "tests" / "fixtures" / "archives" / "v0"
 MALFORMED = V0 / "malformed"
 RELEASED = V0 / "released-0.2.21-all.tar.gz"
+PROVENANCE = V0 / "released-0.2.21-all.provenance.json"
 WP_CONFIG = PROJECT_ROOT / "tests" / "data" / "wp-config.php"
 PROBE = TarArchiveProbe()
 R = VerificationReason
 CONFIG = f"{V0_SITE_ROOT}/wp-config.php"
+#: The old shared test password (BL-E004-064), spelled in two parts so this
+#: file is not itself a hit for the search that proves it is gone elsewhere.
+LEGACY_TEST_PASSWORD = "pass@" + "word1"
 
 
 @dataclass(frozen=True)
@@ -256,12 +261,50 @@ def test_the_released_fixture_carries_no_operator_secret() -> None:
     # Only the public test credentials: the Site Root's config is the test
     # one, but for DB_PASSWORD. The released fixture is never regenerated (its
     # SHA-256 is pinned in the provenance file), so it keeps the test config's
-    # password from before BL-E004-064 replaced it with a unique sentinel;
-    # every other line must still match.
+    # password from before BL-E004-064 replaced it with a unique sentinel.
+    # Owner decision 42 accepts exactly that one line, recorded in the
+    # provenance file's ``accepted_exception``; every other line must match.
     def without_password(text: bytes) -> list[bytes]:
         return [line for line in text.splitlines() if b"'DB_PASSWORD'" not in line]
 
     assert without_password(embedded) == without_password(WP_CONFIG.read_bytes())
-    assert embedded != WP_CONFIG.read_bytes(), (
-        "the released fixture now carries the sentinel: drop this exception"
+    ignored = [line for line in embedded.splitlines() if b"'DB_PASSWORD'" in line]
+    assert len(ignored) == 1, ignored
+    assert LEGACY_TEST_PASSWORD.encode() in ignored[0], (
+        "the released fixture no longer carries the accepted password: "
+        "drop this exception and its provenance note"
     )
+    record = json.loads(PROVENANCE.read_text(encoding="utf-8"))
+    assert "owner decision 42" in record["accepted_exception"]
+
+
+def test_the_legacy_test_password_is_nowhere_else() -> None:
+    """Owner decision 42: the released fixture's one line is the only exception.
+
+    Every file git tracks is searched (derived from ``git ls-files``), except
+    the planning and review records under ``_bmad*/`` that quote the finding.
+    The released fixture is gzip, so its bytes never hold the plain text; its
+    one line is the test above.
+    """
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "-z"],  # noqa: S607 - git from PATH, fixed argv
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .split("\0")
+    )
+    scope = [
+        PROJECT_ROOT / name
+        for name in tracked
+        if name and not name.startswith(("_bmad/", "_bmad-output/"))
+    ]
+    assert len(scope) > 100, "git ls-files found too few files"
+    found = [
+        str(path.relative_to(PROJECT_ROOT))
+        for path in scope
+        if path.is_file() and LEGACY_TEST_PASSWORD.encode() in path.read_bytes()
+    ]
+    assert found == []

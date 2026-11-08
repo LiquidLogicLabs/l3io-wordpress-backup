@@ -38,11 +38,14 @@ from l3io.wp.backup.adapters import restore_runner
 from l3io.wp.backup.adapters.noop import ActionLog
 from l3io.wp.backup.adapters.preflight import BinaryPreflight
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.restore_extension import (
+    WpCliRestoreExtension,
+    restore_extension,
+)
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
-from l3io.wp.backup.adapters.wpcli import WpCliRestoreExtension, restore_extension
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.cli.preflight import require_tools
-from l3io.wp.backup.cli.restore import RelocationFlags
+from l3io.wp.backup.cli.restore_request import RelocationFlags
 from l3io.wp.backup.core.backup import DUMP_REQUIREMENT
 from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
 from l3io.wp.backup.core.restore import NO_RELOCATION, build_restore_plan

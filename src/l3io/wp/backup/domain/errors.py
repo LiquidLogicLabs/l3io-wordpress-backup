@@ -159,12 +159,16 @@ class RefusedError(BackupError):
 class UsageError(BackupError):
     """The caller supplied an invalid combination of arguments.
 
-    ``arguments`` names the flags or parameters at fault, never their values.
-    Where the CLI has a flag for it, the flag's spelling is used, whichever
-    surface the caller used (``--admin-tls`` for the library's
-    ``admin_tls=``); otherwise the Python parameter name (``site_root``). It is
-    empty where no single argument is at fault: a combination, or an
-    internal invariant that is a defect rather than a caller's mistake.
+    ``arguments`` names the arguments at fault, never their values, in one
+    vocabulary (BL-E006-015): on every path the library reaches, the library
+    parameter's name (``admin_tls``, ``config_policy``), dotted for a field of
+    one (``admin_tls.ca_file``, ``relocation.new_site_url``); an environment
+    variable by its name (``PATH``). Only the command line's own checks,
+    which no library call reaches, name its flags (``--admin-password``). It
+    is empty where no single argument is at fault: a combination, or an
+    internal invariant that is a defect rather than a caller's mistake. The
+    message text may name the flag as well; ``arguments`` is the structured
+    field.
     """
 
     exit_code: ClassVar[ExitCode] = ExitCode.USAGE
@@ -249,30 +253,35 @@ class InvalidRelocationValueError(UsageError):
     """FR-11 — a relocation flag's value breaks a rule.
 
     ``flag`` and ``rule`` name it; the value is never echoed. ``arguments``
-    is ``(flag,)``.
+    is ``(argument,)``, the parameter name (``relocation.new_site_url``),
+    ``flag`` when none is given.
     """
 
-    def __init__(self, flag: str, rule: str) -> None:
+    def __init__(self, flag: str, rule: str, *, argument: str | None = None) -> None:
         self.flag = flag
         self.rule = rule
-        super().__init__(f"{flag} {rule}", arguments=(flag,))
+        self.argument = argument or flag
+        super().__init__(f"{flag} {rule}", arguments=(self.argument,))
 
 
 class IncompleteRelocationCredentialsError(UsageError):
     """FR-11 — half of the relocated account was given.
 
     Keeping the other half from the Archive would mix two accounts. ``given``
-    and ``missing`` name the two flags; ``arguments`` is ``(given, missing)``.
+    and ``missing`` name the two flags; ``arguments`` names the two parameters
+    (``arguments``, else ``(given, missing)``).
     """
 
-    def __init__(self, *, given: str, missing: str) -> None:
+    def __init__(
+        self, *, given: str, missing: str, arguments: tuple[str, ...] | None = None
+    ) -> None:
         self.given = given
         self.missing = missing
         super().__init__(
             f"{given} needs {missing}: the relocated account is a user and "
             "password pair, and keeping one half from the Archive would mix "
             "two accounts",
-            arguments=(given, missing),
+            arguments=(given, missing) if arguments is None else arguments,
         )
 
 
@@ -281,16 +290,22 @@ class RelocationNeedsDatabaseRestoreError(UsageError):
 
     Such a Mode has no cutover, so every ``--new-*`` value would be accepted
     and discarded. ``flags`` names them, ``mode`` is the Restore Mode's CLI
-    spelling, and ``arguments`` is ``flags``.
+    spelling, and ``arguments`` the parameters (``arguments``, else ``flags``).
     """
 
-    def __init__(self, *, flags: tuple[str, ...], mode: str) -> None:
+    def __init__(
+        self,
+        *,
+        flags: tuple[str, ...],
+        mode: str,
+        arguments: tuple[str, ...] | None = None,
+    ) -> None:
         self.flags = flags
         self.mode = mode
         super().__init__(
             f"{', '.join(flags)} need a Restore Mode that restores the database; "
             f"Restore Mode {mode} restores none",
-            arguments=flags,
+            arguments=flags if arguments is None else arguments,
         )
 
 
@@ -802,7 +817,8 @@ class ArchiveNotEncryptedError(UsageError):
     Nothing in a plain Archive can be authenticated, so passing would be the
     false reassurance BL-E002-060 removes. ``restore --require-encrypted``
     raises it too (``required=True``) for a plain Archive. ``archive`` names
-    it, ``required`` says which, and ``arguments`` is the flag at fault.
+    it, ``required`` says which, and ``arguments`` is the parameter at fault
+    (``authenticate``, ``require_encrypted`` or ``allow_unencrypted``).
     """
 
     def __init__(
@@ -818,7 +834,7 @@ class ArchiveNotEncryptedError(UsageError):
                 f"archive {archive!r} is not encrypted, but a passphrase was "
                 "given; it may have been substituted for an encrypted one. "
                 "Give --allow-unencrypted to restore it anyway",
-                arguments=("--allow-unencrypted",),
+                arguments=("allow_unencrypted",),
             )
             return
         if required:
@@ -827,13 +843,13 @@ class ArchiveNotEncryptedError(UsageError):
             super().__init__(
                 f"archive {archive!r} is not encrypted, and --require-encrypted "
                 "was given; it may have been substituted for an encrypted one",
-                arguments=("--require-encrypted",),
+                arguments=("require_encrypted",),
             )
             return
         super().__init__(
             f"archive {archive!r} is not encrypted, so there is nothing to "
             "authenticate; verify it without --authenticate",
-            arguments=("--authenticate",),
+            arguments=("authenticate",),
         )
 
 
@@ -1150,7 +1166,7 @@ class RootRestoreRefusedError(UsageError):
     Extraction as root has a check-then-open race a symlink swap can win, so a
     root restore is refused before the Run opens unless the caller allows it.
     ``flag`` names the flag that does (``--allow-root``; the library's
-    ``allow_root=True``); ``arguments`` is ``(flag,)``.
+    ``allow_root=True``); ``arguments`` is ``("allow_root",)``.
     """
 
     def __init__(self, *, flag: str) -> None:
@@ -1159,7 +1175,7 @@ class RootRestoreRefusedError(UsageError):
             "refused to restore as root: extraction as root can be raced by a "
             "symlink swap inside the Site Root; run the restore as the site's "
             f"owner, or pass {flag} to accept that risk",
-            arguments=(flag,),
+            arguments=("allow_root",),
         )
 
 
@@ -1191,7 +1207,8 @@ class TargetInsideSiteRootError(UsageError):
     An Archive there can be served by the web server and is collected by the
     next backup. Refused before any effect unless ``flag`` is given.
     ``target`` is the resolved target path, ``site_root`` the canonical Site
-    Root and ``flag`` the allowing flag; ``arguments`` is ``("--archive", flag)``.
+    Root and ``flag`` the allowing flag; ``arguments`` is
+    ``("target", "allow_target_in_site_root")``.
     """
 
     def __init__(self, *, target: PurePath, site_root: PurePath, flag: str) -> None:
@@ -1203,7 +1220,7 @@ class TargetInsideSiteRootError(UsageError):
             f"{str(site_root)!r}, where the web server may serve it; write it "
             "outside the Site Root (--archive /var/backups/<name>.tar.gz), or "
             f"pass {flag}",
-            arguments=("--archive", flag),
+            arguments=("target", "allow_target_in_site_root"),
         )
 
 

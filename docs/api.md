@@ -551,7 +551,7 @@ Members: `FILES` (`'files'`), `FILES_CLEAN` (`'files-clean'`), `DATABASE` (`'dat
 What one restore did (or, in a Dry Run, planned); built, never printed.
 
 ```python
-RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ...], dry_run: bool, actions: tuple[PlannedRestoreAction, ...], integrity: Integrity | None, snapshot_path: PurePosixPath | None, snapshot_encrypted: bool, database: DatabaseRestoreReport | None, search_replace: SearchReplaceReport | None, resolved_run_id: str | None, skipped_links: tuple[SkippedLink, ...], wp_config_kept: bool)
+RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ...], dry_run: bool, actions: tuple[PlannedRestoreAction, ...], integrity: Integrity | None, snapshot_path: PurePosixPath | None, snapshot_encrypted: bool, database: DatabaseRestoreReport | None, search_replace: SearchReplaceReport | None, resolved_run_id: str | None, skipped_links: tuple[SkippedLink, ...] | None, wp_config_kept: bool)
 ```
 
 | Field | Type | Default |
@@ -567,8 +567,12 @@ RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ..
 | `database` | `DatabaseRestoreReport \| None` | required |
 | `search_replace` | `SearchReplaceReport \| None` | required |
 | `resolved_run_id` | `str \| None` | required |
-| `skipped_links` | `tuple[SkippedLink, ...]` | required |
+| `skipped_links` | `tuple[SkippedLink, ...] \| None` | required |
 | `wp_config_kept` | `bool` | required |
+
+`skipped_links` holds the symlinks extraction skipped. In a Dry Run it holds
+the ones the real Run would skip, and is `None` when the Archive (v0) records
+no link targets, so they are known only at extraction (owner decision 41).
 
 Defined in the CLI layer; import it from l3io.wp.backup.api.
 
@@ -1132,12 +1136,12 @@ Fields: `reason`, `use_instead`, each holding the argument of the same name.
 FR-11 — half of the relocated account was given.
 
 ```python
-IncompleteRelocationCredentialsError(*, given: str, missing: str)
+IncompleteRelocationCredentialsError(*, given: str, missing: str, arguments: tuple[str, ...] | None = None)
 ```
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `given`, `missing`, each holding the argument of the same name.
+Fields: `given`, `missing`, each holding the argument of the same name; `arguments`, the two parameters (`relocation.new_db_user`, `relocation.new_db_password`), `(given, missing)` when not given.
 
 ### `IncompleteRunError`
 
@@ -1204,12 +1208,12 @@ Fields: `name`, each holding the argument of the same name.
 FR-11 — a relocation flag's value breaks a rule.
 
 ```python
-InvalidRelocationValueError(flag: str, rule: str)
+InvalidRelocationValueError(flag: str, rule: str, *, argument: str | None = None)
 ```
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `flag`, `rule`, each holding the argument of the same name.
+Fields: `flag`, `rule`, each holding the argument of the same name; `argument`, the parameter at fault (`relocation.new_site_url`), `flag` when not given; `arguments` is `(argument,)`.
 
 ### `InvalidSiteDescriptorError`
 
@@ -1454,12 +1458,12 @@ Fields: `reason`, `completed`, each holding the argument of the same name.
 FR-11 — relocation flags with a Restore Mode that restores no database.
 
 ```python
-RelocationNeedsDatabaseRestoreError(*, flags: tuple[str, ...], mode: str)
+RelocationNeedsDatabaseRestoreError(*, flags: tuple[str, ...], mode: str, arguments: tuple[str, ...] | None = None)
 ```
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `flags`, `mode`, each holding the argument of the same name.
+Fields: `flags`, `mode`, each holding the argument of the same name; `arguments`, the parameters (`relocation.<field>`), `flags` when not given.
 
 ### `RootRestoreRefusedError`
 
@@ -1471,7 +1475,7 @@ RootRestoreRefusedError(*, flag: str)
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `flag`, holding the argument of the same name.
+Fields: `flag`, holding the argument of the same name; `arguments` is `("allow_root",)`.
 
 ### `RunContextActiveError`
 
@@ -1615,7 +1619,7 @@ TargetInsideSiteRootError(*, target: PurePath, site_root: PurePath, flag: str)
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `target`, `site_root`, `flag`, each holding the argument of the same name.
+Fields: `target`, `site_root`, `flag`, each holding the argument of the same name; `arguments` is `("target", "allow_target_in_site_root")`.
 
 ### `TargetChangedError`
 
@@ -1772,6 +1776,13 @@ UsageError(message: str, *, arguments: tuple[str, ...])
 Base: `BackupError`. Exit code: `USAGE` (2).
 
 Fields: `message`, `arguments`, each holding the argument of the same name.
+
+`arguments` names the arguments at fault in one vocabulary (BL-E006-015): on
+every path a library call reaches, the library parameter's name
+(`config_policy`, `archive_database`, `admin_tls`), dotted for a field of one
+(`admin_tls.ca_file`, `relocation.new_site_url`); an environment variable by
+its name. Only the command line's own argument checks, which no library call
+reaches, name its flags. The message may also name the flag.
 
 ### `VerificationFailedError`
 

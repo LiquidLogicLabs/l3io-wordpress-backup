@@ -1,25 +1,8 @@
-"""FR-11, AD-17, ADR-0015 — Epic 7's restore extension.
+"""FR-12, ADR-0005, ADR-0015 — WP-CLI's ``search-replace``, run safely.
 
-:func:`restore_extension` is the factory ``cli/restore.py`` imports as
-``RESTORE_EXTENSION`` (the one-line ownership grant). It returns a
-:class:`WpCliRestoreExtension`, which satisfies ``cli/restore.py``'s
-``RestoreExtension`` Protocol structurally:
-
-* :meth:`~WpCliRestoreExtension.resolve` validates the relocation flags
-  (``core/relocation.py``) and fills ``core/restore.py``'s
-  ``RestoreRelocation``: the URL keys ``REWRITE_CONFIG`` writes, the
-  ``DB_*`` values ``LOAD_DUMP``'s cutover writes with the relocated load
-  location, and where ``wp-config.php`` is laid down when the target has
-  none (FR-29, ``core/config_location.py``; E007-S01-002);
-* :meth:`~WpCliRestoreExtension.wordpress_spec` hands the relocated account to
-  the composition root as an ``ExplicitCredentialSpec``; the root registers
-  and resolves it. No ``l3io.wp.database`` type is named here;
-* :meth:`~WpCliRestoreExtension.search_replace` returns
-  :class:`WpCliSearchReplace` (E007-S01-003) when a URL is relocated and
-  ``wp`` is on ``PATH``; :meth:`~WpCliRestoreExtension.required_tools`
-  returns ``core/relocation.py::required_tools`` (E007-S01-004): WP-CLI at
-  ``WP_CLI_MINIMUM`` iff a URL is relocated, which the root appends to the
-  plan so ``PREFLIGHT`` refuses (exit 7) before the first effect.
+``adapters/restore_extension.py`` (Epic 7's restore extension) returns
+:class:`WpCliSearchReplace` when a URL is relocated; ``adapters/wpcli_child.py``
+runs each ``wp`` process (BL-E007-019: three modules, one concern each).
 
 :class:`WpCliSearchReplace` is the one place this package runs ``wp``. Every
 call:
@@ -45,9 +28,10 @@ it never refuses (owner decision O4, 2026-11-06).
 
 Every call's output is bounded (:data:`CHILD_OUTPUT_LIMIT` per stream, the
 process group killed past it, BL-E007-009). Before any effect, when a URL is
-relocated, :meth:`~WpCliRestoreExtension.resolve` prepares the state
-directory and refuses a ``wp-cli.yml`` above it (BL-E007-008); the check in
-every call stays as the backstop.
+relocated, ``adapters/restore_extension.py``'s ``resolve`` calls
+:func:`check_wp_cli_directory`: the state directory is prepared and a
+``wp-cli.yml`` above it refused (BL-E007-008); the check in every call stays
+as the backstop.
 
 **Residual (stated, not closed).** ``restore_extension`` resolves ``wp`` on
 ``PATH`` once, with ``adapters/preflight.py::locate_tool`` (absolute entries
@@ -71,24 +55,20 @@ from __future__ import annotations
 
 import contextlib
 import csv
-import ctypes
 import dataclasses
 import json
 import os
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
-import threading
 import time
 from collections.abc import Iterator, Sequence
-from pathlib import Path, PurePosixPath
-from typing import Final, NoReturn, Protocol
+from pathlib import Path
+from typing import Final, NoReturn
 
 import structlog
 
-from l3io.wp.backup.adapters.database import database_location_from_db_host
 from l3io.wp.backup.adapters.journal import journal_directory
 from l3io.wp.backup.adapters.lock import state_root
 from l3io.wp.backup.adapters.preflight import (
@@ -96,82 +76,49 @@ from l3io.wp.backup.adapters.preflight import (
     ChildOutputLimitError,
     absolute_search_path,
     find_wp_cli_config,
-    locate_tool,
-    run_bounded,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.restore_runner import config_member
 from l3io.wp.backup.adapters.workspace import private_state_directories
-from l3io.wp.backup.core.config_location import (
-    ConfigFacts,
-    ConfigPlacement,
-    config_file,
-    existing_location,
-    manifest_location,
-    place_config,
-)
+from l3io.wp.backup.adapters.wpcli_child import ChildRunner, run_child
 from l3io.wp.backup.core.relocation import (
-    RelocationRequest,
     nested,
     pairs_merged,
-    relocation_actions,
-    relocation_undo,
     replacement_pairs,
-    required_tools,
-    rewrite_values,
     safe_order,
     stored_url_rule_broken,
-    url_relocation,
-    validate_relocation,
-    validate_relocation_values,
-)
-from l3io.wp.backup.core.restore import (
-    RestoreRelocation,
-    planned_cutover_keys,
 )
 from l3io.wp.backup.domain.archive_format import (
-    ArchiveView,
-    ConfigLocation,
-    MemberRole,
+    WP_CONFIG_NAME,
+    WP_SETTINGS_NAME,
 )
-from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.errors import (
-    ConfigLocationConflictError,
     SearchReplaceIncompleteError,
     StoredUrlInvalidError,
     StoredUrlMissingError,
-    UsageError,
     WpCliConfigFoundError,
     WpCliFailedError,
     WpCliOutputUnrecognisedError,
 )
-from l3io.wp.backup.domain.preflight import ToolRequirement
-from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_files
 from l3io.wp.backup.domain.search_replace import (
     Replacement,
     SearchReplaceReport,
     StoredUrls,
     UrlRelocation,
 )
-from l3io.wp.backup.domain.site import SiteDescriptor
-from l3io.wp.backup.ports.search_replace import SearchReplaceCommand
-from l3io.wp.backup.ports.site_files import SiteFilesQuery
 
 __all__ = [
     "WP_CLI_CONFIG_FILES",
     "WP_CLI_ENV_KEYS",
-    "WpCliRestoreExtension",
     "WpCliSearchReplace",
+    "check_wp_cli_directory",
     "find_wp_cli_config",
-    "restore_extension",
+    "owed_search_replace",
     "search_replace_argv",
     "wp_cli_environment",
 ]
 
 _log = structlog.get_logger(__name__)
 
-#: How the relocated account's source is labelled in records (never a value).
-RELOCATED_CREDENTIAL_SOURCE = "--new-db-user/--new-db-password"
 
 #: The process-environment keys a ``wp`` child gets, besides
 #: ``WP_CLI_CONFIG_PATH``: ``PATH`` and ``HOME`` copied, ``LC_ALL`` set to
@@ -231,8 +178,8 @@ def _escape_controls(text: str) -> str:
 #: The empty global config file ``WP_CLI_CONFIG_PATH`` names.
 _EMPTY_CONFIG: Final = "config.yml"
 #: The file ``wp-load.php`` looks for, and the one that marks an install.
-_CONFIG: Final = "wp-config.php"
-_SETTINGS: Final = "wp-settings.php"
+_CONFIG: Final = WP_CONFIG_NAME
+_SETTINGS: Final = WP_SETTINGS_NAME
 
 
 def wp_cli_environment(config_path: Path) -> dict[str, str]:
@@ -281,122 +228,6 @@ def _running_as_root() -> bool:
     return geteuid is not None and geteuid() == 0
 
 
-class ChildRunner(Protocol):
-    """What runs one ``wp`` child; injectable so tests can record the call."""
-
-    def __call__(
-        self, argv: list[str], *, cwd: Path, env: dict[str, str]
-    ) -> subprocess.CompletedProcess[str]: ...
-
-
-#: The most one ``wp`` child may print on each of stdout and stderr, in bytes
-#: (BL-E007-009); past it the child's process group is killed and the call
-#: fails. A ``search-replace`` table of every column of a large Site fits.
-CHILD_OUTPUT_LIMIT: Final = 8 * 1024 * 1024
-#: The longest one ``wp`` child may run, in seconds. Generous: a ``--precise``
-#: replace unserializes every row. It exists so restored code that never returns
-#: cannot hold the Site Lock for ever.
-CHILD_TIMEOUT_S: Final = 4 * 60 * 60
-#: ``prctl(2)``'s ``PR_SET_DUMPABLE`` and ``PR_GET_DUMPABLE`` option numbers.
-_PR_SET_DUMPABLE: Final = 4
-_PR_GET_DUMPABLE: Final = 3
-
-
-class _DumpableGuard:
-    """Reference-counts the process-wide ``PR_SET_DUMPABLE`` toggle.
-
-    The flag belongs to the process, not to a thread, so two overlapping
-    ``wp`` children (a library host running two restores) must share one
-    toggle: it drops on the first holder and is put back only when the last
-    one is done. Without the count the first thread to finish re-enabled
-    ``/proc`` access while the other's child was still running.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._holders = 0
-        self._previous = 0
-
-    def enter(self) -> None:
-        with self._lock:
-            if self._holders == 0:
-                self._previous = _set_dumpable(0)
-            self._holders += 1
-
-    def leave(self) -> None:
-        with self._lock:
-            self._holders -= 1
-            if self._holders == 0 and self._previous:
-                _set_dumpable(1)  # PR_SET_DUMPABLE takes 0 or 1 only
-
-
-_DUMPABLE = _DumpableGuard()
-
-
-@contextlib.contextmanager
-def _unreadable_by_the_child() -> Iterator[None]:
-    """Make this process's ``/proc/<pid>`` entries unreadable to its own children.
-
-    The child runs the restored Site's PHP as the same user, and a same-user
-    process can read ``/proc/<ppid>/environ``: the passphrase and the admin
-    credentials this process was started with. A non-dumpable process's entries
-    belong to root. The flag is reset by ``execve``, so the child itself is not
-    affected, and it is put back once the last overlapping child is done
-    (:class:`_DumpableGuard`). Linux only; elsewhere, or if the call fails, it
-    does nothing (``docs/restore.md`` says so). While a child runs the whole
-    host process is non-dumpable: no core dump, no same-user ``ptrace``.
-    """
-    _DUMPABLE.enter()
-    try:
-        yield
-    finally:
-        _DUMPABLE.leave()
-
-
-def _set_dumpable(value: int) -> int:
-    """Set ``PR_SET_DUMPABLE`` and return the previous value; ``0`` if unsupported."""
-    if not sys.platform.startswith("linux"):
-        return 0
-    try:
-        libc = ctypes.CDLL(None, use_errno=True)
-        previous = int(libc.prctl(_PR_GET_DUMPABLE, 0, 0, 0, 0))
-        if previous < 0 or libc.prctl(_PR_SET_DUMPABLE, value, 0, 0, 0) != 0:
-            return 0
-    except (OSError, AttributeError):
-        return 0
-    return previous
-
-
-def run_child(
-    argv: list[str], *, cwd: Path, env: dict[str, str]
-) -> subprocess.CompletedProcess[str]:
-    """Run ``argv`` with exactly ``env``, no shell, no stdin, text output.
-
-    ``adapters/preflight.py::run_bounded``: the child leads its own process
-    group, killed whole after :data:`CHILD_TIMEOUT_S`
-    (``subprocess.TimeoutExpired``) or once either stream passes
-    :data:`CHILD_OUTPUT_LIMIT` (``ChildOutputLimitError``).
-    Runs with this process non-dumpable, so the child cannot read its ``/proc``.
-    """
-    with _unreadable_by_the_child():
-        return run_bounded(
-            argv,
-            cwd=cwd,
-            env=env,
-            timeout=CHILD_TIMEOUT_S,
-            limit=CHILD_OUTPUT_LIMIT,
-        )
-
-
-class RunFacts:
-    """What the extension learns at ``resolve`` that the replacer logs later."""
-
-    __slots__ = ("archive_encrypted",)
-
-    def __init__(self) -> None:
-        self.archive_encrypted: bool | None = None
-
-
 @dataclasses.dataclass(frozen=True, slots=True)
 class _Preview:
     total: int
@@ -426,7 +257,7 @@ def _wp_cli_directory(site_root: Path) -> Iterator[tuple[Path, Path]]:
         shutil.rmtree(directory, ignore_errors=True)
 
 
-def _check_wp_cli_directory(site_root: Path) -> None:
+def check_wp_cli_directory(site_root: Path) -> None:
     """BL-E007-008: what ``_wp_cli_directory`` would meet, checked before any effect.
 
     The state directory is prepared (``0700``, a ``WpCliFailedError`` at
@@ -603,34 +434,40 @@ class WpCliSearchReplace:
     precedes the first replacement.
     """
 
-    __slots__ = ("_facts", "_run", "_secrets", "_wp")
+    __slots__ = ("_run", "_secrets", "_wp")
 
     def __init__(
         self,
         wp: str,
         *,
         secrets: SecretRegistry,
-        facts: RunFacts | None = None,
         run: ChildRunner = run_child,
     ) -> None:
         self._wp = wp
         self._secrets = secrets
-        self._facts = facts if facts is not None else RunFacts()
         self._run = run
 
     def __repr__(self) -> str:
         return f"WpCliSearchReplace({self._wp!r})"
 
     def relocate_content(
-        self, site_root: Path, urls: UrlRelocation
+        self,
+        site_root: Path,
+        urls: UrlRelocation,
+        *,
+        archive_encrypted: bool | None = None,
     ) -> SearchReplaceReport:
-        """Replace the stored ``siteurl``/``home`` with ``urls`` across the content."""
+        """Replace the stored ``siteurl``/``home`` with ``urls`` across the content.
+
+        ``archive_encrypted`` (the restore's own fact, BL-E007-020) goes on the
+        root WARNING only.
+        """
         as_root = _running_as_root()
         if as_root:
             _log.warning(
                 "wp_cli_running_as_root",
                 site_root=str(site_root),
-                archive_encrypted=self._facts.archive_encrypted,
+                archive_encrypted=archive_encrypted,
                 executes="wp-config.php, mu-plugins and drop-ins as root",
             )
         with _wp_cli_directory(site_root) as (cwd, config):
@@ -745,277 +582,3 @@ def owed_search_replace(site_root: Path, urls: UrlRelocation, *, wp: str | None)
         "it would rewrite its own results (when the stored siteurl and home were "
         "equal, only one is owed): " + "; ".join(owed)
     )
-
-
-class WpCliRestoreExtension:
-    """What Epic 7 supplies to one restore, for one set of relocation flags."""
-
-    __slots__ = ("_facts", "_replacer", "_request", "_secrets", "_wp")
-
-    def __init__(
-        self,
-        request: RelocationRequest,
-        *,
-        secrets: SecretRegistry | None = None,
-        wp: str | None = None,
-    ) -> None:
-        self._request = request
-        self._secrets = secrets if secrets is not None else SecretRegistry()
-        self._wp = wp
-        self._facts = RunFacts()
-        self._replacer: WpCliSearchReplace | None = None
-
-    def __repr__(self) -> str:
-        return "WpCliRestoreExtension()"
-
-    def required_tools(self) -> tuple[ToolRequirement, ...]:
-        """WP-CLI's requirement iff a URL is relocated (``core/relocation.py``).
-
-        This is the one route a relocation's tools reach the plan:
-        ``RestoreRelocation.required_tools`` stays ``()``.
-        """
-        return required_tools(self._request)
-
-    def wordpress_spec(self) -> ExplicitCredentialSpec | None:
-        """The relocated account, or ``None`` without the user/password pair."""
-        user, password = self._request.new_db_user, self._request.new_db_password
-        if user is None or password is None:
-            return None
-        return ExplicitCredentialSpec(user, password)
-
-    def search_replace(self) -> SearchReplaceCommand | None:
-        """WP-CLI's ``search-replace`` when a URL is relocated and ``wp`` was found.
-
-        ``None`` otherwise: with no URL there is no ``SEARCH_REPLACE`` phase,
-        and with no ``wp`` the root's ``UnboundSearchReplace`` fails closed
-        (story 7.4's preflight refuses first). One instance per extension.
-        """
-        if url_relocation(self._request) is None or self._wp is None:
-            return None
-        if self._replacer is None:
-            self._replacer = WpCliSearchReplace(
-                self._wp, secrets=self._secrets, facts=self._facts
-            )
-        return self._replacer
-
-    def resolve(
-        self,
-        *,
-        site_root: Path,
-        site: SiteDescriptor,
-        view: ArchiveView,
-        files: SiteFilesQuery,
-        mode: RestoreMode,
-    ) -> RestoreRelocation:
-        """The relocation for ``mode``, or a ``UsageError`` before any effect.
-
-        ``validate_relocation`` first. With ``--new-db-host`` or
-        ``--new-db-name``, the load location is parsed once by
-        ``database_location_from_db_host`` (the one ``host:port`` splitter),
-        defaulting each half to the Site's own; a bad host or name is its
-        ``UsageError``. Then the config placement (:meth:`_config_file`).
-        """
-        request = self._request
-        validate_relocation(request, mode=mode)
-        self._facts.archive_encrypted = view.encrypted
-        load_location = None
-        if request.new_db_host is not None or request.new_db_name is not None:
-            host_text = (
-                request.new_db_host
-                if request.new_db_host is not None
-                else f"{site.db_host}:{site.db_port}"
-            )
-            name = (
-                request.new_db_name
-                if request.new_db_name is not None
-                else (site.db_name)
-            )
-            load_location = database_location_from_db_host(host_text, name)
-        prior = {"WP_SITEURL": site.site_url, "WP_HOME": site.home_url}
-        urls = url_relocation(request)
-        undo = relocation_undo(request, prior=prior)
-        if urls is not None:
-            _check_wp_cli_directory(site_root)
-            owed = owed_search_replace(site_root, urls, wp=self._wp)
-            undo = (*undo, (RestorePhase.SEARCH_REPLACE, owed))
-        laid_down = self._config_file(
-            site_root=site_root,
-            view=view,
-            files=files,
-            mode=mode,
-            urls_relocated=urls is not None,
-        )
-        relocation = RestoreRelocation(
-            rewrite_values=rewrite_values(request),
-            load_database=request.new_db_name,
-            load_location=load_location,
-            cutover_host=request.new_db_host,
-            cutover_user=request.new_db_user,
-            cutover_password=request.new_db_password is not None,
-            search_replace=urls,
-            config_file=laid_down,
-            lay_down_config=laid_down is not None,
-            required_tools=(),
-            actions=(),
-            undo=undo,
-        )
-        relocation = dataclasses.replace(
-            relocation, actions=relocation_actions(relocation)
-        )
-        relocated = dataclasses.replace(
-            relocation, config_file=None, lay_down_config=False
-        )
-        if relocated != RestoreRelocation.none():
-            # Logged as the relocation is resolved, before the survey and
-            # FR-7's check: a Run refused after this still logged it.
-            _log.info(
-                "relocation_planned",
-                keys=[key for key, _ in relocation.rewrite_values],
-                cutover_keys=list(planned_cutover_keys(relocation)),
-                db_location=None
-                if load_location is None
-                else {
-                    "host": load_location.host,
-                    "port": load_location.port,
-                    # The database loaded: None when it is the Run's
-                    # staging database on that host (no --new-db-name).
-                    "name": request.new_db_name,
-                },
-                load_target=request.new_db_name or "a staging database",
-                credential_source=RELOCATED_CREDENTIAL_SOURCE
-                if relocation.cutover_password
-                else site.credential_source,
-                site_url_changed=request.new_site_url is not None,
-                home_url_changed=request.new_home_url is not None,
-            )
-        return relocation
-
-    def _config_file(
-        self,
-        *,
-        site_root: Path,
-        view: ArchiveView,
-        files: SiteFilesQuery,
-        mode: RestoreMode,
-        urls_relocated: bool,
-    ) -> PurePosixPath | None:
-        """The file to lay ``wp-config.php`` down at, or ``None`` (FR-29).
-
-        ``None`` when the target already has the config WordPress reads (the
-        root located it at step 3 and it stands), when ``--wp-config`` named
-        one (used as given, overriding the search), or when nothing is laid
-        down. A Manifest ``config_path`` outside ``ConfigLocation`` is refused
-        whether or not ``--wp-config`` is given. The facts are what
-        ``locate_wp_config`` reads: a regular file (symlinks followed) at the
-        two places ``wp-load.php`` looks, and anything at
-        ``<root>/../wp-settings.php``. A lay-down is refused when anything at
-        all (a directory, a dangling symlink) is at its path. ``site_root`` is
-        the root's canonical Site Root.
-
-        A URL relocation whose ``--wp-config`` is not the file WordPress would
-        load is a ``UsageError``: WP-CLI's ``search-replace`` would bootstrap
-        from another config than the one rewritten, a partial relocation
-        (FR-13).
-        """
-        root = PurePosixPath(site_root)
-        in_root = site_root / _CONFIG
-        in_parent = site_root.parent / _CONFIG
-        by_role = any(m.role is MemberRole.CONFIG for m in view.members)
-        wanted = (
-            manifest_location(view.config_path)
-            if by_role and view.config_path is not None
-            else None
-        )
-        facts = ConfigFacts(
-            at_site_root=_regular_file(files, in_root),
-            at_parent=_regular_file(files, in_parent),
-            parent_has_wp_settings=files.file_exists(site_root.parent / _SETTINGS),
-        )
-        recorded = None if wanted is None else wanted.value
-        stated = self._request.wp_config
-        if stated is not None:
-            existing = existing_location(facts)
-            read = (
-                None
-                if existing is None
-                else Path(config_file(root, _existing(existing)))
-            )
-            loaded = read is not None and _same_file(read, Path(stated))
-            if urls_relocated and not loaded:
-                reads = "no wp-config.php" if read is None else str(read)
-                msg = (
-                    f"--wp-config {str(stated)!r} is not the file WordPress "
-                    f"loads for this Site ({reads}; it reads {in_root}, else "
-                    f"{in_parent}), so WP-CLI could not rewrite its URLs from "
-                    "it; nothing was changed"
-                )
-                raise UsageError(msg, arguments=("--wp-config",))
-            _log.info(
-                "config_located",
-                config_path=os.path.realpath(stated),
-                location=existing.value if loaded and existing else None,
-                action="use-existing",
-                source="stated",
-                manifest_config_path=recorded,
-            )
-            return None
-        placement = place_config(
-            recorded,
-            facts,
-            site_root=root,
-            restores_files=restores_files(mode),
-            archive_has_config=config_member(view) is not None,
-        )
-        path = config_file(root, placement)
-        if placement.action == "lay-down" and os.path.lexists(path):
-            raise ConfigLocationConflictError(
-                path,
-                "is there and is not a regular file, so wp-config.php cannot be "
-                "laid down at it",
-            )
-        _log.info(
-            "config_located",
-            config_path=str(path),
-            location=placement.location.value,
-            action=placement.action,
-            source=placement.source,
-            manifest_config_path=recorded,
-        )
-        return path if placement.action == "lay-down" else None
-
-
-def _existing(location: ConfigLocation) -> ConfigPlacement:
-    return ConfigPlacement(location=location, action="use-existing", source="target")
-
-
-def _regular_file(files: SiteFilesQuery, path: Path) -> bool:
-    """``locate_wp_config``'s test: a regular file, a symlink to one followed."""
-    return files.file_exists(path) and os.path.isfile(path)  # noqa: PTH113
-
-
-def _same_file(left: Path, right: Path) -> bool:
-    """Whether two paths name one file, symlinks and ``..`` resolved."""
-    return os.path.realpath(left) == os.path.realpath(right)
-
-
-def restore_extension(
-    flags: RelocationRequest, *, secrets: SecretRegistry
-) -> WpCliRestoreExtension:
-    """``cli/restore.py``'s ``RESTORE_EXTENSION`` (``RestoreExtensionFactory``).
-
-    ``--new-db-password`` is registered with ``secrets`` again here, so a root
-    that skipped it still redacts the value (registration is idempotent). The
-    Mode-independent rules (``validate_relocation_values``) run here, before
-    the root reads the Site or the Archive; the Mode rule runs in
-    :meth:`WpCliRestoreExtension.resolve`. With a URL relocated, ``wp`` is
-    looked up on ``PATH`` here, once, by preflight's own rule
-    (:func:`~l3io.wp.backup.adapters.preflight.locate_tool`: relative and
-    empty entries ignored), so the path is absolute and is the one checked.
-    """
-    if flags.new_db_password:
-        secrets.register(flags.new_db_password, source="--new-db-password")
-    validate_relocation_values(flags)
-    wp = None
-    if url_relocation(flags) is not None:
-        wp = locate_tool("wp")
-    return WpCliRestoreExtension(flags, secrets=secrets, wp=wp)

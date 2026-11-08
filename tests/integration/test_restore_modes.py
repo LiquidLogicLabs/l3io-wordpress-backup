@@ -10,6 +10,7 @@ Every-mode end-to-end, database Modes included, is E003-S02-006's
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -37,16 +38,16 @@ def _harness(tmp_path: Path, mode: RestoreMode, policy: ConfigPolicy) -> Harness
         mode=mode,
         config_policy=policy,
         real_files=True,
+        config_writer=WpConfigWriter(SecretRegistry()),
+        slot=_never,
     )
-    h.config = WpConfigWriter(SecretRegistry())  # type: ignore[assignment]
     # The target has drifted: a changed index, and a file the Archive lacks.
     (h.site_root / "index.php").write_bytes(b"<?php // tampered\n")
-
-    def never(*_: object) -> None:
-        pytest.fail("a file Mode reached the load_database slot")
-
-    h.load_database = never  # type: ignore[assignment, method-assign]
     return h
+
+
+def _never(*_: object) -> NoReturn:
+    pytest.fail("a file Mode reached the load_database slot")
 
 
 @pytest.mark.parametrize("mode", FILE_MODES)

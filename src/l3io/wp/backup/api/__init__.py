@@ -38,7 +38,6 @@ docstrings and the headings; the instability is policy.
 
 from __future__ import annotations
 
-from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.preflight import Diagnosis
 from l3io.wp.backup.adapters.tracing import add_trace_ids
 from l3io.wp.backup.api import errors as _errors
@@ -47,7 +46,7 @@ from l3io.wp.backup.api.operations import backup, doctor, restore, verify
 from l3io.wp.backup.cli.backup import BackupResult
 from l3io.wp.backup.cli.logging import configure_logging
 from l3io.wp.backup.cli.output import RunWarning
-from l3io.wp.backup.cli.restore import RelocationFlags, RestoreOutcome
+from l3io.wp.backup.cli.restore_request import RelocationFlags, RestoreOutcome
 from l3io.wp.backup.core.exclusions import ExclusionSet, enumerate_defaults
 from l3io.wp.backup.domain.archive_format import VerificationResult
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -66,6 +65,7 @@ from l3io.wp.backup.domain.restore import (
 from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.ports.database import AdminTls
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
 __all__: list[str] = [

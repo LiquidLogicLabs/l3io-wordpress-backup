@@ -13,7 +13,7 @@ import threading
 
 import pytest
 
-from l3io.wp.backup.adapters import wpcli
+from l3io.wp.backup.adapters import wpcli_child as wpcli
 
 
 class _Flag:

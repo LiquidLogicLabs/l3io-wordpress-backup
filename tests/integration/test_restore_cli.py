@@ -34,7 +34,7 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 pytest.importorskip("pymysql")
 
-from l3io.wp.backup.cli.restore import render_flags
+from l3io.wp.backup.cli.restore_request import render_flags
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.flag_map import (
     FLAG_MAP,

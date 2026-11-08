@@ -17,7 +17,7 @@ def test_a_skipped_links_control_characters_never_reach_the_terminal(
     outcome = SimpleNamespace(
         skipped_links=(link,), resolved_run_id="run-5a", dry_run=False
     )
-    restore_mod._print_outcome(  # type: ignore[arg-type]  # noqa: SLF001
+    restore_mod.print_outcome(  # type: ignore[arg-type]
         outcome, archive="a.tar", site_root="/srv", completed=False
     )
     err = capsys.readouterr().err

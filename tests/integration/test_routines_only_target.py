@@ -19,12 +19,13 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 pytest.importorskip("pymysql")
 
-from l3io.wp.backup.adapters.database import AdminTls, WpDatabase, admin_source
+from l3io.wp.backup.adapters.database import WpDatabase, admin_source
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.core.restore import NonEmptyTargetError, check_target
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.restore import OverrideSet, RestoreMode
+from l3io.wp.backup.ports.database import AdminTls
 from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import admin_account  # noqa: F401 - a fixture
 from tests.integration.live_restore import host, port, root_connection

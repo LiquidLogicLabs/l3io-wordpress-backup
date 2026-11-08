@@ -15,7 +15,7 @@ import tarfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import IO, Any
+from typing import IO, Any, Protocol, cast
 
 from l3io.wp.backup.adapters.database import (
     locate_wp_config,
@@ -36,12 +36,6 @@ from l3io.wp.backup.cli.context import RunContext
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
-    STEP_CHECK_FAILED,
-    STEP_CUTOVER,
-    STEP_CUTOVER_STARTED,
-    STEP_LOSER_DROP_STARTED,
-    STEP_LOSER_DROPPED,
-    STEP_STAGING_DROPPED,
     DatabaseRestoreReport,
     ExecutionReport,
     RestoreInputs,
@@ -50,6 +44,14 @@ from l3io.wp.backup.core.restore import (
     SnapshotResult,
     TargetState,
     build_restore_plan,
+)
+from l3io.wp.backup.core.restore_journal import (
+    STEP_CHECK_FAILED,
+    STEP_CUTOVER,
+    STEP_CUTOVER_STARTED,
+    STEP_LOSER_DROP_STARTED,
+    STEP_LOSER_DROPPED,
+    STEP_STAGING_DROPPED,
 )
 from l3io.wp.backup.domain.archive_format import (
     DUMP_RELATIVE,
@@ -84,7 +86,14 @@ from l3io.wp.backup.domain.search_replace import SearchReplaceReport
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.adapter_set import AdapterSet
-from l3io.wp.backup.ports.journal import RunJournalCommand
+from l3io.wp.backup.ports.archive import (
+    ArchiveStoreCommand,
+    ArchiveStoreQuery,
+    ArchiveWriterCommand,
+)
+from l3io.wp.backup.ports.config import ConfigCommand, ConfigQuery
+from l3io.wp.backup.ports.database import DatabaseCommand, DatabaseQuery
+from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
 from l3io.wp.backup.ports.restore import RestorePorts, restore_ports
 
 #: The target's own ``DB_*`` values, as its ``wp-config.php`` holds them.
@@ -136,15 +145,19 @@ def write_v1(
     dump: bool = True,
     cipher: IdentityCipher | None = None,
     config_role: bool = False,
+    links: Mapping[str, str] | None = None,
 ) -> Path:
     """A small v1 Archive by the real writer: index, config, Dump.
 
     ``config_role`` stores the config as a ``config``-role member (a config
-    one level up, FR-29) instead of in the Site Root tree.
+    one level up, FR-29) instead of in the Site Root tree. ``links`` adds a
+    symlink per ``{name: target}`` to the Site Root, target verbatim.
     """
     source = work / "source-site"
     source.mkdir()
     (source / "index.php").write_bytes(INDEX)
+    for name, target in (links or {}).items():
+        (source / name).symlink_to(target)
     config_file = (work if config_role else source) / "wp-config.php"
     if config:
         config_file.write_text(wp_config(ARCHIVE_DB), encoding="utf-8")
@@ -326,11 +339,21 @@ class FakeSearchReplace:
     def __init__(self, log: CommandLog) -> None:
         self.log = log
 
-    def relocate_content(self, site_root: Path, urls: object) -> SearchReplaceReport:
+    def relocate_content(
+        self, site_root: Path, urls: object, *, archive_encrypted: bool | None = None
+    ) -> SearchReplaceReport:
         self.log.add("search_replace", "relocate_content", urls)
         return SearchReplaceReport(
             pairs=(), replacements=0, tables=(), remaining=0, merged=True
         )
+
+
+class ConfigPorts(ConfigQuery, ConfigCommand, Protocol):
+    """Both config halves as one object: :class:`FakeConfig` or the real writer."""
+
+
+#: The ``load_database`` slot ``execute_restore`` calls.
+LoadSlot = Callable[[RestoreInputs, RunJournalCommand], DatabaseRestoreReport]
 
 
 class Unused:
@@ -387,6 +410,11 @@ class Harness:
     overrides: OverrideSet = field(
         default_factory=lambda: OverrideSet(waived=frozenset(Override))
     )
+    #: The config halves in place of :attr:`config` (the real ``WpConfigWriter``);
+    #: :attr:`config` stays the in-memory fake either way.
+    config_writer: ConfigPorts | None = None
+    #: The ``load_database`` slot in place of :meth:`load_database`.
+    slot: LoadSlot | None = None
 
     def __post_init__(self) -> None:
         self.site_root = self.work / "target"
@@ -416,24 +444,39 @@ class Harness:
             credential_source=f"wp-config:{self.config_path}",
         )
 
+    @property
+    def config_ports(self) -> ConfigPorts:
+        """The config halves the Run writes through."""
+        return self.config if self.config_writer is None else self.config_writer
+
     def adapters(self) -> AdapterSet:
         real = LocalSiteFiles() if self.real_files else None
         return AdapterSet(
-            archive_store_query=Unused("archive_store_query"),  # type: ignore[arg-type]
-            archive_store_command=Unused("archive_store_command"),  # type: ignore[arg-type]
+            archive_store_query=cast(
+                "ArchiveStoreQuery", Unused("archive_store_query")
+            ),
+            archive_store_command=cast(
+                "ArchiveStoreCommand", Unused("archive_store_command")
+            ),
             archive_probe=self.probe,
-            database_query=Unused("database_query"),  # type: ignore[arg-type]
-            database_command=RecordingPort(self.log, "database"),  # type: ignore[arg-type]
-            archive_writer=Unused("archive_writer"),  # type: ignore[arg-type]
+            database_query=cast("DatabaseQuery", Unused("database_query")),
+            database_command=cast(
+                "DatabaseCommand", RecordingPort(self.log, "database")
+            ),
+            archive_writer=cast("ArchiveWriterCommand", Unused("archive_writer")),
             tracer=NoopTracer(),
-            restore_database_query=Unused("restore_database_query"),  # type: ignore[arg-type]
-            restore_database_command=RecordingPort(self.log, "restore_database"),  # type: ignore[arg-type]
+            restore_database_query=cast(
+                "DatabaseQuery", Unused("restore_database_query")
+            ),
+            restore_database_command=cast(
+                "DatabaseCommand", RecordingPort(self.log, "restore_database")
+            ),
             site_files_query=LocalSiteFiles(),
             site_files_command=RecordingSiteFiles(self.log, real),
-            config_query=self.config,
-            config_command=self.config,
+            config_query=self.config_ports,
+            config_command=self.config_ports,
             search_replace=FakeSearchReplace(self.log),
-            journal_query=Unused("journal_query"),  # type: ignore[arg-type]
+            journal_query=cast("RunJournalQuery", Unused("journal_query")),
             journal_command=self.journal,
         )
 
@@ -555,7 +598,7 @@ class Harness:
             cutover["DB_HOST"] = rel.cutover_host
         if rel.cutover_user is not None:
             cutover["DB_USER"] = rel.cutover_user
-        self.config.set_constants(Path(inputs.config_path), cutover)
+        self.config_ports.set_constants(Path(inputs.config_path), cutover)
         journal.step_completed(RestorePhase.LOAD_DUMP, STEP_CUTOVER + "DB_NAME")
         dropped = removes_database(inputs.header.restore_mode)
         if dropped:
@@ -586,7 +629,7 @@ class Harness:
             self.ports(adapters),
             self.take_snapshot,
             self.check_database,
-            self.load_database,
+            self.load_database if self.slot is None else self.slot,
             journal or self.journal,
             self.cipher,
             survey_target=self.target,

@@ -30,12 +30,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Final, Literal
 
-from l3io.wp.backup.domain.archive_format import ConfigLocation
+from l3io.wp.backup.domain.archive_format import (
+    WP_CONFIG_NAME,
+    WP_SETTINGS_NAME,
+    ArchiveView,
+    ConfigLocation,
+    MemberRole,
+)
 from l3io.wp.backup.domain.errors import (
     ConfigLocationConflictError,
     UnsupportedConfigLocationError,
+    UsageError,
 )
 
 __all__ = [
@@ -47,6 +54,9 @@ __all__ = [
     "existing_location",
     "manifest_location",
     "place_config",
+    "recorded_location",
+    "require_lay_down_free",
+    "require_stated_config_loaded",
 ]
 
 #: ``use-existing``: the target's own file is used. ``lay-down``: the
@@ -58,7 +68,7 @@ PlacementAction = Literal["use-existing", "lay-down", "none"]
 #: Where the location came from: the target, the Manifest, or the default.
 PlacementSource = Literal["target", "manifest", "v0-default"]
 
-_SETTINGS = "wp-settings.php"
+_SETTINGS: Final = WP_SETTINGS_NAME
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -178,6 +188,67 @@ def place_config(
         action="lay-down" if restores_files else "none",
         source="manifest",
     )
+
+
+def recorded_location(view: ArchiveView) -> ConfigLocation | None:
+    """The location the Manifest records for a ``config``-role member, or ``None``.
+
+    Only an Archive with a ``config``-role member records one; a v0 view's
+    ``config_path`` names a member, not a location. A value outside
+    ``ConfigLocation`` is :class:`UnsupportedConfigLocationError`
+    (:func:`manifest_location`), whatever ``--wp-config`` says.
+    """
+    by_role = any(m.role is MemberRole.CONFIG for m in view.members)
+    if not by_role or view.config_path is None:
+        return None
+    return manifest_location(view.config_path)
+
+
+def require_stated_config_loaded(
+    stated: PurePosixPath,
+    *,
+    loaded: bool,
+    read: PurePosixPath | None,
+    site_root: PurePosixPath,
+    urls_relocated: bool,
+) -> None:
+    """FR-13: a URL relocation needs ``--wp-config`` to be the file WordPress loads.
+
+    ``loaded`` is whether ``stated`` and ``read`` (the file WordPress would
+    read, :func:`existing_location`) are one file, which the caller resolves.
+    Otherwise WP-CLI's ``search-replace`` would bootstrap from another config
+    than the one rewritten, a partial relocation: a ``UsageError`` naming
+    ``relocation.wp_config`` (BL-E006-015). Without a URL relocation the
+    stated file is used as given.
+    """
+    if not urls_relocated or loaded:
+        return
+    reads = "no wp-config.php" if read is None else str(read)
+    in_root = site_root / WP_CONFIG_NAME
+    in_parent = site_root.parent / WP_CONFIG_NAME
+    msg = (
+        f"--wp-config {str(stated)!r} is not the file WordPress "
+        f"loads for this Site ({reads}; it reads {in_root}, else "
+        f"{in_parent}), so WP-CLI could not rewrite its URLs from "
+        "it; nothing was changed"
+    )
+    raise UsageError(msg, arguments=("relocation.wp_config",))
+
+
+def require_lay_down_free(
+    path: PurePosixPath, placement: ConfigPlacement, *, occupied: bool
+) -> None:
+    """A lay-down is refused when anything at all is at its path.
+
+    ``occupied`` is whether anything (a directory, a dangling symlink) is at
+    ``path``, which the caller reads: :class:`ConfigLocationConflictError`.
+    """
+    if placement.action == "lay-down" and occupied:
+        raise ConfigLocationConflictError(
+            path,
+            "is there and is not a regular file, so wp-config.php cannot be "
+            "laid down at it",
+        )
 
 
 def _at(location: ConfigLocation) -> ConfigPlacement:

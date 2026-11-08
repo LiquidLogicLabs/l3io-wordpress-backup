@@ -6,6 +6,41 @@ Every flag, `--whatIf` included, is listed by `wpbackup2 restore --help`.
 `wpbackup2 --whatIf restore ...` and `wpbackup2 restore --whatIf ...` are the
 same Dry Run.
 
+## Terms
+
+The capitalised words below have one meaning throughout this page (UX-9).
+
+- **Site** — one WordPress installation: its files and its database.
+- **Site Root** — the directory WordPress is installed in;
+  set by `--wp-dir`.
+- **Archive** — the file a backup writes and a restore reads (`--archive`).
+- **Dump** — the database's SQL contents inside an Archive.
+- **Restore Mode** (or Mode) — what a restore puts back and what it may remove:
+  files, the database or both (`--mode`, `--cleanfirst`, `--drop-database`;
+  see the table below).
+- **Run** — one invocation of `wpbackup2`, named by its Run ID (a UUID in
+  every log record, `l3io_run_id`).
+- **Dry Run** — a Run with `--whatIf`: it checks and prints, and changes nothing.
+- **Run workspace** — the Run's private scratch directory (mode `0700`),
+  `l3io-wp-backup-*` under `$TMPDIR`, removed when the Run ends; the Archive's
+  copy, a decrypted payload and the Dump are held there, never in the Site Root.
+- **Safety Snapshot** — the backup a restore takes of what it is about to
+  replace, before the first destructive step; written to `--snapshot-dir`, by
+  default the per-user state directory (below).
+- **Run Journal** — the restore's record of each phase it started and
+  completed, so a Run killed part-way is detected and resolved
+  (`--resolve-interrupted-run`).
+- **Site Lock** — the lock that stops two Runs of the same Site at once
+  (exit 9 `LOCKED`).
+- **Per-user state directory** — where the Run Journal, the Site Lock and the
+  default Safety Snapshots live: `$XDG_STATE_HOME/l3io-wp-backup`, or
+  `~/.local/state/l3io-wp-backup` when `XDG_STATE_HOME` is unset (on Linux).
+  The journal and snapshots of one Site are under
+  `snapshots/<SHA-256 of its resolved Site Root path>/`, the locks under `locks/`.
+- **Phase** — one step of a restore, logged in upper case (`PREFLIGHT`,
+  `VERIFY`, `SNAPSHOT`, `CLEAN`, `EXTRACT`, `REWRITE_CONFIG`, `LOAD_DUMP`,
+  `SEARCH_REPLACE`).
+
 ## Restore Modes
 
 The Mode is resolved once from the flags and governs the whole Run. A Mode that
@@ -111,7 +146,15 @@ exit code. The log record is `restore_refused` (`reason`, `parts`, `found`,
 `target_checked` with what it found and the waivers applied.
 
 A Site Root that exists but cannot be read is refused (exit 3), never read as
-empty; a missing one fails (exit 1).
+empty; a missing one is refused as a usage error (exit 2).
+
+Before a clean Mode empties the Site Root, `CLEAN` refuses (exit 3) a Site Root
+that is the filesystem root, your home directory, or a directory holding
+neither `wp-config.php` nor `wp-includes/`. This is a guard against a mistyped
+`--wp-dir`, not a proof that the directory is a WordPress Site: a parent
+directory that happens to hold either marker passes it. The control is the
+explicit `--cleanfirst` (and `--force` over a non-empty target); check
+`--wp-dir` before giving them (RT-006, ADR-0022 amendment 2026-11-07).
 
 ## A target with no `wp-config.php`
 
@@ -537,6 +580,15 @@ whose header states more bytes than its Manifest entry is refused. Every
 refusal at a member says the Archive may be damaged or tampered with and to
 check it with `wpbackup2 verify --archive <archive>`.
 
+**These two checks are advisory.** They run in preflight, before the Archive
+is verified, so they trust the sizes its index states (ADV-12, SD-01-4). A
+forged index can understate its sizes and pass them; a corrupt Archive can be
+refused here (exit 3) before verification would have called it corrupt (exit
+8). Verification and extraction are the enforcement: verification checks every
+member against the Manifest, and extraction holds each member to its indexed
+size with a running total, so an Archive never writes more than its index
+declares.
+
 When the Run takes a Safety Snapshot of the files, the Site Root's current file
 bytes are charged to the snapshot directory's filesystem. Destinations on the
 same filesystem (the target, the workspace and the snapshot directory) are
@@ -691,7 +743,9 @@ The laid-down file's mode is logged (INFO `config_laid_down`). It holds
 `DB_PASSWORD`, so every "other" permission bit is taken off it straight after
 it is written, whatever the Archive's mode was, with WARNING
 `config_mode_restricted` (path, the Archive's mode and the new mode) when that
-changed anything. Owner and group bits are kept. When the config is laid down
+changed anything. Owner and group bits are kept (`0644` becomes `0640`, not
+`0600`: PHP often reads the file through a shared group; owner decision 43).
+When the config is laid down
 by itself, the Archive's own `wp-config.php` in the Site Root tree is not
 extracted, so it cannot shadow the one WordPress is meant to read.
 
@@ -701,6 +755,15 @@ A symlink whose target is absolute or resolves outside the Site Root is **not
 supported**. It is skipped on restore with a WARNING (`symlink_skipped`), and
 the Run still exits `OK`. A Dry Run lists those links after its actions; for a
 v0 Archive, which records no link targets, they are reported at extraction.
+
+The Dry Run decides from the Archive alone, by the link's own text: a target
+that starts with `/`, or that leaves the Site Root once joined to the link's
+directory. Extraction decides on disk, following symlinks that already exist
+on the target. The two agree for every link the Archive itself defines; they
+can differ when a directory on the target is already a symlink (for example
+`wp-content/uploads` pointing at `/mnt/media` in a `files` restore, which does
+not clear the Site Root). Then the real Run may skip or refuse members the Dry
+Run did not list. The real Run's WARNINGs are the authority.
 
 ## Dry Run
 
@@ -719,7 +782,9 @@ another Run of the same Site holds it.
 Results go to stdout; warnings and the log go to stderr.
 
 With the default (console) log format, stdout carries the Dry Run's ordered
-actions, the database report, the search-replace count, the Safety Snapshot's
+actions, then the links it would skip (`would skip symlink '<path>' ->
+'<target>': <reason> (not supported)`, or for a v0 Archive one line saying they
+are reported at extraction), the database report, the search-replace count, the Safety Snapshot's
 path and whether `wp-config.php` was kept, each when there is one, and ends
 with one completion line naming the Mode, the Archive and the Site:
 `restore complete (...)`, or for a Dry Run `Dry Run complete (...); nothing was
@@ -739,7 +804,10 @@ With `--log-format json`, stdout is exactly one JSON object and nothing else:
 (shown wrapped; it is one line). `status` is `completed`, `planned` (a Dry
 Run, whose `actions` list the plan), `resolved` or `would_resolve`
 (`--resolve-interrupted-run`), or `failed` (the database report does not call
-the database restored). `database_report` holds the same fields as the
+the database restored). `skipped_links` lists each link extraction skipped
+(`path`, `link_target` and `reason`: `absolute` or `outside_destination`); in a
+Dry Run, the links the real Run would skip, and `null` for a v0 Archive, whose
+links are reported only at extraction. `database_report` holds the same fields as the
 `database_restore_report` log record. A Run that fails after its Safety
 Snapshot prints `{"restore": {"status": "failed", "error": "<class>",
 "snapshot_path": "<path>"}}`.

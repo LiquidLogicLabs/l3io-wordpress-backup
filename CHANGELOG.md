@@ -73,8 +73,9 @@ owner asked for, which a commit subject cannot hold.
 - **A per-user state directory another user could tamper with is refused**
   (BL-E008-027). The state directory and everything the Site Lock, the Run
   Journal and WP-CLI use under it must be real directories (not symlinks),
-  owned by you and not group- or world-writable; a lock directory that is not
-  exits 7 (`NOT_READY`, `SiteLockLocationError`). It was used as found.
+  owned by you (the effective user) and not group- or world-writable; a lock
+  directory that is not exits 7 (`NOT_READY`, `SiteLockLocationError`). It
+  was used as found.
 - **The library refuses a wrong-typed closed choice as `UsageError`**
   (BL-E006-018): `scope`, `mode`, `overrides`, `snapshot` or `config_policy`
   of the wrong type (a string such as `"all"`) names the parameter, exit 2,
@@ -89,7 +90,9 @@ owner asked for, which a commit subject cannot hold.
   refusal.
 - **A `wp-config.php` laid down by the tree extraction loses its "other"
   permissions** (BL-E008-023), as one laid down by role already did, before
-  the relocated database password is written into it.
+  the relocated database password is written into it: `0644` becomes `0640`,
+  never `0600`, so a web server reading it through a shared group still can
+  (owner decision 43).
 - **Restore's `CLEAN` keeps a name case-insensitively** (RT-005): on a
   case-insensitive filesystem `WP-Config.php` is the kept `wp-config.php`.
 - **`wp` and the tool probes get only the absolute `PATH` entries**
@@ -107,6 +110,41 @@ owner asked for, which a commit subject cannot hold.
   passphrase refusal from the CLI no longer suggests `passphrase=` (UX-01-17).
 - **Durability**: a published Archive's directory is fsynced after the rename
   (AR-10; WARNING `archive_directory_not_synced` if it cannot be).
+
+### Changed behaviour, close-out batch (owner decisions 40 to 44, 2026-11-07)
+
+- **A restore Dry Run lists the symlinks the real Run would skip** (owner
+  decision 41, BL-E003-021): after its actions, one `would skip symlink` line
+  per absolute or escaping Site Root link, with the reason; for a v0 Archive,
+  which records no link targets, one line saying they are reported at
+  extraction. Under `--log-format json` each `skipped_links` entry now carries
+  `reason` (`absolute` or `outside_destination`), real Run and Dry Run alike;
+  a Dry Run's list is the planned one, and is `null` for a v0 Archive. For a
+  library caller, `RestoreOutcome.skipped_links` is `None` in that one case.
+- **State-directory ownership is judged by the effective uid** (owner decision
+  44, BL-E008-027): the state-directory check and the stale-workspace sweep
+  compare with `os.geteuid()`, the owner of what the Run creates, not the real
+  uid. Under `sudo -E` a state directory the invoking user owns is refused,
+  naming both uids and `XDG_STATE_HOME`.
+- **Documented**: the restore space and expansion checks are advisory (they
+  trust the unverified index; verification and extraction enforce), `CLEAN`'s
+  Site Root check is a guard against a mistyped `--wp-dir`, not proof of a
+  WordPress Site (ADR-0022 amendment), and `docs/restore.md` defines its terms.
+
+### Changed library surface (owner decision 36, 2026-11-07)
+
+- **`UsageError.arguments` names library parameters** (BL-E006-015). On every
+  path a library call reaches, `arguments` is the parameter's name, dotted for
+  a field of one: `allow_unencrypted`, `require_encrypted`, `authenticate`,
+  `allow_root`, `config_policy`, `archive_database`, `admin_tls` and
+  `admin_tls.ca_file`, `relocation.new_site_url` (and the other
+  `relocation.*` fields), `target` and `allow_target_in_site_root`, `archive`
+  or `target` for an unusable Archive location, `patterns` for an unusable
+  exclusion pattern. It was the CLI flag (`--allow-unencrypted`,
+  `--admin-tls-ca`, ...) for these. Only the command line's own argument
+  checks still name flags. Messages are unchanged.
+- **`AdminTls` is defined in `ports/database.py`** (BL-E003-099); import it
+  from `l3io.wp.backup.api` as before.
 
 ### Changed log fields (owner decisions 2026-11-07)
 

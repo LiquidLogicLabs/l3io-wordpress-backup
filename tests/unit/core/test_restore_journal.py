@@ -17,10 +17,9 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from l3io.wp.backup.adapters.staging import StagingCheckFailedError
-from l3io.wp.backup.core import restore as core_restore
-from l3io.wp.backup.core.restore import (
-    MAX_DATABASE_NAME,
-    NO_RELOCATION,
+from l3io.wp.backup.core import restore_journal as core_restore
+from l3io.wp.backup.core.restore import MAX_DATABASE_NAME, NO_RELOCATION, staging_name
+from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CONFIG_SAVED,
     STEP_CONFIG_STARTED,
@@ -35,7 +34,6 @@ from l3io.wp.backup.core.restore import (
     interrupted_phase,
     last_step,
     replaced_files,
-    staging_name,
     undo_for,
 )
 from l3io.wp.backup.domain.journal import JournalEntry, JournalHeader, JournalRecord
@@ -52,7 +50,8 @@ from tests.staging_fakes import (
 
 pytest.importorskip("l3io.wp.database")
 
-#: Every step-name constant ``core/restore.py`` declares (the source of truth).
+#: Every step-name constant ``core/restore_journal.py`` declares (the source of
+#: truth).
 STEP_NAMES = sorted(
     value for name, value in vars(core_restore).items() if name.startswith("STEP_")
 )

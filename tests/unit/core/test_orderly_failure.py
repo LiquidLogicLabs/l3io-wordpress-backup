@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from l3io.wp.backup.core.restore import (
+from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CONFIG,
     STEP_CONFIG_STARTED,

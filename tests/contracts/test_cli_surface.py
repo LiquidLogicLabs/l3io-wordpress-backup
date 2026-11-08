@@ -24,6 +24,7 @@ import sys
 from collections.abc import Iterator
 from importlib.metadata import entry_points
 from pathlib import Path
+from typing import NoReturn, get_type_hints
 
 import pytest
 
@@ -305,3 +306,24 @@ def test_python_dash_m_wpbackup2_reaches_this_parser() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == f"wpbackup2 {__version__}"
+
+
+def test_the_entry_never_returns_and_python_dash_m_needs_no_ignore() -> None:
+    """CR-1 (BL-E003-121): ``run_from_cli`` is typed ``NoReturn``; ``__main__``
+    calls it plainly, with no ``type: ignore`` (mypy --strict checks ``src``)."""
+    assert get_type_hints(cli_root.run_from_cli)["return"] is NoReturn
+    main_module = ROOT / "src" / "wpbackup2" / "__main__.py"
+    assert "type: ignore" not in main_module.read_text(encoding="utf-8")
+
+
+def test_python_dash_m_wpbackup2_exits_with_the_runs_code() -> None:
+    """The plain call still exits with the Run's code: a usage error is 2."""
+    result = subprocess.run(
+        [sys.executable, "-m", "wpbackup2", "no-such-command"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=ROOT,
+        timeout=60,
+    )
+    assert result.returncode == 2, result.stderr

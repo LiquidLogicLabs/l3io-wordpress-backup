@@ -1,9 +1,10 @@
-"""E003-S02-006 — Epic 7's seam: ``RESTORE_EXTENSION``, absent and present.
+"""E003-S02-006 — Epic 7's seam: ``drive_restore``'s ``extension`` parameter.
 
-Absent: each ``RelocationFlags`` field set alone (scope from
-``dataclasses.fields``) is ``USAGE`` saying relocation is unsupported, before
-the lock; none set plans ``NO_RELOCATION``. Present: one assertion per seam
-the factory fills.
+Its default is the shipped factory
+(``adapters/restore_extension.py::restore_extension``, BL-E003-099); there
+is no build without one, so no "relocation unavailable" fallback
+(BL-E003-094, BL-E007-011). No flags plans ``NO_RELOCATION``; a factory
+passed in is used for one assertion per seam it fills.
 """
 
 from __future__ import annotations
@@ -18,20 +19,16 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.wpcli import restore_extension
+from l3io.wp.backup.adapters.restore_extension import restore_extension
 from l3io.wp.backup.cli import restore as restore_mod
-from l3io.wp.backup.cli.parser import RELOCATION_UNAVAILABLE
-from l3io.wp.backup.cli.restore import RelocationFlags
+from l3io.wp.backup.cli.restore_request import RelocationFlags
 from l3io.wp.backup.core.restore import NO_RELOCATION, RestoreRelocation
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
-from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import RestoreMode
 from tests.conftest import CredentialSentinel
 from tests.restore_root_rig import Rig
-from tests.unit.cli.conftest import RecordingSiteLock
 
-FIELDS = [f.name for f in dataclasses.fields(RelocationFlags)]
 _TOOL = ToolRequirement("wp-e003-fake", None, "the fake extension")
 
 
@@ -44,25 +41,15 @@ def _flags(**set_: object) -> RelocationFlags:
     return dataclasses.replace(RelocationFlags.none(), **set_)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("name", FIELDS)
-def test_without_epic_7_each_relocation_flag_is_usage_before_the_lock(
-    rig: Rig, monkeypatch: pytest.MonkeyPatch, name: str
-) -> None:
-    monkeypatch.setattr(restore_mod, "RESTORE_EXTENSION", None)
-    value: object = Path("/x/wp-config.php") if name == "wp_config" else "value-e003"
-    lock = RecordingSiteLock()
-    with pytest.raises(UsageError, match=RELOCATION_UNAVAILABLE) as caught:
-        restore_mod.drive_restore(
-            rig.request(relocation=_flags(**{name: value})), ctx=None, site_lock=lock
-        )
-    assert name in str(caught.value)
-    assert lock.events == []
+def test_the_shipped_extension_is_drive_restores_default() -> None:
+    """BL-E003-099: a parameter, not a module global; no fallback is built in."""
+    default = inspect.signature(restore_mod.drive_restore).parameters["extension"]
+    assert default.default is restore_extension
+    assert not hasattr(restore_mod, "RESTORE_EXTENSION")
+    assert not hasattr(restore_mod, "_NoExtension")
 
 
-def test_without_flags_the_plan_has_no_relocation(
-    rig: Rig, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(restore_mod, "RESTORE_EXTENSION", None)
+def test_without_flags_the_plan_has_no_relocation(rig: Rig) -> None:
     rig.drive()
     assert rig.plan_calls[-1]["relocation"] == NO_RELOCATION
 
@@ -96,7 +83,7 @@ class _Extension:
 
 
 @pytest.fixture
-def extension(monkeypatch: pytest.MonkeyPatch) -> _Extension:
+def extension(rig: Rig) -> _Extension:
     ext = _Extension()
     calls: list[RelocationFlags] = []
 
@@ -104,7 +91,7 @@ def extension(monkeypatch: pytest.MonkeyPatch) -> _Extension:
         calls.append(flags)
         return ext
 
-    monkeypatch.setattr(restore_mod, "RESTORE_EXTENSION", factory)
+    rig.extension = factory  # type: ignore[assignment]
     return ext
 
 
@@ -158,7 +145,11 @@ def test_its_relocation_reaches_build_restore_plan(
 
 
 def _wpcli_lines(source: str) -> list[str]:
-    """Each statement naming ``adapters.wpcli``, unless it is the grant line."""
+    """Each statement naming Epic 7's modules, unless it is the grant line.
+
+    Epic 7 is ``adapters/wpcli*.py`` and ``adapters/restore_extension.py``
+    (BL-E007-019 split one module into those).
+    """
     offenders = []
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.stmt) or isinstance(
@@ -168,11 +159,15 @@ def _wpcli_lines(source: str) -> list[str]:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
             continue  # a docstring is prose, not a reference
         text = ast.unparse(node)
-        if "wpcli" not in text or isinstance(node, ast.If | ast.With | ast.Try):
+        named = "wpcli" in text or "restore_extension" in text
+        if not named or isinstance(node, ast.If | ast.With | ast.Try):
             continue
-        grant = isinstance(node, ast.ImportFrom) and [a.asname for a in node.names] == [
-            "RESTORE_EXTENSION"
-        ]
+        grant = (
+            isinstance(node, ast.ImportFrom)
+            and node.module == "l3io.wp.backup.adapters.restore_extension"
+            and [(a.name, a.asname) for a in node.names]
+            == [("restore_extension", None)]
+        )
         if not grant:
             offenders.append(text)
     return offenders
@@ -181,21 +176,16 @@ def _wpcli_lines(source: str) -> list[str]:
 def test_only_the_extension_line_may_name_adapters_wpcli() -> None:
     source = Path(inspect.getfile(restore_mod)).read_text(encoding="utf-8")
     assert _wpcli_lines(source) == []
-    grant = (
-        "from l3io.wp.backup.adapters.wpcli import restore_extension"
-        " as RESTORE_EXTENSION"
-    )
-    assert [line for line in source.splitlines() if line.startswith(grant)] != []
-    assert restore_mod.RESTORE_EXTENSION is restore_extension
+    grant = "from l3io.wp.backup.adapters.restore_extension import restore_extension"
+    assert [line for line in source.splitlines() if line == grant] != []
 
 
 def test_a_second_wpcli_reference_is_caught() -> None:
-    grant = (
-        "from l3io.wp.backup.adapters.wpcli import restore_extension"
-        " as RESTORE_EXTENSION\n"
-    )
+    grant = "from l3io.wp.backup.adapters.restore_extension import restore_extension\n"
     assert _wpcli_lines(grant) == []
     planted = grant + "from l3io.wp.backup.adapters import wpcli\n"
+    assert len(_wpcli_lines(planted)) == 1
+    planted = grant + "from l3io.wp.backup.adapters import restore_extension\n"
     assert len(_wpcli_lines(planted)) == 1
 
 

@@ -21,7 +21,6 @@ from l3io.wp.backup.adapters.database import (
     INVALID_DATABASE_NAME,
     INVALID_DB_HOST,
     TLS_SETTINGS_UNUSABLE,
-    AdminTls,
     DatabaseAuthPluginRefusedError,
     DatabaseTlsHandshakeError,
     DatabaseTlsVerificationError,
@@ -36,6 +35,7 @@ from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import RestoreMode
+from l3io.wp.backup.ports.database import AdminTls
 from tests.restore_root_rig import Rig
 
 wpdb = pytest.importorskip("l3io.wp.database")

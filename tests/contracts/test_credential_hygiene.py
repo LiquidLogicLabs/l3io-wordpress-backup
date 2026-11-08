@@ -666,7 +666,7 @@ def test_restore_execute_is_credential_clean(
     )
     write_wp_config(h.config_path, password=s.password)
     writer = WpConfigWriter(SecretRegistry())
-    h.config = writer  # type: ignore[assignment]
+    h.config_writer = writer
     plan = h.plan()
     report = h.run(plan=plan)
     for surface, value in (

@@ -15,7 +15,7 @@ first (``PreflightFailedError(tool="platform")``), then routes: the plan's
 :class:`DumpReadinessPreflight`, every other requirement to Epic 5's
 ``adapters.preflight.BinaryPreflight`` run in the Run workspace — which
 locates a binary with ``adapters.preflight.locate_tool``, the lookup
-``adapters/wpcli.py`` resolves ``wp`` with, so the binary checked is the
+``adapters/restore_extension.py`` resolves ``wp`` with, so the binary checked is the
 binary run.
 
 :class:`DumpReadinessPreflight` consults ``DatabaseQuery.check_dump`` — the

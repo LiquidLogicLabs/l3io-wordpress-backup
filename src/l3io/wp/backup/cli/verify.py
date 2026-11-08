@@ -47,7 +47,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 import structlog
 
@@ -139,8 +139,11 @@ def _authenticate(
     prompt: Callable[[str], str] | None,
 ) -> None:
     """Decrypt the payload; raise unless ``age`` accepts it and the Manifests agree."""
-    if view is None or not view.encrypted or manifest_text is None:
+    if view is None or not view.encrypted:
         raise ArchiveNotEncryptedError(str(target.path))
+    # An encrypted view is a v1 Manifest's, so the scan read its text
+    # (``verify_archive_manifest``; BL-E004-065).
+    outer_text = cast("str", manifest_text)
     resolved = resolve_passphrase(
         explicit=passphrase,
         environ=environ,
@@ -156,7 +159,7 @@ def _authenticate(
         target, view, cipher=cipher, destination=ctx.workspace / _AUTHENTICATED_PAYLOAD
     )
     try:
-        field = check_inner_manifest(manifest_text, read_inner_manifest(plain))
+        field = check_inner_manifest(outer_text, read_inner_manifest(plain))
     finally:
         # The plaintext is not needed; the workspace removes it anyway (AD-12).
         plain.unlink(missing_ok=True)

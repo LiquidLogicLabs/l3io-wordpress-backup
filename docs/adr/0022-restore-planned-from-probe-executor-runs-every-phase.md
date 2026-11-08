@@ -119,3 +119,23 @@ Rejected:
 
 **Revisit when:** an operator restores Archives from sources they do not control, or site
 accounts commonly hold grants beyond their own database. Option A is then the fix.
+
+## Amendment — 2026-11-07: `CLEAN`'s target check is a heuristic, recorded (Shawn, owner decision 40)
+
+Red team RT-006 (BL-E003-126). Before `CLEAN` empties the Site Root,
+`adapters/site_files.py::refuse_unsafe_clean_target` refuses (`UnsafeCleanTargetError`, exit 3)
+a Site Root that resolves to the filesystem root or the user's home directory, or that holds
+**neither** `wp-config.php` **nor** `wp-includes/` (`_SITE_MARKERS`). The Dry Run's no-op
+`clean` calls the same check, so it refuses where the real Run would (AD-4).
+
+**Decided: keep the heuristic as it is; it is not the control.** One marker suffices; requiring
+both was considered and not taken (a Site whose `wp-config.php` sits one level up, FR-29, has
+only `wp-includes/` in its Site Root). The check catches the shapes a mistyped `--wp-dir`
+usually takes. It does not prove the directory is a WordPress Site: a parent directory, or any
+directory, that holds either marker passes, and the root is resolved once before the walk (a
+narrow time-of-check window, accepted). The control is FR-7: a clean Mode needs the explicit
+`--cleanfirst`, a non-empty Site Root needs `--force`, and a Safety Snapshot is taken first
+unless `--no-safety-snapshot` says otherwise. `docs/restore.md` tells the operator so.
+
+**Revisit when:** a clean restore removes a directory that was not a Site in practice, or the
+Site Root gains a marker this package writes itself (then check that marker instead).

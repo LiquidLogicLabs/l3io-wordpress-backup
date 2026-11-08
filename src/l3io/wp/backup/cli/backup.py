@@ -64,7 +64,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Final, Literal, cast
+from typing import Final, cast
 from urllib.parse import unquote, urlsplit
 
 import structlog
@@ -105,14 +105,13 @@ from l3io.wp.backup.core.exclusions import ExclusionSet, enumerate_defaults
 from l3io.wp.backup.domain.archive_format import (
     DUMP_RELATIVE,
     FORMAT_VERSION,
-    PAYLOAD_MEMBER,
     Integrity,
     Manifest,
     ManifestExclusions,
     ManifestMember,
     ManifestOrigin,
-    ManifestPayload,
     created_at_text,
+    pending_payload,
     source_from_descriptor,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -124,7 +123,11 @@ from l3io.wp.backup.domain.errors import (
     TargetInsideSiteRootError,
     UsageError,
 )
-from l3io.wp.backup.domain.exclusion import ExcludedEntry, ExclusionDecision
+from l3io.wp.backup.domain.exclusion import (
+    ExcludedEntry,
+    ExclusionDecision,
+    ExclusionSource,
+)
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -166,12 +169,10 @@ __all__ = [
 
 _log = structlog.get_logger(__name__)
 
-_EXCLUSION_SOURCES: Final = ("default", "custom", "none")
+_EXCLUSION_SOURCES: Final = tuple(s.value for s in ExclusionSource)
 #: A driver's ``environ`` when its caller gives none: nothing is read.
 NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 _LOCAL_HOSTS: Final = ("", "localhost")
-#: Replaced by the writer with the payload it actually wrote.
-_PENDING_PAYLOAD: Final = ManifestPayload(name=PAYLOAD_MEMBER, size=0, sha256="0" * 64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,14 +468,14 @@ def _log_plan(actions: Sequence[PlannedAction]) -> None:
 def _exclusions(
     plan: BackupPlan, excluded: tuple[ExcludedEntry, ...]
 ) -> ManifestExclusions:
-    if plan.exclusion_source not in _EXCLUSION_SOURCES:
+    if plan.exclusion_source not in _EXCLUSION_SOURCES:  # a host's own policy
         msg = (
             f"exclusion policy source {plan.exclusion_source!r} is not "
             f"{_EXCLUSION_SOURCES}"
         )
         raise UsageError(msg, arguments=("exclusion",))
     return ManifestExclusions(
-        source=cast("Literal['default', 'custom', 'none']", plan.exclusion_source),
+        source=ExclusionSource(plan.exclusion_source),
         patterns=plan.exclusion_patterns,
         excluded=excluded,
     )
@@ -545,7 +546,7 @@ def execute_backup_plan(
             backup_scope=plan.scope.value,
             source=source_from_descriptor(site),
             encrypted=False,
-            payload=_PENDING_PAYLOAD,
+            payload=pending_payload(encrypted=False),
             members=index,
             dump_present=dumps,
             origin=origin,
@@ -613,8 +614,11 @@ def execute_backup_plan(
     )
 
 
-def storage_target_from_cli(text: str) -> StorageTarget:
+def storage_target_from_cli(text: str, *, argument: str = "--archive") -> StorageTarget:
     """The Storage Target ``--archive`` names, never silently rewritten.
+
+    ``argument`` is what a refusal names: the flag, or the library caller's
+    parameter (``archive``, ``target``; BL-E006-015).
 
     A bare path is taken as given — ``#``, ``?`` and ``:`` are file-name
     characters there. Only text whose scheme is followed by ``/`` is a URL
@@ -629,11 +633,11 @@ def storage_target_from_cli(text: str) -> StorageTarget:
     else:
         if parts.netloc not in _LOCAL_HOSTS or parts.query or parts.fragment:
             msg = f"--archive {text!r}: a host, query or fragment is not supported"
-            raise UsageError(msg, arguments=("--archive",))
+            raise UsageError(msg, arguments=(argument,))
         target = parse_storage_target(parts.scheme, unquote(parts.path))
     if "\x00" in str(target.path):
         msg = f"--archive {text!r}: a path may not contain a NUL"
-        raise UsageError(msg, arguments=("--archive",))
+        raise UsageError(msg, arguments=(argument,))
     return dataclasses.replace(target, path=PurePosixPath(Path(target.path).absolute()))
 
 

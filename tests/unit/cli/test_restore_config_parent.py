@@ -30,7 +30,7 @@ pytest.importorskip("l3io.wp.database")
 from l3io.wp.backup.adapters.config_writer import WpConfigWriter
 from l3io.wp.backup.adapters.journal import FileRunJournal, journal_directory
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.cli.restore import RelocationFlags, RestoreOutcome
+from l3io.wp.backup.cli.restore_request import RelocationFlags, RestoreOutcome
 from l3io.wp.backup.domain.archive_format import MANIFEST_MEMBER
 from l3io.wp.backup.domain.database import EnsureOutcome, LoadResult
 from l3io.wp.backup.domain.errors import ConfigLocationConflictError

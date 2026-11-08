@@ -39,7 +39,7 @@ sets ``ToolStatus.error``, with control characters removed and truncated to
 200 characters; a first line with no version token gives ``version=None``.
 
 :func:`run_bounded` is that bounded, process-group runner, which
-``adapters/wpcli.py`` runs ``wp`` with too (BL-E007-009).
+``adapters/wpcli_child.py`` runs ``wp`` with too (BL-E007-009).
 
 :func:`unsupported_platform` is the root's first check; :func:`diagnose`
 assembles FR-27's diagnostic data; :data:`DOCUMENTED_REQUIREMENT_SOURCES` is
@@ -486,8 +486,8 @@ def _locate(name: str) -> str | None:
 
 
 #: The one lookup rule for a binary this package runs: what
-#: :class:`BinaryPreflight` checks, and what ``adapters/wpcli.py`` resolves
-#: ``wp`` with, so the binary checked is the binary run (E007-S01-004).
+#: :class:`BinaryPreflight` checks, and what ``adapters/restore_extension.py``
+#: resolves ``wp`` with, so the binary checked is the binary run (E007-S01-004).
 locate_tool: Final = _locate
 
 

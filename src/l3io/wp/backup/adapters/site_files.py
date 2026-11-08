@@ -18,7 +18,12 @@ from typing import Final
 import structlog
 
 from l3io.wp.backup.adapters.tar import extract_archive
-from l3io.wp.backup.domain.archive_format import ArchiveView, ExtractResult, MemberRole
+from l3io.wp.backup.domain.archive_format import (
+    WP_CONFIG_NAME,
+    ArchiveView,
+    ExtractResult,
+    MemberRole,
+)
 from l3io.wp.backup.domain.errors import (
     CleanFailedError,
     InvalidSiteDescriptorError,
@@ -34,7 +39,7 @@ _log = structlog.get_logger(__name__)
 
 _NS_PER_MS: Final = 1_000_000
 #: What makes a directory look like a WordPress Site Root to ``clean``.
-_SITE_MARKERS: Final = ("wp-config.php", "wp-includes")
+_SITE_MARKERS: Final = (WP_CONFIG_NAME, "wp-includes")
 
 
 def _listing(site_root: Path) -> list[os.DirEntry[str]]:

@@ -590,9 +590,14 @@ class NoopSearchReplace:
         self._log = log
 
     def relocate_content(
-        self, site_root: Path, urls: UrlRelocation
+        self,
+        site_root: Path,
+        urls: UrlRelocation,
+        *,
+        archive_encrypted: bool | None = None,
     ) -> SearchReplaceReport:
         """The planned pairs, ``old`` unresolved; nothing replaced."""
+        del archive_encrypted
         targets = (urls.site_url, urls.home_url)
         news = list(dict.fromkeys(u for u in targets if u is not None))
         _skip(RestorePhase.SEARCH_REPLACE.name, method="relocate_content")

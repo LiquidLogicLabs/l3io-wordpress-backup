@@ -9,15 +9,31 @@ default resolves to until E008-S01-001 binds Epic 4's set.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Final, Literal
+from typing import Final
 
 __all__ = [
     "INCLUDE_EVERYTHING",
     "ExcludedEntry",
     "ExclusionDecision",
+    "ExclusionSource",
     "IncludeEverything",
 ]
+
+
+class ExclusionSource(StrEnum):
+    """Where an exclusion policy's patterns came from (the Manifest's key).
+
+    The one type for the value (BL-E004-016): ``ExclusionSet.source``,
+    ``ManifestExclusions.source`` and :class:`IncludeEverything`. A host's own
+    ``ExclusionPolicy`` returns its ``str`` value; the backup converts it when
+    it records the Manifest.
+    """
+
+    DEFAULT = "default"
+    CUSTOM = "custom"
+    NONE = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +61,7 @@ _INCLUDED: Final = ExclusionDecision(excluded=False, pattern=None, protected=Fal
 class IncludeEverything:
     """The policy that excludes nothing; satisfies the ``ExclusionPolicy`` port."""
 
-    source: Literal["none"] = "none"
+    source: ExclusionSource = ExclusionSource.NONE
     patterns: tuple[str, ...] = ()
 
     def decide(self, relative: PurePosixPath, *, is_dir: bool) -> ExclusionDecision:

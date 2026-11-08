@@ -48,6 +48,7 @@ tar header stays authoritative at extraction.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -62,7 +63,7 @@ from l3io.wp.backup.domain.errors import (
     UnsafeMemberPathError,
     UnsupportedFormatVersionError,
 )
-from l3io.wp.backup.domain.exclusion import ExcludedEntry
+from l3io.wp.backup.domain.exclusion import ExcludedEntry, ExclusionSource
 from l3io.wp.backup.domain.site import SiteDescriptor
 
 __all__ = [
@@ -79,6 +80,8 @@ __all__ = [
     "SUPPORTED_FORMAT_VERSIONS",
     "V0_DUMP_MEMBER",
     "V0_SITE_ROOT",
+    "WP_CONFIG_NAME",
+    "WP_SETTINGS_NAME",
     "ArchiveView",
     "ConfigLocation",
     "ExtractResult",
@@ -102,6 +105,7 @@ __all__ = [
     "ViewMember",
     "check_inner_manifest",
     "classify",
+    "config_member",
     "created_at_text",
     "format_label",
     "ignore_unknown",
@@ -113,6 +117,8 @@ __all__ = [
     "member_path",
     "member_relative",
     "parse_created_at",
+    "pending_payload",
+    "records_link_targets",
     "source_from_descriptor",
 ]
 
@@ -136,7 +142,12 @@ INNER_MANIFEST_MEMBER: Final = "inner-manifest.json"
 #: ``config`` role: ``member_path(MemberRole.DUMP, DUMP_RELATIVE)`` and
 #: ``member_path(MemberRole.CONFIG, CONFIG_RELATIVE)``.
 DUMP_RELATIVE: Final = "database.sql"
-CONFIG_RELATIVE: Final = "wp-config.php"
+#: The file WordPress reads its configuration from (``wp-load.php`` searches the
+#: Site Root, then its parent), and the file whose presence marks an install;
+#: the one spelling of each for the whole package (BL-E007-005).
+WP_CONFIG_NAME: Final = "wp-config.php"
+WP_SETTINGS_NAME: Final = "wp-settings.php"
+CONFIG_RELATIVE: Final = WP_CONFIG_NAME
 
 #: ``source`` keys reserved for the stored ``siteurl``/``home`` options. Written
 #: only when ``l3io-wordpress-database`` exposes a read of them as the
@@ -178,8 +189,8 @@ class MemberKind(StrEnum):
 class ConfigLocation(StrEnum):
     """The two places ``wp-load.php`` searches for ``wp-config.php``."""
 
-    SITE_ROOT = "wp-config.php"
-    PARENT = "../wp-config.php"
+    SITE_ROOT = WP_CONFIG_NAME
+    PARENT = f"../{WP_CONFIG_NAME}"
 
 
 class OriginKind(StrEnum):
@@ -232,6 +243,21 @@ class ManifestPayload:
     sha256: str
 
 
+def pending_payload(*, encrypted: bool) -> ManifestPayload:
+    """The payload a Manifest carries before its payload exists (BL-E002-024).
+
+    ``Manifest.payload`` is required, but a Manifest is built from the member
+    index before the payload is written (the backup's ``manifest_builder``,
+    the Dry Run's no-op writer, the inner Manifest sealed into an encrypted
+    payload). This is the one placeholder they carry: the right member name,
+    size 0 and an all-zero digest. ``adapters/tar.py::write_archive`` replaces
+    it with what it wrote before the Manifest is serialised; the inner
+    Manifest leaves size and digest out, so neither is ever read.
+    """
+    name = ENCRYPTED_PAYLOAD_MEMBER if encrypted else PAYLOAD_MEMBER
+    return ManifestPayload(name=name, size=0, sha256="0" * _SHA256_HEX_LENGTH)
+
+
 @dataclass(frozen=True, slots=True)
 class ManifestOrigin:
     """Why this Archive was written. ``restore_mode`` is a ``RestoreMode`` value."""
@@ -245,7 +271,7 @@ class ManifestOrigin:
 class ManifestExclusions:
     """Which exclusion policy the backup applied, and what it left out."""
 
-    source: Literal["default", "custom", "none"]
+    source: ExclusionSource
     patterns: tuple[str, ...]
     excluded: tuple[ExcludedEntry, ...]
 
@@ -560,7 +586,7 @@ def _origin(
     return ManifestOrigin(kind=known, restore_mode=restore_mode, run_id=run_id)
 
 
-_EXCLUSION_SOURCES: Final = ("default", "custom", "none")
+_EXCLUSION_SOURCES: Final = tuple(s.value for s in ExclusionSource)
 
 
 def _exclusions(value: object) -> ManifestExclusions | None:
@@ -586,7 +612,7 @@ def _exclusions(value: object) -> ManifestExclusions | None:
             )
         )
     return ManifestExclusions(
-        source=cast("Literal['default', 'custom', 'none']", source),
+        source=ExclusionSource(source),
         patterns=tuple(cast("list[str]", patterns)),
         excluded=tuple(excluded),
     )
@@ -871,6 +897,15 @@ def format_label(format_version: int | None) -> int | str:
     return "v0" if format_version is None else format_version
 
 
+def records_link_targets(view: ArchiveView) -> bool:
+    """Whether ``view``'s index names each symlink's target (v1; v0 has no index).
+
+    A v0 view synthesizes every member as a ``file``, so the links a restore
+    will skip are known only at extraction (owner decision 41, 2026-11-07).
+    """
+    return view.format_version is not None
+
+
 def is_safe_member_path(path: str, role: MemberRole) -> bool:
     """Whether a v1 member ``path`` is :func:`member_path`'s name under ``role``."""
     prefix = role.value
@@ -930,6 +965,22 @@ def member_relative(view: ArchiveView, path: str) -> tuple[MemberRole, str] | No
     if not _role_relative_ok(role, relative):
         return None
     return role, relative
+
+
+def config_member(view: ArchiveView) -> ViewMember | None:
+    """The Archive's config: the ``config``-role file, else the one it names."""
+    for member in view.members:
+        if member.role is MemberRole.CONFIG and member.kind is MemberKind.FILE:
+            return member
+    if view.config_path is None:
+        return None
+    names = {view.config_path}
+    with contextlib.suppress(UnsafeMemberPathError):
+        names.add(member_path(MemberRole.SITE_ROOT, view.config_path))
+    return next(
+        (m for m in view.members if m.path in names and m.kind is MemberKind.FILE),
+        None,
+    )
 
 
 def _found(names: tuple[str, ...]) -> tuple[str, ...]:

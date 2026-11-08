@@ -18,8 +18,8 @@ from l3io.wp.backup.adapters.journal import (
     journal_directory,
     refuse_incomplete,
 )
-from l3io.wp.backup.core.restore import (
-    NO_RELOCATION,
+from l3io.wp.backup.core.restore import NO_RELOCATION
+from l3io.wp.backup.core.restore_journal import (
     STEP_CUTOVER,
     STEP_CUTOVER_STARTED,
     IncompleteRunError,

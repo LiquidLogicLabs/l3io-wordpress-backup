@@ -23,16 +23,16 @@ import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from l3io.wp.backup.adapters import journal as journal_module
-from l3io.wp.backup.adapters.database import AdminTls
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.restore_runner import execute_restore
 from l3io.wp.backup.cli import restore as restore_mod
 from l3io.wp.backup.cli.backup import BackupResult
+from l3io.wp.backup.core.backup import BackupPlan
 from l3io.wp.backup.core.restore import (
     DatabaseRestoreReport,
     ExecutionReport,
@@ -58,6 +58,7 @@ from l3io.wp.backup.domain.restore import (
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.adapter_set import AdapterSet
+from l3io.wp.backup.ports.database import AdminTls, DatabaseCommand, DatabaseQuery
 from tests.restore_harness import TARGET_DB, wp_config, write_v1
 from tests.root_mode import running_as_root
 
@@ -145,6 +146,8 @@ class Rig:
     )
     execute: Callable[..., ExecutionReport] | None = None
     database: FakeDatabase | None = None
+    #: ``drive_restore``'s ``extension``; ``None`` is its default (the shipped one).
+    extension: restore_mod.RestoreExtensionFactory | None = None
 
     def __post_init__(self) -> None:
         self.work = self.tmp / "rig"
@@ -172,10 +175,10 @@ class Rig:
             self.database = FakeDatabase(self.events, self.survey)
             return dataclasses.replace(
                 real,
-                database_query=self.database,  # type: ignore[arg-type]
-                database_command=self.database,  # type: ignore[arg-type]
-                restore_database_query=self.database,  # type: ignore[arg-type]
-                restore_database_command=self.database,  # type: ignore[arg-type]
+                database_query=cast("DatabaseQuery", self.database),
+                database_command=cast("DatabaseCommand", self.database),
+                restore_database_query=cast("DatabaseQuery", self.database),
+                restore_database_command=cast("DatabaseCommand", self.database),
             )
 
         def plan(*args: Any, **kwargs: Any) -> RestorePlan:
@@ -218,7 +221,8 @@ class Rig:
                 encrypted=False,
                 integrity=None,
                 performed=self.snapshot_performed,
-                plan=None,  # type: ignore[arg-type]
+                # The root reads no plan from a Safety Snapshot's result.
+                plan=cast("BackupPlan", None),
             )
 
         mp.setattr(restore_mod, "real_adapters", adapters)
@@ -273,8 +277,9 @@ class Rig:
         return restore_mod.RestoreRequest(**values)
 
     def drive(self, **changes: Any) -> restore_mod.RestoreOutcome:
+        chosen = {} if self.extension is None else {"extension": self.extension}
         return restore_mod.drive_restore(
-            self.request(**changes), ctx=None, secrets=SecretRegistry()
+            self.request(**changes), ctx=None, secrets=SecretRegistry(), **chosen
         )
 
     @property

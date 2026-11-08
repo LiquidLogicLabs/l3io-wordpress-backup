@@ -29,40 +29,41 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 pytest.importorskip("l3io.wp.database")
-pymysql = pytest.importorskip("pymysql")
+pytest.importorskip("pymysql")
 
-from pymysql.connections import Connection  # noqa: E402
+import pymysql
+from pymysql.connections import Connection
 
-from l3io.wp.backup.adapters.database import (  # noqa: E402
+from l3io.wp.backup.adapters.database import (
     WpDatabase,
     admin_source,
     site_descriptor_from_wp_config,
 )
-from l3io.wp.backup.adapters.redaction import SecretRegistry  # noqa: E402
-from l3io.wp.backup.adapters.site_files import LocalSiteFiles  # noqa: E402
-from l3io.wp.backup.core.restore import (  # noqa: E402
+from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.site_files import LocalSiteFiles
+from l3io.wp.backup.core.restore import (
     NO_RELOCATION,
     NonEmptyTargetError,
     TargetState,
     build_restore_plan,
 )
-from l3io.wp.backup.domain.backup_scope import BackupScope  # noqa: E402
-from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec  # noqa: E402
-from l3io.wp.backup.domain.flag_map import (  # noqa: E402
+from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
+from l3io.wp.backup.domain.flag_map import (
     FLAG_MAP,
     FlagCombination,
     FlagRejection,
     authorizing_combination,
     resolve_flags,
 )
-from l3io.wp.backup.domain.restore import (  # noqa: E402
+from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
     SnapshotPolicy,
 )
-from l3io.wp.backup.domain.site import SiteDescriptor  # noqa: E402
-from l3io.wp.backup.domain.storage_target import StorageTarget  # noqa: E402
-from tests.conftest import CredentialSentinel  # noqa: E402
-from tests.restore_builders import view  # noqa: E402
+from l3io.wp.backup.domain.site import SiteDescriptor
+from l3io.wp.backup.domain.storage_target import StorageTarget
+from tests.conftest import CredentialSentinel
+from tests.restore_builders import view
 
 pytestmark = [
     pytest.mark.integration,

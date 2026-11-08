@@ -33,5 +33,6 @@
   ],
   "site": "tests/data/wp-config.php as wp-config.php, index.php, wp-content/uploads/a.txt; no hard links (F-16)",
   "output": "(no output)",
-  "generator_script": "the orchestrator's /tmp/wpb-make-released-fixture.sh, reproduced in the E004-S01-002 story's Dev Agent Record"
+  "generator_script": "the orchestrator's /tmp/wpb-make-released-fixture.sh, reproduced in the E004-S01-002 story's Dev Agent Record",
+  "accepted_exception": "Its embedded wp-root/wp-config.php still sets DB_PASSWORD to the old shared test password, from before BL-E004-064 replaced it in tests/data/wp-config.php with a unique sentinel. Accepted as the one exception (owner decision 42, Shawn, 2026-11-07): this file is the legacy tool's real output, pinned by SHA-256 above, and the interop proof, so it is never regenerated. tests/adapters/test_v0_fixtures.py::test_the_released_fixture_carries_no_operator_secret ignores exactly that one DB_PASSWORD line and nothing else."
 }

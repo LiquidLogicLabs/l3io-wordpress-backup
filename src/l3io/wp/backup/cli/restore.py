@@ -1,5 +1,10 @@
 """``wpbackup2 restore`` — the restore root (E003-S02-006).
 
+BL-E003-109 split it in three: the values a restore takes and returns, and
+the flag translation, are ``cli/restore_request.py``; what a Run prints and
+FR-9's exit rule are ``cli/restore_report.py``; this module holds the two
+roots below and the driver's steps.
+
 Three layers, each calling only the next, as ``cli/backup.py`` does:
 
 - :func:`run_restore` (the CLI root) translates the flags — through
@@ -38,16 +43,11 @@ trust assumption.
 binds ``dry_run_adapters(real_adapters(...))``; nothing below branches.
 
 ``--mode`` is translated through ``cli/scope.py``'s ``CLI_MODE_TO_SCOPE``, the
-one place the CLI's ``db`` becomes ``database``; :func:`render_flags` is its
-inverse for refusals (BL-E003-039).
+one place the CLI's ``db`` becomes ``database``; ``render_flags``
+(``cli/restore_request.py``) is its inverse for refusals (BL-E003-039).
 
-FR-9's database report (E003-S02-004) is rendered here for the root to print:
-:func:`database_report_lines` (human), :func:`database_report_json` (one JSON
-object, for ``--log-format json``), :func:`emit_database_report` choosing
-between them, and :func:`require_database_restored`, the exit rule. Under
-``--log-format json`` stdout is instead one object, :func:`restore_summary`,
-holding the report among everything else; a text-mode Run that completed ends
-with :func:`completion_line` (UX-S02-04).
+FR-9's database report (E003-S02-004) and the one ``--log-format json``
+object are ``cli/restore_report.py``'s, printed by the root.
 """
 
 from __future__ import annotations
@@ -56,25 +56,20 @@ import argparse
 import contextlib
 import dataclasses
 import functools
-import json
 import os
 import shutil
-import sys
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
 from datetime import UTC
 from pathlib import Path, PurePath, PurePosixPath
 from types import MappingProxyType
-from typing import Final, Protocol, cast
+from typing import Final
 
 import structlog
 
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import (
-    AdminTls,
     LocatedConfig,
     check_admin_tls,
-    database_location_from_db_host,
     locate_wp_config,
     password_at_call_time,
     site_descriptor_from_archive_config,
@@ -86,9 +81,9 @@ from l3io.wp.backup.adapters.journal import (
     journal_directory,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.restore_extension import restore_extension
 from l3io.wp.backup.adapters.restore_runner import (
     CONFIG_MAX_BYTES,
-    config_member,
     execute_restore,
     snapshot_result,
 )
@@ -113,28 +108,40 @@ from l3io.wp.backup.cli.credentials import (
     wordpress_source,
     wordpress_spec,
 )
-from l3io.wp.backup.cli.logging import configured_format
 from l3io.wp.backup.cli.output import (
     RunWarning,
     WarningSink,
-    emit_result,
     emit_warning,
 )
-from l3io.wp.backup.cli.parser import RELOCATION_UNAVAILABLE
 from l3io.wp.backup.cli.passphrase import (
     note_short_restore_passphrase,
     resolve_passphrase,
     terminal_prompt,
 )
 from l3io.wp.backup.cli.preflight import require_tools, root_preflight
-from l3io.wp.backup.cli.scope import CLI_MODE_TO_SCOPE, backup_scope_from_cli
+from l3io.wp.backup.cli.restore_report import (
+    print_kept_snapshot,
+    print_outcome,
+    require_database_restored,
+)
+from l3io.wp.backup.cli.restore_request import (
+    ExistingDatabaseUserError,
+    RelocationFlags,
+    RestoreExtension,
+    RestoreExtensionFactory,
+    RestoreOutcome,
+    RestoreRequest,
+    config_policy_from_cli,
+    confirm_identity,
+    flag_combination,
+    parse_archive_database,
+    refusal_for,
+    render_flags,
+    restore_mode_from_cli,
+    snapshot_policy_from_cli,
+)
 from l3io.wp.backup.core.restore import (
-    FREE_SPACE_MARGIN,
-    WORKSPACE_FILESYSTEM,
-    DatabaseRestoreReport,
-    InsufficientSpaceError,
     NonEmptyTargetError,
-    PlannedRestoreAction,
     RestoreInputs,
     RestorePlan,
     RestoreRelocation,
@@ -142,22 +149,26 @@ from l3io.wp.backup.core.restore import (
     SnapshotResult,
     TargetState,
     build_restore_plan,
-    database_report_fields,
-    incomplete_run_error,
     load_names,
     planned_cutover_keys,
     planned_cutover_targets,
 )
+from l3io.wp.backup.core.restore_journal import incomplete_run_error
+from l3io.wp.backup.core.restore_space import (
+    FREE_SPACE_MARGIN,
+    WORKSPACE_FILESYSTEM,
+    InsufficientSpaceError,
+)
 from l3io.wp.backup.domain.archive_format import (
+    WP_CONFIG_NAME,
     ArchiveView,
     Integrity,
     ManifestOrigin,
     OriginKind,
-    SkippedLink,
     classify,
+    config_member,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
-from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
 from l3io.wp.backup.domain.errors import (
     ArchiveNotEncryptedError,
@@ -166,7 +177,6 @@ from l3io.wp.backup.domain.errors import (
     BackupError,
     InvalidSiteDescriptorError,
     PassphraseRequiredError,
-    RefusedError,
     RootRestoreRefusedError,
     RunTerminated,
     SiteRootNotFoundError,
@@ -175,70 +185,32 @@ from l3io.wp.backup.domain.errors import (
 )
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 from l3io.wp.backup.domain.exit_codes import ExitCode
-from l3io.wp.backup.domain.flag_map import (
-    FLAG_MAP,
-    FlagCombination,
-    FlagRejection,
-    combination,
-    resolve_flags,
-)
 from l3io.wp.backup.domain.journal import (
     JOURNALED_CONSTANTS,
     JournalHeader,
     JournalRecord,
 )
-from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
-    OverrideSet,
     RestoreMode,
     RestorePhase,
-    SnapshotPolicy,
     restores_database,
     restores_files,
 )
-from l3io.wp.backup.domain.search_replace import SearchReplaceReport
-from l3io.wp.backup.domain.secret import Secret, as_secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
+from l3io.wp.backup.ports.database import AdminTls
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
 from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.restore import RestorePorts, restore_ports
-from l3io.wp.backup.ports.search_replace import SearchReplaceCommand
-from l3io.wp.backup.ports.site_files import SiteFilesQuery
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
     "ALLOW_ROOT_FLAG",
-    "NO_SNAPSHOT_FLAG",
-    "RESTORE_EXTENSION",
     "RESTORE_PROMPT",
-    "ArchiveIdentityUnconfirmedError",
-    "DatabaseNotRestoredError",
-    "NonEmptyTargetRefusal",
-    "RelocationFlags",
-    "RestoreExtension",
-    "RestoreExtensionFactory",
-    "RestoreOutcome",
-    "RestoreRequest",
-    "check_restore_arguments",
-    "completion_line",
-    "config_policy_from_cli",
-    "database_report_json",
-    "database_report_lines",
     "drive_restore",
-    "emit_database_report",
-    "flag_combination",
-    "parse_archive_database",
-    "render_flags",
-    "require_database_restored",
-    "restore_mode_from_cli",
-    "restore_summary",
     "run_restore",
-    "search_replace_fields",
-    "search_replace_line",
-    "snapshot_policy_from_cli",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -255,637 +227,23 @@ UNAUTHENTICATED_WARNING: Final = (
     "restore only an archive from a source you trust"
 )
 
-#: What opts out of the Safety Snapshot on the command line (BL-E003-050).
-NO_SNAPSHOT_FLAG: Final = "--no-safety-snapshot"
 #: Who acknowledges an interrupted Run resolved from the command line.
 _RESOLVED_BY: Final = "cli"
 #: The verified copy of the Archive, and the files the root writes, in the workspace.
 _ARCHIVE_DIR: Final = "archive"
 _DESCRIPTOR_DIR: Final = "descriptor"
-_CONFIG_NAME: Final = "wp-config.php"
+_CONFIG_NAME: Final = WP_CONFIG_NAME
 _PAYLOAD: Final = "decrypted-payload"
 _CONFIG_PAYLOAD: Final = "decrypted-config-payload"
 _DIR_MODE: Final = 0o700
 _FILE_MODE: Final = 0o600
 _STAMP: Final = "%Y%m%dT%H%M%SZ"
-_SCOPE_TO_CLI: Final = {scope: text for text, scope in CLI_MODE_TO_SCOPE.items()}
 #: BL-E003-075: the prompt runs before the Archive is probed (decided
 #: 2026-10-27, E003-S02-006), so it says both uses and that empty means none.
 RESTORE_PROMPT: Final = (
     "Passphrase (decrypts an encrypted archive and encrypts the Safety "
     "Snapshot; leave empty for none): "
 )
-
-#: How a database warning code reads in the report; others print as the code.
-_WARNING_TEXT = {
-    "password_unverified": (
-        "the WordPress account's host does not match this machine, so its "
-        "password was not verified by logging in and an existing password was "
-        "left unchanged"
-    ),
-}
-_PREVIOUS_TEXT = {
-    "dropped": "dropped",
-    "retained": "retained, not removed",
-    "none": "none (no live database existed)",
-    "absent": "none (loaded in place)",
-}
-
-
-def flag_combination(
-    *, mode: str, cleanfirst: bool, drop_database: bool, force: bool
-) -> FlagCombination:
-    """The AD-25 table key for the restore flags' parsed values."""
-    return combination(
-        mode=backup_scope_from_cli(mode),
-        cleanfirst=cleanfirst,
-        drop_database=drop_database,
-        force=force,
-    )
-
-
-def restore_mode_from_cli(
-    *, mode: str, cleanfirst: bool, drop_database: bool, force: bool
-) -> tuple[RestoreMode, OverrideSet]:
-    """The Mode and waivers the flags express; raises ``USAGE`` otherwise."""
-    return resolve_flags(
-        flag_combination(
-            mode=mode, cleanfirst=cleanfirst, drop_database=drop_database, force=force
-        )
-    )
-
-
-def snapshot_policy_from_cli(*, no_safety_snapshot: bool) -> SnapshotPolicy:
-    """``--no-safety-snapshot`` is the explicit opt-out; the default takes one."""
-    return SnapshotPolicy.SKIP if no_safety_snapshot else SnapshotPolicy.TAKE
-
-
-def config_policy_from_cli(*, overwrite_wp_config: bool) -> ConfigPolicy:
-    """``--overwrite-wp-config`` may replace the target's ``wp-config.php``."""
-    return ConfigPolicy.OVERWRITE if overwrite_wp_config else ConfigPolicy.KEEP
-
-
-def check_restore_arguments(
-    *,
-    mode: str,
-    cleanfirst: bool,
-    drop_database: bool,
-    force: bool,
-    admin_username: str | None,
-    admin_password: str | None,
-    admin_aws_secret_id: str | None,
-    admin_aws_region: str | None,
-    db_aws_secret_id: str | None,
-    db_aws_region: str | None,
-    environ: Mapping[str, str] | None = None,
-) -> None:
-    """Raise ``UsageError`` for restore arguments no Run could act on.
-
-    The flag combination must express a Restore Mode, and each credential
-    flag pair must be whole. Nothing outside the arguments is read.
-    """
-    restore_mode_from_cli(
-        mode=mode, cleanfirst=cleanfirst, drop_database=drop_database, force=force
-    )
-    admin_spec(
-        username=admin_username,
-        password=admin_password,
-        aws_secret_id=admin_aws_secret_id,
-        aws_region=admin_aws_region,
-        environ=environ,
-    )
-    wordpress_spec(aws_secret_id=db_aws_secret_id, aws_region=db_aws_region)
-
-
-# --------------------------------------------------------------------------
-# FR-9: the database report, and the exit rule over it
-# --------------------------------------------------------------------------
-
-
-class DatabaseNotRestoredError(BackupError):
-    """A real Run's plan loaded the Dump and the report does not say restored.
-
-    ``FAILED``. Every database failure raises where it happens; this is the
-    root's last check that "done" is never printed for a database not loaded.
-    """
-
-    def __init__(self, database: str | None) -> None:
-        self.database = database
-        named = "no database report" if database is None else repr(database)
-        super().__init__(f"the database was not restored ({named})")
-
-
-def _flag(done: bool, yes: str, no: str) -> str:
-    return yes if done else no
-
-
-#: Why a performed load is not reported restored: one of the three FR-9 facts
-#: (load, post-load check, cutover) did not hold.
-_NOT_RESTORED_REASON: Final = (
-    "the load, its post-load check or the cutover did not complete"
-)
-
-
-def database_report_lines(report: DatabaseRestoreReport) -> tuple[str, ...]:
-    """The report as human lines; a Dry Run's says "would", never "restored".
-
-    The verdict comes first (BL-E003-106, owner decision 2026-11-07):
-    ``database restored`` or ``database NOT restored: <reason>``, then the
-    details. The JSON form (:func:`database_report_json`) is unchanged.
-    """
-    after, before = report.live_database_after, report.live_database_before
-    if not report.performed:
-        would = [
-            f"database: would ensure {after!r} (database, WordPress user, password, "
-            "grant)",
-            f"database: would load the Dump into {after!r}",
-            f"database: would switch wp-config.php from {before!r} to {after!r}",
-        ]
-        if report.previous_database == "dropped":
-            would.append(f"database: would drop the previous database {before!r}")
-        return ("database NOT restored: Dry Run", *would)
-    ensure = report.ensure
-    lines = [
-        f"database: the site now runs on {after!r} (was {before!r})",
-        "database: "
-        + _flag(ensure.created_database, "created", "already existed")
-        + f" {after!r}",
-        "database: WordPress user "
-        + _flag(ensure.created_user, "created", "already existed"),
-        "database: password " + _flag(ensure.password_set, "set", "unchanged"),
-        "database: access " + _flag(ensure.granted, "granted", "already granted"),
-        f"database: loaded {report.loaded_bytes} bytes in "
-        f"{report.load_duration_ms:.0f} ms",
-        f"database: previous database {before!r}: "
-        + _PREVIOUS_TEXT[report.previous_database],
-    ]
-    lines.extend(
-        f"database: warning {code}: {_WARNING_TEXT.get(code, code)}"
-        for code in ensure.warnings
-    )
-    verdict = _flag(
-        report.restored,
-        "database restored",
-        f"database NOT restored: {_NOT_RESTORED_REASON}",
-    )
-    return (verdict, *lines)
-
-
-def database_report_json(report: DatabaseRestoreReport) -> str:
-    """The report as one JSON object (``--log-format json``)."""
-    return json.dumps({"database_report": database_report_fields(report)})
-
-
-def emit_database_report(report: DatabaseRestoreReport) -> None:
-    """Print the report on stdout in the configured format."""
-    if configured_format() == "json":
-        emit_result(database_report_json(report))
-        return
-    emit_result("\n".join(database_report_lines(report)))
-
-
-class _Phased(Protocol):
-    @property
-    def phases(self) -> tuple[RestorePhase, ...]: ...
-
-
-class _Reported(Protocol):
-    @property
-    def database(self) -> DatabaseRestoreReport | None: ...
-
-
-def require_database_restored(
-    plan: _Phased, outcome: _Reported, *, dry_run: bool
-) -> None:
-    """FR-9's exit rule; raises :class:`DatabaseNotRestoredError` (``FAILED``).
-
-    A plan with ``LOAD_DUMP`` exits ``OK`` in a real Run only when the report
-    says ``restored``; a Dry Run that completed its plan exits ``OK`` with a
-    not-performed report (ADR-0022). A plan without ``LOAD_DUMP`` must carry
-    no report at all.
-    """
-    loads = RestorePhase.LOAD_DUMP in plan.phases
-    database = outcome.database
-    if not loads:
-        if database is not None:
-            msg = "a plan without LOAD_DUMP returned a database report"
-            raise ValueError(msg)
-        return
-    if dry_run and database is not None and not database.performed:
-        return
-    if database is None or not database.restored or not database.performed:
-        raise DatabaseNotRestoredError(
-            None if database is None else database.live_database_after
-        )
-
-
-# --------------------------------------------------------------------------
-# The refusal's flag text (BL-E003-039, UX-1, UX-2)
-# --------------------------------------------------------------------------
-
-
-def _cli_flag(dest: str) -> str:
-    return "--" + dest.replace("_", "-")
-
-
-def render_flags(flags: FlagCombination) -> str:
-    """``flags`` as the operator types them: ``--mode db --cleanfirst --force``.
-
-    ``mode`` through the inverse of ``CLI_MODE_TO_SCOPE`` (so ``database``
-    reads ``db``), then each true boolean dimension as ``--<dest>``; a false
-    one is omitted. ``core/``'s domain spelling is never shown to an operator.
-    """
-    valued: list[str] = []
-    for dest, value in flags:
-        if isinstance(value, bool):
-            continue
-        text = _SCOPE_TO_CLI[value] if isinstance(value, BackupScope) else str(value)
-        valued.append(f"{_cli_flag(dest)} {text}")
-    switches = [_cli_flag(dest) for dest, value in flags if value is True]
-    return " ".join(valued + switches)
-
-
-def _mode_flags(mode: RestoreMode) -> str:
-    """The fewest flags that select ``mode`` with nothing waived (UX-2)."""
-    selecting = [
-        flags
-        for flags, entry in FLAG_MAP.items()
-        if not isinstance(entry, FlagRejection)
-        and entry[0] is mode
-        and entry[1] == OverrideSet.none()
-    ]
-    return render_flags(min(selecting, key=lambda f: sum(v is True for _, v in f)))
-
-
-class NonEmptyTargetRefusal(NonEmptyTargetError):
-    """FR-7's refusal, worded in the flags the operator types (BL-E003-039).
-
-    The same fields as :class:`NonEmptyTargetError`; ``flags`` is the CLI
-    spelling of ``authorizing``, and ``original`` the refusal it rewords.
-    Names paths and ``host:port/name`` only.
-    """
-
-    def __init__(self, original: NonEmptyTargetError) -> None:
-        self.original = original
-        super().__init__(
-            original.mode,
-            parts=original.parts,
-            findings=original.findings,
-            authorizing=original.authorizing,
-        )
-        self.flags = render_flags(original.authorizing)
-        named = "; ".join(f"{where} ({what})" for where, what in original.findings)
-        self.args = (
-            f"refusing to restore with {_mode_flags(original.mode)} (Restore Mode "
-            f"{original.mode.value}) over a non-empty target "
-            f"({' and '.join(original.parts)}): found {named}; nothing was "
-            f"changed. {self.flags} would authorize it",
-        )
-
-
-def _refusal(exc: NonEmptyTargetError) -> NonEmptyTargetRefusal:
-    refusal = NonEmptyTargetRefusal(exc)
-    _log.error(
-        "restore_refused",
-        reason="non_empty_target",
-        parts=list(exc.parts),
-        found=exc.found,
-        detail=exc.detail,
-        findings=[list(finding) for finding in exc.findings],
-        authorizing=refusal.flags,
-        restore_mode=exc.mode.value,
-    )
-    return refusal
-
-
-# --------------------------------------------------------------------------
-# BL-E002-114: the Archive's database identity, confirmed by the operator
-# --------------------------------------------------------------------------
-
-
-class ArchiveIdentityUnconfirmedError(RefusedError):
-    """The target has no ``wp-config.php`` and ``--archive-database`` did not
-    name the Archive config's database (RT-1).
-
-    Raised after the bind and before any database connection, so a forged
-    Archive cannot direct the administrator to a server the operator did not
-    name. Never a credential.
-
-    RT-S02-003 (owner decision, 2026-11-06, option A): when the flag is
-    absent the refusal does **not** show the Archive's database, so the
-    operator must name the server from their own knowledge instead of
-    pasting the Archive's claim back. Only when the operator's value differs
-    is the Archive's database shown, with which parts differ, and never as a
-    ready-to-paste flag.
-    """
-
-    def __init__(
-        self,
-        *,
-        user: str,
-        location: DatabaseLocation,
-        differs: tuple[str, ...] | None,
-    ) -> None:
-        self.user = user
-        self.location = location
-        self.differs = differs
-        if differs is None:
-            super().__init__(
-                "the target has no wp-config.php, so the database would come "
-                "from the archive's config. Name the database this site is "
-                "being restored to, from your own records, with "
-                "--archive-database USER@HOST[:PORT]/NAME; it must match the "
-                "archive's. Nothing was changed"
-            )
-            return
-        named = (
-            f"{user} at {location.host} port {location.port}, database {location.name}"
-        )
-        # L-4: the operator's text is never echoed; only which part differs.
-        super().__init__(
-            "the target has no wp-config.php, and --archive-database names "
-            f"another {', '.join(differs)} than the archive's config ({named}). "
-            "If that is not the server you meant, do not restore this archive "
-            "without checking where it came from. Nothing was changed"
-        )
-
-
-class ExistingDatabaseUserError(RefusedError):
-    """The Archive's config names a database account that already exists.
-
-    RT-S02-004 (owner decision, 2026-11-06, option A): with no target
-    ``wp-config.php`` the WordPress account and its password come from the
-    Archive, and provisioning would reset an existing account's password to
-    the Archive's value. That is refused unless the operator passes
-    ``--reset-existing-db-user``. A missing account is still created. Raised
-    after the administrator's survey and before any effect; never a password.
-    """
-
-    def __init__(self, *, user: str, location: DatabaseLocation) -> None:
-        self.user = user
-        self.location = location
-        super().__init__(
-            f"the archive's config names the database account {user}, which "
-            f"already exists on {location.host}:{location.port}; restoring "
-            "would reset its password to the archive's. Pass "
-            "--reset-existing-db-user if that account belongs to this site. "
-            "Nothing was changed"
-        )
-
-
-def parse_archive_database(text: str) -> tuple[str, DatabaseLocation]:
-    """``USER@HOST[:PORT]/NAME`` → ``(user, location)``; ``UsageError`` otherwise.
-
-    Split at the first ``@`` and the last ``/``; ``HOST[:PORT]`` is parsed by
-    ``adapters/database.py``'s ``DB_HOST`` parsing, never a second way. The
-    text is never echoed (L-4): an operator may type ``USER:PASSWORD@…`` out
-    of URL habit, so a ``:`` in the user part is refused without showing it.
-    """
-    user, at, rest = text.partition("@")
-    host, slash, name = rest.rpartition("/")
-    if not (at and user and slash and host and name):
-        msg = "--archive-database: expected USER@HOST[:PORT]/NAME"
-        raise UsageError(msg, arguments=("--archive-database",))
-    if ":" in user:
-        msg = (
-            "--archive-database: the user part holds ':'; give USER@HOST[:PORT]/NAME "
-            "with no password"
-        )
-        raise UsageError(msg, arguments=("--archive-database",))
-    return user, database_location_from_db_host(host, name)
-
-
-def _confirm_identity(stated: str | None, *, site: SiteDescriptor, user: str) -> None:
-    """Refuse unless ``stated`` names exactly the Archive config's database."""
-    location = site.database_location()
-    differs: tuple[str, ...] | None = None
-    if stated is not None:
-        stated_user, named = parse_archive_database(stated)
-        differs = tuple(
-            part
-            for part, same in (
-                ("user", stated_user == user),
-                ("host", named.host.lower() == location.host.lower()),
-                ("port", named.port == location.port),
-                ("database", named.name == location.name),
-            )
-            if not same
-        )
-        if not differs:
-            _log.info(
-                "archive_database_confirmed",
-                db_host=location.host,
-                db_port=location.port,
-                db_name=location.name,
-                db_user=user,
-            )
-            return
-    raise ArchiveIdentityUnconfirmedError(user=user, location=location, differs=differs)
-
-
-# --------------------------------------------------------------------------
-# Epic 7's seam (decision 2 of 2026-10-27)
-# --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RelocationFlags:
-    """The relocation flags, copied verbatim; Epic 7 validates them.
-
-    ``new_db_password`` is left out of ``repr`` (and registered with the Run's
-    ``SecretRegistry`` before anything uses it). The CLI fills it from
-    ``--new-db-password``, ``--new-db-password-file`` or
-    ``L3IO_WP_BACKUP_NEW_DB_PASSWORD``, in that order; the library from this
-    field, then that variable (only with ``new_db_user``), through
-    ``cli/credentials.new_db_password``.
-    """
-
-    new_site_url: str | None
-    new_home_url: str | None
-    new_db_host: str | None
-    new_db_name: str | None
-    new_db_user: str | None
-    new_db_password: Secret | str | None = field(repr=False)
-    wp_config: Path | None
-
-    def __post_init__(self) -> None:
-        # Owner decision 2026-11-07: a str is held as a Secret at once.
-        if self.new_db_password is not None:
-            object.__setattr__(self, "new_db_password", as_secret(self.new_db_password))
-
-    @classmethod
-    def none(cls) -> RelocationFlags:
-        """No relocation flag given."""
-        return cls(
-            new_site_url=None,
-            new_home_url=None,
-            new_db_host=None,
-            new_db_name=None,
-            new_db_user=None,
-            new_db_password=None,
-            wp_config=None,
-        )
-
-    @property
-    def given(self) -> tuple[str, ...]:
-        """The names of the fields that were set."""
-        return tuple(
-            f.name
-            for f in dataclasses.fields(self)
-            if getattr(self, f.name) is not None
-        )
-
-    @property
-    def is_empty(self) -> bool:
-        return not self.given
-
-
-class RestoreExtension(Protocol):
-    """What Epic 7 supplies to a restore; declared here, implemented there."""
-
-    def required_tools(self) -> tuple[ToolRequirement, ...]: ...
-
-    def wordpress_spec(self) -> CredentialSpec | None: ...
-
-    def search_replace(self) -> SearchReplaceCommand | None: ...
-
-    def resolve(
-        self,
-        *,
-        site_root: Path,
-        site: SiteDescriptor,
-        view: ArchiveView,
-        files: SiteFilesQuery,
-        mode: RestoreMode,
-    ) -> RestoreRelocation: ...
-
-
-class RestoreExtensionFactory(Protocol):
-    """``adapters/wpcli.py::restore_extension``'s signature."""
-
-    def __call__(
-        self, flags: RelocationFlags, *, secrets: SecretRegistry
-    ) -> RestoreExtension: ...
-
-
-#: Epic 7's static import (the ownership grant, E007-S01-001).
-from l3io.wp.backup.adapters.wpcli import restore_extension as RESTORE_EXTENSION  # noqa: E402, I001
-
-
-class _NoExtension:
-    """No Epic 7: no relocation, no tools, no relocated account."""
-
-    __slots__ = ()
-
-    def required_tools(self) -> tuple[ToolRequirement, ...]:
-        return ()
-
-    def wordpress_spec(self) -> CredentialSpec | None:
-        return None
-
-    def search_replace(self) -> SearchReplaceCommand | None:
-        return None
-
-    def resolve(
-        self,
-        *,
-        site_root: Path,
-        site: SiteDescriptor,
-        view: ArchiveView,
-        files: SiteFilesQuery,
-        mode: RestoreMode,
-    ) -> RestoreRelocation:
-        del site_root, site, view, files, mode
-        return RestoreRelocation.none()
-
-
-# --------------------------------------------------------------------------
-# The request and the outcome
-# --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RestoreRequest:
-    """Everything a restore needs from its caller; :func:`drive_restore` does the rest.
-
-    ``mode``, ``overrides``, ``snapshot`` and ``config_policy`` have no
-    defaults (AD-5). ``snapshot_dir=None`` is the per-Site default under the
-    per-user state directory. ``archive_database`` is ``--archive-database``'s
-    raw ``USER@HOST[:PORT]/NAME`` and ``admin_tls`` the ``--admin-tls`` /
-    ``--admin-tls-ca`` override (BL-E002-114). ``opted_out_by`` names what
-    chose ``SnapshotPolicy.SKIP`` (BL-E003-050). ``credentials`` is the
-    WordPress account's spec (``--db-credentials-aws-*``); ``None`` means
-    ``wp-config.php``. With a ``cipher`` (a passphrase was given) a plain
-    Archive is refused unless ``allow_unencrypted`` (ADR-0016 amendment
-    2026-11-07). Running as root is refused unless ``allow_root``
-    (``--allow-root``; BL-E002-098, owner decision 2026-11-07). No field
-    carries an ``l3io.wp.database`` type (ADR-0015 amendment).
-    """
-
-    site_root: Path
-    archive: StorageTarget
-    mode: RestoreMode
-    overrides: OverrideSet
-    snapshot: SnapshotPolicy
-    snapshot_dir: Path | None
-    config_policy: ConfigPolicy
-    resolve_run_id: str | None
-    admin: CredentialSpec | None
-    cipher: PayloadCipher | None
-    archive_database: str | None
-    admin_tls: AdminTls
-    relocation: RelocationFlags
-    reset_existing_db_user: bool
-    dry_run: bool
-    extra_tools: tuple[ToolRequirement, ...] = ()
-    opted_out_by: str = NO_SNAPSHOT_FLAG
-    require_encrypted: bool = False
-    credentials: CredentialSpec | None = None
-    allow_unencrypted: bool = False
-    allow_root: bool = False
-    #: The flags that produced ``mode`` and ``overrides`` as the operator typed
-    #: them (``--mode all --cleanfirst --drop-database``), logged on
-    #: ``restore_mode_resolved`` (FR-6, BL-E003-013); ``None`` for a library
-    #: call, which passes the Mode itself.
-    mode_flags: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.opted_out_by:
-            msg = "opted_out_by must name what may skip the Safety Snapshot"
-            raise ValueError(msg)
-        # M-3: ``None`` would bind the backup root's plaintext connections.
-        # ``AdminTls(mode=None, ca_file=None)`` is the policy; nothing weaker
-        # is reachable by omission.
-        if not isinstance(cast("object", self.admin_tls), AdminTls):
-            msg = (
-                "admin_tls must be an AdminTls; AdminTls(mode=None, ca_file=None) "
-                "is tls_required_unless_local"
-            )
-            raise TypeError(msg)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RestoreOutcome:
-    """What one restore did (or, in a Dry Run, planned); built, never printed.
-
-    ``resolved_run_id`` is set when the Run only resolved an interrupted
-    journal (no phase ran); ``integrity`` is then ``None``.
-    """
-
-    run_id: str
-    mode: RestoreMode
-    phases: tuple[RestorePhase, ...]
-    dry_run: bool
-    actions: tuple[PlannedRestoreAction, ...]
-    integrity: Integrity | None
-    snapshot_path: PurePosixPath | None
-    snapshot_encrypted: bool
-    database: DatabaseRestoreReport | None
-    search_replace: SearchReplaceReport | None
-    resolved_run_id: str | None
-    skipped_links: tuple[SkippedLink, ...]
-    wp_config_kept: bool
-
 
 # --------------------------------------------------------------------------
 # drive_restore and its steps
@@ -1221,8 +579,14 @@ def drive_restore(
     site_lock: SiteLock | None = None,
     on_warning: WarningSink | None = None,
     environ: Mapping[str, str] = NO_ENVIRONMENT,
+    extension: RestoreExtensionFactory = restore_extension,
 ) -> RestoreOutcome:
     """The restore driver: returns a :class:`RestoreOutcome` or raises; never prints.
+
+    ``extension`` builds the relocation half (Epic 7's
+    ``adapters/restore_extension.py`` factory, the one this build ships); a
+    test passes its own. It is a parameter, not a module global (BL-E003-099),
+    so nothing is patched.
 
     ``environ`` is what the credential builders read (the administrator's
     and the relocated account's variables): the CLI root and the library pass
@@ -1250,14 +614,7 @@ def drive_restore(
             "--overwrite-wp-config needs a mode that restores files; "
             f"Restore Mode {request.mode.value} restores none"
         )
-        raise UsageError(msg, arguments=("--overwrite-wp-config",))
-    factory: RestoreExtensionFactory | None = RESTORE_EXTENSION
-    if factory is None and not request.relocation.is_empty:
-        named = ", ".join(request.relocation.given)
-        msg = f"relocation ({named}) is not available in this build: " + (
-            RELOCATION_UNAVAILABLE
-        )
-        raise UsageError(msg, arguments=request.relocation.given)
+        raise UsageError(msg, arguments=("config_policy",))
     if request.archive_database is not None:
         parse_archive_database(request.archive_database)
     site_root = _canonical(request.site_root)
@@ -1272,10 +629,6 @@ def drive_restore(
         site_lock=real_site_lock() if site_lock is None else site_lock,
     ) as handle:
         run = handle.ctx
-        if request.relocation.new_db_password:
-            run.secrets.register(
-                request.relocation.new_db_password, source="--new-db-password"
-            )
         _log.info(
             "restore_mode_resolved",
             restore_mode=request.mode.value,
@@ -1292,11 +645,9 @@ def drive_restore(
         else:
             query = run.adapters.journal_query
         resolving = _incomplete(query, site_root, request.resolve_run_id)
-        ext: RestoreExtension = (
-            _NoExtension()
-            if factory is None
-            else factory(request.relocation, secrets=run.secrets)
-        )
+        # The factory registers --new-db-password with the Run's registry
+        # before anything reads the Site or the Archive (BL-E003-094: once).
+        ext: RestoreExtension = extension(request.relocation, secrets=run.secrets)
         # Step 3: the Site Descriptor, the credential sources, the one bind.
         archive = _Archive(request.archive, run.workspace)
         located = _locate(site_root, request.relocation.wp_config)
@@ -1357,7 +708,7 @@ def drive_restore(
             run.bind_adapters(dry_run_adapters(real) if request.dry_run else real)
         db_user = _db_user(run, descriptor_file)
         if located.location is None and descriptor_file != target_config:
-            _confirm_identity(request.archive_database, site=site, user=db_user)
+            confirm_identity(request.archive_database, site=site, user=db_user)
         elif request.archive_database is not None:
             _log.info("archive_database_unused", reason="the target has wp-config.php")
         cutover = None if relocated is None else password_at_call_time(relocated)
@@ -1473,7 +824,7 @@ def drive_restore(
                 extra_tools=request.extra_tools + ext.required_tools(),
             )
         except NonEmptyTargetError as exc:
-            raise _refusal(exc) from exc
+            raise refusal_for(exc) from exc
         _log_plan(plan, target)
         # Step 7: the journal header and the executor's inputs.
         stamp = run.started_at.astimezone(UTC).strftime(_STAMP)
@@ -1586,14 +937,16 @@ def drive_restore(
                 ports,
                 take_snapshot,
                 functools.partial(check_staged, ports=ports),
-                functools.partial(load_staged, ports=ports, workspace=run.workspace),
+                functools.partial(
+                    load_staged, ports=ports, workspace=run.workspace, clock=run.clock
+                ),
                 run.adapters.journal_command,
                 request.cipher,
                 survey_target=survey,
                 opted_out_by=request.opted_out_by,
             )
         except NonEmptyTargetError as exc:
-            refusal = _refusal(exc)
+            refusal = refusal_for(exc)
             _carry_snapshot(refusal, taken)
             raise refusal from exc
         except BaseException as exc:
@@ -1615,7 +968,9 @@ def drive_restore(
             database=report.database,
             search_replace=report.search_replace,
             resolved_run_id=None,
-            skipped_links=report.skipped_links,
+            # Owner decision 41: a Dry Run extracts nothing, so it reports the
+            # links the plan says the real Run would skip.
+            skipped_links=plan.skipped_links if run.dry_run else report.skipped_links,
             wp_config_kept=report.wp_config_kept,
         )
 
@@ -1645,138 +1000,6 @@ def _kept_snapshot(exc: BaseException) -> PurePath | None:
     """The Safety Snapshot path :func:`_carry_snapshot` left on ``exc``."""
     path = getattr(exc, _SNAPSHOT_ATTR, None)
     return path if isinstance(path, PurePath) else None
-
-
-# --------------------------------------------------------------------------
-# run_restore — the CLI root
-# --------------------------------------------------------------------------
-
-
-def _status(outcome: RestoreOutcome, *, completed: bool) -> str:
-    if not completed:
-        return "failed"
-    if outcome.resolved_run_id is not None:
-        return "would_resolve" if outcome.dry_run else "resolved"
-    return "planned" if outcome.dry_run else "completed"
-
-
-def restore_summary(
-    outcome: RestoreOutcome, *, archive: str, site_root: str, completed: bool
-) -> dict[str, object]:
-    """UX-S02-04: everything a Run prints, as the one ``--log-format json`` object.
-
-    ``status`` is ``completed`` (a real Run), ``planned`` (a Dry Run),
-    ``resolved``/``would_resolve`` (``--resolve-interrupted-run``) or
-    ``failed`` (the report does not call the database restored); ``actions``
-    is the Dry Run's ordered plan, empty for a real Run.
-    """
-    database = outcome.database
-    search = outcome.search_replace
-    return {
-        "status": _status(outcome, completed=completed),
-        "run_id": outcome.run_id,
-        "dry_run": outcome.dry_run,
-        "restore_mode": outcome.mode.value,
-        "archive": archive,
-        "site_root": site_root,
-        "resolved_run_id": outcome.resolved_run_id,
-        "actions": [a.text for a in outcome.actions] if outcome.dry_run else [],
-        "skipped_links": [
-            {"path": str(link.path), "link_target": str(link.link_target)}
-            for link in outcome.skipped_links
-        ],
-        "database_report": (
-            None if database is None else database_report_fields(database)
-        ),
-        "search_replace": (None if search is None else search_replace_fields(search)),
-        "snapshot_path": (
-            None if outcome.snapshot_path is None else str(outcome.snapshot_path)
-        ),
-        "snapshot_encrypted": outcome.snapshot_encrypted,
-        "wp_config_kept": outcome.wp_config_kept,
-    }
-
-
-def search_replace_fields(report: SearchReplaceReport) -> dict[str, object]:
-    """FR-12: the content URL rewrite in the JSON report (URLs are not secrets).
-
-    ``replacements``, ``tables`` and ``remaining`` are ``None`` in a Dry Run:
-    unknown until the Dump is loaded, never a guessed number.
-    """
-    return {
-        "replacements": report.replacements,
-        "tables": None if report.tables is None else list(report.tables),
-        "pairs": [{"old": p.old, "new": p.new} for p in report.pairs],
-        "remaining": report.remaining,
-        "merged": report.merged,
-    }
-
-
-def search_replace_line(report: SearchReplaceReport) -> str:
-    """FR-12: ``content URLs: <n> replacements in <k> tables (<old> → <new>)``.
-
-    A Dry Run's report has no counts: its line names the planned pairs and says
-    the counts are determined after ``LOAD_DUMP``.
-    """
-    pairs = "; ".join(f"{p.old} → {p.new}" for p in report.pairs) or "none"
-    if report.replacements is None or report.tables is None:
-        return f"content URLs: planned ({pairs}); counts determined after LOAD_DUMP"
-    return (
-        f"content URLs: {report.replacements} replacements in "
-        f"{len(report.tables)} tables ({pairs})"
-    )
-
-
-def completion_line(outcome: RestoreOutcome, *, archive: str, site_root: str) -> str:
-    """UX-S02-04: the last line of a successful text-mode Run."""
-    what = f"Restore Mode {outcome.mode.value}, archive {archive}, site {site_root}"
-    if outcome.dry_run:
-        return f"Dry Run complete ({what}); nothing was changed"
-    return f"restore complete ({what})"
-
-
-def _print_outcome(
-    outcome: RestoreOutcome, *, archive: str, site_root: str, completed: bool
-) -> None:
-    """Exactly what ``outcome`` carries, on stdout (stderr for warnings).
-
-    Under ``--log-format json`` stdout is one JSON object,
-    ``{"restore": restore_summary(...)}``, and nothing else (UX-S02-04).
-    Otherwise the human lines, ending — when ``completed`` — with
-    :func:`completion_line`, so a Run that changed nothing worth reporting
-    still says it finished.
-    """
-    for link in outcome.skipped_links:
-        print(
-            # repr: both come from the Archive and may hold control characters.
-            f"WARNING: symlink {link.path!r} -> {link.link_target!r} not restored: "
-            "absolute and out-of-root symlinks are not supported",
-            file=sys.stderr,
-        )
-    if configured_format() == "json":
-        summary = restore_summary(
-            outcome, archive=archive, site_root=site_root, completed=completed
-        )
-        emit_result(json.dumps({"restore": summary}))
-        return
-    if outcome.resolved_run_id is not None:
-        verb = "would resolve" if outcome.dry_run else "resolved"
-        emit_result(f"{verb} {outcome.resolved_run_id}")
-        return
-    if outcome.dry_run:
-        emit_result("\n".join(action.text for action in outcome.actions))
-    if outcome.database is not None:
-        emit_database_report(outcome.database)
-    if outcome.search_replace is not None:
-        emit_result(search_replace_line(outcome.search_replace))
-    if outcome.snapshot_path is not None:
-        emit_result(f"safety snapshot: {outcome.snapshot_path}")
-    if outcome.wp_config_kept:
-        emit_result(
-            "wp-config.php kept (target's); pass --overwrite-wp-config to replace it"
-        )
-    if completed:
-        emit_result(completion_line(outcome, archive=archive, site_root=site_root))
 
 
 def _warn_after_snapshot(warning: RunWarning, sink: WarningSink | None) -> None:
@@ -1816,19 +1039,6 @@ def _note_allow_unencrypted(request: RestoreRequest, *, encrypted: bool) -> None
     else:
         return
     _log.info("restore_flag_no_effect", option="allow_unencrypted", reason=reason)
-
-
-def _print_kept_snapshot(path: PurePath, *, error: BaseException) -> None:
-    """A failed Run's Safety Snapshot, on stdout in the configured format."""
-    if configured_format() == "json":
-        failed = {
-            "status": "failed",
-            "error": type(error).__name__,
-            "snapshot_path": str(path),
-        }
-        emit_result(json.dumps({"restore": failed}))
-        return
-    emit_result(f"safety snapshot: {path}")
 
 
 def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
@@ -1927,13 +1137,13 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
     except BaseException as exc:
         kept = _kept_snapshot(exc)
         if kept is not None:
-            _print_kept_snapshot(kept, error=exc)
+            print_kept_snapshot(kept, error=exc)
         raise
     shown = {"archive": str(request.archive.path), "site_root": str(request.site_root)}
     try:
-        require_database_restored(outcome, outcome, dry_run=outcome.dry_run)
+        require_database_restored(outcome, dry_run=outcome.dry_run)
     except BackupError:
-        _print_outcome(outcome, completed=False, **shown)
+        print_outcome(outcome, completed=False, **shown)
         raise
-    _print_outcome(outcome, completed=True, **shown)
+    print_outcome(outcome, completed=True, **shown)
     return ExitCode.OK

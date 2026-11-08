@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final, NoReturn
 
 from l3io.wp.backup.adapters.config_writer import WpConfigWriter
-from l3io.wp.backup.adapters.database import AdminTls, WpDatabase
+from l3io.wp.backup.adapters.database import WpDatabase
 from l3io.wp.backup.adapters.lock import FcntlSiteLock
 from l3io.wp.backup.adapters.noop import (
     ActionLog,
@@ -49,7 +49,7 @@ from l3io.wp.backup.domain.journal import JournalHeader, JournalRecord
 from l3io.wp.backup.domain.restore import RestorePhase
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport, UrlRelocation
 from l3io.wp.backup.ports.adapter_set import AdapterSet
-from l3io.wp.backup.ports.database import DatabaseCommand
+from l3io.wp.backup.ports.database import AdminTls, DatabaseCommand
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
 from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.search_replace import SearchReplaceCommand
@@ -81,9 +81,13 @@ class UnboundSearchReplace:
     __slots__ = ()
 
     def relocate_content(
-        self, site_root: Path, urls: UrlRelocation
+        self,
+        site_root: Path,
+        urls: UrlRelocation,
+        *,
+        archive_encrypted: bool | None = None,
     ) -> SearchReplaceReport:
-        del site_root, urls  # raises before reading them
+        del site_root, urls, archive_encrypted  # raises before reading them
         _unbound("SearchReplaceCommand.relocate_content", SEARCH_REPLACE_SUPPLIER)
 
 

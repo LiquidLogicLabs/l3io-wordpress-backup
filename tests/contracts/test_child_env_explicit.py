@@ -259,11 +259,11 @@ def test_the_package_does_start_children_so_the_scan_is_live() -> None:
             if isinstance(node, ast.Call)
             and _qualified(node.func, modules, functions) in NEEDS_ENV
         )
-    # E008-S01-001: adapters/wpcli.py runs ``wp`` through
+    # E008-S01-001: adapters/wpcli_child.py runs ``wp`` through
     # adapters/preflight.py::run_bounded, the one Popen call site.
     assert hits >= 1, "expected adapters/preflight.py::run_bounded"
-    wpcli = (ROOT / "adapters" / "wpcli.py").read_text(encoding="utf-8")
-    assert "run_bounded(" in wpcli, "adapters/wpcli.py starts a child elsewhere"
+    child = (ROOT / "adapters" / "wpcli_child.py").read_text(encoding="utf-8")
+    assert "run_bounded(" in child, "adapters/wpcli_child.py starts a child elsewhere"
 
 
 # --------------------------------------------------------------------------

@@ -32,17 +32,19 @@ from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
-    FREE_SPACE_MARGIN,
     NO_RELOCATION,
-    SNAPSHOT_FILESYSTEM,
-    ExpansionRatioError,
-    InsufficientSpaceError,
     NonEmptyTargetError,
     RestoreRelocation,
     SnapshotFailedError,
     SnapshotResult,
     TargetChangedError,
     TargetState,
+)
+from l3io.wp.backup.core.restore_space import (
+    FREE_SPACE_MARGIN,
+    SNAPSHOT_FILESYSTEM,
+    ExpansionRatioError,
+    InsufficientSpaceError,
 )
 from l3io.wp.backup.domain.archive_format import (
     INNER_MANIFEST_MEMBER,
@@ -70,6 +72,7 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
+from l3io.wp.backup.domain.search_replace import SearchReplaceReport
 from tests.conftest import InnerMembers, forge_archive, reseal
 from tests.restore_builders import RELOCATIONS
 from tests.restore_harness import (
@@ -664,6 +667,28 @@ def test_search_replace_runs_last_and_is_reported(
     assert report.search_replace is not None
 
 
+def test_search_replace_is_told_whether_the_archive_was_encrypted(
+    tmp_path: Path, archive: Path
+) -> None:
+    """BL-E007-020: the fact is an argument of the port call, not shared state."""
+    h = _harness(
+        tmp_path, archive, mode=RestoreMode.ALL, relocation=RELOCATIONS["both"]
+    )
+    told: list[bool | None] = []
+
+    class Telling:
+        def relocate_content(
+            self, site_root: Path, urls: object, *, archive_encrypted: bool | None
+        ) -> SearchReplaceReport:
+            told.append(archive_encrypted)
+            return SearchReplaceReport(
+                pairs=(), replacements=0, tables=(), remaining=0, merged=True
+            )
+
+    h.run(adapters=dataclasses.replace(h.adapters(), search_replace=Telling()))
+    assert told == [h.view.encrypted]
+
+
 # --------------------------------------------------------------------------
 # PREFLIGHT — queries only, in order, before any command
 # --------------------------------------------------------------------------
@@ -1087,8 +1112,8 @@ def test_a_relocating_dry_run_changes_nothing_and_plans_keys_only(
     """E007-S01-001: under the no-op adapters, a relocation writes and loads nothing."""
     pytest.importorskip("l3io.wp.database")
     from l3io.wp.backup.adapters.redaction import SecretRegistry
-    from l3io.wp.backup.adapters.wpcli import restore_extension
-    from l3io.wp.backup.cli.restore import RelocationFlags
+    from l3io.wp.backup.adapters.restore_extension import restore_extension
+    from l3io.wp.backup.cli.restore_request import RelocationFlags
 
     secret = "e007-dry-run-password-0"
     flags = dataclasses.replace(
@@ -1438,8 +1463,9 @@ def test_an_oversized_archive_config_is_refused_before_clean(
     tmp_path: Path, archive: Path
 ) -> None:
     """ADV-7: the 1 MiB limit is checked in PREFLIGHT, not inside REWRITE_CONFIG."""
-    from l3io.wp.backup.adapters.restore_runner import CONFIG_MAX_BYTES, config_member
+    from l3io.wp.backup.adapters.restore_runner import CONFIG_MAX_BYTES
     from l3io.wp.backup.adapters.tar import verify_archive_view
+    from l3io.wp.backup.domain.archive_format import config_member
     from l3io.wp.backup.domain.errors import MemberReadRefusedError
 
     view, _ = verify_archive_view(archive)

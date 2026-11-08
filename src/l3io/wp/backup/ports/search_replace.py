@@ -25,7 +25,16 @@ class SearchReplaceCommand(Protocol):
     """What rewrites a restored Site's stored URLs."""
 
     def relocate_content(
-        self, site_root: Path, urls: UrlRelocation
+        self,
+        site_root: Path,
+        urls: UrlRelocation,
+        *,
+        archive_encrypted: bool | None = None,
     ) -> SearchReplaceReport:
-        """Replace the stored ``siteurl``/``home`` with ``urls`` across the content."""
+        """Replace the stored ``siteurl``/``home`` with ``urls`` across the content.
+
+        ``archive_encrypted`` is whether the restored Archive was encrypted
+        (authenticated), for the record a replacer logs; ``None`` when not
+        known. Passed by the caller, never shared state (BL-E007-020).
+        """
         ...

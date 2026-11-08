@@ -3,7 +3,7 @@
 Each claim checked here is derived from its source of truth, never retyped:
 
 - the Modes table's Flags column is ``FLAG_MAP``'s combination without
-  ``--force`` for each Mode, rendered by ``cli/restore.py::render_flags``, and
+  ``--force`` for each Mode, rendered by ``cli/restore_request.py::render_flags``, and
   every ``RestoreMode`` has a row; only the table under the ``## Restore
   Modes`` heading is read, so another table's rows cannot stand in for it;
 - every ``$ wpbackup2 ...`` command in the document parses with the real
@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from l3io.wp.backup.cli.parser import build_parser
-from l3io.wp.backup.cli.restore import render_flags
+from l3io.wp.backup.cli.restore_request import render_flags
 from l3io.wp.backup.core.restore import MAX_DATABASE_NAME, STAGING_INFIX
 from l3io.wp.backup.domain.flag_map import FLAG_MAP, FlagRejection
 from l3io.wp.backup.domain.restore import RestoreMode

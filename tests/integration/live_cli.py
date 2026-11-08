@@ -29,7 +29,7 @@ import pytest
 
 from l3io.wp.backup.adapters.journal import journal_directory
 from l3io.wp.backup.cli import main
-from l3io.wp.backup.cli.restore import render_flags
+from l3io.wp.backup.cli.restore_request import render_flags
 from l3io.wp.backup.domain.flag_map import FLAG_MAP, FlagRejection
 from l3io.wp.backup.domain.restore import RestoreMode, restores_database, restores_files
 from tests.conftest import CredentialSentinel

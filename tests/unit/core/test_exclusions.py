@@ -14,7 +14,6 @@ import pytest
 from l3io.wp.backup.core.exclusions import (
     DEFAULT_EXCLUSIONS,
     ExclusionSet,
-    ExclusionSource,
     InvalidExclusionPatternError,
     enumerate_defaults,
 )
@@ -26,7 +25,11 @@ from l3io.wp.backup.domain.archive_format import (
     manifest_to_json,
 )
 from l3io.wp.backup.domain.errors import UsageError
-from l3io.wp.backup.domain.exclusion import ExcludedEntry, ExclusionDecision
+from l3io.wp.backup.domain.exclusion import (
+    ExcludedEntry,
+    ExclusionDecision,
+    ExclusionSource,
+)
 from l3io.wp.backup.domain.exit_codes import ExitCode
 
 #: What each default is there to exclude, and whether it is a directory.
@@ -223,3 +226,17 @@ def test_fifty_thousand_excluded_entries_stay_under_the_manifest_cap() -> None:
     )
     size = len(manifest_to_json(manifest).encode("utf-8"))
     assert size < MANIFEST_MAX_BYTES
+
+
+def test_one_exclusion_source_type_everywhere() -> None:
+    """BL-E004-016: the set, the Manifest field and the include-all policy agree."""
+    import typing
+
+    from l3io.wp.backup.domain.archive_format import ManifestExclusions
+    from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
+
+    assert INCLUDE_EVERYTHING.source is ExclusionSource.NONE
+    assert ExclusionSet.none().source is ExclusionSource.NONE
+    hints = typing.get_type_hints(ManifestExclusions)
+    assert hints["source"] is ExclusionSource
+    assert typing.get_type_hints(ExclusionSet)["source"] is ExclusionSource

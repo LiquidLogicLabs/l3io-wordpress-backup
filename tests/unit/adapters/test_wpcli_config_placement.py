@@ -34,10 +34,10 @@ pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.adapters.database import locate_wp_config
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.restore_extension import restore_extension
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import verify_archive_view
-from l3io.wp.backup.adapters.wpcli import restore_extension
-from l3io.wp.backup.cli.restore import RelocationFlags
+from l3io.wp.backup.cli.restore_request import RelocationFlags
 from l3io.wp.backup.core.config_location import (
     ConfigFacts,
     existing_location,

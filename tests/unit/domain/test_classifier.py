@@ -202,3 +202,17 @@ def test_member_relative_strips_each_format_s_prefix() -> None:
 
 def test_format_label() -> None:
     assert (format_label(None), format_label(1)) == ("v0", 1)
+
+
+def test_one_pending_payload_names_the_member_to_be_written() -> None:
+    """BL-E002-024: the placeholder a Manifest carries before its payload exists."""
+    from l3io.wp.backup.domain.archive_format import (
+        ENCRYPTED_PAYLOAD_MEMBER,
+        PAYLOAD_MEMBER,
+        pending_payload,
+    )
+
+    plain, sealed = pending_payload(encrypted=False), pending_payload(encrypted=True)
+    assert (plain.name, sealed.name) == (PAYLOAD_MEMBER, ENCRYPTED_PAYLOAD_MEMBER)
+    assert plain.size == sealed.size == 0
+    assert plain.sha256 == sealed.sha256 == "0" * 64

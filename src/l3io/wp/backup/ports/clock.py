@@ -12,8 +12,12 @@ __all__ = ["Clock"]
 
 
 class Clock(Protocol):
-    """Tells the time."""
+    """Tells the time, and measures durations."""
 
     def now(self) -> datetime:
         """The current time, tz-aware UTC."""
+        ...
+
+    def monotonic_ns(self) -> int:
+        """A monotonic reading in nanoseconds, for durations only (BL-E003-100)."""
         ...

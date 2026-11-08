@@ -12,6 +12,7 @@ import dataclasses
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,9 +33,8 @@ from l3io.wp.backup.adapters.staging import (
 )
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.core import restore as core_restore
-from l3io.wp.backup.core.restore import (
-    CUTOVER_KEYS,
-    NO_RELOCATION,
+from l3io.wp.backup.core.restore import CUTOVER_KEYS, NO_RELOCATION, staging_name
+from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
@@ -43,7 +43,6 @@ from l3io.wp.backup.core.restore import (
     STEP_LOSER_DROPPED,
     STEP_STAGING_DROPPED,
     is_orderly_failure,
-    staging_name,
 )
 from l3io.wp.backup.domain.config import ConfigWriteResult
 from l3io.wp.backup.domain.database import (
@@ -714,3 +713,32 @@ def test_database_name_is_valid_is_databases_check(name: str, valid: bool) -> No
     from l3io.wp.backup.adapters.database import database_name_is_valid
 
     assert database_name_is_valid(name) is valid
+
+
+class _SteppingClock:
+    """A ``Clock`` whose monotonic reading advances 7 ms per read."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def now(self) -> datetime:
+        return datetime(2026, 11, 7, tzinfo=UTC)
+
+    def monotonic_ns(self) -> int:
+        self.reads += 1
+        return self.reads * 7_000_000
+
+
+def test_the_cutover_is_timed_by_the_runs_clock(tmp_path: Path) -> None:
+    """BL-E003-100: the cutover's duration comes from the ``Clock`` port."""
+    clock = _SteppingClock()
+    h, journal = _harness(tmp_path, mode=RestoreMode.DATABASE, clock=clock)
+    with capture_logs() as logs:
+        h.run_staged(journal)
+    (cutover,) = [
+        e
+        for e in logs
+        if e["event"] == "phase_completed" and e.get("step") == "cutover"
+    ]
+    assert cutover["duration_ms"] == 7.0
+    assert clock.reads == 2

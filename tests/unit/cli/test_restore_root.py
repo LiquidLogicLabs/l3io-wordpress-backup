@@ -27,18 +27,19 @@ from l3io.wp.backup.cli import main
 from l3io.wp.backup.cli import restore as restore_mod
 from l3io.wp.backup.cli.context import open_run
 from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
-from l3io.wp.backup.cli.restore import (
+from l3io.wp.backup.cli.restore_report import DatabaseNotRestoredError
+from l3io.wp.backup.cli.restore_request import (
+    NO_SNAPSHOT_FLAG,
     ArchiveIdentityUnconfirmedError,
-    DatabaseNotRestoredError,
     NonEmptyTargetRefusal,
     RestoreOutcome,
 )
 from l3io.wp.backup.core.restore import (
-    IncompleteRunError,
     SnapshotFailedError,
     SnapshotResult,
     staging_name,
 )
+from l3io.wp.backup.core.restore_journal import IncompleteRunError
 from l3io.wp.backup.domain.archive_format import Integrity
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.database import DatabaseTargetState
@@ -218,7 +219,7 @@ def test_restore_ports_is_built_once_over_ctx_adapters(
 def test_opted_out_by_is_never_none_under_skip(rig: Rig) -> None:
     """BL-E003-050."""
     rig.drive(snapshot=SnapshotPolicy.SKIP)
-    assert rig.executions[-1]["opted_out_by"] == restore_mod.NO_SNAPSHOT_FLAG
+    assert rig.executions[-1]["opted_out_by"] == NO_SNAPSHOT_FLAG
     with pytest.raises(ValueError, match="opted_out_by"):
         rig.request(opted_out_by="")
 
@@ -661,7 +662,7 @@ def test_run_restore_prints_the_report_and_applies_the_exit_rule(
     report = summary["database_report"]
     assert isinstance(report, dict)
     assert report["restored"] is True
-    rig.execute = lambda *a, **k: report_for(a[0], restored=False)  # type: ignore[misc]
+    rig.execute = lambda plan, *a, **k: report_for(plan, restored=False)
     assert main(_argv(rig)) == int(DatabaseNotRestoredError.exit_code)
     captured = capsys.readouterr()
     assert "DatabaseNotRestoredError" in captured.err
@@ -671,7 +672,7 @@ def test_run_restore_prints_the_report_and_applies_the_exit_rule(
 def test_a_dry_run_prints_its_plan_and_exits_ok(
     rig: Rig, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rig.execute = lambda *a, **k: report_for(a[0], performed=False)  # type: ignore[misc]
+    rig.execute = lambda plan, *a, **k: report_for(plan, performed=False)
     assert main(["--whatIf", *_argv(rig)]) == int(ExitCode.OK)
     out = capsys.readouterr().out
     for action in rig.plans[-1].actions:
@@ -894,7 +895,7 @@ def test_what_if_after_restore_is_a_dry_run(
     rig: Rig, capsys: pytest.CaptureFixture[str], spelling: str
 ) -> None:
     """UX-S02-02: the flag works on either side of ``restore``."""
-    rig.execute = lambda *a, **k: report_for(a[0], performed=False)  # type: ignore[misc]
+    rig.execute = lambda plan, *a, **k: report_for(plan, performed=False)
     assert main([*_argv(rig), spelling]) == int(ExitCode.OK)
     summary = _summary(capsys.readouterr().out)
     assert summary["status"] == "planned"
@@ -938,7 +939,7 @@ def test_a_files_only_restore_ends_with_its_completion_line(
 def test_a_failed_database_check_prints_no_completion_line(
     rig: Rig, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rig.execute = lambda *a, **k: report_for(a[0], restored=False)  # type: ignore[misc]
+    rig.execute = lambda plan, *a, **k: report_for(plan, restored=False)
     assert main(_console_argv(rig)) == int(DatabaseNotRestoredError.exit_code)
     out = capsys.readouterr().out
     assert "database NOT restored: " in out
@@ -1090,14 +1091,12 @@ def test_require_encrypted_refuses_a_plain_archive_before_any_effect(
     The refusal is ``ArchiveNotEncryptedError`` (a ``UsageError``, exit 2): the
     one ``verify --authenticate`` raises for the same archive.
     """
-    executed: list[object] = []
-    rig.execute = lambda *a, **k: executed.append(a)  # type: ignore[misc, assignment]
     with pytest.raises(ArchiveNotEncryptedError):
         rig.drive(require_encrypted=True)
-    assert executed == []
+    assert rig.executions == []
     assert ArchiveNotEncryptedError.exit_code is ExitCode.USAGE
     assert main(_argv(rig, "--require-encrypted")) == int(ExitCode.USAGE)
-    assert executed == []
+    assert rig.executions == []
     assert restore_mod.UNAUTHENTICATED_WARNING not in capsys.readouterr().err
 
 
@@ -1122,14 +1121,12 @@ def test_a_passphrase_with_a_plain_archive_is_refused_before_any_effect(
     rig: Rig, dry_run: bool
 ) -> None:
     """ADR-0016 amendment 2026-11-07: a passphrase means encryption was expected."""
-    executed: list[object] = []
-    rig.execute = lambda *a, **k: executed.append(a)  # type: ignore[misc, assignment]
     with capture_logs(), pytest.raises(ArchiveNotEncryptedError) as caught:
         rig.drive(cipher=_StubCipher(), dry_run=dry_run)
     assert caught.value.passphrase_supplied is True
-    assert caught.value.arguments == ("--allow-unencrypted",)
+    assert caught.value.arguments == ("allow_unencrypted",)
     assert int(caught.value.exit_code) == 2
-    assert executed == []
+    assert rig.executions == []
 
 
 def test_allow_unencrypted_restores_a_plain_archive_with_a_passphrase(

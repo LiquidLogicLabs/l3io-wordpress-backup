@@ -9,7 +9,7 @@ table showing the same (stricter-wins) minimum. The one exemption is
 ``core/backup.py::DUMP_REQUIREMENT``: it is not a binary this package runs
 (ADR-0015), so it maps to the fixed database-client row instead.
 
-**The relocation tripwire.** When ``cli/restore.py::RESTORE_EXTENSION`` is set
+**The relocation tripwire.** For ``drive_restore``'s ``extension`` default
 (Epic 7's one static import), every tool its ``required_tools()`` returns — with
 every relocation flag set — must be produced by a registered source, so the
 table lists it. E007-S01-004 owns that registration.
@@ -28,6 +28,7 @@ restore plan adds by itself is caught only through ``RestoreMode``.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import re
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path, PurePosixPath
@@ -38,7 +39,7 @@ from l3io.wp.backup.adapters import preflight as preflight_module
 from l3io.wp.backup.adapters.preflight import KNOWN_TOOLS
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import restore as restore_cli
-from l3io.wp.backup.cli.restore import RelocationFlags, RestoreExtensionFactory
+from l3io.wp.backup.cli.restore_request import RelocationFlags, RestoreExtensionFactory
 from l3io.wp.backup.core.backup import DUMP_REQUIREMENT, build_backup_plan
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.preflight import ToolRequirement, merge_requirements
@@ -175,16 +176,18 @@ def test_every_known_tool_has_a_row() -> None:
     assert set(rows) == set(KNOWN_TOOLS)
 
 
+def _shipped_extension() -> RestoreExtensionFactory:
+    """The factory ``drive_restore`` builds a restore's extension with (its default)."""
+    default = inspect.signature(restore_cli.drive_restore).parameters["extension"]
+    factory: RestoreExtensionFactory = default.default
+    return factory
+
+
 def test_relocation_requirements_are_registered() -> None:
-    """Skipped, visibly, while ``RESTORE_EXTENSION`` is ``None``."""
-    factory = restore_cli.RESTORE_EXTENSION
-    if factory is None:
-        pytest.skip(
-            "no relocation in this build: cli/restore.py::RESTORE_EXTENSION is None "
-            "(E007-S01-004 sets it and registers its requirements)"
-        )
     assert (
-        relocation_violations(factory, preflight_module.DOCUMENTED_REQUIREMENT_SOURCES)
+        relocation_violations(
+            _shipped_extension(), preflight_module.DOCUMENTED_REQUIREMENT_SOURCES
+        )
         == []
     )
 
@@ -280,14 +283,12 @@ class _StubExtension:
         return (ToolRequirement("zz-relocation", (2, 9), "relocation"),)
 
 
-def test_a_planted_relocation_extension_trips_the_wire(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        restore_cli, "RESTORE_EXTENSION", lambda flags, *, secrets: _StubExtension()
-    )
+def test_a_planted_relocation_extension_trips_the_wire() -> None:
+    def planted(flags: RelocationFlags, *, secrets: object) -> _StubExtension:
+        return _StubExtension()
+
     found = relocation_violations(
-        restore_cli.RESTORE_EXTENSION,
+        planted,
         preflight_module.DOCUMENTED_REQUIREMENT_SOURCES,
     )
     assert len(found) == 1
@@ -295,4 +296,4 @@ def test_a_planted_relocation_extension_trips_the_wire(
     assert "DOCUMENTED_REQUIREMENT_SOURCES" in found[0]
     assert "E007-S01-004" in found[0]
     registered_stub = (lambda: (ToolRequirement("zz-relocation", (2, 9), "r"),),)
-    assert relocation_violations(restore_cli.RESTORE_EXTENSION, registered_stub) == []
+    assert relocation_violations(planted, registered_stub) == []

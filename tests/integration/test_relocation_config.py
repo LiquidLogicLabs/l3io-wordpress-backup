@@ -59,12 +59,12 @@ from l3io.wp.config.adapters import config_file as library_file
 from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
 from l3io.wp.backup.adapters.journal import journal_directory
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.restore_extension import restore_extension
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import verify_archive_view
-from l3io.wp.backup.adapters.wpcli import restore_extension
 from l3io.wp.backup.cli.credentials import new_db_password
 from l3io.wp.backup.cli.parser import RESTORE_COMMAND, build_parser
-from l3io.wp.backup.cli.restore import RelocationFlags
+from l3io.wp.backup.cli.restore_request import RelocationFlags
 from l3io.wp.backup.core.restore import RestoreRelocation, staging_name
 from l3io.wp.backup.domain.errors import BackupError, ConfigWriteFailedError
 from l3io.wp.backup.domain.exit_codes import ExitCode

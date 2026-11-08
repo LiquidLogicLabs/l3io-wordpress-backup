@@ -35,6 +35,7 @@ import tempfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Final
 
 import structlog
 
@@ -45,6 +46,7 @@ __all__ = [
     "PRIVATE_DIR_MODE",
     "STAGED_SUFFIX",
     "STALE_AFTER_SECONDS",
+    "STATE_HOME_HINT",
     "WORKSPACE_PREFIX",
     "WorkspaceNotRemovedError",
     "private_directories",
@@ -137,6 +139,25 @@ def private_directories(path: Path) -> None:
         raise NotADirectoryError(str(path))
 
 
+def _effective_uid() -> int | None:
+    """``os.geteuid()``, the owner of every file this process creates; ``None``
+    off POSIX.
+
+    Ownership is judged against the effective uid, not the real one (owner
+    decision 44, 2026-11-07): under ``sudo -E`` the real and effective users
+    differ, and what matters is who will own the files the Run writes.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    return None if geteuid is None else int(geteuid())
+
+
+#: The remedy a state-directory refusal names (owner decision 44).
+STATE_HOME_HINT: Final = (
+    "point XDG_STATE_HOME at a directory this user owns "
+    "(sudo -E keeps the invoking user's environment)"
+)
+
+
 def private_state_directories(path: Path, *, root: Path) -> None:
     """:func:`private_directories` for a state directory, checked before and after.
 
@@ -157,15 +178,16 @@ def require_private_state_directory(
 
     ``path`` and, when it lies under ``root`` (the per-user state directory),
     each ancestor up to and including ``root`` must be a real directory — not
-    a symlink — owned by this user (the real uid, as :func:`sweep_stale`
-    judges ownership) and not group- or world-writable. Whoever owns or can
-    write such a directory could swap a journal, lock or Safety Snapshot name
-    for a link. Each refusal is a ``PermissionError`` (``NotADirectoryError``
-    for a symlink or a file) whose ``strerror`` names the component and the
-    reason; each caller maps it to its own error, as it maps
-    :func:`private_directories`' ``OSError``. Off POSIX (no ``getuid``) only
-    the type and mode are checked. ``missing_ok`` skips a component that
-    does not exist yet.
+    a symlink — owned by this process's effective uid (as :func:`sweep_stale`
+    judges ownership; owner decision 44) and not group- or world-writable.
+    Whoever owns or can write such a directory could swap a journal, lock or
+    Safety Snapshot name for a link. Each refusal is a ``PermissionError``
+    (``NotADirectoryError`` for a symlink or a file) whose ``strerror`` names
+    the component and the reason; each caller maps it to its own error, as it maps
+    :func:`private_directories`' ``OSError``. A directory another user owns
+    is named with both uids and :data:`STATE_HOME_HINT`. Off POSIX (no
+    ``geteuid``) only the type and mode are checked. ``missing_ok`` skips a
+    component that does not exist yet.
     """
     absolute = Path(os.path.abspath(path))  # noqa: PTH100 - lexical, no symlink resolved
     top = Path(os.path.abspath(root))  # noqa: PTH100
@@ -175,7 +197,7 @@ def require_private_state_directory(
             components.append(parent)
             if parent == top:
                 break
-    uid = os.getuid() if hasattr(os, "getuid") else None
+    uid = _effective_uid()
     for component in components:
         try:
             info = os.lstat(component)
@@ -188,7 +210,11 @@ def require_private_state_directory(
             reason = f"state directory {str(component)!r} is {kind}"
             raise NotADirectoryError(errno.ENOTDIR, reason, str(component))
         if uid is not None and info.st_uid != uid:
-            reason = f"state directory {str(component)!r} is not owned by this user"
+            reason = (
+                f"state directory {str(component)!r} is owned by another user "
+                f"(uid {info.st_uid}; this process runs as uid {uid}); "
+                f"{STATE_HOME_HINT}"
+            )
             raise PermissionError(errno.EPERM, reason, str(component))
         if stat.S_IMODE(info.st_mode) & 0o022:
             reason = (
@@ -212,12 +238,14 @@ def _newest_mtime(path: Path) -> float:
 def sweep_stale(candidates: Iterable[Path], *, now: float) -> tuple[Path, ...]:
     """Remove each candidate this user owns that is older than the cutoff.
 
-    A symlink is never followed or removed, nor is anything another user
-    owns. ``now`` is a POSIX timestamp. Failures are skipped: the sweep is
-    housekeeping, never a reason for the Run to fail. Returns what it removed.
+    "This user" is the effective uid, the owner of what the Run creates
+    (owner decision 44). A symlink is never followed or removed, nor is
+    anything another user owns. ``now`` is a POSIX timestamp. Failures are
+    skipped: the sweep is housekeeping, never a reason for the Run to fail.
+    Returns what it removed.
     """
     removed: list[Path] = []
-    uid = os.getuid() if hasattr(os, "getuid") else None
+    uid = _effective_uid()
     for path in candidates:
         try:
             info = path.lstat()

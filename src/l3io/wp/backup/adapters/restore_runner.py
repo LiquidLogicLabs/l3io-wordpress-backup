@@ -43,7 +43,6 @@ the Run Context nor ``adapters/staging.py``.
 
 from __future__ import annotations
 
-import contextlib
 import os
 import stat
 import time
@@ -51,7 +50,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import ClassVar, Final, assert_never
+from typing import ClassVar, Final, assert_never, cast
 
 import structlog
 
@@ -66,13 +65,6 @@ from l3io.wp.backup.adapters.tar import (
 from l3io.wp.backup.core.restore import (
     CONFIG_FILE_NAME,
     CUTOVER_KEYS,
-    SNAPSHOT_FILESYSTEM,
-    STEP_CONFIG,
-    STEP_CONFIG_REPLACED,
-    STEP_CONFIG_SAVED,
-    STEP_CONFIG_STARTED,
-    TARGET_FILESYSTEM,
-    WORKSPACE_FILESYSTEM,
     ArchiveHasNoConfigError,
     DatabaseRestoreReport,
     ExecutionReport,
@@ -80,24 +72,32 @@ from l3io.wp.backup.core.restore import (
     RestorePlan,
     SnapshotFailedError,
     SnapshotResult,
-    SpaceClaim,
     TargetState,
+    recheck_target,
+)
+from l3io.wp.backup.core.restore_journal import (
+    STEP_CONFIG,
+    STEP_CONFIG_REPLACED,
+    STEP_CONFIG_SAVED,
+    STEP_CONFIG_STARTED,
+    is_orderly_failure,
+)
+from l3io.wp.backup.core.restore_space import (
+    SNAPSHOT_FILESYSTEM,
+    TARGET_FILESYSTEM,
+    WORKSPACE_FILESYSTEM,
+    SpaceClaim,
     check_claims,
     check_expansion,
-    is_orderly_failure,
-    recheck_target,
     space_need,
 )
 from l3io.wp.backup.domain.archive_format import (
-    ArchiveView,
     Integrity,
-    MemberKind,
     MemberRole,
     SkippedLink,
-    ViewMember,
     check_inner_manifest,
+    config_member,
     format_label,
-    member_path,
     member_relative,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -110,7 +110,6 @@ from l3io.wp.backup.domain.errors import (
     PayloadDamagedError,
     RefusedError,
     RunTerminated,
-    UnsafeMemberPathError,
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
@@ -134,7 +133,6 @@ __all__ = [
     "ArchiveChangedError",
     "ExtractionRefusedAfterCleanError",
     "TargetConfigMissingError",
-    "config_member",
     "execute_restore",
     "snapshot_result",
 ]
@@ -507,24 +505,17 @@ def _check_config(run: _Run) -> None:
         raise MemberReadRefusedError(member.path, reason)
 
 
-def config_member(view: ArchiveView) -> ViewMember | None:
-    """The Archive's config: the ``config``-role file, else the one it names."""
-    for member in view.members:
-        if member.role is MemberRole.CONFIG and member.kind is MemberKind.FILE:
-            return member
-    if view.config_path is None:
-        return None
-    names = {view.config_path}
-    with contextlib.suppress(UnsafeMemberPathError):
-        names.add(member_path(MemberRole.SITE_ROOT, view.config_path))
-    return next(
-        (m for m in view.members if m.path in names and m.kind is MemberKind.FILE),
-        None,
-    )
-
-
 def _check_space(run: _Run) -> None:
-    """BL-E002-116: refuse before ``CLEAN`` what the destinations cannot hold."""
+    """BL-E002-116: refuse before ``CLEAN`` what the destinations cannot hold.
+
+    **Advisory** (ADV-12, SD-01-4): ``PREFLIGHT`` runs before ``VERIFY``, so
+    the sizes here are the unverified index's (a v1 Manifest's, or a v0
+    Archive's tar headers). A forged index can understate them and pass; a
+    corrupt Archive can be refused here before ``VERIFY`` would name it.
+    ``VERIFY`` and extraction enforce: ``tar._ExtractFilter`` holds each
+    member to its indexed size with a running cap, so an Archive never writes
+    more than it declares (``docs/restore.md``, Size and free-space limits).
+    """
     view, phases = run.inputs.view, run.plan.phases
     extracts = RestorePhase.EXTRACT in phases
     config = config_member(view) if run.overwrites_config else None
@@ -653,10 +644,11 @@ def _verify(run: _Run, record: PhaseRecord) -> None:
         decrypt_payload(
             inputs.archive, inputs.view, cipher=run.cipher, destination=run.payload
         )
-        if text is None:  # pragma: no cover - a passed v1 scan read its Manifest
-            raise PayloadDamagedError
+        # An encrypted view is a v1 Manifest's, so the scan that classified it
+        # read the text (``verify_archive_manifest``); no None case to handle
+        # (BL-E004-065).
         field = check_inner_manifest(
-            text,
+            cast("str", text),
             read_inner_manifest(run.payload, phase_key=RestorePhase.VERIFY),
         )
         if field is not None:
@@ -963,5 +955,7 @@ def _search_replace(run: _Run) -> None:
         raise ValueError(msg)
     run.journal.phase_started(RestorePhase.SEARCH_REPLACE, str(run.site_root))
     command = run.ports.adapters.search_replace
-    run.search_replace = command.relocate_content(run.site_root, urls)
+    run.search_replace = command.relocate_content(
+        run.site_root, urls, archive_encrypted=run.inputs.view.encrypted
+    )
     run.journal.phase_completed(RestorePhase.SEARCH_REPLACE)

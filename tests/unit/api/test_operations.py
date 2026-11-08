@@ -40,9 +40,9 @@ from l3io.wp.backup.cli.backup import BackupRequest, storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, open_run
 from l3io.wp.backup.cli.parser import build_parser
 from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
-from l3io.wp.backup.cli.restore import (
+from l3io.wp.backup.cli.restore_report import DatabaseNotRestoredError
+from l3io.wp.backup.cli.restore_request import (
     NO_SNAPSHOT_FLAG,
-    DatabaseNotRestoredError,
     RelocationFlags,
     RestoreRequest,
 )
@@ -431,12 +431,13 @@ def test_restore_defaults_are_the_policy_and_no_relocation(
 
 
 def test_a_relocation_reaches_the_driver_unchanged(rig: Rig) -> None:
-    """E007-S01-001 has bound ``RESTORE_EXTENSION``, so ``api/`` adds no check.
+    """E007-S01-001 ships the restore extension, so ``api/`` adds no check.
 
     The story's "a non-empty value is refused with ``UsageError``" held only
     while nothing was bound; the built code is followed (recorded deviation).
     """
-    assert restore_cli.RESTORE_EXTENSION is not None
+    extension = inspect.signature(restore_cli.drive_restore).parameters["extension"]
+    assert extension.default is not inspect.Parameter.empty
     flags = dataclasses.replace(
         RelocationFlags.none(), new_site_url="https://n.example"
     )
@@ -791,9 +792,9 @@ def restored_rule(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     seen: list[bool] = []
     real = restore_cli.require_database_restored
 
-    def rule(plan: Any, outcome: Any, *, dry_run: bool) -> None:  # noqa: ANN401
+    def rule(outcome: Any, *, dry_run: bool) -> None:  # noqa: ANN401
         seen.append(dry_run)
-        real(plan, outcome, dry_run=dry_run)
+        real(outcome, dry_run=dry_run)
 
     monkeypatch.setattr(operations, "require_database_restored", rule)
     return seen

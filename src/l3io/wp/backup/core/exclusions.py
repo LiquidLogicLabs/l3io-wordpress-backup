@@ -15,20 +15,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Final
 
 from pathspec import GitIgnoreSpec
 
+from l3io.wp.backup.domain.archive_format import WP_CONFIG_NAME
 from l3io.wp.backup.domain.errors import UsageError
-from l3io.wp.backup.domain.exclusion import ExclusionDecision
+from l3io.wp.backup.domain.exclusion import ExclusionDecision, ExclusionSource
 
 __all__ = [
     "DEFAULT_EXCLUSIONS",
     "PROTECTED_PATHS",
     "ExclusionSet",
-    "ExclusionSource",
     "InvalidExclusionPatternError",
     "enumerate_defaults",
 ]
@@ -45,15 +44,7 @@ DEFAULT_EXCLUSIONS: Final[tuple[str, ...]] = (
 )
 
 #: Site-Root-relative POSIX paths no rule may exclude.
-PROTECTED_PATHS: Final[frozenset[str]] = frozenset({"wp-config.php"})
-
-
-class ExclusionSource(StrEnum):
-    """Where an :class:`ExclusionSet`'s patterns came from (the Manifest's key)."""
-
-    DEFAULT = "default"
-    CUSTOM = "custom"
-    NONE = "none"
+PROTECTED_PATHS: Final[frozenset[str]] = frozenset({WP_CONFIG_NAME})
 
 
 class InvalidExclusionPatternError(UsageError):
@@ -63,7 +54,7 @@ class InvalidExclusionPatternError(UsageError):
         self.pattern = pattern
         self.reason = reason
         super().__init__(
-            f"invalid exclusion pattern {pattern!r}: {reason}", arguments=("--exclude",)
+            f"invalid exclusion pattern {pattern!r}: {reason}", arguments=("patterns",)
         )
 
 

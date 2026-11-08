@@ -246,6 +246,15 @@ lock's refusal is `SiteLockLocationError`, exit 7 `NOT_READY`, naming the
 directory and the reason). Fix the directory's owner or mode (`chmod 0700`), or
 point `XDG_STATE_HOME` at a directory you own.
 
+"The user running the command" is the effective user, the one that will own
+the files the Run creates (owner decision 44). The stale-workspace sweep
+judges ownership the same way. Under `sudo -E` the environment, and with it
+`XDG_STATE_HOME` (and, unless sudoers resets it, `HOME`), is the invoking
+user's while the effective user is root, so the state directory found can be
+owned by another user: the refusal names
+the directory, both uids and `XDG_STATE_HOME`. Point `XDG_STATE_HOME` at a
+directory root owns, or run without `-E`.
+
 ## Correlating with your own identifier
 
 A Python caller can bind its own correlation ID before calling the library; it

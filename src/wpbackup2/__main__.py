@@ -3,7 +3,6 @@
 from l3io.wp.backup.cli import run_from_cli
 
 if __name__ == "__main__":
-    # The same call the generated console script makes, `sys.exit(entry())`, so
-    # the two invocations exit alike. `run_from_cli` raises its own SystemExit
-    # today, hence the ignore; the wrapper keeps parity if it ever returns.
-    raise SystemExit(run_from_cli())  # type: ignore[func-returns-value]
+    # The console script's own call: `run_from_cli` raises the Run's
+    # SystemExit itself (it is typed NoReturn), so both invocations exit alike.
+    run_from_cli()

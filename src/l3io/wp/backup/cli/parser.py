@@ -56,7 +56,6 @@ __all__ = [
     "NEW_DB_PASSWORD_VAR",
     "NOT_AVAILABLE_NOTE",
     "NOT_YET_IMPLEMENTED",
-    "RELOCATION_UNAVAILABLE",
     "RESTORE_COMMAND",
     "RESTORE_MODE_GROUP",
     "RESTORE_OPTIONS_GROUP",
@@ -82,12 +81,6 @@ RESTORE_OPTIONS_GROUP = "restore options"
 #: The relocated account's password from the environment, not the command line.
 NEW_DB_PASSWORD_VAR: Final = "L3IO_WP_BACKUP_NEW_DB_PASSWORD"  # noqa: S105 - a name
 
-#: Why a relocation flag is refused while no restore extension is built in.
-#: The six ``--new-*`` flags were bound by E007-S01-001 and ``restore
-#: --wp-config`` by E007-S01-002; none is listed in NOT_YET_IMPLEMENTED.
-RELOCATION_UNAVAILABLE: Final = (
-    "restoring to a new URL, database or wp-config.php location is not supported yet"
-)
 # Never bound: the legacy option had no meaning without its removed dependency.
 _REMOVED = "this option was removed and will not return"
 #: Ends the ``--help`` line of every :data:`NOT_YET_IMPLEMENTED` entry.

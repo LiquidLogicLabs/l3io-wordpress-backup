@@ -57,6 +57,11 @@ from l3io.wp.backup.adapters.staging import complete_cutover
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
+    RestoreRelocation,
+    load_names,
+    planned_cutover_keys,
+)
+from l3io.wp.backup.core.restore_journal import (
     STEP_CONFIG,
     STEP_CONFIG_STARTED,
     STEP_CUTOVER,
@@ -64,9 +69,6 @@ from l3io.wp.backup.core.restore import (
     STEP_LOSER_DROP_STARTED,
     STEP_LOSER_DROPPED,
     IncompleteRunError,
-    RestoreRelocation,
-    load_names,
-    planned_cutover_keys,
     undo_for,
 )
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase

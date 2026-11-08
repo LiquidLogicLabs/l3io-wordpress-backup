@@ -13,7 +13,7 @@ import shlex
 import pytest
 
 from l3io.wp.backup.cli.parser import RESTORE_COMMAND, build_parser
-from l3io.wp.backup.cli.restore import (
+from l3io.wp.backup.cli.restore_request import (
     NonEmptyTargetRefusal,
     flag_combination,
     render_flags,

@@ -50,7 +50,7 @@ def test_a_root_restore_is_refused_before_the_lock(
         )
     assert lock.events == []
     assert caught.value.exit_code is ExitCode.USAGE
-    assert caught.value.arguments == ("--allow-root",)
+    assert caught.value.arguments == ("allow_root",)
     assert "--allow-root" in str(caught.value)
 
 

@@ -39,7 +39,6 @@ from l3io.wp.backup.cli import parser as cli_parser
 from l3io.wp.backup.cli.parser import (
     NOT_AVAILABLE_NOTE,
     NOT_YET_IMPLEMENTED,
-    RELOCATION_UNAVAILABLE,
     RESTORE_COMMAND,
     build_parser,
 )
@@ -198,7 +197,6 @@ def _internal_names(texts: dict[str, str]) -> list[str]:
     [
         ("help", _help_lines()),
         ("reasons", dict(NOT_YET_IMPLEMENTED)),
-        ("relocation", {"relocation": RELOCATION_UNAVAILABLE}),
     ],
 )
 def test_no_operator_text_names_a_planning_artefact(

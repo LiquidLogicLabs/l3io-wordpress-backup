@@ -18,19 +18,20 @@ from structlog.testing import capture_logs
 
 pytest.importorskip("l3io.wp.database")
 
-from l3io.wp.backup.adapters import wpcli
+from l3io.wp.backup.adapters import restore_extension as extension_mod
+from l3io.wp.backup.adapters import wpcli, wpcli_child
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.wpcli import (
+from l3io.wp.backup.adapters.restore_extension import (
     WpCliRestoreExtension,
-    WpCliSearchReplace,
     restore_extension,
 )
+from l3io.wp.backup.adapters.wpcli import WpCliSearchReplace
 from l3io.wp.backup.cli.parser import (
     NOT_YET_IMPLEMENTED,
     RESTORE_COMMAND,
     build_parser,
 )
-from l3io.wp.backup.cli.restore import RelocationFlags, RestoreExtensionFactory
+from l3io.wp.backup.cli.restore_request import RelocationFlags, RestoreExtensionFactory
 from l3io.wp.backup.core.relocation import RELOCATION_FLAGS, RelocationRequest
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
@@ -52,14 +53,14 @@ from tests.conftest import CredentialSentinel
 from tests.restore_builders import SITE, plan, view
 
 #: The real BL-E007-008 check, before the autouse fixture replaces it.
-_REAL_STATE_CHECK = wpcli._check_wp_cli_directory  # noqa: SLF001
+_REAL_STATE_CHECK = wpcli.check_wp_cli_directory
 
 
 @pytest.fixture(autouse=True)
 def _no_state_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     """``resolve``'s BL-E007-008 check reads the real state directory; these
     cases use a synthetic Site Root. The check has its own tests below."""
-    monkeypatch.setattr(wpcli, "_check_wp_cli_directory", lambda site_root: None)
+    monkeypatch.setattr(extension_mod, "check_wp_cli_directory", lambda site_root: None)
 
 
 PASSWORD = "e007-relocated-password-0"
@@ -391,7 +392,7 @@ def test_search_replace_is_bound_iff_a_url_and_wp(
         lookups.append(name)
         return found
 
-    monkeypatch.setattr(wpcli, "locate_tool", which)
+    monkeypatch.setattr(extension_mod, "locate_tool", which)
     extension = restore_extension(_from(combo), secrets=SecretRegistry())
     url = bool(names & {"new_site_url", "new_home_url"})
     assert lookups == (["wp"] if url else [])
@@ -445,7 +446,7 @@ def test_resolve_runs_the_state_check_only_for_a_url_relocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     checked: list[Path] = []
-    monkeypatch.setattr(wpcli, "_check_wp_cli_directory", checked.append)
+    monkeypatch.setattr(extension_mod, "check_wp_cli_directory", checked.append)
     for flags, expected in (
         (_flags(new_site_url="https://new.example"), 1),
         (_flags(new_db_name="e008_db"), 0),
@@ -459,7 +460,7 @@ def test_a_wp_child_printing_past_the_cap_is_killed_and_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """BL-E007-009: the output is bounded; past it the call fails."""
-    monkeypatch.setattr(wpcli, "CHILD_OUTPUT_LIMIT", 4096)
+    monkeypatch.setattr(wpcli_child, "CHILD_OUTPUT_LIMIT", 4096)
     script = tmp_path / "wp"
     script.write_text("#!/bin/sh\nyes WP-CLI 2.12.0\n", encoding="utf-8")
     script.chmod(0o755)

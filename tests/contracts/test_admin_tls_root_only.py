@@ -133,7 +133,7 @@ def test_an_aliased_construction_is_found(tmp_path: Path) -> None:
     found = _plant(
         tmp_path,
         "cli/verify.py",
-        "from l3io.wp.backup.adapters.database import AdminTls as T\n"
+        "from l3io.wp.backup.ports.database import AdminTls as T\n"
         "class V:\n    def run(self):\n        return T(mode=None, ca_file=None)\n",
     )
     assert found == {"cli/verify.py::V.run"}
@@ -143,7 +143,7 @@ def test_a_qualified_construction_and_a_dict_spread_are_found(tmp_path: Path) ->
     found = _plant(
         tmp_path,
         "cli/doctor.py",
-        "from l3io.wp.backup.adapters import database\n"
+        "from l3io.wp.backup.ports import database\n"
         "def a():\n    database.AdminTls(mode='verify-ca', ca_file=None)\n"
         "def b(tls):\n    real_adapters(**{'admin_tls': tls})\n",
     )

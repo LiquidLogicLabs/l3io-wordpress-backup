@@ -54,12 +54,12 @@ from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
 from l3io.wp.backup.adapters.journal import CURRENT
 from l3io.wp.backup.adapters.preflight import BinaryPreflight
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.adapters.restore_extension import restore_extension
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import verify_archive_view
-from l3io.wp.backup.adapters.wpcli import restore_extension
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters
 from l3io.wp.backup.cli.preflight import require_tools
-from l3io.wp.backup.cli.restore import RelocationFlags
+from l3io.wp.backup.cli.restore_request import RelocationFlags
 from l3io.wp.backup.core.relocation import WP_CLI_MINIMUM, WP_CLI_REQUIREMENT
 from l3io.wp.backup.core.restore import RestoreRelocation
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
