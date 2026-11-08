@@ -683,6 +683,14 @@ refused with this flag (exit 3; omit it to keep the target's), as is one whose
 Archive's copy is read into memory and written only once, over the target's
 file; no other copy of it is written, and a Dry Run writes none.
 
+**The Archive's file is applied whole, code included.** Apart from the four
+`DB_*` constants, nothing in the Archive's `wp-config.php` is filtered or
+inspected: any PHP it holds beyond its settings (an `include`, a function
+call, an edit an attacker made) runs on the target, exactly like the plugins,
+themes and core files the same Archive restores. The Run gives no separate
+warning about it. Restore only Archives you trust, and keep the default
+(the target's `wp-config.php`) when you are unsure of the Archive's copy.
+
 **Not for a target whose `DB_*` are PHP expressions.** The target's four
 `DB_*` constants are carried into the Archive's file as their current
 **values**, not as the source text that defines them. A target that computes
