@@ -7,6 +7,33 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Changed: root backups switch user, the library refuses root, short decryption passphrases warn (owner decisions 67-69, 2026-11-08)
+
+- **A backup started as root runs as the Site Root's owner** (decision 67),
+  as a restore does. It refuses a root-owned Site Root first (exit 2,
+  `RootBackupRefusedError`), then reads the config file, the passphrase and
+  the database credentials (the whole chain: flags, the environment, an AWS
+  secret, `wp-config.php`), then switches to the owner's uid and gid (INFO
+  `backup_runs_as_site_owner`). Backup and restore then share the owner's
+  state directory and Site Lock, and the Archive is the owner's file. An
+  Archive directory the owner cannot write is refused before the Run opens,
+  a Dry Run too (exit 3, `ArchiveDirectoryNotWritableError`, naming the
+  directory). v0.2.21 backed up as root and wrote a root-owned Archive.
+  `wp-config.php` (read again for its settings and its copy in the Archive)
+  and `--db-tls-ca` must be readable by the owner.
+- **The library refuses a backup running as root** (decision 68):
+  `backup()` raises `RootBackupRefusedError` before the Site is read, as
+  `restore()` raises `RootRestoreRefusedError`; drop privileges to the Site
+  Root's owner first, or use the `wpbackup2` command. `verify()` touches no
+  Site and is not refused. `RootBackupRefusedError` and
+  `ArchiveDirectoryNotWritableError` are new.
+- **A decryption passphrase shorter than 4 characters is accepted**
+  (decision 69): `verify --authenticate` and `restore` proceed with WARNING
+  `credential_below_redaction_floor`, naming its source, never the value; it
+  was refused (exit 2, `PassphraseUnavailableError`, "too short to
+  protect"). A new encryption still needs 12 characters
+  (`PassphraseTooShortError`, however short).
+
 ### Changed: unattended by default (owner decisions 54-65, 2026-11-08)
 
 `wpbackup2 backup` and `wpbackup2 restore --archive latest` now run with no

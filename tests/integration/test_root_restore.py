@@ -84,17 +84,24 @@ def tree() -> Iterator[Path]:
 
 @pytest.fixture
 def archive(tree: Path) -> Path:
-    """A files Archive of a source site, written by root and readable only by it."""
-    source = tree / "source"
-    source.mkdir()
-    (source / "wp-config.php").write_text(WP_CONFIG, encoding="utf-8")
-    (source / "index.php").write_text("<?php // restored\n", encoding="utf-8")
-    (source / "wp-content").mkdir()
-    (source / "wp-content" / "upload.txt").write_text("sentinel-root\n", "utf-8")
-    backups = tree / "backups"
-    backups.mkdir(mode=0o700)
+    """A files Archive of a source site, then made root's and readable only by it.
+
+    The backup itself, started as root, runs as the source's owner (owner
+    decision 67), so the source and the Archive directory are the owner's.
+    """
+    source = _owned(tree / "source", 0o755)
+    for name, text in (
+        ("wp-config.php", WP_CONFIG),
+        ("index.php", "<?php // restored\n"),
+        ("wp-content/upload.txt", "sentinel-root\n"),
+    ):
+        path = source / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    for path in (source / "wp-content", *source.rglob("*")):
+        os.chown(path, OWNER, OWNER)
+    backups = _owned(tree / "backups", 0o700)
     target = backups / "site.tar.gz"
-    env = {k: v for k, v in os.environ.items() if not k.startswith("L3IO_WP_BACKUP_")}
     done = _run(
         [
             "backup",
@@ -105,12 +112,13 @@ def archive(tree: Path) -> Path:
             "--archive",
             str(target),
         ],
-        env,
+        _env(tree),
         tree,
     )
     assert done.returncode == 0, done.stderr
+    os.chown(backups, 0, 0)
+    os.chown(target, 0, 0)
     target.chmod(0o600)
-    assert target.stat().st_uid == 0
     return target
 
 

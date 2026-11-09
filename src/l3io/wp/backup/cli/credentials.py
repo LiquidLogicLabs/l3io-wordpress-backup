@@ -48,6 +48,7 @@ from l3io.wp.backup.domain.credentials import (
     AwsSecretCredentialSpec,
     CredentialSpec,
     ExplicitCredentialSpec,
+    ResolvedCredentialSpec,
 )
 from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.secret import Secret, as_secret
@@ -191,7 +192,7 @@ def admin_spec(
 
 
 def wordpress_source(
-    spec: CredentialSpec | None,
+    spec: CredentialSpec | ResolvedCredentialSpec | None,
     *,
     wp_config: CredentialSource,
     environ: Mapping[str, str],

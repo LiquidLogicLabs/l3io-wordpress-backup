@@ -677,6 +677,13 @@ the snapshot is written unencrypted and the Run says so on stderr (`safety
 snapshot is NOT encrypted: <path>`). When a later phase fails, the snapshot's
 path is printed with the failure.
 
+A restore takes a passphrase of any length, so an Archive encrypted before the
+12-character floor existed stays restorable; one shorter than 12 logs WARNING
+`passphrase_below_encryption_floor` (it also encrypts the snapshot), and one
+shorter than 4 also logs WARNING `credential_below_redaction_floor`, naming
+where it came from, never the value: it is too short to be masked in logs
+(owner decision 69). `verify --authenticate` accepts it the same way.
+
 The published snapshot file is mode `0600`, and every directory the Run
 creates for it is `0700` (an existing directory is left as it is); a published
 file readable by anyone else stops the Run with `REFUSED` before anything is
@@ -964,12 +971,28 @@ the owner's; an `XDG_STATE_HOME` you set is kept and must then belong to that
 owner. After the switch the process is not dumpable, so the site's PHP,
 running as the same user, cannot read its environment.
 
+A backup started as root switches the same way (owner decision 67), after
+reading the config file, the passphrase and the database credentials (the
+whole chain, `wp-config.php` and an AWS secret included), and logs INFO
+`backup_runs_as_site_owner`. A backup and a restore of one site therefore
+share the owner's state directory and Site Lock, and the Archive is the
+owner's file. The Archive directory (the `--archive` target's directory,
+`--archive-dir`, or the default one, now the owner's) must be writable by the
+owner: otherwise the backup is refused after the switch and before the Run
+opens, a Dry Run too (exit 3, `ArchiveDirectoryNotWritableError`, naming the
+directory). The Run reads `wp-config.php` again as the owner (its other
+settings, and its copy in the Archive), and the database client opens
+`--db-tls-ca` during the Run, so both must be readable by the owner, as the
+site's own PHP must read `wp-config.php` anyway.
+
 Refused (exit 2 `USAGE`, before the Run opens): a Site Root owned by root,
-which has no owner to switch to (`RootRestoreRefusedError`). A switch that
-does not hold stops the Run (exit 3, `PrivilegeDropError`). The library
-(`api.restore`) never changes its host's user, so it refuses a restore
-running as root; run such a host as the site's owner. A backup does not
-switch.
+which has no owner to switch to (`RootRestoreRefusedError`, or
+`RootBackupRefusedError` for a backup, before anything else is read). A
+switch that does not hold stops the Run (exit 3, `PrivilegeDropError`). The
+library (`api.restore`, `api.backup`) never changes its host's user, so it
+refuses a Run as root (owner decision 68); drop privileges to the site's
+owner first, or use the `wpbackup2` command. `verify` touches no Site, so it
+neither switches nor refuses.
 
 ## `--archive latest`
 

@@ -35,6 +35,11 @@ An explicit spec's password is registered with the Run's ``SecretRegistry``
 when its source is built, and a short one warned of there; every password the
 chain resolves is registered by ``adapters/database.py``'s wrapper, the only
 caller of these builders.
+
+One source is this module's own, and it provides nothing new:
+:func:`resolved_credentials` replays a ``ResolvedCredentialSpec``, the answer
+a WordPress chain gave a backup the CLI started as root, before it switched to
+the Site Root's owner (owner decision 67), under that chain's label.
 """
 
 from __future__ import annotations
@@ -54,10 +59,11 @@ from l3io.wp.backup.domain.credentials import (
     AwsSecretCredentialSpec,
     CredentialOrigin,
     CredentialSpec,
+    ResolvedCredentialSpec,
 )
 
 if TYPE_CHECKING:
-    from l3io.wp.database import CredentialSource
+    from l3io.wp.database import CredentialSource, ResolvedCredentials
 
     from l3io.wp.backup.adapters.redaction import SecretRegistry
 
@@ -67,6 +73,7 @@ __all__ = [
     "WORDPRESS_PASSWORD_VAR",
     "WORDPRESS_USER_VAR",
     "admin_credentials",
+    "resolved_credentials",
     "unset_partner",
     "wordpress_credentials",
 ]
@@ -191,3 +198,38 @@ def admin_credentials(
     from l3io.wp import database as wpdb
 
     return wpdb.CredentialChain(*ordered)
+
+
+class _Resolved:
+    """A ``CredentialSource`` replaying a :class:`ResolvedCredentialSpec`."""
+
+    __slots__ = ("_spec",)
+
+    def __init__(self, spec: ResolvedCredentialSpec) -> None:
+        self._spec = spec
+
+    def __repr__(self) -> str:
+        return f"Resolved({self.source!r})"
+
+    @property
+    def source(self) -> str:
+        return self._spec.chain
+
+    def resolve(self) -> ResolvedCredentials:
+        from l3io.wp import database as wpdb
+
+        spec = self._spec
+        # Handed to l3io-wordpress-database: revealed here only.
+        return wpdb.ResolvedCredentials(
+            spec.username, spec.secret.reveal(), spec.source
+        )
+
+
+def resolved_credentials(spec: ResolvedCredentialSpec) -> CredentialSource:
+    """The source answering with ``spec`` under its chain's label (decision 67).
+
+    No I/O and no registration: the password was registered, and a short one
+    warned of, when the chain resolved it; the caller registers it with the
+    Run's registry.
+    """
+    return _Resolved(spec)

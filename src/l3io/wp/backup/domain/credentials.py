@@ -16,6 +16,12 @@ Two precedence orders, first present wins:
 
 AWS Secrets Manager is a kind of explicit source, not a fourth origin. Epic 5's
 providers import these tuples and declare no precedence of their own.
+
+:class:`ResolvedCredentialSpec` is not a fifth source: it is the WordPress
+chain's answer, resolved by a backup the CLI started as root before it
+switched to the Site Root's owner (owner decision 67), carried into the Run
+so nothing only root could read is read again. It is not part of
+:data:`CredentialSpec`, the public type.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ __all__ = [
     "CredentialOrigin",
     "CredentialSpec",
     "ExplicitCredentialSpec",
+    "ResolvedCredentialSpec",
 ]
 
 
@@ -87,3 +94,32 @@ class AwsSecretCredentialSpec:
 
 
 CredentialSpec: TypeAlias = ExplicitCredentialSpec | AwsSecretCredentialSpec
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCredentialSpec:
+    """The WordPress chain's answer, resolved before a switch of user.
+
+    ``chain`` is the label of the chain that was resolved (what the plan
+    names), ``source`` the label of the step that answered. ``repr`` omits
+    the password.
+    """
+
+    username: str
+    password: Secret | str
+    source: str
+    chain: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "password", as_secret(self.password))
+
+    @property
+    def secret(self) -> Secret:
+        """``password``, typed as the ``Secret`` it always is."""
+        return as_secret(self.password)
+
+    def __repr__(self) -> str:
+        return (
+            f"ResolvedCredentialSpec(username={self.username!r}, "
+            f"source={self.source!r})"
+        )

@@ -9,9 +9,13 @@ database's classes (E005-S01-001). This guard fails when the package grows
   ``ResolvedCredentials``.
 
 Scope: every ``*.py`` under ``src/l3io/wp/backup/``, walked, asserted
-non-empty. Two exemptions, by qualified name, both in ``adapters/database.py``:
+non-empty. Three exemptions, by qualified name: ``adapters/database.py``'s
 ``_RegisteringSource``, the registering wrapper around database's sources
-(ADR-0018), which provides nothing of its own; and ``WpConfigCredentials``
+(ADR-0018), which provides nothing of its own;
+``adapters/credential_providers.py``'s ``_Resolved``, which replays the
+answer a WordPress chain gave a backup started as root before it switched
+users (owner decision 67), under that chain's label, and so provides nothing
+of its own either; and ``adapters/database.py``'s ``WpConfigCredentials``
 (owner decision 47), ``wp-config.php``'s ``DB_USER``/``DB_PASSWORD`` read
 through ``l3io-wordpress-config``'s ``get_value``, so a ``getenv_docker()``
 pair resolves against the Run's ``environ``. Database 0.3.4's ``WpConfigFile``
@@ -41,6 +45,7 @@ ABSENT: Final = "CredentialsAbsentError"
 RESOLVED: Final = "ResolvedCredentials"
 EXEMPT: Final = frozenset(
     {
+        "l3io.wp.backup.adapters.credential_providers._Resolved",
         "l3io.wp.backup.adapters.database._RegisteringSource",
         "l3io.wp.backup.adapters.database.WpConfigCredentials",
     }

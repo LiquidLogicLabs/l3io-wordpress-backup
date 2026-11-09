@@ -52,6 +52,7 @@ from l3io.wp.backup.adapters.credential_providers import (
     WORDPRESS_PASSWORD_VAR,
     WORDPRESS_USER_VAR,
     admin_credentials,
+    resolved_credentials,
     unset_partner,
     wordpress_credentials,
 )
@@ -65,7 +66,7 @@ from l3io.wp.backup.domain.archive_format import (
     WP_SETTINGS_NAME,
     ConfigLocation,
 )
-from l3io.wp.backup.domain.credentials import CredentialSpec
+from l3io.wp.backup.domain.credentials import CredentialSpec, ResolvedCredentialSpec
 from l3io.wp.backup.domain.database import (
     DatabaseLocation,
     DatabaseTargetState,
@@ -124,6 +125,7 @@ __all__ = [
     "locate_wp_config",
     "password_at_call_time",
     "require_wp_config_credentials",
+    "resolve_wordpress_now",
     "site_descriptor_from_archive_config",
     "site_descriptor_from_wp_config",
     "wordpress_source",
@@ -691,12 +693,39 @@ def require_wp_config_credentials(
     from, which names the unset variable of a half pair; this adapter never
     reads ``os.environ`` itself (BL-E005-007).
     """
+    _resolve_mapped(source, environ=environ)
+
+
+def resolve_wordpress_now(
+    source: CredentialSource, *, environ: Mapping[str, str]
+) -> ResolvedCredentialSpec:
+    """Owner decision 67: resolve the WordPress chain now, before a switch of user.
+
+    A backup the CLI started as root resolves its credentials while it can
+    still read what only root may (an AWS profile in root's home, a
+    ``wp-config.php`` only root reads) and carries the answer into the Run,
+    which then reads none of it again (:func:`wordpress_source`). Failures
+    are ``CredentialsError`` naming the label, as
+    :func:`require_wp_config_credentials` raises them; never a value.
+    """
+    resolved = _resolve_mapped(source, environ=environ)
+    return ResolvedCredentialSpec(
+        username=resolved.username,
+        password=resolved.password,
+        source=resolved.source,
+        chain=source.source,
+    )
+
+
+def _resolve_mapped(
+    source: CredentialSource, *, environ: Mapping[str, str]
+) -> ResolvedCredentials:
     _require_extra()
     from l3io.wp import database as wpdb
 
     label = source.source
     try:
-        source.resolve()
+        return source.resolve()
     except wpdb.MissingDependencyError as exc:
         raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
     except wpdb.ConfigUnreadableError as exc:
@@ -842,7 +871,7 @@ def _registering(
 
 
 def wordpress_source(
-    spec: CredentialSpec | None,
+    spec: CredentialSpec | ResolvedCredentialSpec | None,
     *,
     wp_config: CredentialSource,
     environ: Mapping[str, str],
@@ -851,9 +880,16 @@ def wordpress_source(
     """The WordPress account's source, in ``WORDPRESS_CREDENTIAL_PRECEDENCE`` order.
 
     The spec (explicit or AWS), then the environment, then ``wp-config.php``
-    (``credential_providers.wordpress_credentials``).
+    (``credential_providers.wordpress_credentials``). A
+    :class:`ResolvedCredentialSpec` (owner decision 67) is the chain's answer
+    already: its source answers with it under the chain's label, and nothing
+    is read again (it was registered, and warned of, when it was resolved).
     """
     _require_extra()
+    if isinstance(spec, ResolvedCredentialSpec):
+        if len(spec.secret) >= MIN_SECRET_LENGTH:
+            secrets.register(spec.secret, source=spec.source)
+        return resolved_credentials(spec)
     chain = wordpress_credentials(
         spec, wp_config=wp_config, environ=environ, secrets=secrets
     )

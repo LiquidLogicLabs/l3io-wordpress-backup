@@ -81,9 +81,12 @@ docker compose exec backup wpbackup2 restore --archive latest
 
 Set `L3IO_WP_BACKUP_PASSPHRASE` (and add `--encrypt-with-passphrase`, or
 `encrypt_with_passphrase = true` in the config file) to encrypt; a restore
-then decrypts with the same passphrase. Started as root, a restore runs as the
-owner of `/var/www/html` (www-data in the official image), so restored files
-keep their owner. `tests/sidecar/` is a working example.
+then decrypts with the same passphrase. Started as root, a backup or a restore
+runs as the owner of `/var/www/html` (www-data in the official image), after
+reading the passphrase and credentials, so Archives and restored files belong
+to it and both share its state directory; `/backups` must then be writable by
+that user, or the backup is refused before it starts. `tests/sidecar/` is a
+working example.
 
 **From cron**, with the tool installed by `pip`:
 
@@ -104,7 +107,10 @@ Without `--archive` or `archive_dir`, the Archive goes into the current
 directory, or into the per-user data directory
 (`~/.local/share/l3io-wp-backup/archives`) when the current directory is
 inside the site, never inside the Site Root. A target you put inside the Site
-Root is written with a warning: the web server may serve it.
+Root is written with a warning: the web server may serve it. A backup started
+as root runs as the Site Root's owner: that user's data directory, and an
+Archive directory that user can write (otherwise the backup is refused before
+it starts, naming the directory).
 
 ### By hand
 
@@ -138,7 +144,7 @@ To restore (see [docs/restore.md](docs/restore.md) for every mode, the refusals 
 wpbackup2 restore --wp-dir /www/wordpress --archive ~/backup.tar.gz --mode all
 ```
 
-A restore takes a Safety Snapshot of whatever it would change first. Over a Site Root that is not empty and does not look like WordPress (none of `wp-config.php`, `wp-includes/`, `wp-content/`), or a non-empty database, it refuses unless `--force` is given (exit 3, naming the flag). `--archive latest` restores the newest Archive of this site in `--archive-dir` (see [docs/restore.md](docs/restore.md#--archive-latest)). A target with no `wp-config.php` takes its database from an encrypted archive's config as it says, and from an unencrypted one only when you confirm it with `--archive-database USER@HOST[:PORT]/NAME`. Database connections require no TLS unless you ask with `--db-tls {required,verify-ca,verify-identity}` (and `--db-tls-ca FILE`). Started as root, a restore runs as the Site Root's owner.
+A restore takes a Safety Snapshot of whatever it would change first. Over a Site Root that is not empty and does not look like WordPress (none of `wp-config.php`, `wp-includes/`, `wp-content/`), or a non-empty database, it refuses unless `--force` is given (exit 3, naming the flag). `--archive latest` restores the newest Archive of this site in `--archive-dir` (see [docs/restore.md](docs/restore.md#--archive-latest)). A target with no `wp-config.php` takes its database from an encrypted archive's config as it says, and from an unencrypted one only when you confirm it with `--archive-database USER@HOST[:PORT]/NAME`. Database connections require no TLS unless you ask with `--db-tls {required,verify-ca,verify-identity}` (and `--db-tls-ca FILE`). Started as root, a restore (like a backup) runs as the Site Root's owner. The library (`api.backup`, `api.restore`) refuses to run as root: it never switches its host's user.
 
 `wp-config.php` is read for your database credentials. It is looked for in the WordPress directory, then its parent; pass `--wp-config PATH` to use another.
 
@@ -158,7 +164,7 @@ No credential has to be on the command line, so a cron line needs none. Each acc
 - **`getenv_docker()` and `getenv()` in `wp-config.php`.** The official `wordpress` Docker image defines `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `$table_prefix` as `getenv_docker('WORDPRESS_DB_HOST', 'mysql')` and so on. Backup, `doctor` and a files-only restore resolve them as PHP would, from their own environment: the variable, a Docker secret named by `<NAME>_FILE`, else the default. Run the tool with the site's `WORDPRESS_DB_*` (a sidecar container can share the WordPress container's environment file); the resolved host is logged (`database_host`) and named in the Dry Run. Any other PHP expression in those settings is refused (exit 3) without being evaluated. A database restore onto such a site is refused for now (exit 3). `--overwrite-wp-config` keeps those definitions as written, and is refused (exit 3) when the Archive's `wp-config.php` does not define `getenv_docker()`: see [docs/restore.md](docs/restore.md#wp-configphp).
 - **The log names the source, never the value.** Each resolution logs `credential_source_selected` with the source's label, for example `environment:L3IO_WP_BACKUP_DB_USER,L3IO_WP_BACKUP_DB_PASSWORD`.
 
-The environment of a process can be read by the same user and by root (`/proc/<pid>/environ`), and a secret flag (`--passphrase`, `--db-password`, `--admin-password`, `--new-db-password`) is visible to every user in `ps` and logs WARNING `password_on_command_line`. On a shared host, prefer `wp-config.php`, a `chmod 600` config file or AWS Secrets Manager. A database password shorter than 4 characters is accepted with WARNING `credential_below_redaction_floor`: it is too short to be masked in logs.
+The environment of a process can be read by the same user and by root (`/proc/<pid>/environ`), and a secret flag (`--passphrase`, `--db-password`, `--admin-password`, `--new-db-password`) is visible to every user in `ps` and logs WARNING `password_on_command_line`. On a shared host, prefer `wp-config.php`, a `chmod 600` config file or AWS Secrets Manager. A database password, or a passphrase that decrypts (`verify --authenticate`, `restore`), shorter than 4 characters is accepted with WARNING `credential_below_redaction_floor`: it is too short to be masked in logs. A passphrase that encrypts needs 12 characters or more.
 
 ### Command-line reference
 

@@ -685,7 +685,7 @@ def drive_restore(
     """
     # Owner decision 58: the CLI root has switched to the Site Root's owner
     # by now; a library caller running as root is refused.
-    privileges.require_not_root(request.site_root)
+    privileges.require_not_root(request.site_root, operation="restore")
     if request.config_policy is ConfigPolicy.OVERWRITE and not restores_files(
         request.mode
     ):
@@ -1415,7 +1415,9 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
             notes=notes,
         )
         # Owner decision 58: everything only root may read has been read.
-        privileges.drop_to_site_owner(Path(args.wp_dir), environ=os.environ)
+        privileges.drop_to_site_owner(
+            Path(args.wp_dir), environ=os.environ, operation="restore"
+        )
         try:
             outcome = drive_restore(
                 request, ctx=None, secrets=secrets, environ=os.environ

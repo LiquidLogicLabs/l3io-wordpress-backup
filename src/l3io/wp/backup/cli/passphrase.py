@@ -18,7 +18,11 @@ A backup root calls the chain only when passphrase encryption is requested,
 through :func:`require_passphrase`, which holds an **encrypting** passphrase
 to :data:`MIN_ENCRYPTION_PASSPHRASE_LENGTH` (``PassphraseTooShortError``) and
 asks a prompt twice (``PassphraseMismatchError``) (ADR-0024 amendment
-2026-11-07, BL-E004-052). Decryption stays permissive. A restore root calls it
+2026-11-07, BL-E004-052). Decryption stays permissive: a passphrase that
+decrypts (verify, restore) and is shorter than the redaction floor
+(``adapters/redaction.MIN_SECRET_LENGTH``) is accepted with WARNING
+``credential_below_redaction_floor`` naming its source, never the value
+(owner decision 69, as decision 61 for a database password). A restore root calls it
 on every restore (ADR-0024), with its own ``label``
 saying the passphrase also encrypts the Safety Snapshot and may be left empty
 (BL-E003-075).
@@ -35,7 +39,11 @@ from typing import Final, Literal
 
 import structlog
 
-from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
+from l3io.wp.backup.adapters.redaction import (
+    MIN_SECRET_LENGTH,
+    SecretRegistry,
+    note_below_redaction_floor,
+)
 from l3io.wp.backup.cli.output import RunWarning, WarningSink, emit_warning
 from l3io.wp.backup.domain.errors import (
     PassphraseMismatchError,
@@ -117,7 +125,8 @@ def resolve_passphrase(
     argument: str | None = None,
     explicit_source: str | None = None,
 ) -> ResolvedPassphrase | None:
-    """The AD-26 chain. ``None`` when no step supplies a passphrase.
+    """The AD-26 chain for a passphrase that decrypts. ``None`` when no step
+    supplies one.
 
     ``explicit_source`` names ``explicit`` when it is not the library's
     argument (``--passphrase``, the config file's key); the registry and an
@@ -128,11 +137,49 @@ def resolve_passphrase(
     ``passphrase``); the CLI has none (UX-01-17).
 
     Raises ``PassphraseUnavailableError`` when the prompt is closed (EOF or
-    interrupt) or the value is shorter than the registry can redact. A source
-    that is set but empty is not a passphrase: WARNING
+    interrupt). A source that is set but empty is not a passphrase: WARNING
     ``credential_source_empty`` names it, and the chain continues (owner
-    decision 2026-11-07, BL-E006-016).
+    decision 2026-11-07, BL-E006-016). A value shorter than the redaction
+    floor is accepted, with WARNING ``credential_below_redaction_floor``
+    naming its source, never the value: it cannot be masked in logs (owner
+    decision 69).
     """
+    resolved = _resolve(
+        explicit=explicit,
+        environ=environ,
+        prompt=prompt,
+        secrets=secrets,
+        label=label,
+        argument=argument,
+        explicit_source=explicit_source,
+    )
+    if resolved is not None and len(resolved.value) < MIN_SECRET_LENGTH:
+        note_below_redaction_floor(_source_name(resolved, explicit_source, argument))
+    return resolved
+
+
+def _source_name(
+    resolved: ResolvedPassphrase, explicit_source: str | None, argument: str | None
+) -> str:
+    """The flag, parameter, variable or prompt that gave ``resolved``."""
+    if resolved.source == "environment":
+        return PASSPHRASE_ENV
+    if resolved.source == "prompt":
+        return "the passphrase prompt"
+    return explicit_source or argument or "passphrase"
+
+
+def _resolve(
+    *,
+    explicit: Secret | str | None,
+    environ: Mapping[str, str],
+    prompt: Callable[[str], str] | None,
+    secrets: SecretRegistry,
+    label: str,
+    argument: str | None,
+    explicit_source: str | None,
+) -> ResolvedPassphrase | None:
+    """The chain itself, every length accepted; the value is registered."""
     resolved: ResolvedPassphrase | None = None
     if explicit is not None and not explicit:
         note_empty_source(explicit_source or "passphrase")
@@ -148,10 +195,6 @@ def resolve_passphrase(
             resolved = ResolvedPassphrase(Secret(value), "prompt")
     if resolved is None:
         return None
-    if len(resolved.value) < MIN_SECRET_LENGTH:
-        raise PassphraseUnavailableError(
-            PASSPHRASE_ENV, reason="too short to protect", argument=argument
-        )
     named = explicit_source if resolved.source == "argument" else None
     secrets.register(resolved.value, source=f"passphrase:{named or resolved.source}")
     return resolved
@@ -166,20 +209,22 @@ def require_passphrase(
     argument: str | None = None,
     explicit_source: str | None = None,
 ) -> ResolvedPassphrase:
-    """:func:`resolve_passphrase` where encryption was requested: ``None`` refuses.
+    """The chain where encryption was requested: ``None`` refuses.
 
     A backup root calls this before it reads anything from the Site. The
     passphrase will encrypt, so it must be at least
     :data:`MIN_ENCRYPTION_PASSPHRASE_LENGTH` characters
-    (``PassphraseTooShortError``), and a prompted one is asked for twice and
-    must match (``PassphraseMismatchError``). Both refusals come after the
-    value is registered, and neither names it.
+    (``PassphraseTooShortError``, however short; owner decision 69 keeps
+    this floor), and a prompted one is asked for twice and must match
+    (``PassphraseMismatchError``). Both refusals come after the value is
+    registered, and neither names it.
     """
-    resolved = resolve_passphrase(
+    resolved = _resolve(
         explicit=explicit,
         environ=environ,
         prompt=prompt,
         secrets=secrets,
+        label=_PROMPT,
         argument=argument,
         explicit_source=explicit_source,
     )

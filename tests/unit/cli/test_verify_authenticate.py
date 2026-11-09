@@ -149,6 +149,25 @@ def test_authenticate_succeeds_with_the_right_passphrase(
 
 
 @pytest.mark.usefixtures("no_terminal")
+def test_authenticate_accepts_a_passphrase_below_the_redaction_floor(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Owner decision 69: decrypting takes any length; one under 4 is warned of."""
+    short = "q7Z"
+    archive = seal_archive(tmp_path, short)
+    monkeypatch.setenv(PASSPHRASE_ENV, short)
+    code, out, _err, records = _verify(capsys, archive, "--authenticate")
+    assert code == ExitCode.OK
+    assert "authenticated with the passphrase" in out
+    (warning,) = [
+        r for r in records if r.get("event") == "credential_below_redaction_floor"
+    ]
+    assert (warning["level"], warning["source"]) == ("warning", PASSPHRASE_ENV)
+
+
+@pytest.mark.usefixtures("no_terminal")
 def test_authenticate_fails_with_the_wrong_passphrase(
     sealed: Path,
     capsys: pytest.CaptureFixture[str],

@@ -282,3 +282,22 @@ with zero compression:
 - **Tests.** A round trip in both encodings, `tarfile.open(mode="r:gz")` on a new Archive, a guard
   that the writer uses level 0 (stored deflate blocks), and the old plain v1 fixtures verifying and
   restoring.
+
+## Amendment — 2026-11-08: a decryption passphrase below the redaction floor is accepted, with a warning (Shawn, owner decision 69)
+
+"Decryption is unaffected" (the 2026-11-07 amendment) did not hold below 4 characters: the one
+passphrase chain (`cli/passphrase.resolve_passphrase`) refused any passphrase shorter than the
+redaction floor (`adapters/redaction.MIN_SECRET_LENGTH`) with `PassphraseUnavailableError` ("too
+short to protect"), so an Archive encrypted with such a passphrase could be neither verified with
+`--authenticate` nor restored. Owner decision 69 (b): a passphrase that **decrypts** (`verify
+--authenticate`, the library `verify(authenticate=True)`, `restore` and the library `restore`) is
+accepted at any length; one under the redaction floor logs WARNING
+`credential_below_redaction_floor` naming its source (the flag or config key, the parameter,
+`L3IO_WP_BACKUP_PASSPHRASE`, or the prompt), never the value, as a short database password does
+(owner decision 61, ADR-0018). It is still offered to the registry, which cannot mask it
+(`secret_too_short_to_redact`). A passphrase that **encrypts a new Archive**
+(`cli/passphrase.require_passphrase`) is held to `MIN_ENCRYPTION_PASSPHRASE_LENGTH` however short
+it is (`PassphraseTooShortError`, no redaction-floor warning), and the restore's Safety Snapshot
+keeps the 2026-11-07 addendum's rule. Tests: `tests/unit/cli/test_passphrase_chain.py` (each
+source, the floor boundary, encryption refused), `tests/unit/cli/test_verify_authenticate.py` and
+`tests/unit/cli/test_restore_root.py` (end to end).

@@ -64,6 +64,9 @@ ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
             "check_db_tls",
             "locate_wp_config",
             "require_wp_config_credentials",
+            # Owner decision 67: resolves the credential chain once, before a
+            # root Run switches users; a query, as the line above.
+            "resolve_wordpress_now",
             "site_descriptor_from_wp_config",
         }
     ),

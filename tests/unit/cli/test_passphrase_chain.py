@@ -24,7 +24,11 @@ from l3io.wp.backup.cli.passphrase import (
     resolve_passphrase,
     terminal_prompt,
 )
-from l3io.wp.backup.domain.errors import PassphraseUnavailableError, UsageError
+from l3io.wp.backup.domain.errors import (
+    PassphraseTooShortError,
+    PassphraseUnavailableError,
+    UsageError,
+)
 
 ARG = "argument-passphrase"
 ENV = "environment-passphrase"
@@ -95,13 +99,61 @@ def test_a_closed_prompt_stops_the_chain(raised: type[BaseException]) -> None:
     assert PASSPHRASE_ENV in str(caught.value)
 
 
-def test_a_passphrase_too_short_to_redact_is_refused() -> None:
-    secrets = SecretRegistry()
-    with pytest.raises(PassphraseUnavailableError) as caught:
-        resolve_passphrase(explicit="abc", environ={}, prompt=None, secrets=secrets)
-    assert caught.value.reason == "too short to protect"
-    assert "abc" not in str(caught.value)
-    assert len(secrets) == 0
+@pytest.mark.parametrize(
+    ("explicit", "explicit_source", "environ", "prompted", "named"),
+    [
+        ("abc", "--passphrase", {}, None, "--passphrase"),
+        ("abc", None, {}, None, "passphrase"),
+        (None, None, {PASSPHRASE_ENV: "abc"}, None, PASSPHRASE_ENV),
+        (None, None, {}, "abc", "the passphrase prompt"),
+    ],
+    ids=["flag", "argument", "environment", "prompt"],
+)
+def test_a_decryption_passphrase_below_the_redaction_floor_is_accepted_and_warned(
+    explicit: str | None,
+    explicit_source: str | None,
+    environ: dict[str, str],
+    prompted: str | None,
+    named: str,
+) -> None:
+    """Owner decision 69: accepted, WARNING naming the source, never the value."""
+    _, prompt = _prompt(prompted or "")
+    with capture_logs() as logs:
+        resolved = resolve_passphrase(
+            explicit=explicit,
+            environ=environ,
+            prompt=prompt,  # type: ignore[arg-type]
+            secrets=SecretRegistry(),
+            explicit_source=explicit_source,
+        )
+    assert resolved is not None
+    assert resolved.value.reveal() == "abc"
+    (warning,) = [e for e in logs if e["event"] == "credential_below_redaction_floor"]
+    assert warning["log_level"] == "warning"
+    assert (warning["source"], warning["minimum"]) == (named, 4)
+    assert all("abc" not in repr(e) for e in logs)
+
+
+def test_a_passphrase_at_the_redaction_floor_is_not_warned() -> None:
+    with capture_logs() as logs:
+        resolve_passphrase(
+            explicit="abcd", environ={}, prompt=None, secrets=SecretRegistry()
+        )
+    assert all(e["event"] != "credential_below_redaction_floor" for e in logs)
+
+
+@pytest.mark.parametrize("value", ["abc", "a" * 11])
+def test_an_encrypting_passphrase_below_twelve_is_refused_however_short(
+    value: str,
+) -> None:
+    """Owner decision 69 keeps the 12-character floor for new encryption."""
+    with capture_logs() as logs, pytest.raises(PassphraseTooShortError) as caught:
+        require_passphrase(
+            explicit=value, environ={}, prompt=None, secrets=SecretRegistry()
+        )
+    assert caught.value.minimum == 12
+    assert value not in str(caught.value)
+    assert all(e["event"] != "credential_below_redaction_floor" for e in logs)
 
 
 def test_requested_encryption_with_nothing_and_no_terminal_is_refused() -> None:

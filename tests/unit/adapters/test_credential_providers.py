@@ -48,6 +48,7 @@ from l3io.wp.backup.domain.credentials import (  # noqa: E402
     CredentialOrigin,
     CredentialSpec,
     ExplicitCredentialSpec,
+    ResolvedCredentialSpec,
 )
 from l3io.wp.backup.domain.database import DatabaseLocation  # noqa: E402
 from l3io.wp.backup.domain.errors import (  # noqa: E402
@@ -684,11 +685,24 @@ def test_the_module_imports_without_the_database_extra(tmp_path: Path) -> None:
     assert done.stdout.strip() == WORDPRESS_USER_VAR
 
 
-def test_the_module_defines_no_class() -> None:
+def test_the_module_defines_one_class_and_its_repr_holds_no_password() -> None:
     # The walked __repr__ contract covers classes holding a CredentialSource or
-    # a password; this module has none, so it adds no repr to check.
+    # a password. This module's one class replays a ResolvedCredentialSpec
+    # (owner decision 67): its repr names the chain, never the password.
     classes = [n.name for n in ast.walk(_tree()) if isinstance(n, ast.ClassDef)]
-    assert classes == []
+    assert classes == ["_Resolved"]
+    spec = ResolvedCredentialSpec(
+        username="wp", password="sentinel-replayed-pw", source="s", chain="chain(s)"
+    )
+    source = credential_providers.resolved_credentials(spec)
+    assert "sentinel-replayed-pw" not in repr(source)
+    assert source.source == "chain(s)"
+    resolved = source.resolve()
+    assert (resolved.username, resolved.password, resolved.source) == (
+        "wp",
+        "sentinel-replayed-pw",
+        "s",
+    )
 
 
 # --------------------------------------------------------------------------

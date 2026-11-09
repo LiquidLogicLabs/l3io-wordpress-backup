@@ -39,6 +39,7 @@ __all__ = [
     "AdaptersAlreadyBoundError",
     "AdaptersNotBoundError",
     "AdminCredentialsRequiredError",
+    "ArchiveDirectoryNotWritableError",
     "ArchiveExistsError",
     "ArchiveHasNoDumpError",
     "ArchiveNotEncryptedError",
@@ -78,6 +79,7 @@ __all__ = [
     "ProvisioningFailedError",
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
+    "RootBackupRefusedError",
     "RootRestoreRefusedError",
     "RunContextActiveError",
     "RunTerminated",
@@ -1254,8 +1256,53 @@ class RootRestoreRefusedError(UsageError):
         )
 
 
+class RootBackupRefusedError(UsageError):
+    """A backup as root that cannot run as the Site Root's owner (decisions 67, 68).
+
+    Started as root, the CLI reads what only root can read (the passphrase,
+    the database credentials), then runs the rest of the Run as the uid and
+    gid that own the Site Root, as a restore does. Refused (``USAGE``,
+    before the Run opens) when the Site Root is owned by root, which leaves
+    no owner to run as, and when a library caller runs as root: the library
+    never changes its host's user. ``site_root`` names the Site Root and
+    ``reason`` why; ``arguments`` is ``("site_root",)``.
+    """
+
+    def __init__(self, *, site_root: str, reason: str) -> None:
+        self.site_root = site_root
+        self.reason = reason
+        super().__init__(
+            f"refused to back up as root from {site_root!r}: {reason}",
+            arguments=("site_root",),
+        )
+
+
+class ArchiveDirectoryNotWritableError(RefusedError):
+    """A backup started as root whose Archive directory its site owner cannot write.
+
+    Owner decision 67: the backup runs as the Site Root's owner, so the
+    Archive is written by that user. Refused after the switch and before the
+    Run opens, a Dry Run too. ``directory`` is the Archive directory (the
+    target's directory, ``--archive-dir``, or the default one), ``uid`` and
+    ``user`` the owner it was checked for (``user`` ``None`` when the uid has
+    no password entry).
+    """
+
+    def __init__(self, *, directory: str, uid: int, user: str | None) -> None:
+        self.directory = directory
+        self.uid = uid
+        self.user = user
+        who = f"uid {uid}" if user is None else f"{user} (uid {uid})"
+        super().__init__(
+            f"the Archive directory {directory!r} is not writable by the Site "
+            f"Root's owner, {who}, whom a backup started as root runs as; give "
+            "that user write access to it, or name another with --archive-dir "
+            "or --archive; nothing was changed"
+        )
+
+
 class PrivilegeDropError(RefusedError):
-    """Switching to the Site Root's owner did not hold (owner decision 58).
+    """Switching to the Site Root's owner did not hold (owner decisions 58, 67).
 
     After ``setgroups``, ``setgid`` and ``setuid`` the process's real,
     effective and saved ids are read back, and regaining root must fail.

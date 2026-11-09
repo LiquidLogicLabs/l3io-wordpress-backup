@@ -816,6 +816,21 @@ def test_the_restore_prompt_says_both_uses_and_that_empty_means_none(
     capsys.readouterr()
 
 
+def test_a_passphrase_below_the_redaction_floor_is_accepted_with_a_warning(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Owner decision 69: a restore decrypts with any length; under 4 is warned."""
+    monkeypatch.setenv(PASSPHRASE_ENV, "q7Z")
+    capsys.readouterr()
+    assert main(_argv(rig)) == int(ExitCode.OK)
+    assert rig.executions[-1]["cipher"] is not None
+    records = _records(capsys.readouterr().err)
+    (warning,) = [
+        r for r in records if r["event"] == "credential_below_redaction_floor"
+    ]
+    assert (warning["level"], warning["source"]) == ("warning", PASSPHRASE_ENV)
+
+
 @pytest.mark.parametrize("credential_sentinel", [{"passphrase": True}], indirect=True)
 def test_an_encrypted_snapshot_says_so_without_the_passphrase(
     rig: Rig,

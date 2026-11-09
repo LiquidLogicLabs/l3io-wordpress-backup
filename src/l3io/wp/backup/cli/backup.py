@@ -64,6 +64,18 @@ web server may serve it.
 and named in the Dry Run's ``dump`` line; no confirmation is asked. A
 ``DB_HOST`` that cannot be right (an unresolved PHP expression, a malformed
 host or port) is refused while the Site Descriptor is read.
+
+**Started as root (owner decision 67).** :func:`run_backup` refuses a
+root-owned Site Root first (``cli/privileges.owner_to_run_as``), then reads
+what only root may read: the passphrase, and, for a Run that dumps, the
+database credentials, resolved through the whole chain into a
+``ResolvedCredentialSpec`` (:func:`_read_as_root`). It then switches to the
+Site Root's owner (``cli/privileges.switch_to``), so the Run's state
+directory and Site Lock are the ones a restore of the site uses and the
+Archive is the owner's, and refuses an Archive directory that owner cannot
+write (``ArchiveDirectoryNotWritableError``) before the Run opens, a Dry Run
+too. The library never switches: :func:`drive_backup` refuses a Run as root
+(``RootBackupRefusedError``, owner decision 68).
 """
 
 from __future__ import annotations
@@ -91,12 +103,14 @@ from l3io.wp.backup.adapters.database import (
     database_host_is_local,
     locate_wp_config,
     require_wp_config_credentials,
+    resolve_wordpress_now,
     site_descriptor_from_wp_config,
 )
 from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy, log_path_excluded
 from l3io.wp.backup.adapters.lock import APP_NAME
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
+from l3io.wp.backup.cli import privileges
 from l3io.wp.backup.cli.adapter_sets import (
     dry_run_adapters,
     real_adapters,
@@ -145,7 +159,7 @@ from l3io.wp.backup.domain.archive_format import (
     source_from_descriptor,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
-from l3io.wp.backup.domain.credentials import CredentialSpec
+from l3io.wp.backup.domain.credentials import CredentialSpec, ResolvedCredentialSpec
 from l3io.wp.backup.domain.errors import (
     ArchiveExistsError,
     SiteRootNotFoundError,
@@ -316,14 +330,16 @@ class BackupRequest:
     ``db_tls`` is ``--db-tls``/``--db-tls-ca`` (owner decision 56; ``None``
     requires no TLS). ``target_chosen_by`` names what chose ``target``, for
     the ``archive_target_chosen`` record (the flag, or the library's
-    parameter).
+    parameter). ``credentials`` is a ``ResolvedCredentialSpec`` only when the
+    CLI, started as root, resolved them before it switched (owner decision
+    67).
     """
 
     site_root: Path
     scope: BackupScope
     target: StorageTarget | None
     wp_config: Path | None
-    credentials: CredentialSpec | None
+    credentials: CredentialSpec | ResolvedCredentialSpec | None
     cipher: PayloadCipher | None
     exclusion: ExclusionPolicy = field(default_factory=default_exclusion_policy)
     dry_run: bool = False
@@ -753,7 +769,12 @@ def drive_backup(
     check or effect, so a Run refused by a query has reported what it
     planned. A failure before planning (the Site Descriptor, the credential
     source) has planned nothing and reports nothing.
+
+    A process running as root is refused before anything is read
+    (``RootBackupRefusedError``, owner decision 68): the library never
+    switches its host's user; the CLI root has switched by now.
     """
+    privileges.require_not_root(request.site_root, operation="backup")
     try:
         site_root = Path(request.site_root).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
@@ -842,12 +863,48 @@ def _target(
     if request.target is not None:
         return request.target, request.target_chosen_by, False
     name = default_archive_name(site.db_name, run.clock.now())
-    if request.archive_dir is not None:
-        directory, chosen_by = Path(request.archive_dir), "--archive-dir"
-    else:
-        directory, chosen_by = default_archive_directory(site_root)
+    directory, chosen_by = _archive_directory(request, site_root)
     target = storage_target_from_cli(str(directory / name))
     return target, chosen_by, chosen_by == _DATA_DIRECTORY
+
+
+def _archive_directory(request: BackupRequest, site_root: Path) -> tuple[Path, str]:
+    """The directory the Archive is written into, and what chose it."""
+    if request.target is not None:
+        return Path(request.target.path).parent, request.target_chosen_by
+    if request.archive_dir is not None:
+        return Path(request.archive_dir), "--archive-dir"
+    return default_archive_directory(site_root)
+
+
+def _read_as_root(
+    request: BackupRequest, *, environ: Mapping[str, str], secrets: SecretRegistry
+) -> BackupRequest:
+    """Owner decision 67: the database credentials, resolved while still root.
+
+    Only a Run that dumps reads credentials (FR-2). The whole WordPress chain
+    is resolved (the spec, the environment, ``wp-config.php``) into a
+    ``ResolvedCredentialSpec`` the Run uses as it is, so no credential
+    source (an AWS profile in root's home, say) is consulted after the
+    switch. ``wp-config.php`` itself is read again by the Run, as the owner:
+    its other settings and its copy in the Archive. The passphrase was
+    resolved before this.
+    """
+    if request.scope is BackupScope.FILES:
+        return request
+    try:
+        site_root = Path(request.site_root).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise SiteRootNotFoundError(str(Path(request.site_root).absolute())) from exc
+    config = locate_wp_config(site_root, stated=request.wp_config)
+    _site, wp_config = site_descriptor_from_wp_config(
+        site_root, config_file=config.path, environ=environ, secrets=secrets
+    )
+    source = wordpress_source(
+        request.credentials, wp_config=wp_config, environ=environ, secrets=secrets
+    )
+    resolved = resolve_wordpress_now(source, environ=environ)
+    return dataclasses.replace(request, credentials=resolved)
 
 
 def _cipher(
@@ -974,12 +1031,21 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     propagates, so its plan does not depend on ``--log-level``.
     ``--list-default-excludes`` prints the default set, one pattern per line,
     and returns ``OK`` with no Run and nothing read.
+
+    Started as root (owner decision 67): a root-owned Site Root is refused
+    first; the passphrase and the database credentials are read; then the
+    process switches to the Site Root's owner (``cli/privileges``) and an
+    Archive directory that owner cannot write is refused, all before the Run
+    opens.
     """
     origins = setting_origins(vars(args))
     if args.list_default_excludes:
         _refuse_flags_with_list(vars(args), typed=typed_settings(vars(args)))
         emit_result("\n".join(enumerate_defaults()))
         return ExitCode.OK
+    # Owner decision 67: a root-owned Site Root is refused before anything
+    # else is read.
+    owner = privileges.owner_to_run_as(Path(args.wp_dir), operation="backup")
     exclusion = _exclusion(
         args.exclude, no_default_excludes=bool(args.no_default_excludes)
     )
@@ -1022,6 +1088,12 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     )
     if origins.get("db_password") == "command line":
         note_password_on_command_line("--db-password")
+    if owner is not None:
+        # Owner decision 67: everything only root may read, then the switch.
+        request = _read_as_root(request, environ=os.environ, secrets=secrets)
+        privileges.switch_to(owner, environ=os.environ, operation="backup")
+        site_root = Path(request.site_root).resolve()
+        privileges.require_writable(_archive_directory(request, site_root)[0], owner)
     planned: list[str] = []
     try:
         result = drive_backup(

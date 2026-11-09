@@ -189,3 +189,11 @@ CHANGELOG). The redaction guarantee therefore holds for every password of 4 char
 a shorter one is the operator's accepted, logged exception. The 12-character floor for a new
 encryption passphrase (ADR-0024 amendment) stays, and the registry's own 4-character floor for a
 passphrase is unchanged.
+
+**Extended 2026-11-08 to decryption passphrases (Shawn, owner decision 69).** A passphrase that
+decrypts (verify, restore) and is shorter than the 4-character floor is accepted the same way:
+WARNING `credential_below_redaction_floor` naming its source, never the value, logged by
+`cli/passphrase.resolve_passphrase` through `note_below_redaction_floor`; it was refused with
+`PassphraseUnavailableError`. The registry's own floor is unchanged, so such a passphrase is not
+masked in logs; the redaction guarantee holds for every passphrase of 4 characters or more. The
+12-character floor for a new encryption passphrase stays (ADR-0024 amendment of 2026-11-08).

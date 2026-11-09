@@ -72,6 +72,17 @@ passphrase proceeds with a warning); `RestoreOutcome` gains `notes`.
 `TargetInsideSiteRootError` are gone; `NoArchiveForSiteError` and
 `PrivilegeDropError` are new (raised by the CLI).
 
+**Pre-1.0 changes (2026-11-08, owner decisions 67-69).** `backup` refuses a
+process running as root with `RootBackupRefusedError` before the Site is
+read, as `restore` refuses one with `RootRestoreRefusedError`: drop
+privileges to the Site Root's owner first, or use the `wpbackup2` command,
+which switches to that owner. `verify` touches no Site, takes no Site Lock
+and leaves nothing behind, so it is not refused. A passphrase that decrypts
+(`verify`, `restore`) and is shorter than 4 characters is accepted with
+WARNING `credential_below_redaction_floor`; it was refused with
+`PassphraseUnavailableError`. `RootBackupRefusedError` and
+`ArchiveDirectoryNotWritableError` (raised by the CLI) are new.
+
 **Pre-1.0 changes (2026-11-07).** `backup`'s `target` is now required (no
 default; a call without it is a `TypeError`, raised before anything runs);
 the `context` parameter is gone from `backup`, `restore` and `verify`; passwords and
@@ -204,7 +215,11 @@ The database host is logged (INFO `database_host`), never confirmed (owner
 decision 54), and a `target` inside the Site Root is written with WARNING
 `archive_target_in_site_root` (owner decision 60). `db_tls` requires TLS on
 the database connections, as `--db-tls`/`--db-tls-ca`; `None` requires none,
-as WordPress connects (owner decision 56).
+as WordPress connects (owner decision 56). A process running as root is
+refused with `RootBackupRefusedError` before the Site is read: the library
+never switches its host's user; drop privileges to the Site Root's owner
+first, or use the `wpbackup2` command, which switches to it (owner decisions
+67, 68).
 
 ```python
 backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, db_tls: DbTls | None = None) -> BackupResult
@@ -275,7 +290,8 @@ restored with a passphrase (`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE` or
 `deprecated_option`). With no target `wp-config.php`, an encrypted Archive's
 config gives the database without `archive_database` (owner decision 65,
 noted in `RestoreOutcome.notes`); an unencrypted one still needs it.
-Decryption accepts any passphrase length.
+Decryption accepts any passphrase length; one shorter than 4 characters
+logs WARNING `credential_below_redaction_floor` (owner decision 69).
 `relocation.new_db_password`, when not given, is read from
 `L3IO_WP_BACKUP_NEW_DB_PASSWORD` if `relocation.new_db_user` is set. Notices go
 to `on_warning` as `RunWarning` values when given, else to stderr. A real
@@ -1483,7 +1499,7 @@ Fields: `flags`, `mode`, each holding the argument of the same name; `arguments`
 
 ### `RootRestoreRefusedError`
 
-A restore as root that cannot run as the Site Root's owner (owner decision 58): the `wpbackup2` command refuses a Site Root owned by root (there is no owner to switch to), and the library refuses any restore running as root (it never switches its host's user). Raised before the Run opens.
+A restore as root that cannot run as the Site Root's owner (owner decisions 58, 68): the `wpbackup2` command refuses a Site Root owned by root (there is no owner to switch to), and the library refuses any restore running as root (it never switches its host's user). Raised before the Run opens.
 
 ```python
 RootRestoreRefusedError(*, site_root: str, reason: str)
@@ -1495,7 +1511,7 @@ Fields: `site_root`, `reason`, each holding the argument of the same name; `argu
 
 ### `PrivilegeDropError`
 
-The `wpbackup2` command, started as root, switched to the Site Root's owner and the switch did not hold: an id read back unchanged, a supplementary group remained, or root could be regained (owner decision 58). Raised before the Run opens; nothing was changed.
+The `wpbackup2` command, started as root, switched to the Site Root's owner (for a restore or a backup) and the switch did not hold: an id read back unchanged, a supplementary group remained, or root could be regained (owner decisions 58, 67). Raised before the Run opens; nothing was changed.
 
 ```python
 PrivilegeDropError(*, uid: int, gid: int, step: str)
@@ -1504,6 +1520,30 @@ PrivilegeDropError(*, uid: int, gid: int, step: str)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `uid`, `gid`, `step`, each holding the argument of the same name.
+
+### `RootBackupRefusedError`
+
+A backup as root that cannot run as the Site Root's owner (owner decisions 67, 68): the `wpbackup2` command refuses a Site Root owned by root (there is no owner to switch to), and the library refuses any backup running as root (it never switches its host's user; drop privileges first, or use the command). Raised before the Run opens.
+
+```python
+RootBackupRefusedError(*, site_root: str, reason: str)
+```
+
+Base: `UsageError`. Exit code: `USAGE` (2).
+
+Fields: `site_root`, `reason`, each holding the argument of the same name; `arguments` is `("site_root",)`.
+
+### `ArchiveDirectoryNotWritableError`
+
+The `wpbackup2` command, started as root, switched to the Site Root's owner for a backup, and that owner cannot write the Archive directory (the target's directory, `--archive-dir`, or the default one); a directory not made yet is checked where it would be made (owner decision 67). Raised after the switch and before the Run opens, a Dry Run too; nothing was changed.
+
+```python
+ArchiveDirectoryNotWritableError(*, directory: str, uid: int, user: str | None)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `directory`, `uid`, `user`, each holding the argument of the same name (`user` is `None` when the uid has no password entry).
 
 ### `NoArchiveForSiteError`
 

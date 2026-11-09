@@ -136,7 +136,7 @@ never appear in any of them.
 | `config_mode_restricted` | WARNING | A laid-down `wp-config.php` was world-accessible in the Archive; its other-user bits were removed (`config_path`, `archive_mode`, `mode`) |
 | `config_value_from_environment` | INFO | A `wp-config.php` setting defined with `getenv_docker()` or `getenv()` was resolved from the Run's environment, or the file a `NAME_FILE` variable names (`path`, `key`, `variable`, `function`; never the value) |
 | `config_written` | INFO | `wp-config.php` was changed: `method` `set_constants`, `save_copy` or `replace_file` (`path`, `keys`, `changed`, never values) |
-| `credential_below_redaction_floor` | WARNING | A database password shorter than the redaction floor was accepted; it cannot be masked in logs (`source`, `minimum`; never the value; owner decision 61) |
+| `credential_below_redaction_floor` | WARNING | A database password, or a passphrase that decrypts (verify, restore), shorter than the redaction floor was accepted; it cannot be masked in logs (`source`, `minimum`; never the value; owner decisions 61, 69) |
 | `credential_chain_built` | DEBUG | The credential sources for a `role` were ordered (`sources`; `none_configured` when there are none) |
 | `credential_source_empty` | WARNING | A credential source was set but empty and was skipped (`source`, a name, never a value) |
 | `credential_source_selected` | INFO | The database password was resolved from `credential_source` (logged when the source changes) |
@@ -182,6 +182,7 @@ never appear in any of them.
 | `relocation_planned` | INFO | A restore resolved what it will relocate (`keys`, `cutover_keys`, `db_location`) |
 | `restore_mode_resolved` | INFO | The restore flags resolved to one Mode (`restore_mode`, `overrides`, `snapshot_policy`, `flags`) |
 | `restore_refused` | ERROR | FR-7 refused a non-empty target (`reason`, `parts`, `found`) |
+| `backup_runs_as_site_owner` | INFO | A backup started as root switched to the uid and gid that own the Site Root, after reading the passphrase and the database credentials (`uid`, `gid`, `user`, `home`; owner decision 67) |
 | `restore_runs_as_site_owner` | INFO | A restore started as root switched to the uid and gid that own the Site Root, after reading what only root may read (`uid`, `gid`, `user`, `home`; owner decision 58) |
 | `run_finished` | INFO, ERROR | A Run ended; see [the record schema](#the-record-schema) |
 | `run_started` | INFO | A Run began; see [the record schema](#the-record-schema) |

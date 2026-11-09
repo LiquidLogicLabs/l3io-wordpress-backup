@@ -339,6 +339,15 @@ check root:switched-to-the-owner logged B-restore-files-as-root restore_runs_as_
 check root:files-owned-by-33 no_foreign_owner
 check root:page-200-with-sentinel page_serves_sentinel
 step B-backup-after-restore 0 wb backup --archive /backups/after.tar.gz
+# A backup started as root, with no flag but the Archive's name: it reads its
+# credentials as root, then runs as the Site Root's owner, www-data (owner
+# decision 67), so the Archive is 33's and the Run shares the restore's state.
+wb_root() { dc exec -T -u 0 backup wpbackup2 --log-format json "$@"; }
+owned_by_33() { [[ $(in_backup stat -c %u:%g "$1") == 33:33 ]]; }
+step B-backup-as-root 0 wb_root backup --archive /backups/root.tar.gz
+check root:backup-switched-to-the-owner logged B-backup-as-root backup_runs_as_site_owner
+check root:archive-owned-by-33 owned_by_33 /backups/root.tar.gz
+step B-verify-root-backup 0 wb verify --archive /backups/root.tar.gz
 
 db_sql "SHOW DATABASES;" >"$LOGS/databases-after-restore.txt" 2>&1 || true
 
