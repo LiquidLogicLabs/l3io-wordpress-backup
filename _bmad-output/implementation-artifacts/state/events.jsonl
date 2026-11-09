@@ -1517,3 +1517,4 @@
 {"cause": "triage", "epic": "004", "event": "issue_resolved", "key": "BL-E004-065", "ref": "a073c2e", "resolution": "fixed", "session": "cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-11-08T07:05:12Z"}
 {"cause": "triage", "epic": "003", "event": "issue_resolved", "key": "BL-E003-127", "ref": "49910dd", "resolution": "wontfix", "session": "cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-11-08T13:45:28Z"}
 {"cause": "triage", "epic": "004", "event": "issue_resolved", "key": "BL-E004-036", "ref": "5393ea5", "resolution": "fixed", "session": "cmvgs1vhh0gy7tf01cfd5vtqt", "ts": "2026-11-08T14:39:13Z"}
+{"cause": "cli", "epic": "006", "event": "issue_opened", "key": "BL-E006-026", "session": "cmvgs1vhh0gy7tf01cfd5vtqt", "severity": "Low", "ts": "2026-11-09T11:18:45Z"}

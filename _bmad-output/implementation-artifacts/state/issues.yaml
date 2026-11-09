@@ -4,7 +4,7 @@ next:
   '004': 70
   '005': 14
   '007': 21
-  '006': 26
+  '006': 27
   '008': 36
 backlog:
 - key: BL-E003-041
@@ -105,3 +105,11 @@ backlog:
   severity: Low
   status: backlog
   description: Follow-up to BL-E008-011; v1 documents the ~4.3x bound. Owner decision 2026-11-07, _bmad-output/implementation-artifacts/closeout/owner-decisions.md, item 16 (and 26).
+- key: BL-E006-026
+  epic: '006'
+  sprint: ''
+  title: 'post-v1 (owner-deferred, 2026-11-09): replace the AWS Secrets Manager credential provider with a provider-neutral secret-command setting (AWS as one use of it)'
+  source: owner-decision (71)
+  severity: Low
+  status: backlog
+  description: 'Owner decision 71 (closeout/owner-decisions.md, commit 1cd5ccf): keep the AWS provider as an optional extra for v1, then generalise it after the release into a provider-neutral setting (e.g. --db-credentials-command) that any secret store can feed; AWS becomes one documented use. Design the command contract (argv, environment, output format, timeout, secret handling, redaction) in an ADR.'
