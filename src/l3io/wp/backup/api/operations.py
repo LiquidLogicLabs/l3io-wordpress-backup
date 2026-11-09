@@ -109,7 +109,7 @@ from l3io.wp.backup.domain.restore import (
 from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
 __all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "restore", "verify"]
@@ -184,8 +184,7 @@ def backup(
     prompt: Callable[[str], str] | None = None,
     dry_run: bool = False,
     on_warning: WarningSink | None = None,
-    confirm_db_host: str | None = None,
-    allow_target_in_site_root: bool = False,
+    db_tls: DbTls | None = None,
 ) -> BackupResult:
     """Back up the Site whose root is ``site``; returns what was published.
 
@@ -200,11 +199,11 @@ def backup(
     ``L3IO_WP_BACKUP_PASSPHRASE`` set without it is logged as the CLI logs it
     (``passphrase_ignored``).
     ``dry_run=True`` plans, checks and writes nothing.
-    ``confirm_db_host`` names a non-local ``DB_HOST`` a dumping backup may
-    send credentials to (``DatabaseHostUnconfirmedError`` otherwise), and
-    ``allow_target_in_site_root=True`` allows a ``target`` inside the Site
-    Root (``TargetInsideSiteRootError`` otherwise), as ``--confirm-db-host``
-    and ``--allow-target-in-site-root`` (owner decisions 2026-11-07).
+    The database host is logged (INFO ``database_host``), never confirmed
+    (owner decision 54); a ``target`` inside the Site Root is written with
+    WARNING ``archive_target_in_site_root`` through ``on_warning`` (owner
+    decision 60). ``db_tls`` requires TLS on the database connections, as
+    ``--db-tls``/``--db-tls-ca``; ``None`` requires none (owner decision 56).
     A ``scope`` that is not a ``BackupScope`` is refused (``UsageError``).
     """
     _require(scope, BackupScope, "scope")
@@ -241,8 +240,8 @@ def backup(
         ),
         dry_run=dry_run,
         extra_tools=extra_tools,
-        confirm_db_host=confirm_db_host,
-        allow_target_in_site_root=allow_target_in_site_root,
+        db_tls=DbTls() if db_tls is None else db_tls,
+        target_chosen_by="target",
     )
     return drive_backup(
         request,
@@ -311,7 +310,7 @@ def restore(
     config_policy: ConfigPolicy,
     snapshot_dir: str | os.PathLike[str] | None = None,
     admin: CredentialSpec | None = None,
-    admin_tls: AdminTls | None = None,
+    db_tls: DbTls | None = None,
     archive_database: str | None = None,
     reset_existing_db_user: bool = False,
     relocation: RelocationFlags | None = None,
@@ -322,23 +321,22 @@ def restore(
     resolve_run_id: str | None = None,
     dry_run: bool = False,
     on_warning: WarningSink | None = None,
-    allow_root: bool = False,
 ) -> RestoreOutcome:
     """Restore ``archive`` into the Site at ``site_root``; returns what was done.
 
     ``mode``, ``overrides``, ``snapshot`` and ``config_policy`` have no
     defaults (AD-5); FR-7's guard runs whichever root called. The passphrase
     is resolved on every call: it decrypts an encrypted Archive and encrypts
-    the Safety Snapshot. ``admin_tls=None`` is the policy default
-    (``AdminTls(mode=None, ca_file=None)``), ``relocation=None`` no
-    relocation. A passphrase (``passphrase``, ``L3IO_WP_BACKUP_PASSPHRASE``
-    or ``prompt``) means an encrypted Archive is expected: a plain one is
-    refused (``ArchiveNotEncryptedError``) unless ``allow_unencrypted=True``,
-    as ``--allow-unencrypted`` (ADR-0016 amendment 2026-11-07). A real
-    restore whose database report does not say restored raises
+    the Safety Snapshot. ``db_tls=None`` requires no TLS, as WordPress
+    connects (owner decision 56); ``relocation=None`` is no relocation. A
+    plain Archive restored with a passphrase (``passphrase``,
+    ``L3IO_WP_BACKUP_PASSPHRASE`` or ``prompt``) proceeds with WARNING
+    ``archive_not_encrypted``; ``require_encrypted=True`` refuses it (owner
+    decision 59). ``allow_unencrypted`` is deprecated and has no effect. A
+    real restore whose database report does not say restored raises
     ``DatabaseNotRestoredError``, as the CLI exits ``FAILED``. A process
-    running as root is refused (``RootRestoreRefusedError``) unless
-    ``allow_root=True``, as ``--allow-root`` (owner decision 2026-11-07).
+    running as root is refused (``RootRestoreRefusedError``): the library
+    never switches its host's user, as the CLI does (owner decision 58).
     A ``mode``, ``overrides``, ``snapshot`` or ``config_policy`` of the wrong
     type is refused (``UsageError`` naming the parameter) before any effect.
     """
@@ -386,14 +384,13 @@ def restore(
         cipher=cipher,
         extra_tools=() if cipher is None else cipher.required_tools(),
         archive_database=archive_database,
-        admin_tls=AdminTls(mode=None, ca_file=None) if admin_tls is None else admin_tls,
+        db_tls=DbTls() if db_tls is None else db_tls,
         relocation=flags,
         reset_existing_db_user=reset_existing_db_user,
         dry_run=dry_run,
         opted_out_by=SNAPSHOT_SKIPPED_BY,
         require_encrypted=require_encrypted,
         allow_unencrypted=allow_unencrypted,
-        allow_root=allow_root,
     )
     outcome = drive_restore(
         request,

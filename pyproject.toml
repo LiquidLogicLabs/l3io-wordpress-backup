@@ -53,6 +53,16 @@ dependencies = [
   # 2026-11-06 (E005 gate G12), under the owner's global rule 1: version
   # comparison is not hand-rolled. Latest at adoption: 26.3.
   "packaging>=25,<27",
+  # Owner decision 60: every Run setting from a CLI flag, an L3IO_WP_BACKUP_*
+  # variable or a TOML config file, layered CLI > environment > file >
+  # defaults. Layered configuration and schema validation are domains the
+  # global rules forbid hand-rolling; chosen over ConfigArgParse in ADR-0028
+  # (Proposed). Imported by cli/settings.py only: a library caller never loads
+  # it. Brings pydantic (MIT), pydantic-core (MIT, compiled wheels for every
+  # supported CPython), typing-inspection, annotated-types and python-dotenv
+  # (BSD-3-Clause, unused here: pydantic-settings requires it). Latest at
+  # adoption: 2.16.2 (pydantic 2.14.3).
+  "pydantic-settings>=2.16,<3",
 ]
 
 [project.optional-dependencies]
@@ -99,8 +109,12 @@ dependencies = [
 # value's PHP source verbatim (refusing source that could end the statement,
 # open a comment or unbalance a bracket): --overwrite-wp-config carries the
 # target's DB_* into the Archive's config as source, so getenv_docker() stays a
-# lookup instead of becoming a string (owner decision 48, BL-E008-032). Nothing
-# below 0.1.6 may be resolved.
+# lookup instead of becoming a string (owner decision 48, BL-E008-032). 0.1.7
+# adds declares_function(name, before=key), a lexical query on the library's
+# own scanner: --overwrite-wp-config asks it whether the Archive's config
+# declares getenv_docker() before the first carried define, replacing
+# backup's own textual check (its documented limits are the library's).
+# Nothing below 0.1.7 may be resolved.
 # database 0.3.4 is the floor: its client option file carries only the TLS
 # lines each client family accepts (MySQL: ssl-mode; MariaDB: ssl and
 # ssl-verify-server-cert), without which every restore over verified TLS to a
@@ -113,7 +127,7 @@ dependencies = [
 # absolute-path `age` -- so no parent secret reaches them (BL-E004-055).
 database = [
   "l3io-wordpress-database[encryption]>=0.3.4,<0.4",
-  "l3io-wordpress-config>=0.1.6,<0.2",
+  "l3io-wordpress-config>=0.1.7,<0.2",
   # Dependency inventory (FR-26, BL-E004-024), the two the `encryption` extra
   # brings:
   # - pyrage 1.4.0 (transitive, via database[encryption]): MIT. Present for age
@@ -163,7 +177,7 @@ wpbackup2 = "l3io.wp.backup.cli:run_from_cli"
 [tool.uv.sources]
 # v0.2.1 (2026-11-03): src identical to v0.2.0 (48a7da9).
 l3io-wordpress-database = { index = "testpypi" }
-# v0.1.6 (2026-11-08): set_source()/set_variable_source() (85c268a).
+# v0.1.7 (2026-11-08): declares_function() (8106001).
 l3io-wordpress-config = { index = "testpypi" }
 # The passphrase binder, required by database's `encryption` extra. uv applies
 # [tool.uv.sources] to direct dependencies only, so the `database` extra names
@@ -351,6 +365,7 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config --ignore=tests/classes"
 markers = [
   "integration: needs a live database, WordPress or WP-CLI (spine: a small integration tier, marked and separable)",
+  "root: runs only as root and drives the restore's real switch to the Site Root's owner in a child process (owner decision 58; tests/root_mode.py)",
 ]
 
 # --------------------------------------------------------------------------

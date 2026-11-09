@@ -139,6 +139,7 @@ __all__ = [
     "extract_archive",
     "file_member",
     "read_inner_manifest",
+    "read_leading_manifest",
     "require_patched_tarfile",
     "verify_archive",
     "verify_archive_manifest",
@@ -995,6 +996,41 @@ def _stream_outer(path: Path) -> _Scan:
             scan.complete = at_first_header and not _began_as_a_tar(logical.head)
         scan.bytes_read = raw.count
     return scan
+
+
+def read_leading_manifest(path: Path) -> str | None:
+    """The Manifest text of a v1 Archive at ``path``, reading only its start.
+
+    ``restore --archive latest`` (owner decision 64) reads one Manifest per
+    Archive in a directory; the Manifest is the outer tar's first member, so
+    nothing past it is read. ``None`` for anything else: a file that is not
+    an Archive, a first member that is not a Manifest of at most
+    ``MANIFEST_MAX_BYTES``, or a read that fails (never an exception).
+    """
+    try:
+        with path.open("rb") as handle:
+            head = handle.peek(2)[:2]
+            stream: IO[bytes] = (
+                cast("IO[bytes]", gzip.GzipFile(fileobj=handle, mode="rb"))
+                if head == _GZIP_MAGIC
+                else handle
+            )
+            with tarfile.open(
+                fileobj=stream, mode="r|", tarinfo=_BoundedTarInfo
+            ) as tar:
+                first = tar.next()
+                if (
+                    first is None
+                    or first.name != MANIFEST_MEMBER
+                    or not first.isfile()
+                    or first.size > MANIFEST_MAX_BYTES
+                ):
+                    return None
+                body = tar.extractfile(first)
+                return None if body is None else body.read().decode("utf-8")
+    except (OSError, UnicodeDecodeError, *_STREAM_ERRORS) as exc:
+        _log.debug("archive_manifest_unread", path=str(path), error=type(exc).__name__)
+        return None
 
 
 class TarArchiveProbe:

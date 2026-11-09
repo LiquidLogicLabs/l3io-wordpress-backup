@@ -1,26 +1,32 @@
-"""The restore's root opt-in, for tests that run as whatever user runs pytest.
+"""Root and the restore's switch to the Site Root's owner, for the test suite.
 
-Not a test module. Owner decision 1 (BL-E002-098, 2026-11-07) refuses a
-restore running as root (``RootRestoreRefusedError``, exit 2) unless the
-caller passes ``--allow-root`` / ``allow_root=True``. CI's containers run every
-job as root; a developer's run is not. A test that drives a restore for any
-other reason takes the opt-in from here, so it checks the same thing either way.
+Not a test module. Owner decision 58 (reversing decision 1): a restore the CLI
+starts as root reads what only root may read, then switches the whole process
+to the uid and gid that own the Site Root (``cli/privileges.py``). That switch
+cannot be undone, so it must never run inside the pytest process, and CI's
+containers run every job as root.
 
-The opt-in follows the effective uid at call time, the same ``os.geteuid`` the
-product reads, so nothing here can switch the refusal off: as a non-root user
-these return nothing and the product never needed the flag.
+:func:`guard_root` is ``tests/conftest.py``'s autouse fixture body: as root,
+it makes ``cli/privileges.running_as_root`` answer ``False`` for the test, so
+an in-process restore runs as a non-root developer's does (no switch, no
+refusal), exactly as before the switch existed. A test marked
+:data:`ROOT_MARK` is left alone: it runs only as root and drives the real
+switch in a child process (``tests/integration/test_root_restore.py``). As a
+non-root user the guard does nothing; the product never switches.
 
-The refusal itself is proved by ``tests/unit/cli/test_closeout_safety.py``,
-which patches ``_running_as_root`` true and passes ``allow_root=False``
-explicitly, so it holds as root too.
+The switch's logic (order, read-back, refusals) is unit-tested with a
+recording :class:`~l3io.wp.backup.cli.privileges.IdSystem` in
+``tests/unit/cli/test_privileges.py``, which holds as root too.
 """
 
 from __future__ import annotations
 
 import os
 
-#: The CLI flag that allows a restore running as root.
-ALLOW_ROOT_FLAG = "--allow-root"
+import pytest
+
+#: The marker of a test that needs real root and runs the switch for real.
+ROOT_MARK = "root"
 
 
 def running_as_root() -> bool:
@@ -29,19 +35,13 @@ def running_as_root() -> bool:
     return geteuid is not None and geteuid() == 0
 
 
-def allow_root_argv() -> list[str]:
-    """``["--allow-root"]`` as root, else ``[]``: for a ``restore`` argv."""
-    return [ALLOW_ROOT_FLAG] if running_as_root() else []
+def guard_root(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """As root, keep the product from switching users inside pytest."""
+    if not running_as_root() or request.node.get_closest_marker(ROOT_MARK):
+        return
+    from l3io.wp.backup.cli import privileges
+
+    monkeypatch.setattr(privileges, "running_as_root", lambda: False)
 
 
-def allow_root_kwargs() -> dict[str, bool]:
-    """``{"allow_root": True}`` as root, else ``{}``: for ``api.restore``."""
-    return {"allow_root": True} if running_as_root() else {}
-
-
-__all__ = [
-    "ALLOW_ROOT_FLAG",
-    "allow_root_argv",
-    "allow_root_kwargs",
-    "running_as_root",
-]
+__all__ = ["ROOT_MARK", "guard_root", "running_as_root"]

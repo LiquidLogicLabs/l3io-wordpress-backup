@@ -44,6 +44,70 @@ The `database` extra installs the `l3io-age-passphrase` binder, published as whe
 
 ## Usage
 
+### Quick start: unattended, with no flags
+
+Every option is also an `L3IO_WP_BACKUP_<NAME>` variable (`--wp-dir` is
+`L3IO_WP_BACKUP_WP_DIR`) and a key of a TOML config file (`wp_dir = "..."`),
+so a scheduled job needs no flags. A flag wins over a variable, a variable over
+the file, the file over the default. The file is `--config PATH` or
+`L3IO_WP_BACKUP_CONFIG`, else `/etc/l3io-wp-backup/config.toml` and then
+`~/.config/l3io-wp-backup/config.toml` when present; one holding a secret
+(`passphrase`, `db_password`, `admin_password`, `new_db_password`) must be
+readable by its owner only (`chmod 600`), or it is refused. ADR-0028 records
+the design.
+
+**As a Docker sidecar** next to the official `wordpress` image, sharing its
+site volume and its `WORDPRESS_DB_*` environment:
+
+```yaml
+services:
+  backup:
+    image: <your wpbackup2 image>
+    env_file: wordpress.env            # the site's WORDPRESS_DB_*
+    environment:
+      L3IO_WP_BACKUP_WP_DIR: /var/www/html
+      L3IO_WP_BACKUP_ARCHIVE_DIR: /backups
+    volumes:
+      - html:/var/www/html
+      - backups:/backups
+```
+
+then `docker compose exec backup wpbackup2 backup` on a schedule, and to
+restore the newest backup of this site:
+
+```
+docker compose exec backup wpbackup2 restore --archive latest
+```
+
+Set `L3IO_WP_BACKUP_PASSPHRASE` (and add `--encrypt-with-passphrase`, or
+`encrypt_with_passphrase = true` in the config file) to encrypt; a restore
+then decrypts with the same passphrase. Started as root, a restore runs as the
+owner of `/var/www/html` (www-data in the official image), so restored files
+keep their owner. `tests/sidecar/` is a working example.
+
+**From cron**, with the tool installed by `pip`:
+
+```toml
+# ~/.config/l3io-wp-backup/config.toml   (chmod 600)
+wp_dir = "/var/www/example"
+archive_dir = "/var/backups/example"
+encrypt_with_passphrase = true
+passphrase = "a long passphrase, 12 characters or more"
+log_format = "console"
+```
+
+```
+15 3 * * *  wpbackup2 backup
+```
+
+Without `--archive` or `archive_dir`, the Archive goes into the current
+directory, or into the per-user data directory
+(`~/.local/share/l3io-wp-backup/archives`) when the current directory is
+inside the site, never inside the Site Root. A target you put inside the Site
+Root is written with a warning: the web server may serve it.
+
+### By hand
+
 To backup:
 
 ```
@@ -74,7 +138,7 @@ To restore (see [docs/restore.md](docs/restore.md) for every mode, the refusals 
 wpbackup2 restore --wp-dir /www/wordpress --archive ~/backup.tar.gz --mode all
 ```
 
-A restore takes a Safety Snapshot of whatever it would change first, and refuses a non-empty target unless a flag authorizes it (exit 3, naming the flag). A target with no `wp-config.php` takes its database from the archive's config only when you confirm it with `--archive-database USER@HOST[:PORT]/NAME`.
+A restore takes a Safety Snapshot of whatever it would change first. Over a Site Root that is not empty and does not look like WordPress (none of `wp-config.php`, `wp-includes/`, `wp-content/`), or a non-empty database, it refuses unless `--force` is given (exit 3, naming the flag). `--archive latest` restores the newest Archive of this site in `--archive-dir` (see [docs/restore.md](docs/restore.md#--archive-latest)). A target with no `wp-config.php` takes its database from an encrypted archive's config as it says, and from an unencrypted one only when you confirm it with `--archive-database USER@HOST[:PORT]/NAME`. Database connections require no TLS unless you ask with `--db-tls {required,verify-ca,verify-identity}` (and `--db-tls-ca FILE`). Started as root, a restore runs as the Site Root's owner.
 
 `wp-config.php` is read for your database credentials. It is looked for in the WordPress directory, then its parent; pass `--wp-config PATH` to use another.
 
@@ -84,17 +148,17 @@ No credential has to be on the command line, so a cron line needs none. Each acc
 
 | Account | 1. Explicit | 2. Environment | 3. `wp-config.php` |
 |---|---|---|---|
-| WordPress database (backup) | library `BackupRequest.credentials` | `L3IO_WP_BACKUP_DB_USER` and `L3IO_WP_BACKUP_DB_PASSWORD` | `DB_USER`/`DB_PASSWORD` |
+| WordPress database (backup) | `--db-user`/`--db-password`, their config-file keys, or library `BackupRequest.credentials` | `L3IO_WP_BACKUP_DB_USER` and `L3IO_WP_BACKUP_DB_PASSWORD` | `DB_USER`/`DB_PASSWORD` |
 | WordPress database (restore) | none | none | `DB_USER`/`DB_PASSWORD`, the account the restored site will use |
-| Administrator (restore) | `--admin-username`/`--admin-password`, or library `RestoreRequest.admin` | `L3IO_WP_BACKUP_ADMIN_USER` and `L3IO_WP_BACKUP_ADMIN_PASSWORD` | never |
+| Administrator (restore) | `--admin-user` (or `--admin-username`)/`--admin-password`, their config-file keys, or library `RestoreRequest.admin` | `L3IO_WP_BACKUP_ADMIN_USER` and `L3IO_WP_BACKUP_ADMIN_PASSWORD` | never |
 
 - **Both variables of a pair, or neither.** Setting one without its partner is an error (exit 4), not a fall-through to `wp-config.php`. A variable set to an empty value counts as set. The one exception is `--admin-username` without `--admin-password`: the password then comes from `L3IO_WP_BACKUP_ADMIN_PASSWORD`, and an empty value there counts as unset. The administrator pair is read only by a restore that needs an administrator, so `--mode files` never asks for one.
 - **A source that fails stops the search.** An unreadable AWS secret, for example, never becomes the next source's account. The administrator is never taken from `wp-config.php` or from the WordPress account. A restore that needs one and has none is refused (exit 4).
 - **AWS Secrets Manager.** A secret holding the JSON `{"username": ..., "password": ...}` can supply either account as its explicit source. Install the `aws` extra: `pip install 'l3io-wordpress-backup[aws]'`. Without it, exit 7 names the extra. Without a region from the request or the AWS session, exit 4 names the region flag. In this release only the library selects it: `AwsSecretCredentialSpec(secret_id, region)` as `BackupRequest.credentials` or `RestoreRequest.admin`. The `--db-credentials-aws-*` and `--admin-credentials-aws-*` flags are accepted but not implemented yet.
-- **`getenv_docker()` and `getenv()` in `wp-config.php`.** The official `wordpress` Docker image defines `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `$table_prefix` as `getenv_docker('WORDPRESS_DB_HOST', 'mysql')` and so on. Backup, `doctor` and a files-only restore resolve them as PHP would, from their own environment: the variable, a Docker secret named by `<NAME>_FILE`, else the default. Run the tool with the site's `WORDPRESS_DB_*` (a sidecar container can share the WordPress container's environment file); `--confirm-db-host` names the resolved host. Any other PHP expression in those settings is refused (exit 3) without being evaluated. A database restore onto such a site is refused for now (exit 3). `--overwrite-wp-config` keeps those definitions as written, and is refused (exit 3) when the Archive's `wp-config.php` does not define `getenv_docker()`: see [docs/restore.md](docs/restore.md#wp-configphp).
+- **`getenv_docker()` and `getenv()` in `wp-config.php`.** The official `wordpress` Docker image defines `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `$table_prefix` as `getenv_docker('WORDPRESS_DB_HOST', 'mysql')` and so on. Backup, `doctor` and a files-only restore resolve them as PHP would, from their own environment: the variable, a Docker secret named by `<NAME>_FILE`, else the default. Run the tool with the site's `WORDPRESS_DB_*` (a sidecar container can share the WordPress container's environment file); the resolved host is logged (`database_host`) and named in the Dry Run. Any other PHP expression in those settings is refused (exit 3) without being evaluated. A database restore onto such a site is refused for now (exit 3). `--overwrite-wp-config` keeps those definitions as written, and is refused (exit 3) when the Archive's `wp-config.php` does not define `getenv_docker()`: see [docs/restore.md](docs/restore.md#wp-configphp).
 - **The log names the source, never the value.** Each resolution logs `credential_source_selected` with the source's label, for example `environment:L3IO_WP_BACKUP_DB_USER,L3IO_WP_BACKUP_DB_PASSWORD`.
 
-The environment of a process can be read by the same user and by root (`/proc/<pid>/environ`), and `--admin-password` is visible to every user in `ps`. On a shared host, prefer `wp-config.php` or AWS Secrets Manager.
+The environment of a process can be read by the same user and by root (`/proc/<pid>/environ`), and a secret flag (`--passphrase`, `--db-password`, `--admin-password`, `--new-db-password`) is visible to every user in `ps` and logs WARNING `password_on_command_line`. On a shared host, prefer `wp-config.php`, a `chmod 600` config file or AWS Secrets Manager. A database password shorter than 4 characters is accepted with WARNING `credential_below_redaction_floor`: it is too short to be masked in logs.
 
 ### Command-line reference
 
@@ -103,11 +167,16 @@ Generated from the parser by `tools/gen_cli_docs.py`; CI fails if it drifts.
 <!-- BEGIN GENERATED: cli-usage (tools/gen_cli_docs.py) -->
 ```text
 $ wpbackup2 --help
-usage: wpbackup2 [-h] [--version] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}]
-                 [--log-format {console,json}] [--whatIf]
+usage: wpbackup2 [-h] [--version] [--config PATH]
+                 [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--log-format {console,json}]
+                 [--whatIf]
                  {backup,restore,verify,doctor} ...
 
 Backup/restore your WordPress content and database.
+
+Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
+(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
+(wp_dir = "..."); a flag wins over a variable, a variable over the file.
 
 positional arguments:
   {backup,restore,verify,doctor}
@@ -120,6 +189,10 @@ positional arguments:
 options:
   -h, --help            Show this help message and exit
   --version             Show the program's version number and exit
+  --config PATH         Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; default:
+                        /etc/l3io-wp-backup/config.toml, then the per-user ~/.config/l3io-wp-
+                        backup/config.toml). A file holding a secret must be readable by its owner
+                        only
   --log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}
                         Logging level (stdlib level names; default INFO)
   --log-format {console,json}
@@ -142,48 +215,66 @@ exit codes:
 
 ```text
 $ wpbackup2 backup --help
-usage: wpbackup2 backup [-h] [--wp-dir WP_DIR] [--whatIf] [--archive ARCHIVE] [--wp-config PATH]
-                        [--mode {files,db,all}] [--encrypt-with-passphrase] [--exclude PATTERN]
-                        [--no-default-excludes] [--list-default-excludes] [--confirm-db-host HOST]
-                        [--allow-target-in-site-root] [--db-credentials-aws-secret-id ID]
-                        [--db-credentials-aws-region REGION]
+usage: wpbackup2 backup [-h] [--config PATH] [--wp-dir WP_DIR] [--archive-dir DIR] [--whatIf]
+                        [--archive ARCHIVE] [--wp-config PATH] [--mode {files,db,all}]
+                        [--encrypt-with-passphrase] [--passphrase SECRET] [--exclude PATTERN]
+                        [--no-default-excludes] [--list-default-excludes]
+                        [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
+                        [--db-user USER] [--db-password SECRET]
+                        [--db-tls {required,verify-ca,verify-identity}] [--db-tls-ca FILE]
 
 Perform a WordPress backup
 
+Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
+(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
+(wp_dir = "..."); a flag wins over a variable, a variable over the file.
+
 options:
   -h, --help            Show this help message and exit
+  --config PATH         Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; default:
+                        /etc/l3io-wp-backup/config.toml, then the per-user ~/.config/l3io-wp-
+                        backup/config.toml). A file holding a secret must be readable by its owner
+                        only
   --wp-dir WP_DIR       Path to the root of the WordPress directory (required, except with --list-
                         default-excludes)
+  --archive-dir DIR     Directory the archive is written to when --archive is not given (default:
+                        the current directory, or the per-user data directory when the current
+                        directory is inside the Site Root)
   --whatIf, --what-if   Dry Run: run every check and query for real and print the ordered plan;
                         writes no archive but takes the Site Lock (also accepted before `backup`)
-  --archive ARCHIVE     Archive path or file: URL (default: ./wpbackup2-<db>-<UTC
-                        timestamp>.tar.gz)
+  --archive ARCHIVE     Archive path or file: URL (default: wpbackup2-<db>-<UTC timestamp>.tar.gz
+                        in --archive-dir). Inside the Site Root it is written with a warning: the
+                        web server may serve it
   --wp-config PATH      Use this wp-config.php instead of searching for it
   --mode {files,db,all}
                         What to back up: files, db, or all (default: all)
   --encrypt-with-passphrase
-                        Encrypt the archive with a passphrase. The passphrase comes from
-                        L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line
+                        Encrypt the archive with a passphrase (--passphrase,
+                        L3IO_WP_BACKUP_PASSPHRASE, the config file or a prompt)
+  --passphrase SECRET   Passphrase that encrypts the archive (with --encrypt-with-passphrase). The
+                        value is visible in the process list; prefer L3IO_WP_BACKUP_PASSPHRASE or
+                        the config file (chmod 600)
   --exclude PATTERN     Leave matching paths out of the archive (repeatable)
   --no-default-excludes
                         Do not apply the default exclusion set
   --list-default-excludes
                         Print the default exclusion set and exit without backing up (needs no
                         --wp-dir; takes no other backup flag)
-  --confirm-db-host HOST
-                        Confirm a database host that is not local (anything but localhost,
-                        127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, as
-                        resolved from the environment for a getenv_docker(...) one, or the backup
-                        is refused before any connection
-  --allow-target-in-site-root
-                        Write the archive inside the Site Root (refused by default: the web server
-                        may serve it); prefer a target outside the Site Root
 
 database credentials:
   --db-credentials-aws-secret-id ID
                         Read the WordPress database account from this AWS Secrets Manager secret
   --db-credentials-aws-region REGION
                         AWS region of --db-credentials-aws-secret-id (needs the secret id)
+  --db-user USER        WordPress database account to dump as, instead of wp-config.php's (give
+                        --db-password with it)
+  --db-password SECRET  Password of --db-user. The value is visible in the process list; prefer
+                        L3IO_WP_BACKUP_DB_PASSWORD or the config file (chmod 600)
+  --db-tls {required,verify-ca,verify-identity}
+                        Require TLS on every database connection, at this level (default: no
+                        requirement, as WordPress connects)
+  --db-tls-ca FILE      CA bundle that verifies the database server, with --db-tls verify-ca or
+                        verify-identity (default: the system store)
 
 exit codes:
    0  OK                   the Run succeeded
@@ -199,27 +290,41 @@ exit codes:
 
 ```text
 $ wpbackup2 restore --help
-usage: wpbackup2 restore [-h] --wp-dir WP_DIR --archive ARCHIVE [--mode {files,db,all}]
-                         [--cleanfirst] [--drop-database] [--force] [--whatIf] [--wp-config PATH]
+usage: wpbackup2 restore [-h] [--config PATH] --wp-dir WP_DIR --archive ARCHIVE
+                         [--archive-dir DIR] [--mode {files,db,all}] [--cleanfirst]
+                         [--drop-database] [--force] [--whatIf] [--wp-config PATH]
                          [--overwrite-wp-config] [--reset-existing-db-user] [--no-safety-snapshot]
-                         [--require-encrypted] [--snapshot-dir PATH]
+                         [--require-encrypted] [--passphrase SECRET] [--snapshot-dir PATH]
                          [--archive-database USER@HOST[:PORT]/NAME]
+                         [--db-tls {required,verify-ca,verify-identity}] [--db-tls-ca FILE]
                          [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
-                         [--resolve-interrupted-run RUN_ID] [--admin-username USER]
-                         [--admin-password PASSWORD] [--admin-credentials-aws-secret-id ID]
+                         [--resolve-interrupted-run RUN_ID] [--admin-user USER]
+                         [--admin-password SECRET] [--admin-credentials-aws-secret-id ID]
                          [--admin-credentials-aws-region REGION] [--only-appointed-in-asg]
                          [--new-site-url URL] [--new-site-home-url URL] [--new-db-host HOST]
-                         [--new-db-name NAME] [--new-db-user USER] [--new-db-password PASSWORD]
-                         [--new-db-password-file PATH] [--allow-root] [--allow-unencrypted]
+                         [--new-db-name NAME] [--new-db-user USER] [--new-db-password SECRET]
+                         [--new-db-password-file PATH] [--allow-unencrypted]
                          [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
 
 Perform a WordPress restore
 
+Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
+(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
+(wp_dir = "..."); a flag wins over a variable, a variable over the file.
+
 options:
   -h, --help            Show this help message and exit
+  --config PATH         Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; default:
+                        /etc/l3io-wp-backup/config.toml, then the per-user ~/.config/l3io-wp-
+                        backup/config.toml). A file holding a secret must be readable by its owner
+                        only
   --wp-dir WP_DIR       Path to the root of the WordPress directory
-  --archive ARCHIVE     Path or file: URL of the archive to restore from (required, --resolve-
-                        interrupted-run included)
+  --archive ARCHIVE     Path or file: URL of the archive to restore from, or `latest`: the newest
+                        archive of this site in --archive-dir (required, --resolve-interrupted-run
+                        included)
+  --archive-dir DIR     Directory --archive latest searches (default: the current directory, or
+                        the per-user data directory when the current directory is inside the Site
+                        Root)
 
 restore mode:
   Together these select one Restore Mode; any other combination is refused.
@@ -231,7 +336,8 @@ restore mode:
   --drop-database       Remove the previous database once the restored one has taken over. Valid
                         as --mode db --drop-database, or with --mode all --cleanfirst; alone (the
                         default --mode all) it is refused
-  --force               Restore into a non-empty target for the parts the mode restores. It
+  --force               Restore over a non-empty Site Root that does not look like WordPress (none
+                        of wp-config.php, wp-includes/, wp-content/), or a non-empty database. It
                         selects no mode and removes nothing
 
 restore options:
@@ -253,25 +359,33 @@ restore options:
   --require-encrypted   Refuse an archive that is not encrypted, before anything changes (guards
                         against a plain archive substituted for an encrypted one; without it a
                         plain archive is restored with a warning)
+  --passphrase SECRET   Passphrase that decrypts the archive and encrypts the Safety Snapshot. The
+                        value is visible in the process list; prefer L3IO_WP_BACKUP_PASSPHRASE or
+                        the config file (chmod 600)
   --snapshot-dir PATH   Directory to write the Safety Snapshot to (default: the per-user state
                         directory). Refused inside the Site Root or the wp-config.php directory; a
                         directory a web server serves from elsewhere is not detected
   --archive-database USER@HOST[:PORT]/NAME
-                        When the target has no wp-config.php: confirm the database the archive's
-                        config names (user, host, port and name must all match), or the restore is
-                        refused
+                        When the target has no wp-config.php and the archive is not encrypted:
+                        confirm the database the archive's config names (user, host, port and name
+                        must all match), or the restore is refused
+  --db-tls {required,verify-ca,verify-identity}
+                        Require TLS on every database connection, at this level (default: no
+                        requirement, as WordPress connects)
+  --db-tls-ca FILE      CA bundle that verifies the database server, with --db-tls verify-ca or
+                        verify-identity (default: the system store)
   --admin-tls {required,verify-ca,verify-identity}
-                        Raise the TLS the database connections use (default: verified TLS to any
-                        host but localhost, 127.0.0.1 and ::1; never lowered)
-  --admin-tls-ca FILE   CA bundle that verifies the database server (default: the system store)
+                        Deprecated: use --db-tls
+  --admin-tls-ca FILE   Deprecated: use --db-tls-ca
   --resolve-interrupted-run RUN_ID
                         Resolve the journal left by the interrupted Run with this ID, then stop:
                         nothing is restored (run the restore again afterwards)
-  --admin-username USER
-                        Database administrator username (give --admin-password with it)
-  --admin-password PASSWORD
+  --admin-user USER, --admin-username USER
+                        Database administrator username (give --admin-password with it, or set
+                        L3IO_WP_BACKUP_ADMIN_PASSWORD)
+  --admin-password SECRET
                         Database administrator password. The value is visible in the process list;
-                        prefer L3IO_WP_BACKUP_ADMIN_PASSWORD
+                        prefer L3IO_WP_BACKUP_ADMIN_PASSWORD or the config file (chmod 600)
   --admin-credentials-aws-secret-id ID
                         Read the database administrator from this AWS Secrets Manager secret
   --admin-credentials-aws-region REGION
@@ -284,16 +398,15 @@ restore options:
   --new-db-host HOST    Relocate to this database host
   --new-db-name NAME    Relocate to this database name
   --new-db-user USER    Relocate to this database user
-  --new-db-password PASSWORD
+  --new-db-password SECRET
                         Password of --new-db-user. The value is visible in the process list;
-                        prefer --new-db-password-file or L3IO_WP_BACKUP_NEW_DB_PASSWORD
+                        prefer --new-db-password-file, L3IO_WP_BACKUP_NEW_DB_PASSWORD or the
+                        config file (chmod 600)
   --new-db-password-file PATH
                         Read the password of --new-db-user from this file (its first line; make it
                         readable only by you)
-  --allow-root          Restore even though running as root (refused by default: extraction as
-                        root can be raced by a symlink swap in the Site Root)
-  --allow-unencrypted   Restore an archive that is not encrypted even though a passphrase was
-                        given (without it, that is refused as a possible substitution)
+  --allow-unencrypted   Deprecated, no effect: a plain archive restored with a passphrase proceeds
+                        with a warning; --require-encrypted refuses it
 
 database credentials:
   --db-credentials-aws-secret-id ID
@@ -315,18 +428,31 @@ exit codes:
 
 ```text
 $ wpbackup2 verify --help
-usage: wpbackup2 verify [-h] [--whatIf] --archive ARCHIVE [--authenticate]
+usage: wpbackup2 verify [-h] [--config PATH] [--whatIf] --archive ARCHIVE [--authenticate]
+                        [--passphrase SECRET]
 
 Check an archive without touching a site
 
+Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
+(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
+(wp_dir = "..."); a flag wins over a variable, a variable over the file.
+
 options:
   -h, --help           Show this help message and exit
+  --config PATH        Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; default:
+                       /etc/l3io-wp-backup/config.toml, then the per-user ~/.config/l3io-wp-
+                       backup/config.toml). A file holding a secret must be readable by its owner
+                       only
   --whatIf, --what-if  Accepted for symmetry: verify is read-only, so it changes nothing
   --archive ARCHIVE    Path or file: URL of the archive to check
   --authenticate       Decrypt the encrypted payload to prove the archive authentic; without it,
                        verify proves only that its checksums are consistent. The passphrase comes
-                       from L3IO_WP_BACKUP_PASSPHRASE or a prompt. It does not show the archive is
-                       the latest one: an older archive under the same passphrase also passes
+                       from --passphrase, L3IO_WP_BACKUP_PASSPHRASE, the config file or a prompt.
+                       It does not show the archive is the latest one: an older archive under the
+                       same passphrase also passes
+  --passphrase SECRET  Passphrase that decrypts the archive (with --authenticate). The value is
+                       visible in the process list; prefer L3IO_WP_BACKUP_PASSPHRASE or the config
+                       file (chmod 600)
 
 exit codes:
    0  OK                   the Run succeeded
@@ -342,12 +468,20 @@ exit codes:
 
 ```text
 $ wpbackup2 doctor --help
-usage: wpbackup2 doctor [-h] [--wp-dir DIR] [--archive TARGET] [--json]
+usage: wpbackup2 doctor [-h] [--config PATH] [--wp-dir DIR] [--archive TARGET] [--json]
 
 Report whether this host is ready to back up and restore
 
+Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
+(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
+(wp_dir = "..."); a flag wins over a variable, a variable over the file.
+
 options:
   -h, --help        Show this help message and exit
+  --config PATH     Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; default:
+                    /etc/l3io-wp-backup/config.toml, then the per-user ~/.config/l3io-wp-
+                    backup/config.toml). A file holding a secret must be readable by its owner
+                    only
   --wp-dir DIR      Also check this Site Root
   --archive TARGET  Also check this archive target
   --json            Print the diagnosis as JSON

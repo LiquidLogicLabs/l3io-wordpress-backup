@@ -200,10 +200,10 @@ class _Distinct:
         *,
         secrets: object,
         admin: object = None,
-        admin_tls: object = None,
+        db_tls: object = None,
     ) -> None:
         self.credentials, self.admin = credentials, admin
-        self.admin_tls = admin_tls
+        self.db_tls = db_tls
 
     def __repr__(self) -> str:
         return "_Distinct()"

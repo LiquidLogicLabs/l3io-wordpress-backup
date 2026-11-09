@@ -9,6 +9,13 @@ creates the Run's ``SecretRegistry``, then dispatches: ``backup`` to
 Context (AD-16) with that registry. Anything else is refused rather than
 pretending to act.
 
+**Settings (owner decision 60, ADR-0028).** The arguments are parsed by
+``cli/settings.parse_layered``: every setting comes from its flag, else its
+``L3IO_WP_BACKUP_*`` variable, else the config file, else the parser's
+default. Every secret setting that resolved is registered with the Run's
+``SecretRegistry`` before anything else runs, and an ``L3IO_WP_BACKUP_*``
+variable no setting has is logged as WARNING ``unknown_setting_variable``.
+
 **Before any Run opens** the arguments are checked: a restore flag
 combination that expresses no Restore Mode (AD-25), an incomplete credential
 flag pair, or a flag or subcommand still in
@@ -47,6 +54,8 @@ from contextlib import contextmanager
 from types import FrameType
 from typing import NoReturn
 
+import structlog
+
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.exit import report_failure, report_interrupt
 from l3io.wp.backup.cli.logging import configure_logging
@@ -59,10 +68,13 @@ from l3io.wp.backup.cli.parser import (
     not_yet_implemented,
     require_backup_wp_dir,
 )
+from l3io.wp.backup.cli.settings import LayeredArguments, parse_layered
 from l3io.wp.backup.domain.errors import RunTerminated, UsageError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 
 __all__ = ["TERMINATING_SIGNALS", "main", "run_from_cli"]
+
+_log = structlog.get_logger(__name__)
 
 
 def _terminate(signum: int, frame: FrameType | None) -> None:
@@ -106,7 +118,8 @@ def _sigterm_raises() -> Iterator[None]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse ``argv`` and dispatch. Returns the process exit code."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    layered = parse_layered(parser, argv)
+    args = layered.namespace
     if args.action is None:
         parser.print_help(sys.stderr)
         return int(ExitCode.USAGE)
@@ -121,7 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cleanfirst=args.cleanfirst,
                 drop_database=args.drop_database,
                 force=args.force,
-                admin_username=args.admin_username,
+                admin_username=args.admin_user,
                 admin_password=args.admin_password,
                 admin_aws_secret_id=args.admin_credentials_aws_secret_id,
                 admin_aws_region=args.admin_credentials_aws_region,
@@ -156,6 +169,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         usage.error(f"{args.action!r} is not implemented in this build")
     configure_logging(args.log_level, args.log_format)
     secrets = SecretRegistry()
+    _register_settings(layered, secrets)
     try:
         with _sigterm_raises():
             if args.action == BACKUP_COMMAND:
@@ -179,6 +193,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:  # RunTerminated: mapped here (exit code)
         return int(report_failure(exc, secrets=secrets))
     return int(code)
+
+
+def _register_settings(layered: LayeredArguments, secrets: SecretRegistry) -> None:
+    """Owner decision 60: every secret setting is registered before any use.
+
+    Also logs the config files read, and each ``L3IO_WP_BACKUP_*`` variable no
+    setting has (a misspelt name would otherwise be silently ignored).
+    """
+    for name, value in layered.secrets.items():
+        secrets.register(value, source=f"setting:{name}")
+    if layered.config_files:
+        _log.info(
+            "config_files_read", paths=[str(path) for path in layered.config_files]
+        )
+    for variable in layered.unknown_variables:
+        _log.warning("unknown_setting_variable", variable=variable)
 
 
 def run_from_cli() -> NoReturn:

@@ -112,24 +112,31 @@ never appear in any of them.
 | Event | Level | When |
 |---|---|---|
 | `archive_bound` | INFO | A restore copied the Archive into the Run workspace before reading it (`archive`, `copy`) |
+| `archive_database_trusted` | INFO | A config-less restore target uses an encrypted Archive's own database, authenticated by its passphrase, without `--archive-database` (`db_host`, `db_port`, `db_name`, `db_user`, `reason`; owner decision 65) |
 | `archive_database_confirmed` | INFO | A config-less restore target matched `--archive-database` against the Archive's own database identity (`db_host`, `db_port`, `db_name`, `db_user`) |
 | `archive_database_unused` | INFO | `--archive-database` was given but the target has its own `wp-config.php`, so it was not used |
 | `archive_directory_not_synced` | WARNING | The destination directory could not be fsynced after the Archive was renamed into place; the Archive is published (`path`, `reason`) |
+| `archive_latest_selected` | INFO | `--archive latest` chose this site's newest Archive (`archive`, `created_at`, `archive_dir`, `considered`, `matched`; owner decision 64) |
+| `archive_manifest_unread` | DEBUG | `--archive latest` could not read a file's leading Manifest and skips it (`path`, `error`, the class name) |
+| `archive_not_encrypted` | WARNING | A restore was given a passphrase but the Archive is not encrypted; it proceeds (`archive`, `reason`; `--require-encrypted` refuses instead; owner decision 59) |
 | `archive_discarded` | INFO | A staged Archive was removed without being published (`path`, its final name) |
 | `archive_published` | INFO | A verified Archive was renamed onto its final name (`path`) |
 | `archive_read_stopped` | DEBUG | Reading the outer tar stopped at a stream error; the classifier decides truncated or unrecognised (`error`, the class name) |
 | `archive_staged` | DEBUG | A temporary file was created beside the final Archive name (`path`, `staged`) |
-| `archive_target_in_site_root` | WARNING | A backup target inside the Site Root was allowed by `--allow-target-in-site-root` (`path`, `site_root`, `allowed_by`) |
+| `archive_target_chosen` | INFO | Where a backup writes its Archive, and what chose it: `--archive`, its variable or config key, `--archive-dir`, the current directory or the per-user data directory (`path`, `chosen_by`; owner decision 60) |
+| `archive_target_in_site_root` | WARNING | A backup writes its Archive inside the Site Root, where the web server may serve it; it proceeds (`path`, `site_root`; owner decision 60) |
 | `archive_unauthenticated` | WARNING | A restore proceeds from an unencrypted Archive, whose checksums prove consistency, not authenticity (`integrity`, `archive`) |
 | `backup_completed` | INFO | A backup finished (`path`, `format_version`, `members` by kind, `bytes`, `performed` — `false` in a Dry Run) |
 | `backup_started` | INFO | A backup's plan begins executing (`backup_scope`) |
 | `command_failed` | ERROR | A command failed, or was interrupted by Ctrl-C (`exit_code` `130`, `exit_reason` `INTERRUPTED`); see [Failures](#failures) (`error`, `message`, `exit_code`, `exit_reason`) |
+| `config_files_read` | INFO | The settings files read, in order, before the Run (`paths`; owner decision 60) |
 | `config_directory_not_synced` | WARNING | The directory of a written `wp-config.php` could not be fsynced after the rename; the file has changed (`path`, `reason`) |
 | `config_laid_down` | INFO | A restore wrote `wp-config.php` from the Archive into a target that had none (`config_path`, `mode`) |
 | `config_located` | INFO | A relocating restore chose where WP-CLI reads `wp-config.php` (`config_path`, `location`, `action`, `source`, `manifest_config_path`) |
 | `config_mode_restricted` | WARNING | A laid-down `wp-config.php` was world-accessible in the Archive; its other-user bits were removed (`config_path`, `archive_mode`, `mode`) |
 | `config_value_from_environment` | INFO | A `wp-config.php` setting defined with `getenv_docker()` or `getenv()` was resolved from the Run's environment, or the file a `NAME_FILE` variable names (`path`, `key`, `variable`, `function`; never the value) |
 | `config_written` | INFO | `wp-config.php` was changed: `method` `set_constants`, `save_copy` or `replace_file` (`path`, `keys`, `changed`, never values) |
+| `credential_below_redaction_floor` | WARNING | A database password shorter than the redaction floor was accepted; it cannot be masked in logs (`source`, `minimum`; never the value; owner decision 61) |
 | `credential_chain_built` | DEBUG | The credential sources for a `role` were ordered (`sources`; `none_configured` when there are none) |
 | `credential_source_empty` | WARNING | A credential source was set but empty and was skipped (`source`, a name, never a value) |
 | `credential_source_selected` | INFO | The database password was resolved from `credential_source` (logged when the source changes) |
@@ -144,7 +151,8 @@ never appear in any of them.
 | `database_ensured` | INFO | The load database and its account were ensured (`db_name`, `created_database`, `created_user`, `duration_ms`) |
 | `database_restore_report` | INFO, ERROR | The database part of a restore finished (INFO) or failed (ERROR), with what was done (loaded, checked, cutover keys written) |
 | `database_surveyed` | INFO | A restore target's database was surveyed as the administrator (`db_name`, `database_exists`, `duration_ms`) |
-| `db_host_confirmed` | INFO | A non-local `DB_HOST` was confirmed with `--confirm-db-host` (`db_host`) |
+| `database_host` | INFO | The host a backup's dump connects to, as `wp-config.php` gives it (`db_host`, `db_port`, `local`); logged, never confirmed (owner decision 54) |
+| `deprecated_option` | WARNING | A deprecated option was given: `--admin-tls`/`--admin-tls-ca` (taken as `--db-tls`/`--db-tls-ca`) or `--allow-unencrypted` (no effect) (`option`, `replacement`) |
 | `dump_loaded` | INFO | The Archive's Dump was loaded into the load database (`db_name`, `bytes`, `duration_ms`) |
 | `dump_readiness` | INFO | The database reported whether it can be dumped (`db_name`, `credential_source`, blockers and warnings) |
 | `encryption_configured` | INFO | A backup encrypts its payload (`scheme` `age`, `mode` `passphrase`) |
@@ -172,10 +180,9 @@ never appear in any of them.
 | `previous_database_retained` | INFO | The database that lost the cutover was kept (`database`, `reason`: `mode` or `different server`) |
 | `protected_path_kept` | WARNING | A path an exclusion pattern matched was kept because it is protected (`path`, `pattern`) |
 | `relocation_planned` | INFO | A restore resolved what it will relocate (`keys`, `cutover_keys`, `db_location`) |
-| `restore_flag_no_effect` | INFO | A restore flag had no effect for this Archive or Mode, such as `--allow-unencrypted` (`allow_unencrypted=True`) with an encrypted Archive, with no passphrase, or with `--require-encrypted` (`option`, `reason`) |
 | `restore_mode_resolved` | INFO | The restore flags resolved to one Mode (`restore_mode`, `overrides`, `snapshot_policy`, `flags`) |
 | `restore_refused` | ERROR | FR-7 refused a non-empty target (`reason`, `parts`, `found`) |
-| `restore_running_as_root` | WARNING | A restore runs as root under `--allow-root` (`allowed_by`, `risk`) |
+| `restore_runs_as_site_owner` | INFO | A restore started as root switched to the uid and gid that own the Site Root, after reading what only root may read (`uid`, `gid`, `user`, `home`; owner decision 58) |
 | `run_finished` | INFO, ERROR | A Run ended; see [the record schema](#the-record-schema) |
 | `run_started` | INFO | A Run began; see [the record schema](#the-record-schema) |
 | `safety_snapshot_encrypted` | WARNING | The Safety Snapshot is encrypted with this Run's passphrase, which its restore needs (`path`) |
@@ -208,6 +215,7 @@ never appear in any of them.
 | `target_resurveyed` | INFO | A restore surveyed its target again before the first destructive phase (`site_root_empty`, `restore_mode`) |
 | `tracer_failed` | WARNING | The caller's tracer raised; tracing is disabled for the rest of the Run (`tracer`, `error`) |
 | `unexpected_exception` | ERROR | A library call failed with a defect, wrapped as `UnexpectedError` (`cause_type`, `api_function`, `traceback`) |
+| `unknown_setting_variable` | WARNING | An `L3IO_WP_BACKUP_*` variable is set that no setting has, so nothing reads it (`variable`, a name, never the value; owner decision 60) |
 | `what_if_not_applicable` | INFO | `--whatIf` was given to `verify`, which is read-only (`message`) |
 | `workspace_created` | DEBUG | The Run workspace was created (`path`) |
 | `workspace_not_removed` | WARNING | The Run workspace survived removal; the Run fails (no path) |

@@ -65,16 +65,16 @@ from l3io.wp.backup.domain.restore import (
 from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
 __all__: list[str] = [
-    "AdminTls",
     "AwsSecretCredentialSpec",
     "BackupResult",
     "BackupScope",
     "ConfigPolicy",
     "CredentialSpec",
+    "DbTls",
     "Diagnosis",
     "ExclusionPolicy",
     "ExclusionSet",

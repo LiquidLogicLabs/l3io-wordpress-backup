@@ -58,9 +58,8 @@ from l3io.wp.backup.domain.restore import (
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.adapter_set import AdapterSet
-from l3io.wp.backup.ports.database import AdminTls, DatabaseCommand, DatabaseQuery
+from l3io.wp.backup.ports.database import DatabaseCommand, DatabaseQuery, DbTls
 from tests.restore_harness import TARGET_DB, wp_config, write_v1
-from tests.root_mode import running_as_root
 
 #: Every waiver: a test about something else is not refused by FR-7.
 ALL_WAIVED = OverrideSet(waived=frozenset(Override))
@@ -266,12 +265,10 @@ class Rig:
             "admin": None,
             "cipher": None,
             "archive_database": None,
-            "admin_tls": AdminTls(mode=None, ca_file=None),
+            "db_tls": DbTls(mode=None, ca_file=None),
             "relocation": restore_mod.RelocationFlags.none(),
             "reset_existing_db_user": False,
             "dry_run": False,
-            # CI runs as root; the refusal is proved where it is asked for.
-            "allow_root": running_as_root(),
         }
         values.update(changes)
         return restore_mod.RestoreRequest(**values)

@@ -61,7 +61,6 @@ from l3io.wp.backup.domain.restore import (
 )
 from tests.conftest import CredentialSentinel, seal_archive
 from tests.exception_scope import exported_exceptions
-from tests.root_mode import allow_root_kwargs
 from tests.site_lock_holder import held_elsewhere
 
 wpdb = pytest.importorskip("l3io.wp.database")
@@ -239,7 +238,6 @@ def test_a_rejected_administrator_through_the_api_carries_no_secret(
                 username="root", password=credential_sentinel.admin_password
             ),
             passphrase=credential_sentinel.passphrase,
-            **allow_root_kwargs(),
         )
     assert called, "no database operation ran: the admin path was not reached"
     assert "explicit" in caught.value.source

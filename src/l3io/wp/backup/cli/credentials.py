@@ -12,6 +12,15 @@ resolve; delegating to the builders from here would bypass that registration.
 decision 2026-11-07): ``--new-db-password``, then ``--new-db-password-file``,
 then :data:`~l3io.wp.backup.cli.parser.NEW_DB_PASSWORD_VAR`.
 
+:func:`explicit_setting` turns a secret setting (owner decision 60) into the
+explicit step of its chain when it was typed or came from the config file; a
+value from its own variable is left to the chain, which reads it there.
+
+**Short database passwords (owner decision 61, amending ADR-0018).** A
+database password shorter than ``MIN_SECRET_LENGTH`` is accepted, with WARNING
+``credential_below_redaction_floor`` naming its source (never the value):
+the registry cannot mask it in logs (:func:`note_below_redaction_floor`).
+
 Error messages name flags and halves, never a value.
 """
 
@@ -26,17 +35,23 @@ import structlog
 
 from l3io.wp.backup.adapters import database as _database
 from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
-from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
+from l3io.wp.backup.adapters.redaction import (
+    MIN_SECRET_LENGTH,
+    SecretRegistry,
+    note_below_redaction_floor,
+)
 from l3io.wp.backup.cli.output import RunWarning, WarningSink, emit_warning
 from l3io.wp.backup.cli.parser import NEW_DB_PASSWORD_VAR
 from l3io.wp.backup.cli.passphrase import note_empty_source
+from l3io.wp.backup.cli.settings import flag_name
 from l3io.wp.backup.domain.credentials import (
     AwsSecretCredentialSpec,
     CredentialSpec,
     ExplicitCredentialSpec,
 )
-from l3io.wp.backup.domain.errors import CredentialTooShortError, UsageError
+from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.secret import Secret, as_secret
+from l3io.wp.backup.ports.database import DbTls
 
 if TYPE_CHECKING:
     from l3io.wp.database import CredentialSource
@@ -46,7 +61,10 @@ __all__ = [
     "NEW_DB_PASSWORD_FLAG",
     "admin_source",
     "admin_spec",
+    "db_tls_setting",
+    "explicit_secret",
     "new_db_password",
+    "note_below_redaction_floor",
     "note_password_on_command_line",
     "wordpress_source",
     "wordpress_spec",
@@ -78,16 +96,62 @@ def _aws_spec(
 
 
 def wordpress_spec(
-    *, aws_secret_id: str | None, aws_region: str | None
+    *,
+    aws_secret_id: str | None,
+    aws_region: str | None,
+    username: str | None = None,
+    password: Secret | str | None = None,
 ) -> CredentialSpec | None:
-    """The WordPress account's spec; ``None`` means ``wp-config.php``."""
-    return _aws_spec(aws_secret_id, aws_region, prefix="db-credentials")
+    """The WordPress account's spec; ``None`` means the environment, then
+    ``wp-config.php``.
+
+    ``username``/``password`` are ``--db-user``/``--db-password`` (or their
+    config-file keys): both or neither, and not with an AWS secret.
+    """
+    aws = _aws_spec(aws_secret_id, aws_region, prefix="db-credentials")
+    if username is None and password is None:
+        return aws
+    if username is None or password is None:
+        missing = "--db-password" if password is None else "--db-user"
+        msg = f"{missing} is required with its partner: give both halves or neither"
+        raise UsageError(msg, arguments=(missing,))
+    if aws is not None:
+        msg = "give --db-user/--db-password or an AWS secret, not both"
+        raise UsageError(
+            msg,
+            arguments=("--db-user", "--db-password", "--db-credentials-aws-secret-id"),
+        )
+    return ExplicitCredentialSpec(username=username, password=password)
+
+
+def explicit_secret(
+    value: Secret | str | None, origin: str | None, *, name: str
+) -> tuple[Secret | None, str | None]:
+    """A secret setting as its chain's explicit step, and the source to name.
+
+    ``origin`` is where the setting ``name`` came from
+    (``cli/settings.Origin``). Typed on the command line: its flag, and
+    WARNING ``password_on_command_line``. From the config file: ``config file
+    key <name>``. From its own variable, or unset: ``(None, None)``, so the
+    chain reads the variable itself, as before (owner decision 60).
+    """
+    if value is None or origin not in ("command line", "config file"):
+        return None, None
+    if origin == "command line":
+        note_password_on_command_line(flag_name(name))
+        return as_secret(value), flag_name(name)
+    return as_secret(value), f"config file key {name}"
+
+
+def db_tls_setting(mode: str | None, ca_file: str | Path | None) -> DbTls:
+    """``--db-tls``/``--db-tls-ca`` as a ``DbTls`` (owner decision 56)."""
+    return DbTls(mode=mode, ca_file=None if ca_file is None else Path(ca_file))
 
 
 def admin_spec(
     *,
     username: str | None,
-    password: str | None,
+    password: Secret | str | None,
     aws_secret_id: str | None,
     aws_region: str | None,
     environ: Mapping[str, str] | None = None,
@@ -212,8 +276,9 @@ def new_db_password(
     explicit value: the CLI flag logs WARNING ``password_on_command_line``
     naming it, never the value (a library argument is not on a command line).
     The value is registered with ``secrets`` as it
-    is read, and one shorter than ``MIN_SECRET_LENGTH`` is refused with
-    ``CredentialTooShortError`` (ADR-0018 amendment). ``None`` when no source
+    is read, and one shorter than ``MIN_SECRET_LENGTH`` is accepted with
+    WARNING ``credential_below_redaction_floor`` (owner decision 61, amending
+    ADR-0018). ``None`` when no source
     gives one. A source that is set but empty counts as none: WARNING
     ``credential_source_empty`` names it and the next source is consulted
     (owner decision 2026-11-07, BL-E008-005).
@@ -240,5 +305,5 @@ def new_db_password(
     secret = as_secret(value)
     secrets.register(secret, source=source)
     if len(secret) < MIN_SECRET_LENGTH:
-        raise CredentialTooShortError(source, minimum=MIN_SECRET_LENGTH)
+        note_below_redaction_floor(source)
     return secret

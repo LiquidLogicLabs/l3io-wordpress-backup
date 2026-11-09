@@ -50,6 +50,20 @@ builds the cipher with ``adapters/crypto.build_payload_cipher`` and passes its
 wrapped in ``LoggedExclusionPolicy``), and with no exclusion flag the request
 takes :func:`default_exclusion_policy`. ``--list-default-excludes`` prints
 ``enumerate_defaults()`` and returns without a Run.
+
+**Where the Archive goes (owner decision 60).** ``--archive`` names it;
+without it, the default name is written into ``--archive-dir``, else the
+current directory when that is outside the Site Root, else the per-user data
+directory (:func:`default_archive_directory`), so a default target is never
+inside the Site Root. The choice is logged (INFO ``archive_target_chosen``)
+and the Dry Run's ``publish`` line names it. A target the operator put inside
+the Site Root is written, with WARNING ``archive_target_in_site_root``: the
+web server may serve it.
+
+**The database host (owner decision 54).** Logged as INFO ``database_host``
+and named in the Dry Run's ``dump`` line; no confirmation is asked. A
+``DB_HOST`` that cannot be right (an unresolved PHP expression, a malformed
+host or port) is refused while the Site Descriptor is read.
 """
 
 from __future__ import annotations
@@ -67,17 +81,20 @@ from types import MappingProxyType
 from typing import Final, cast
 from urllib.parse import unquote, urlsplit
 
+import platformdirs
 import structlog
 
 from l3io.wp.backup.adapters.crypto import PassphraseCipher, build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
+    check_db_tls,
     database_host_is_local,
     locate_wp_config,
     require_wp_config_credentials,
     site_descriptor_from_wp_config,
 )
 from l3io.wp.backup.adapters.exclusions import LoggedExclusionPolicy, log_path_excluded
+from l3io.wp.backup.adapters.lock import APP_NAME
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.adapter_sets import (
@@ -86,7 +103,13 @@ from l3io.wp.backup.cli.adapter_sets import (
     real_site_lock,
 )
 from l3io.wp.backup.cli.context import RunContext, join_or_open
-from l3io.wp.backup.cli.credentials import wordpress_source, wordpress_spec
+from l3io.wp.backup.cli.credentials import (
+    db_tls_setting,
+    explicit_secret,
+    note_password_on_command_line,
+    wordpress_source,
+    wordpress_spec,
+)
 from l3io.wp.backup.cli.output import (
     RunWarning,
     WarningSink,
@@ -100,6 +123,13 @@ from l3io.wp.backup.cli.passphrase import (
 )
 from l3io.wp.backup.cli.preflight import require_tools, root_preflight
 from l3io.wp.backup.cli.scope import backup_scope_from_cli
+from l3io.wp.backup.cli.settings import (
+    SETTING_NAMES,
+    config_key,
+    env_name,
+    setting_origins,
+    typed_settings,
+)
 from l3io.wp.backup.core.backup import BackupPlan, BackupStep, build_backup_plan
 from l3io.wp.backup.core.exclusions import ExclusionSet, enumerate_defaults
 from l3io.wp.backup.domain.archive_format import (
@@ -118,9 +148,7 @@ from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.errors import (
     ArchiveExistsError,
-    DatabaseHostUnconfirmedError,
     SiteRootNotFoundError,
-    TargetInsideSiteRootError,
     UsageError,
 )
 from l3io.wp.backup.domain.exclusion import (
@@ -130,9 +158,11 @@ from l3io.wp.backup.domain.exclusion import (
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
+from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import (
     DEFAULT_ARCHIVE_NAME_GLOB,
+    LATEST,
     StorageTarget,
     default_archive_name,
     parse_storage_target,
@@ -143,21 +173,21 @@ from l3io.wp.backup.ports.archive import (
     StagedArchive,
 )
 from l3io.wp.backup.ports.crypto import PayloadCipher
-from l3io.wp.backup.ports.database import DatabaseCommand
+from l3io.wp.backup.ports.database import DatabaseCommand, DbTls
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.preflight import Preflight
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
-    "ALLOW_TARGET_IN_SITE_ROOT_FLAG",
-    "CONFIRM_DB_HOST_FLAG",
+    "DATA_DIRECTORY_ARCHIVES",
     "DRY_RUN_TRAILER",
     "NO_ENVIRONMENT",
     "BackupRequest",
     "BackupResult",
     "PlannedAction",
     "backup",
+    "default_archive_directory",
     "default_exclusion_policy",
     "drive_backup",
     "execute_backup_plan",
@@ -279,14 +309,14 @@ class BackupRequest:
 
     ``scope`` has no default (AD-5). ``credentials`` is the backup-owned spec,
     never a database type (ADR-0015); ``None`` means ``wp-config.php``.
-    ``target=None`` means the default Archive name in the current directory.
+    ``target=None`` means the default Archive name in ``archive_dir``, else
+    in :func:`default_archive_directory` (owner decision 60).
     ``dry_run`` selects the no-op command adapters (AD-4) when the driver
     opens the Run; ``extra_tools`` reaches preflight through the plan.
-    ``confirm_db_host`` is ``--confirm-db-host``: a dumping backup whose
-    ``DB_HOST`` is not local is refused unless it names that host
-    (BL-E002-063). ``allow_target_in_site_root`` is
-    ``--allow-target-in-site-root``: without it a target inside the Site Root
-    is refused (BL-E002-064). Owner decisions 2026-11-07.
+    ``db_tls`` is ``--db-tls``/``--db-tls-ca`` (owner decision 56; ``None``
+    requires no TLS). ``target_chosen_by`` names what chose ``target``, for
+    the ``archive_target_chosen`` record (the flag, or the library's
+    parameter).
     """
 
     site_root: Path
@@ -298,51 +328,56 @@ class BackupRequest:
     exclusion: ExclusionPolicy = field(default_factory=default_exclusion_policy)
     dry_run: bool = False
     extra_tools: tuple[ToolRequirement, ...] = ()
-    confirm_db_host: str | None = None
-    allow_target_in_site_root: bool = False
+    archive_dir: Path | None = None
+    db_tls: DbTls = field(default_factory=DbTls)
+    target_chosen_by: str = field(default="--archive", compare=False)
 
 
-#: The flags that allow what :func:`drive_backup` otherwise refuses.
-CONFIRM_DB_HOST_FLAG: Final = "--confirm-db-host"
-ALLOW_TARGET_IN_SITE_ROOT_FLAG: Final = "--allow-target-in-site-root"
+#: Under the per-user data directory: where a default Archive goes when the
+#: current directory is inside the Site Root (owner decision 60).
+DATA_DIRECTORY_ARCHIVES: Final = "archives"
+_DATA_DIRECTORY: Final = "the per-user data directory"
 
 
-def _require_local_or_confirmed(site: SiteDescriptor, confirmed: str | None) -> None:
-    """BL-E002-063: a non-local ``DB_HOST`` must be named, before any connection.
+def default_archive_directory(site_root: Path) -> tuple[Path, str]:
+    """Where the default Archive goes, and what chose it (owner decision 60).
 
-    Provider-agnostic: whatever supplies the credentials, a backup would send
-    them to this host. Host names compare case-insensitively.
+    The current directory when it is outside the canonical ``site_root``, else
+    ``<user data dir>/l3io-wp-backup/archives``: never inside the Site Root.
+    Restore's ``--archive latest`` searches the same directory.
     """
-    if database_host_is_local(site.db_host):
-        return
-    if confirmed is not None and confirmed.lower() == site.db_host.lower():
-        _log.info("db_host_confirmed", db_host=site.db_host)
-        return
-    raise DatabaseHostUnconfirmedError(
-        host=site.db_host, confirmed=confirmed, flag=CONFIRM_DB_HOST_FLAG
+    cwd = Path.cwd().resolve()
+    if not cwd.is_relative_to(site_root):
+        return cwd, "the current directory"
+    return platformdirs.user_data_path(APP_NAME) / DATA_DIRECTORY_ARCHIVES, (
+        _DATA_DIRECTORY
     )
 
 
-def _require_target_outside(
+def _log_database_host(site: SiteDescriptor) -> None:
+    """Owner decision 54: the host the credentials go to, logged, never asked."""
+    _log.info(
+        "database_host",
+        db_host=site.db_host,
+        db_port=site.db_port,
+        local=database_host_is_local(site.db_host),
+    )
+
+
+def _warn_target_inside(
     target: StorageTarget,
     site_root: Path,
     *,
-    allow: bool,
     on_warning: WarningSink | None,
 ) -> None:
-    """BL-E002-064: a target inside the Site Root is refused unless allowed."""
+    """Owner decision 60: a target inside the Site Root proceeds, with a WARNING."""
     resolved = Path(target.path).resolve()
     if not resolved.is_relative_to(site_root):
         return
-    if not allow:
-        raise TargetInsideSiteRootError(
-            target=resolved, site_root=site_root, flag=ALLOW_TARGET_IN_SITE_ROOT_FLAG
-        )
     _log.warning(
         "archive_target_in_site_root",
         path=str(resolved),
         site_root=str(site_root),
-        allowed_by=ALLOW_TARGET_IN_SITE_ROOT_FLAG,
     )
     emit_warning(
         RunWarning(
@@ -739,19 +774,12 @@ def drive_backup(
             site_root, config_file=config.path, environ=environ, secrets=run.secrets
         )
         run.run_span.set_attributes(db_name=site.db_name)
-        target = request.target or storage_target_from_cli(
-            default_archive_name(site.db_name, run.clock.now())
-        )
-        # Owner decisions 2026-11-07: both refusals precede the credential
-        # source, the plan and any connection.
-        _require_target_outside(
-            target,
-            site_root,
-            allow=request.allow_target_in_site_root,
-            on_warning=on_warning,
-        )
+        target, chosen_by, create = _target(request, site_root, site, run)
+        _log.info("archive_target_chosen", path=str(target.path), chosen_by=chosen_by)
+        _warn_target_inside(target, site_root, on_warning=on_warning)
         if request.scope is not BackupScope.FILES:
-            _require_local_or_confirmed(site, request.confirm_db_host)
+            _log_database_host(site)
+            check_db_tls(request.db_tls)
         credentials = wordpress_source(
             request.credentials,
             wp_config=wp_config,
@@ -780,6 +808,8 @@ def drive_backup(
                 wordpress_source=credentials,
                 secrets=run.secrets,
                 tracer=run.tracer,
+                db_tls=request.db_tls,
+                create_archive_directory=create,
             )
             run.bind_adapters(dry_run_adapters(real) if request.dry_run else real)
         result = backup(
@@ -800,8 +830,33 @@ def drive_backup(
         )
 
 
+def _target(
+    request: BackupRequest, site_root: Path, site: SiteDescriptor, run: RunContext
+) -> tuple[StorageTarget, str, bool]:
+    """The Storage Target, what chose it, and whether its directory may be made.
+
+    Only the per-user data directory is created when missing (``0700``, by the
+    store's ``stage``, which a Dry Run replaces); a directory the operator
+    named must exist.
+    """
+    if request.target is not None:
+        return request.target, request.target_chosen_by, False
+    name = default_archive_name(site.db_name, run.clock.now())
+    if request.archive_dir is not None:
+        directory, chosen_by = Path(request.archive_dir), "--archive-dir"
+    else:
+        directory, chosen_by = default_archive_directory(site_root)
+    target = storage_target_from_cli(str(directory / name))
+    return target, chosen_by, chosen_by == _DATA_DIRECTORY
+
+
 def _cipher(
-    *, encrypt: bool, environ: Mapping[str, str], secrets: SecretRegistry
+    *,
+    encrypt: bool,
+    environ: Mapping[str, str],
+    secrets: SecretRegistry,
+    explicit: Secret | None = None,
+    explicit_source: str | None = None,
 ) -> PassphraseCipher | None:
     """The cipher the flags ask for, its passphrase resolved into ``secrets``.
 
@@ -811,10 +866,14 @@ def _cipher(
     is read (``require_passphrase``).
     """
     if not encrypt:
-        note_unused_passphrase(environ)
+        note_unused_passphrase(environ, explicit_source=explicit_source)
         return None
     resolved = require_passphrase(
-        explicit=None, environ=environ, prompt=terminal_prompt(), secrets=secrets
+        explicit=explicit,
+        environ=environ,
+        prompt=terminal_prompt(),
+        secrets=secrets,
+        explicit_source=explicit_source,
     )
     return build_payload_cipher(passphrase=resolved.value, secrets=secrets)
 
@@ -835,14 +894,19 @@ def _exclusion(
     )
 
 
-def _refuse_flags_with_list(values: Mapping[str, object]) -> None:
+def _refuse_flags_with_list(
+    values: Mapping[str, object], typed: frozenset[str] | None = None
+) -> None:
     """``UsageError``: ``--list-default-excludes`` takes no other backup flag.
 
     It prints and exits without a Run, so any other flag would be accepted
     and silently ignored (E008 closure A-02). ``--wp-dir`` is optional with it
     (BL-E008-013, owner decision 2026-11-07) and the one flag it may carry. The
     flags checked are the backup parser's own, so a flag added later is
-    covered without touching this function.
+    covered without touching this function. ``typed`` is the settings given
+    on the command line (owner decision 60): one set by a variable or a
+    config file is a standing setting, not a flag given with this one, and
+    is not refused.
     """
     from l3io.wp.backup.cli.parser import BACKUP_COMMAND, build_parser
 
@@ -851,18 +915,21 @@ def _refuse_flags_with_list(values: Mapping[str, object]) -> None:
         for action in build_parser()._actions  # noqa: SLF001
         if isinstance(action, argparse._SubParsersAction)  # noqa: SLF001
     )
-    exempt = {"help", "wp_dir", "list_default_excludes"}
+    exempt = {"help", "wp_dir", "list_default_excludes", "config"}
 
     def unset(action: argparse.Action) -> object:
         # A SUPPRESS default (``--whatIf``) leaves the top-level value: False.
         return False if action.default == argparse.SUPPRESS else action.default
 
+    def given_here(action: argparse.Action) -> bool:
+        if typed is not None and action.dest in SETTING_NAMES:
+            return action.dest in typed
+        return values.get(action.dest, unset(action)) != unset(action)
+
     given = tuple(
         action.option_strings[-1]
         for action in subparsers[BACKUP_COMMAND]._actions  # noqa: SLF001
-        if action.option_strings
-        and action.dest not in exempt
-        and values.get(action.dest, unset(action)) != unset(action)
+        if action.option_strings and action.dest not in exempt and given_here(action)
     )
     if given:
         message = (
@@ -870,6 +937,32 @@ def _refuse_flags_with_list(values: Mapping[str, object]) -> None:
             f"--wp-dir; remove {', '.join(given)}"
         )
         raise UsageError(message, arguments=given)
+
+
+#: The origins a credential pair's environment step reads for itself: neither
+#: is turned into an explicit spec (``adapters/credential_providers``).
+_CHAIN_ORIGINS: Final = frozenset({"environment", "default", None})
+
+
+def _explicit_pair(
+    user: str | None, password: Secret | str | None, origins: Mapping[str, str]
+) -> tuple[str | None, Secret | str | None]:
+    """``--db-user``/``--db-password`` as an explicit pair, when either was typed
+    or came from the config file; both from the environment (or neither) are
+    the credential chain's own environment step, read there (owner decision 60).
+    """
+    if all(origins.get(name) in _CHAIN_ORIGINS for name in ("db_user", "db_password")):
+        return None, None
+    return user, password
+
+
+def _chosen_by(origin: str | None) -> str:
+    """What chose ``--archive``'s value, for ``archive_target_chosen``."""
+    if origin == "environment":
+        return env_name("archive")
+    if origin == "config file":
+        return f"the config file's {config_key('archive')}"
+    return "--archive"
 
 
 def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
@@ -882,17 +975,32 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     ``--list-default-excludes`` prints the default set, one pattern per line,
     and returns ``OK`` with no Run and nothing read.
     """
+    origins = setting_origins(vars(args))
     if args.list_default_excludes:
-        _refuse_flags_with_list(vars(args))
+        _refuse_flags_with_list(vars(args), typed=typed_settings(vars(args)))
         emit_result("\n".join(enumerate_defaults()))
         return ExitCode.OK
     exclusion = _exclusion(
         args.exclude, no_default_excludes=bool(args.no_default_excludes)
     )
+    passphrase, passphrase_source = explicit_secret(
+        args.passphrase, origins.get("passphrase"), name="passphrase"
+    )
     cipher = _cipher(
-        encrypt=bool(args.encrypt_with_passphrase), environ=os.environ, secrets=secrets
+        encrypt=bool(args.encrypt_with_passphrase),
+        environ=os.environ,
+        secrets=secrets,
+        explicit=passphrase,
+        explicit_source=passphrase_source,
     )
     extra_tools = () if cipher is None else cipher.required_tools()
+    if args.archive == LATEST:
+        msg = (
+            "--archive latest names an existing archive to restore; a backup "
+            "writes a new one (give a path, or --archive-dir)"
+        )
+        raise UsageError(msg, arguments=("archive",))
+    db_user, db_password = _explicit_pair(args.db_user, args.db_password, origins)
     request = BackupRequest(
         site_root=Path(args.wp_dir),
         scope=backup_scope_from_cli(args.mode),
@@ -901,14 +1009,19 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         credentials=wordpress_spec(
             aws_secret_id=args.db_credentials_aws_secret_id,
             aws_region=args.db_credentials_aws_region,
+            username=db_user,
+            password=db_password,
         ),
         cipher=cipher,
         exclusion=default_exclusion_policy() if exclusion is None else exclusion,
         dry_run=bool(args.what_if),
         extra_tools=extra_tools,
-        confirm_db_host=args.confirm_db_host,
-        allow_target_in_site_root=bool(args.allow_target_in_site_root),
+        archive_dir=None if args.archive_dir is None else Path(args.archive_dir),
+        db_tls=db_tls_setting(args.db_tls, args.db_tls_ca),
+        target_chosen_by=_chosen_by(origins.get("archive")),
     )
+    if origins.get("db_password") == "command line":
+        note_password_on_command_line("--db-password")
     planned: list[str] = []
     try:
         result = drive_backup(

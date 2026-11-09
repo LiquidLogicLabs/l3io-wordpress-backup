@@ -37,7 +37,6 @@ from l3io.wp.backup.domain.restore import ConfigPolicy, RestoreMode, SnapshotPol
 from tests.conftest import CredentialSentinel
 from tests.otel_sdk import otel_spans  # noqa: F401 - fixture
 from tests.restore_root_rig import ALL_WAIVED, Rig
-from tests.root_mode import allow_root_kwargs
 from tests.unit.cli.conftest import fake_database  # noqa: F401 - fixture
 
 PREFIX = "l3io.wp.backup."
@@ -95,7 +94,6 @@ def test_no_planted_secret_reaches_an_api_span(
             admin=ExplicitCredentialSpec("root", credential_sentinel.admin_password),
             allow_unencrypted=True,
             dry_run=True,
-            **allow_root_kwargs(),
         )
     spans = otel_spans.get_finished_spans()
     ours = [s for s in spans if s.name.startswith(PREFIX)]

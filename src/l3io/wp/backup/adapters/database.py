@@ -55,7 +55,11 @@ from l3io.wp.backup.adapters.credential_providers import (
     unset_partner,
     wordpress_credentials,
 )
-from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH, SecretRegistry
+from l3io.wp.backup.adapters.redaction import (
+    MIN_SECRET_LENGTH,
+    SecretRegistry,
+    note_below_redaction_floor,
+)
 from l3io.wp.backup.domain.archive_format import (
     WP_CONFIG_NAME,
     WP_SETTINGS_NAME,
@@ -74,7 +78,6 @@ from l3io.wp.backup.domain.errors import (
     AdminCredentialsRequiredError,
     BackupError,
     CredentialsError,
-    CredentialTooShortError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
@@ -88,7 +91,7 @@ from l3io.wp.backup.domain.errors import (
     UsageError,
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 
 if TYPE_CHECKING:
     from l3io.wp.database import (
@@ -102,7 +105,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ADMIN_FLAGS",
     "ADMIN_SOURCE",
-    "ADMIN_TLS_MODES",
+    "DB_TLS_MODES",
     "INVALID_DATABASE_NAME",
     "INVALID_DB_HOST",
     "TLS_SETTINGS_UNUSABLE",
@@ -114,7 +117,7 @@ __all__ = [
     "WpDatabase",
     "admin_source",
     "blocked_dump_error",
-    "check_admin_tls",
+    "check_db_tls",
     "database_host_is_local",
     "database_location_from_db_host",
     "database_name_is_valid",
@@ -165,17 +168,18 @@ _NS_PER_MS: Final = 1_000_000
 
 
 # --------------------------------------------------------------------------
-# TLS for administrator connections (BL-E002-114)
+# TLS for the database connections (owner decision 56, amending BL-E002-114)
 # --------------------------------------------------------------------------
 
-#: ``--admin-tls`` values, weakest first; each is a database ``TlsMode`` value
-#: with ``-`` for ``_``. The policy may be raised to one of them, never lowered.
-ADMIN_TLS_MODES: Final = ("required", "verify-ca", "verify-identity")
-_TLS_ORDER: Final = ("off", "required", "verify_ca", "verify_identity")
+#: ``--db-tls`` values, weakest first; each is a database ``TlsMode`` value
+#: with ``-`` for ``_``. Without one, no TLS is required, as WordPress connects.
+DB_TLS_MODES: Final = ("required", "verify-ca", "verify-identity")
+#: The modes ``--db-tls-ca`` is used by.
+_VERIFYING: Final = frozenset({"verify-ca", "verify-identity"})
 #: ADV-S02-11: the ``UsageError`` texts that replace database's messages.
 TLS_SETTINGS_UNUSABLE: Final = (
     "the TLS settings for the database connection could not be built from "
-    "--admin-tls and --admin-tls-ca; nothing was changed"
+    "--db-tls and --db-tls-ca; nothing was changed"
 )
 INVALID_DB_HOST: Final = (
     "the database host is not HOST or HOST:PORT with a port from 1 to 65535; "
@@ -232,47 +236,43 @@ class DatabaseTlsVerificationError(RefusedError):
         self.port = port
         super().__init__(
             f"the TLS certificate of database server {host}:{port} did not verify "
-            "(pass --admin-tls-ca FILE for a private CA); nothing was changed"
+            "(pass --db-tls-ca FILE for a private CA); nothing was changed"
         )
 
 
-def _tls_settings(admin_tls: AdminTls, host: str) -> TlsSettings:
-    """``tls_required_unless_local(host)``, raised to ``admin_tls``; never lowered."""
+def _tls_settings(db_tls: DbTls) -> TlsSettings:
+    """The ``TlsSettings`` ``db_tls`` asks for; no requirement without a mode.
+
+    Owner decision 56: no TLS requirement by default, for any host and either
+    account, as WordPress connects; ``--db-tls`` opts in. ``--db-tls-ca``
+    without a verifying mode is ``UsageError``, before any connection.
+    """
     _require_extra()
     from l3io.wp import database as wpdb
 
-    policy = wpdb.tls_required_unless_local(host, ca_file=admin_tls.ca_file)
-    mode = policy.mode
-    if admin_tls.mode is not None:
-        if admin_tls.mode not in ADMIN_TLS_MODES:
-            msg = f"--admin-tls {admin_tls.mode!r}: choose one of {ADMIN_TLS_MODES}"
-            raise UsageError(msg, arguments=("admin_tls",))
-        wanted = wpdb.TlsMode(admin_tls.mode.replace("-", "_"))
-        if _TLS_ORDER.index(wanted.value) < _TLS_ORDER.index(policy.mode.value):
-            msg = (
-                f"--admin-tls {admin_tls.mode} is below the policy for {host!r} "
-                f"({policy.mode.value.replace('_', '-')}); it may only raise it"
-            )
-            raise UsageError(msg, arguments=("admin_tls",))
-        mode = wanted
-    if mode is wpdb.TlsMode.OFF:
-        if admin_tls.ca_file is not None:
-            msg = f"--admin-tls-ca needs TLS, which is off for the local host {host!r}"
-            raise UsageError(msg, arguments=("admin_tls.ca_file",))
+    if db_tls.mode is not None and db_tls.mode not in DB_TLS_MODES:
+        msg = f"--db-tls {db_tls.mode!r}: choose one of {DB_TLS_MODES}"
+        raise UsageError(msg, arguments=("db_tls",))
+    if db_tls.ca_file is not None and db_tls.mode not in _VERIFYING:
+        msg = "--db-tls-ca needs --db-tls verify-ca or verify-identity"
+        raise UsageError(msg, arguments=("db_tls.ca_file", "db_tls"))
+    if db_tls.mode is None:
         return wpdb.TlsSettings()
     try:
-        return wpdb.TlsSettings(mode=mode, ca_file=admin_tls.ca_file)
+        return wpdb.TlsSettings(
+            mode=wpdb.TlsMode(db_tls.mode.replace("-", "_")), ca_file=db_tls.ca_file
+        )
     except wpdb.InvalidArgumentsError as exc:
         # ADV-S02-11: a fixed text; database's message is never forwarded.
         raise UsageError(
-            TLS_SETTINGS_UNUSABLE, arguments=("admin_tls", "admin_tls.ca_file")
+            TLS_SETTINGS_UNUSABLE, arguments=("db_tls", "db_tls.ca_file")
         ) from exc
 
 
-def check_admin_tls(admin_tls: AdminTls | None, host: str) -> None:
-    """Raise ``UsageError`` now for an override no connection could use."""
-    if admin_tls is not None:
-        _tls_settings(admin_tls, host)
+def check_db_tls(db_tls: DbTls | None) -> None:
+    """Raise ``UsageError`` now for TLS settings no connection could use."""
+    if db_tls is not None:
+        _tls_settings(db_tls)
 
 
 def _tls_error(exc: BaseException, location: DatabaseLocation) -> BackupError:
@@ -752,11 +752,12 @@ class _RegisteringSource:
     ``MissingExtraError`` naming it, and an AWS secret with no known region is
     ``CredentialsError`` naming ``region_flag``: database folds both into a
     finding that keeps neither, so they are mapped here, where every source
-    resolves. A password shorter than ``MIN_SECRET_LENGTH`` is refused with
-    ``CredentialTooShortError`` (ADR-0018 amendment), after it is offered to
-    the registry. A failure that is not one of database's own credential errors
-    is re-raised as ``CredentialsError`` naming the label and the failure
-    class; its text is untrusted, so it is not chained.
+    resolves. A password shorter than ``MIN_SECRET_LENGTH`` is accepted with
+    WARNING ``credential_below_redaction_floor`` (owner decision 61, amending
+    ADR-0018), after it is offered to the registry. A failure that is not
+    one of database's own credential errors is re-raised as
+    ``CredentialsError`` naming the label and the failure class; its text is
+    untrusted, so it is not chained.
     """
 
     __slots__ = ("_inner", "_region_flag", "_secrets", "_selected")
@@ -818,13 +819,12 @@ class _RegisteringSource:
             # untrusted exception.
             raise CredentialsError(label, reason=failure)
         self._secrets.register(resolved.password, source=label)
-        if len(resolved.password) < MIN_SECRET_LENGTH:
-            # ADR-0018 amendment (BL-E005-005): too short to redact, so
-            # refused here, before any connection uses it.
-            raise CredentialTooShortError(label, minimum=MIN_SECRET_LENGTH)
         if resolved.source != self._selected:
             self._selected = resolved.source
             _log.info("credential_source_selected", credential_source=resolved.source)
+            if len(resolved.password) < MIN_SECRET_LENGTH:
+                # Owner decision 61 (amending ADR-0018): accepted, warned once.
+                note_below_redaction_floor(resolved.source)
         return resolved
 
 
@@ -936,7 +936,7 @@ class WpDatabase:
     account. Every real command result carries ``performed=True`` (ADR-0022).
     """
 
-    __slots__ = ("_admin", "_admin_tls", "_credentials")
+    __slots__ = ("_admin", "_credentials", "_db_tls")
 
     def __init__(
         self,
@@ -944,7 +944,7 @@ class WpDatabase:
         *,
         secrets: SecretRegistry,
         admin: CredentialSource | None = None,
-        admin_tls: AdminTls | None = None,
+        db_tls: DbTls | None = None,
     ) -> None:
         self._credentials = _registering(
             credentials, secrets, region_flag=_DB_REGION_FLAG
@@ -954,9 +954,10 @@ class WpDatabase:
             if admin is None
             else _registering(admin, secrets, region_flag=_ADMIN_REGION_FLAG)
         )
-        # ``None``: every connection plaintext (the backup root). Set (the
-        # restore root): every connection of this instance under the policy.
-        self._admin_tls = admin_tls
+        # Owner decision 56: ``None`` or a ``DbTls`` with no mode requires no
+        # TLS, as WordPress connects; a mode applies to every connection of
+        # this instance, backup and restore alike.
+        self._db_tls = db_tls
 
     def __repr__(self) -> str:
         admin = None if self._admin is None else self._admin.source
@@ -1365,17 +1366,13 @@ class WpDatabase:
     def _connection(self, location: DatabaseLocation) -> Connection:
         """The one place a database ``Connection`` is built from a location.
 
-        With an ``admin_tls`` bound, TLS is ``tls_required_unless_local`` for
-        ``location.host`` raised to the override (``UsageError`` below it,
-        before any connection); without one, plaintext as before.
+        TLS is what the bound ``db_tls`` asks for (``UsageError`` for settings
+        no connection could use, before any connection); with none bound, or
+        one with no mode, no TLS is required (owner decision 56).
         """
         from l3io.wp import database as wpdb
 
-        tls = (
-            None
-            if self._admin_tls is None
-            else _tls_settings(self._admin_tls, location.host)
-        )
+        tls = None if self._db_tls is None else _tls_settings(self._db_tls)
         try:
             return wpdb.Connection(
                 host=location.host,

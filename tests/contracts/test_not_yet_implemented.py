@@ -300,9 +300,22 @@ def _silently_accepted(
     ]
 
 
+def _layer_reads() -> set[str]:
+    """``--config``: read for every command by ``cli/settings.parse_layered``.
+
+    Owner decision 60: the option selects the settings file before any root
+    runs, so no root reads it. Derived from the settings module's own source,
+    so the exemption holds only while that module reads it.
+    """
+    from l3io.wp.backup.cli import settings
+
+    source = Path(settings.__file__).read_text(encoding="utf-8")
+    return {settings.CONFIG_DEST} if "typed.get(CONFIG_DEST)" in source else set()
+
+
 @pytest.mark.parametrize(("command", "flag"), _cases())
 def test_no_option_is_silently_accepted(command: str, flag: str) -> None:
-    read = _args_read([_root_source(command, ROOT_MODULES)])
+    read = _args_read([_root_source(command, ROOT_MODULES)]) | _layer_reads()
     parser = _subparsers()[command]
     assert _silently_accepted(parser, command, [flag], read) == []
 

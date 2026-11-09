@@ -1,11 +1,12 @@
-"""BL-E002-114, the TLS half — administrator connections to a non-local host.
+"""Owner decision 56 (amending BL-E002-114's TLS policy): TLS is opt-in.
 
 A recording ``Connection`` factory (database's own ``Connection``, wrapped so
-each call's ``tls`` is kept) shows what ``WpDatabase._connection`` builds:
-``VERIFY_IDENTITY`` for a remote host, ``OFF`` for each of database's local
-hosts, an override that may raise and never lower the policy, and plaintext
-for the backup root, which binds no ``admin_tls``. Each database TLS error
-maps to its own package class and exit code, without database's text.
+each call's ``tls`` is kept) shows what ``WpDatabase._connection`` builds: no
+TLS requirement by default, for every host and either account, as WordPress
+connects; ``--db-tls`` raises it to the mode asked for, for every host, local
+ones included; ``--db-tls-ca`` needs a verifying mode. Both roots bind it.
+Each database TLS error maps to its own package class and exit code, without
+database's text.
 """
 
 from __future__ import annotations
@@ -15,9 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from l3io.wp.backup.adapters import database as database_adapter
 from l3io.wp.backup.adapters.database import (
-    ADMIN_TLS_MODES,
+    DB_TLS_MODES,
     INVALID_DATABASE_NAME,
     INVALID_DB_HOST,
     TLS_SETTINGS_UNUSABLE,
@@ -25,7 +25,7 @@ from l3io.wp.backup.adapters.database import (
     DatabaseTlsHandshakeError,
     DatabaseTlsVerificationError,
     WpDatabase,
-    check_admin_tls,
+    check_db_tls,
     database_location_from_db_host,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
@@ -35,7 +35,7 @@ from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import RestoreMode
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from tests.restore_root_rig import Rig
 
 wpdb = pytest.importorskip("l3io.wp.database")
@@ -61,12 +61,12 @@ def built(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     return seen
 
 
-def _database(admin_tls: AdminTls | None) -> WpDatabase:
+def _database(db_tls: DbTls | None) -> WpDatabase:
     return WpDatabase(
         wpdb.Explicit("wp", "not-a-real-secret-0"),
         secrets=SecretRegistry(),
         admin=wpdb.Explicit("admin", "not-a-real-secret-1"),
-        admin_tls=admin_tls,
+        db_tls=db_tls,
     )
 
 
@@ -78,44 +78,42 @@ def test_the_local_host_scope_is_databases_own() -> None:
     assert {"localhost", "127.0.0.1", "::1"} <= set(LOCAL_HOSTS)
 
 
-def test_a_remote_host_builds_verify_identity(built: list[object]) -> None:
-    _connect(_database(AdminTls(mode=None, ca_file=None)), REMOTE)
-    (tls,) = built
-    assert tls.mode is wpdb.TlsMode.VERIFY_IDENTITY  # type: ignore[attr-defined]
-    assert tls.ca_file is None  # type: ignore[attr-defined]  # the system store
-
-
-@pytest.mark.parametrize("host", LOCAL_HOSTS)
-def test_a_local_host_builds_off(built: list[object], host: str) -> None:
-    _connect(_database(AdminTls(mode=None, ca_file=None)), host)
+@pytest.mark.parametrize("host", [REMOTE, *LOCAL_HOSTS])
+@pytest.mark.parametrize("tls", [None, DbTls()], ids=["unbound", "no-mode"])
+def test_no_tls_is_required_by_default_for_any_host(
+    built: list[object], host: str, tls: DbTls | None
+) -> None:
+    _connect(_database(tls), host)
     assert [t.mode for t in built] == [wpdb.TlsMode.OFF]  # type: ignore[attr-defined]
 
 
-def test_an_override_below_the_policy_is_usage_before_any_connection(
-    built: list[object],
+@pytest.mark.parametrize("mode", DB_TLS_MODES)
+@pytest.mark.parametrize("host", [REMOTE, "localhost"])
+def test_db_tls_requires_its_mode_for_every_host(
+    built: list[object], mode: str, host: str
 ) -> None:
-    with pytest.raises(UsageError, match="below the policy") as caught:
-        _connect(_database(AdminTls(mode="verify-ca", ca_file=None)), REMOTE)
-    assert caught.value.exit_code is ExitCode.USAGE
-    assert built == []
+    _connect(_database(DbTls(mode=mode)), host)
+    wanted = wpdb.TlsMode(mode.replace("-", "_"))  # type: ignore[attr-defined]
+    assert [t.mode for t in built] == [wanted]  # type: ignore[attr-defined]
 
 
-def test_required_on_localhost_builds_required(built: list[object]) -> None:
-    _connect(_database(AdminTls(mode="required", ca_file=None)), "localhost")
-    assert [t.mode for t in built] == [wpdb.TlsMode.REQUIRED]  # type: ignore[attr-defined]
-
-
-def test_a_ca_file_reaches_the_settings(built: list[object], tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", ["verify-ca", "verify-identity"])
+def test_a_ca_file_reaches_the_settings(
+    built: list[object], tmp_path: Path, mode: str
+) -> None:
     ca = tmp_path / "ca.pem"
-    _connect(_database(AdminTls(mode=None, ca_file=ca)), REMOTE)
+    _connect(_database(DbTls(mode=mode, ca_file=ca)), REMOTE)
     assert [t.ca_file for t in built] == [ca]  # type: ignore[attr-defined]
 
 
-def test_a_ca_file_for_a_plaintext_local_host_is_usage(tmp_path: Path) -> None:
-    with pytest.raises(UsageError, match="--admin-tls-ca"):
-        _connect(
-            _database(AdminTls(mode=None, ca_file=tmp_path / "ca.pem")), "localhost"
-        )
+@pytest.mark.parametrize("mode", [None, "required"])
+def test_a_ca_file_without_a_verifying_mode_is_usage_before_any_connection(
+    built: list[object], tmp_path: Path, mode: str | None
+) -> None:
+    with pytest.raises(UsageError, match="--db-tls-ca needs") as caught:
+        _connect(_database(DbTls(mode=mode, ca_file=tmp_path / "ca.pem")), REMOTE)
+    assert caught.value.exit_code is ExitCode.USAGE
+    assert built == []
 
 
 class _Tracer:
@@ -123,7 +121,7 @@ class _Tracer:
         raise AssertionError(name)
 
 
-def test_the_backup_roots_connections_stay_off(built: list[object]) -> None:
+def test_unbound_adapters_require_no_tls(built: list[object]) -> None:
     adapters = real_adapters(
         wordpress_source=wpdb.Explicit("wp", "not-a-real-secret-0"),
         secrets=SecretRegistry(),
@@ -155,7 +153,7 @@ def test_each_tls_error_maps_to_its_own_class(
         raise raised(DATABASE_TEXT)
 
     monkeypatch.setattr(wpdb, "check_dump" if call == "check_dump" else "survey", fail)
-    database = _database(AdminTls(mode=None, ca_file=None))
+    database = _database(DbTls(mode=None, ca_file=None))
     location = DatabaseLocation(host=REMOTE, port=3306, name="wp")
 
     def run() -> object:
@@ -191,7 +189,7 @@ def test_a_refused_auth_plugin_is_refused_naming_only_the_plugin(
 
     target = {"check_dump": "check_dump", "survey_target": "survey"}.get(call, "load")
     monkeypatch.setattr(wpdb, target, fail)
-    database = _database(AdminTls(mode=None, ca_file=None))
+    database = _database(DbTls(mode=None, ca_file=None))
     location = DatabaseLocation(host=REMOTE, port=3306, name="wp")
     calls = {
         "check_dump": lambda: database.check_dump(location),
@@ -221,32 +219,28 @@ def test_the_restore_root_binds_its_admin_tls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = Rig(tmp_path, monkeypatch)
-    tls = AdminTls(mode="verify-identity", ca_file=None)
-    rig.drive(admin_tls=tls, mode=RestoreMode.DATABASE)
-    assert rig.adapter_calls[-1]["admin_tls"] is tls
+    tls = DbTls(mode="verify-identity", ca_file=None)
+    rig.drive(db_tls=tls, mode=RestoreMode.DATABASE)
+    assert rig.adapter_calls[-1]["db_tls"] is tls
 
 
-def test_the_restore_root_refuses_a_lowered_tls_before_the_bind(
+def test_the_restore_root_refuses_unusable_tls_before_the_bind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rig = Rig(tmp_path, monkeypatch)  # the target's DB_HOST is remote: db.target
-    with pytest.raises(UsageError, match="below the policy"):
-        rig.drive(admin_tls=AdminTls(mode="required", ca_file=None))
-    assert rig.adapter_calls == []
-    assert rig.executions == []
-
-
-def test_a_library_caller_cannot_drop_the_tls_policy_with_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """M-3: ``admin_tls=None`` would bind the backup root's plaintext connections."""
     rig = Rig(tmp_path, monkeypatch)
-    with pytest.raises(TypeError, match="AdminTls"):
-        rig.drive(admin_tls=None, mode=RestoreMode.DATABASE)
-    with pytest.raises(TypeError, match="AdminTls"):
-        dataclasses.replace(rig.request(), admin_tls=None)
+    with pytest.raises(UsageError, match="--db-tls-ca needs"):
+        rig.drive(db_tls=DbTls(mode="required", ca_file=tmp_path / "ca.pem"))
     assert rig.adapter_calls == []
     assert rig.executions == []
+
+
+def test_a_restore_request_holds_a_db_tls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    assert rig.request().db_tls == DbTls()
+    with pytest.raises(TypeError, match="DbTls"):
+        dataclasses.replace(rig.request(), db_tls=None)
 
 
 # --- ADV-S02-11: a UsageError never forwards database's message -----------------
@@ -260,7 +254,7 @@ def test_unusable_tls_settings_are_a_fixed_usage_error(
 
     monkeypatch.setattr(wpdb, "TlsSettings", refuse)
     with pytest.raises(UsageError) as caught:
-        check_admin_tls(AdminTls(mode="verify-identity", ca_file=None), REMOTE)
+        check_db_tls(DbTls(mode="verify-identity", ca_file=None))
     assert str(caught.value) == TLS_SETTINGS_UNUSABLE
     assert DATABASE_TEXT not in str(caught.value)
 
@@ -296,11 +290,12 @@ def test_the_tls_copies_are_databases_tls_modes() -> None:
     this test is the derivation: a mode database adds or renames fails here.
     """
     library = tuple(mode.value for mode in wpdb.TlsMode)  # type: ignore[attr-defined]
-    assert library == database_adapter._TLS_ORDER  # noqa: SLF001
-    assert tuple(m.replace("-", "_") for m in ADMIN_TLS_MODES) == library[1:]
+    assert library[0] == "off"  # what no --db-tls means
+    assert tuple(m.replace("-", "_") for m in DB_TLS_MODES) == library[1:]
     base = ["restore", "--wp-dir", "/srv/site", "--archive", "a.tar.gz"]
-    for mode in ADMIN_TLS_MODES:
-        parsed = build_parser().parse_args([*base, "--admin-tls", mode])
-        assert parsed.admin_tls == mode
-    with pytest.raises(SystemExit):
-        build_parser().parse_args([*base, "--admin-tls", "off"])
+    for flag in ("--db-tls", "--admin-tls"):
+        for mode in DB_TLS_MODES:
+            parsed = build_parser().parse_args([*base, flag, mode])
+            assert getattr(parsed, flag.lstrip("-").replace("-", "_")) == mode
+        with pytest.raises(SystemExit):
+            build_parser().parse_args([*base, flag, "off"])

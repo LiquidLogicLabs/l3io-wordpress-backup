@@ -70,14 +70,20 @@ RUN set -eu; \
     chown "$RUN_UID:$RUN_GID" /home/wpbackup /var/lib/wpbackup/state /backups /tmp/wpbackup; \
     chmod 0700 /home/wpbackup /var/lib/wpbackup/state /backups /tmp/wpbackup
 
+# The sidecar's settings (owner decision 60): the Site Root and the Archive
+# directory, so a scheduled backup is `wpbackup2 backup` and a restore
+# `wpbackup2 restore --archive latest`, with no flags.
 ENV PATH=/opt/wpbackup/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     HOME=/home/wpbackup \
     XDG_STATE_HOME=/var/lib/wpbackup/state \
     TMPDIR=/tmp/wpbackup \
-    L3IO_AGE_PASSPHRASE_BACKEND=auto
+    L3IO_AGE_PASSPHRASE_BACKEND=auto \
+    L3IO_WP_BACKUP_WP_DIR=/var/www/html \
+    L3IO_WP_BACKUP_ARCHIVE_DIR=/backups
 
-# Never root: a restore as root is refused without --allow-root, and the files
-# it writes must belong to the web server's user.
+# The web server's user by default, so state, Archives and restored files are
+# its own. A restore started as root (`docker compose exec -u 0`) switches to
+# the Site Root's owner itself (owner decision 58); run.sh exercises both.
 USER ${RUN_UID}:${RUN_GID}
 WORKDIR /home/wpbackup
 # A sidecar idles; jobs are `docker compose exec backup wpbackup2 ...`.

@@ -57,7 +57,6 @@ from tests.integration.live_restore import (
     sha,
 )
 from tests.otel_sdk import otel_spans
-from tests.root_mode import allow_root_kwargs
 
 __all__ = ["admin_account", "cli_site", "live_site", "otel_spans"]
 
@@ -115,7 +114,6 @@ def _restore(site: CliSite, admin_user: str, flags: RelocationFlags) -> object:
         snapshot_dir=site.snapshots,
         admin=ExplicitCredentialSpec(admin_user, site.admin_password),
         relocation=flags,
-        **allow_root_kwargs(),
     )
 
 

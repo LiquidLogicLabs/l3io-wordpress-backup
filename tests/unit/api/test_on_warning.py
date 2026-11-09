@@ -30,7 +30,6 @@ from l3io.wp.backup.cli.output import RunWarning
 from l3io.wp.backup.core.restore import SnapshotResult
 from l3io.wp.backup.domain.archive_format import Integrity
 from tests.restore_root_rig import Rig
-from tests.root_mode import running_as_root
 
 PACKAGE = Path(api.__file__).resolve().parents[1]
 #: The modules whose drivers the library calls.
@@ -197,10 +196,8 @@ def _every_entry_points_notices(
     from l3io.wp.backup.domain.secret import Secret
 
     _drive(rig, sink)
-    _drive(rig, sink, cipher=_Cipher(), allow_unencrypted=True)
-    monkeypatch.setattr(restore_mod, "_running_as_root", lambda: True)
-    _drive(rig, sink, allow_root=True)
-    monkeypatch.undo()
+    # Owner decision 59: a passphrase with a plain Archive is a notice.
+    _drive(rig, sink, cipher=_Cipher())
     note_short_restore_passphrase(
         ResolvedPassphrase(Secret("sentinel9"), "argument"), sink
     )
@@ -220,7 +217,6 @@ def _every_entry_points_notices(
                 site,
                 scope=api.BackupScope.FILES,
                 target=site / "inside.tar.gz",
-                allow_target_in_site_root=True,
                 on_warning=sink,
             )
 
@@ -271,11 +267,7 @@ def test_a_callbacks_exception_propagates(rig: Rig) -> None:
     def sink(warning: RunWarning) -> None:
         raise Refused(warning.code)
 
-    # As root (CI) the rig passes allow_root, whose notice comes first.
-    first = (
-        "restore_running_as_root" if running_as_root() else "archive_unauthenticated"
-    )
-    with capture_logs(), pytest.raises(Refused, match=first):
+    with capture_logs(), pytest.raises(Refused, match="archive_unauthenticated"):
         restore_mod.drive_restore(
             rig.request(), ctx=None, secrets=None, on_warning=sink
         )

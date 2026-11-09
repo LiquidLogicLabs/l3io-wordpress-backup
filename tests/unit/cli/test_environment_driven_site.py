@@ -1,7 +1,7 @@
 """Owner decision 47 — the official image's ``getenv_docker()`` site, end to end.
 
 Backup and doctor resolve the Site's ``DB_*`` from the Run's environment, and
-``--confirm-db-host`` compares against the **resolved** host. A database
+log the **resolved** host (owner decision 54). A database
 restore, whose cutover would rewrite those definitions, refuses early, a Dry
 Run included (ADR-0027, Proposed); a files-only restore proceeds, and with
 ``--overwrite-wp-config`` carries the definitions into the Archive's file as
@@ -23,7 +23,6 @@ from l3io.wp.config import EnvLookup, WpConfigFile
 from l3io.wp.backup.cli import main
 from l3io.wp.backup.cli.doctor import drive_doctor
 from l3io.wp.backup.domain.errors import (
-    DatabaseHostUnconfirmedError,
     EnvironmentDrivenTargetError,
     UndefinedConfigFunctionError,
 )
@@ -65,50 +64,26 @@ def docker_site(site: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # --------------------------------------------------------------------------
 
 
-def test_the_resolved_host_must_be_confirmed(
+def test_the_resolved_host_is_logged_and_the_site_backed_up(
     docker_site: Path,
     tmp_path: Path,
     fake_database: FakeDatabase,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Owner decision 54: the host is the resolved one, logged, never confirmed."""
     final = tmp_path / "out.tar.gz"
-    code = main(["backup", "--wp-dir", str(docker_site), "--archive", str(final)])
-    err = capsys.readouterr().err
-    assert code == int(DatabaseHostUnconfirmedError.exit_code)
-    assert "--confirm-db-host db.example" in err
-    assert "getenv_docker('WORDPRESS_DB_HOST'" not in err
-    assert fake_database.checks == []
-    assert DB_PASSWORD not in err
-
-
-def test_confirming_the_resolved_host_backs_the_site_up(
-    docker_site: Path,
-    tmp_path: Path,
-    fake_database: FakeDatabase,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    final = tmp_path / "out.tar.gz"
-    argv = ["--log-level", "DEBUG", "backup", "--wp-dir", str(docker_site)]
-    code = main([*argv, "--archive", str(final), "--confirm-db-host", "db.example"])
+    argv = ["--log-level", "DEBUG", "--log-format", "json", "backup"]
+    code = main([*argv, "--wp-dir", str(docker_site), "--archive", str(final)])
     out = capsys.readouterr()
     assert code == 0, out.err
     [location] = fake_database.checks
     assert (location.host, location.name) == ("db.example", "wpdb_site")
     assert len(fake_database.calls) == 1
     assert final.exists()
+    assert '"event": "database_host"' in out.err
+    assert '"db_host": "db.example"' in out.err
+    assert "getenv_docker('WORDPRESS_DB_HOST'" not in out.err
     assert DB_PASSWORD not in out.err + out.out
-
-
-def test_confirming_the_expression_text_is_not_confirming_the_host(
-    docker_site: Path,
-    tmp_path: Path,
-    fake_database: FakeDatabase,
-) -> None:
-    final = tmp_path / "out.tar.gz"
-    argv = ["backup", "--wp-dir", str(docker_site), "--archive", str(final)]
-    code = main([*argv, "--confirm-db-host", "mysql"])
-    assert code == int(DatabaseHostUnconfirmedError.exit_code)
-    assert fake_database.calls == []
 
 
 def test_doctor_reads_the_site_from_the_environment(
@@ -251,7 +226,6 @@ def test_the_cli_exits_refused_for_a_database_restore(
             "--mode",
             "all",
             "--force",
-            "--allow-root",
         ]
     )
     err = capsys.readouterr().err
@@ -273,7 +247,6 @@ def test_the_cli_exits_refused_for_an_overwrite_without_getenv_docker(
             "files",
             "--overwrite-wp-config",
             "--force",
-            "--allow-root",
         ]
     )
     err = capsys.readouterr().err

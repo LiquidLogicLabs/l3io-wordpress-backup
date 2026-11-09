@@ -119,6 +119,6 @@ def fake_database(monkeypatch: pytest.MonkeyPatch) -> FakeDatabase:
     monkeypatch.setattr(
         adapter_sets,
         "WpDatabase",
-        lambda credentials, *, secrets, admin=None, admin_tls=None: database,
+        lambda credentials, *, secrets, admin=None, db_tls=None: database,
     )
     return database

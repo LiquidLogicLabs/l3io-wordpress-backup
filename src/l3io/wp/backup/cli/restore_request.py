@@ -15,7 +15,7 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Final, Protocol, cast
+from typing import BinaryIO, Final, Protocol, cast
 
 import structlog
 
@@ -66,7 +66,7 @@ from l3io.wp.backup.domain.secret import Secret, as_secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.crypto import PayloadCipher
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from l3io.wp.backup.ports.search_replace import SearchReplaceCommand
 from l3io.wp.backup.ports.site_files import SiteFilesQuery
 
@@ -248,8 +248,10 @@ def refusal_for(exc: NonEmptyTargetError) -> NonEmptyTargetRefusal:
 
 
 class ArchiveIdentityUnconfirmedError(RefusedError):
-    """The target has no ``wp-config.php`` and ``--archive-database`` did not
-    name the Archive config's database (RT-1).
+    """The target has no ``wp-config.php``, the Archive is not encrypted, and
+    ``--archive-database`` did not name the Archive config's database (RT-1).
+    An encrypted Archive is authenticated by its passphrase, so its config's
+    database is used without it (owner decision 65).
 
     Raised after the bind and before any database connection, so a forged
     Archive cannot direct the administrator to a server the operator did not
@@ -464,15 +466,20 @@ class RestoreRequest:
     ``mode``, ``overrides``, ``snapshot`` and ``config_policy`` have no
     defaults (AD-5). ``snapshot_dir=None`` is the per-Site default under the
     per-user state directory. ``archive_database`` is ``--archive-database``'s
-    raw ``USER@HOST[:PORT]/NAME`` and ``admin_tls`` the ``--admin-tls`` /
-    ``--admin-tls-ca`` override (BL-E002-114). ``opted_out_by`` names what
-    chose ``SnapshotPolicy.SKIP`` (BL-E003-050). ``credentials`` is the
-    WordPress account's spec (``--db-credentials-aws-*``); ``None`` means
-    ``wp-config.php``. With a ``cipher`` (a passphrase was given) a plain
-    Archive is refused unless ``allow_unencrypted`` (ADR-0016 amendment
-    2026-11-07). Running as root is refused unless ``allow_root``
-    (``--allow-root``; BL-E002-098, owner decision 2026-11-07). No field
-    carries an ``l3io.wp.database`` type (ADR-0015 amendment).
+    raw ``USER@HOST[:PORT]/NAME``, needed only for an unencrypted Archive on a
+    target with no ``wp-config.php`` (owner decision 65), and ``db_tls`` is
+    ``--db-tls``/``--db-tls-ca`` (owner decision 56; the default requires no
+    TLS). ``opted_out_by`` names what chose ``SnapshotPolicy.SKIP``
+    (BL-E003-050). ``credentials`` is the WordPress account's spec
+    (``--db-credentials-aws-*``); ``None`` means ``wp-config.php``. A plain
+    Archive restored with a ``cipher`` (a passphrase was given) proceeds with
+    WARNING ``archive_not_encrypted``; ``require_encrypted`` refuses it (owner
+    decision 59). ``allow_unencrypted`` is deprecated and changes nothing.
+    ``archive_handle`` is the Archive already opened by a root that then
+    switched users (owner decision 58), read instead of opening
+    ``archive.path``; the root closes it. ``notes`` are lines the root adds
+    to the outcome's (``--archive latest``'s choice). No field carries an
+    ``l3io.wp.database`` type (ADR-0015 amendment).
     """
 
     site_root: Path
@@ -486,7 +493,6 @@ class RestoreRequest:
     admin: CredentialSpec | None
     cipher: PayloadCipher | None
     archive_database: str | None
-    admin_tls: AdminTls
     relocation: RelocationFlags
     reset_existing_db_user: bool
     dry_run: bool
@@ -495,7 +501,9 @@ class RestoreRequest:
     require_encrypted: bool = False
     credentials: CredentialSpec | None = None
     allow_unencrypted: bool = False
-    allow_root: bool = False
+    db_tls: DbTls = field(default_factory=DbTls)
+    archive_handle: BinaryIO | None = field(default=None, repr=False, compare=False)
+    notes: tuple[str, ...] = ()
     #: The flags that produced ``mode`` and ``overrides`` as the operator typed
     #: them (``--mode all --cleanfirst --drop-database``), logged on
     #: ``restore_mode_resolved`` (FR-6, BL-E003-013); ``None`` for a library
@@ -506,14 +514,8 @@ class RestoreRequest:
         if not self.opted_out_by:
             msg = "opted_out_by must name what may skip the Safety Snapshot"
             raise ValueError(msg)
-        # M-3: ``None`` would bind the backup root's plaintext connections.
-        # ``AdminTls(mode=None, ca_file=None)`` is the policy; nothing weaker
-        # is reachable by omission.
-        if not isinstance(cast("object", self.admin_tls), AdminTls):
-            msg = (
-                "admin_tls must be an AdminTls; AdminTls(mode=None, ca_file=None) "
-                "is tls_required_unless_local"
-            )
+        if not isinstance(cast("object", self.db_tls), DbTls):
+            msg = "db_tls must be a DbTls; DbTls() requires no TLS"
             raise TypeError(msg)
 
 
@@ -528,6 +530,11 @@ class RestoreOutcome:
     ones the real Run would skip (owner decision 41), and ``None`` when the
     Archive records no link targets (v0), whose skipped links are reported
     only at extraction.
+
+    ``notes`` are what the Run chose for the operator without asking, each
+    also logged: the Archive ``--archive latest`` named (decision 64) and an
+    encrypted Archive's database used as its config gives it (decision 65).
+    A Dry Run prints them before its plan.
     """
 
     run_id: str
@@ -543,3 +550,4 @@ class RestoreOutcome:
     resolved_run_id: str | None
     skipped_links: tuple[SkippedLink, ...] | None
     wp_config_kept: bool
+    notes: tuple[str, ...] = ()

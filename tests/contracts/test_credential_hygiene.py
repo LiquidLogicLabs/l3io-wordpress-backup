@@ -64,7 +64,6 @@ from tests.conftest import (  # noqa: E402
     seal_archive,
     write_wp_config,
 )
-from tests.root_mode import allow_root_argv  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CORE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup" / "core"
@@ -755,7 +754,6 @@ def test_restore_cli_is_credential_clean(
         "--force",
         "--snapshot-dir",
         str(tmp_path / "snapshots"),
-        *allow_root_argv(),
         *common,
     ]
     assert main(full) == int(ExitCode.OK)
@@ -822,7 +820,6 @@ def test_a_password_typed_into_archive_database_is_never_echoed(
         str(tmp_path / "snapshots"),
         "--archive-database",
         stated,
-        *allow_root_argv(),
         "--admin-username",
         "wpadmin",
         "--admin-password",

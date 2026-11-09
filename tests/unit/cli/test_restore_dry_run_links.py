@@ -23,7 +23,6 @@ from l3io.wp.backup.cli.restore_report import LINKS_AT_EXTRACTION
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from tests.restore_harness import write_v0, write_v1
 from tests.restore_root_rig import Rig, report_for
-from tests.root_mode import allow_root_argv
 
 #: Each link the Archive holds, and the reason extraction skips it (or None).
 LINKS = {
@@ -68,7 +67,6 @@ def _argv(rig: Rig, *extra: str, fmt: str = "console") -> list[str]:
         "--snapshot-dir",
         str(rig.work / "snapshots"),
         "--force",
-        *allow_root_argv(),
         *extra,
     ]
 

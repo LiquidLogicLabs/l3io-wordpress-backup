@@ -68,9 +68,8 @@ from l3io.wp.backup.domain.restore import (
     restores_files,
 )
 from tests.conftest import CredentialSentinel
-from tests.restore_harness import ARCHIVE_DB
+from tests.restore_harness import ARCHIVE_DB, IdentityCipher, write_v1
 from tests.restore_root_rig import ALL_WAIVED, Rig, report_for
-from tests.root_mode import allow_root_argv
 from tests.unit.cli.conftest import RecordingSiteLock
 
 #: Every table key that expresses a Mode (scope from the table).
@@ -350,6 +349,9 @@ def test_overwrite_without_files_is_usage_before_the_lock(
 
 
 def test_the_fr7_refusal_is_in_cli_spelling_and_logged_once(rig: Rig) -> None:
+    # Owner decision 57: refused only when the Site Root does not look like
+    # WordPress; the config one level up (FR-29) leaves none of the markers.
+    rig.config.rename(rig.site_root.parent / "wp-config.php")
     with capture_logs() as logs, pytest.raises(NonEmptyTargetRefusal) as caught:
         rig.drive(mode=RestoreMode.FILES, overrides=OverrideSet.none())
     text = str(caught.value)
@@ -362,6 +364,28 @@ def test_the_fr7_refusal_is_in_cli_spelling_and_logged_once(rig: Rig) -> None:
     assert refused["reason"] == "non_empty_target"
     assert refused["parts"] == ["files"]
     assert not rig.executions
+
+
+@pytest.mark.parametrize(
+    "marker", ["wp-config.php", "wp-includes", "wp-content"], ids=str
+)
+def test_a_site_root_that_looks_like_wordpress_needs_no_force(
+    rig: Rig, marker: str
+) -> None:
+    """Owner decision 57: any one marker makes the files part need no waiver."""
+    rig.config.rename(rig.site_root.parent / "wp-config.php")
+    if marker == "wp-config.php":
+        rig.site_root.parent.joinpath("wp-config.php").rename(rig.config)
+    else:
+        (rig.site_root / marker).mkdir()
+    rig.drive(
+        mode=RestoreMode.FILES,
+        overrides=OverrideSet.none(),
+        # Outside the config's directory, now the Site Root's parent (FR-29).
+        snapshot_dir=rig.work.parent / "snapshots-elsewhere",
+    )
+    assert rig.executions
+    assert rig.plans[-1].overrides == OverrideSet.none()
 
 
 def test_target_checked_names_the_waivers(rig: Rig) -> None:
@@ -500,6 +524,41 @@ def test_a_matching_archive_identity_proceeds(rig: Rig) -> None:
     assert rig.inputs.site.db_name == ARCHIVE_DB["DB_NAME"]
 
 
+# --- Owner decision 65: an encrypted Archive's database is trusted ----------------
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry"])
+def test_an_encrypted_archive_needs_no_archive_database(
+    rig: Rig, dry_run: bool
+) -> None:
+    """Its passphrase authenticates it: used as it says, logged and noted."""
+    (rig.work / "encrypted").mkdir()
+    rig.archive_path = write_v1(rig.work / "encrypted", cipher=IdentityCipher())
+    _no_config(rig)
+    with capture_logs() as logs:
+        outcome = rig.drive(
+            cipher=IdentityCipher(), reset_existing_db_user=True, dry_run=dry_run
+        )
+    assert rig.executions
+    assert rig.inputs.site.db_name == ARCHIVE_DB["DB_NAME"]
+    (trusted,) = [e for e in logs if e["event"] == "archive_database_trusted"]
+    assert (trusted["db_name"], trusted["db_user"]) == (
+        ARCHIVE_DB["DB_NAME"],
+        ARCHIVE_DB["DB_USER"],
+    )
+    (note,) = outcome.notes
+    assert note.startswith("database from the archive's wp-config.php (encrypted")
+    assert f"{ARCHIVE_DB['DB_USER']}@{ARCHIVE_DB['DB_HOST']}:" in note
+    assert ARCHIVE_DB["DB_PASSWORD"] not in repr(logs) + note
+
+
+def test_an_unencrypted_archive_still_needs_archive_database(rig: Rig) -> None:
+    _no_config(rig)
+    with pytest.raises(ArchiveIdentityUnconfirmedError):
+        rig.drive(cipher=None)
+    assert not rig.executions
+
+
 # --- RT-S02-004 (owner decision, 2026-11-06, A) ----------------------------------
 
 
@@ -596,7 +655,7 @@ def test_drive_restore_prints_nothing(
 
 
 #: Fields a run without Epic 7 or a resolution leaves ``None`` or empty, by design.
-_EMPTY_BY_DESIGN = {"search_replace", "resolved_run_id", "skipped_links"}
+_EMPTY_BY_DESIGN = {"search_replace", "resolved_run_id", "skipped_links", "notes"}
 
 
 @pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry"])
@@ -638,7 +697,6 @@ def _argv(rig: Rig, *extra: str) -> list[str]:
         "--snapshot-dir",
         str(rig.work / "snapshots"),
         "--force",
-        *allow_root_argv(),
         *extra,
     ]
 
@@ -1117,64 +1175,48 @@ class _StubCipher:
 
 
 @pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
-def test_a_passphrase_with_a_plain_archive_is_refused_before_any_effect(
-    rig: Rig, dry_run: bool
+def test_a_passphrase_with_a_plain_archive_warns_and_proceeds(
+    rig: Rig, dry_run: bool, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """ADR-0016 amendment 2026-11-07: a passphrase means encryption was expected."""
-    with capture_logs(), pytest.raises(ArchiveNotEncryptedError) as caught:
+    """Owner decision 59 (ADR-0016's 2026-11-07 amendment reversed)."""
+    with capture_logs() as logs:
         rig.drive(cipher=_StubCipher(), dry_run=dry_run)
-    assert caught.value.passphrase_supplied is True
-    assert caught.value.arguments == ("allow_unencrypted",)
+    assert rig.executions
+    (warning,) = [e for e in logs if e["event"] == "archive_not_encrypted"]
+    assert warning["log_level"] == "warning"
+    assert warning["archive"] == str(rig.archive_path)
+    assert "--require-encrypted" in capsys.readouterr().err
+
+
+def test_require_encrypted_still_refuses_a_plain_archive(rig: Rig) -> None:
+    with capture_logs(), pytest.raises(ArchiveNotEncryptedError) as caught:
+        rig.drive(cipher=_StubCipher(), require_encrypted=True)
+    assert caught.value.arguments == ("require_encrypted",)
     assert int(caught.value.exit_code) == 2
     assert rig.executions == []
 
 
-def test_allow_unencrypted_restores_a_plain_archive_with_a_passphrase(
-    rig: Rig,
+@pytest.mark.parametrize("cipher", [None, _StubCipher()], ids=["plain", "passphrase"])
+def test_allow_unencrypted_is_deprecated_and_changes_nothing(
+    rig: Rig, cipher: _StubCipher | None
 ) -> None:
-    with capture_logs():
-        rig.drive(cipher=_StubCipher(), allow_unencrypted=True)
-    assert rig.executions
-
-
-@pytest.mark.parametrize(
-    ("changes", "reason"),
-    [
-        ({"cipher": None}, "no passphrase was given"),
-        (
-            {"cipher": _StubCipher(), "require_encrypted": True},
-            "require_encrypted refuses a plain Archive",
-        ),
-        ({"cipher": _StubCipher()}, None),
-    ],
-    ids=["no-passphrase", "with-require-encrypted", "has-effect"],
-)
-def test_allow_unencrypted_without_effect_is_noted_at_info(
-    rig: Rig, changes: dict[str, object], reason: str | None
-) -> None:
-    """BL-E008-021: never refused, never silent."""
+    """Owner decision 59: accepted, so scripts keep running; a WARNING says so."""
     with capture_logs() as logs:
-        try:
-            rig.drive(allow_unencrypted=True, **changes)
-        except ArchiveNotEncryptedError:
-            assert changes.get("require_encrypted") is True
-    noted = [e for e in logs if e["event"] == "restore_flag_no_effect"]
-    if reason is None:
-        assert noted == []
-        return
-    (record,) = noted
-    assert record["log_level"] == "info"
+        rig.drive(allow_unencrypted=True, cipher=cipher)
+    assert rig.executions
+    (record,) = [e for e in logs if e["event"] == "deprecated_option"]
+    assert record["log_level"] == "warning"
     assert record["option"] == "allow_unencrypted"
-    assert record["reason"].startswith(reason)
 
 
 def test_no_passphrase_restores_a_plain_archive_as_before(rig: Rig) -> None:
-    with capture_logs():
+    with capture_logs() as logs:
         rig.drive(cipher=None)
     assert rig.executions
+    assert all(e["event"] != "archive_not_encrypted" for e in logs)
 
 
-def test_the_cli_refuses_without_and_proceeds_with_allow_unencrypted(
+def test_the_cli_restores_a_plain_archive_given_a_passphrase(
     rig: Rig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import uuid
@@ -1186,10 +1228,10 @@ def test_the_cli_refuses_without_and_proceeds_with_allow_unencrypted(
         lambda *, passphrase, secrets: None if passphrase is None else _StubCipher(),
     )
     with capture_logs():
-        assert main(_argv(rig)) == int(ExitCode.USAGE)
-        assert not rig.executions
-        assert main(_argv(rig, "--allow-unencrypted")) == int(ExitCode.OK)
+        assert main(_argv(rig)) == int(ExitCode.OK)
     assert rig.executions
+    with capture_logs():
+        assert main(_argv(rig, "--allow-unencrypted")) == int(ExitCode.OK)
 
 
 def test_the_library_restore_takes_allow_unencrypted() -> None:

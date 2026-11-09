@@ -7,6 +7,79 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Changed: unattended by default (owner decisions 54-65, 2026-11-08)
+
+`wpbackup2 backup` and `wpbackup2 restore --archive latest` now run with no
+flags, as a Docker sidecar or from cron. Pre-1.0 behaviour changes:
+
+- **Every setting has a flag, an `L3IO_WP_BACKUP_*` variable and a config-file
+  key** (owner decision 60, ADR-0028, Proposed). Precedence: flag, then
+  variable, then file, then default. The file is TOML (`wp_dir = "..."`):
+  `--config PATH` or `L3IO_WP_BACKUP_CONFIG`, else
+  `/etc/l3io-wp-backup/config.toml` and `~/.config/l3io-wp-backup/config.toml`
+  when present. A file holding a secret that its group or others can read is
+  refused (exit 2, naming the file); an unknown key or a bad value is refused
+  naming the key or the variable, never a value; an `L3IO_WP_BACKUP_*`
+  variable no setting has is logged (`unknown_setting_variable`). `--wp-dir`
+  and `--archive` are required as before, but a variable or a key satisfies
+  them. New dependency: `pydantic-settings` (with pydantic).
+- **New flags:** `--config` (every command), `--archive-dir` (backup,
+  restore), `--passphrase` (backup, restore, verify), `--db-user` and
+  `--db-password` (backup), `--db-tls` and `--db-tls-ca` (backup, restore),
+  `--admin-user` (restore; `--admin-username` stays). A secret given as a flag
+  is visible in the process list and logs WARNING `password_on_command_line`.
+- **Removed:** `backup --confirm-db-host` (decision 54: the host is logged,
+  `database_host`, and named in the Dry Run), `backup
+  --allow-target-in-site-root` (decision 60: a target in the Site Root is
+  written with WARNING `archive_target_in_site_root`) and `restore
+  --allow-root` (decision 58, below). Each is now an unrecognised argument
+  (exit 2).
+- **Deprecated, still accepted:** `--admin-tls`/`--admin-tls-ca` are taken as
+  `--db-tls`/`--db-tls-ca`; `--allow-unencrypted` has no effect. Each logs
+  WARNING `deprecated_option`.
+- **The default Archive is never inside the Site Root** (decision 60): it is
+  written into `--archive-dir`, else the current directory when that is
+  outside the site, else `~/.local/share/l3io-wp-backup/archives` (made
+  `0700`). v0.2.21, run from the docroot, wrote it there.
+- **No TLS is required by default** (decision 56), for backup or restore,
+  the WordPress account or the administrator, as WordPress connects.
+  `--db-tls {required,verify-ca,verify-identity}` opts in for every
+  connection; `--db-tls-ca` needs a verifying mode. The earlier policy
+  required verified TLS from a restore to any non-local host.
+- **A restore started as root runs as the Site Root's owner** (decision 58):
+  it reads the config, the passphrase, the password file and the Archive
+  first, then switches to the owner's uid and gid. A root-owned Site Root is
+  refused (exit 2). The library refuses a restore running as root.
+- **`--force` only for a target that does not look like WordPress**
+  (decision 57, files half): a non-empty Site Root holding `wp-config.php`,
+  `wp-includes/` or `wp-content/` needs no flag. The database half arrives
+  with the direct load.
+- **A passphrase with an unencrypted Archive warns and proceeds**
+  (decision 59, reversing the 2026-11-07 refusal): WARNING
+  `archive_not_encrypted`; `--require-encrypted` is the hard stop.
+- **An encrypted Archive's database is trusted on a bare server**
+  (decision 65): no `--archive-database` is needed when the target has no
+  `wp-config.php` and the Archive is encrypted; an unencrypted one still
+  needs it.
+- **`--archive latest`** (decision 64; also the variable and the key)
+  restores the newest Archive of this site in the Archive directory, by
+  Manifest `created_at`; "this site" is the Site Root and database the
+  Manifest records. Logged (`archive_latest_selected`) and the first line of a
+  Dry Run. A backup refuses `--archive latest`.
+- **A database password shorter than 4 characters is accepted** (decision
+  61), with WARNING `credential_below_redaction_floor`; it was refused (exit
+  4).
+- **Library:** `backup()` loses `confirm_db_host` and
+  `allow_target_in_site_root` and gains `db_tls`; `restore()` loses
+  `allow_root` and renames `admin_tls` to `db_tls`; `AdminTls` is now
+  `DbTls`; `RestoreOutcome` gains `notes`. `CredentialTooShortError`,
+  `DatabaseHostUnconfirmedError` and `TargetInsideSiteRootError` are gone;
+  `NoArchiveForSiteError` and `PrivilegeDropError` are new.
+- **`--overwrite-wp-config` asks `l3io-wordpress-config` 0.1.7** whether the
+  Archive's `wp-config.php` declares `getenv_docker()` before the carried
+  definitions (`declares_function`, now the floor), replacing backup's own
+  textual check; its documented limits are in docs/restore.md.
+
 ### Added: the official Docker image's `getenv_docker()` settings (owner decisions 47, 48)
 
 - **A site defining `DB_*` with `getenv_docker()` or `getenv()` is backed up.**
@@ -17,8 +90,8 @@ owner asked for, which a commit subject cannot hold.
   files-only `restore` now resolve them as PHP does, from the tool's own
   environment: the variable, a Docker secret named by `<NAME>_FILE`, else
   the default (through `l3io-wordpress-config` 0.1.5 or later). Run the
-  tool with the site's `WORDPRESS_DB_*`; `--confirm-db-host` names the
-  resolved host. A resolved password is redacted like any other, and the log
+  tool with the site's `WORDPRESS_DB_*`; the resolved host is logged
+  (`database_host`; `--confirm-db-host`, which named it, is removed above). A resolved password is redacted like any other, and the log
   names the variable (`config_value_from_environment`), never its value.
 - **Any other PHP expression in those settings is refused**, exit 3
   (`REFUSED`, `UnsupportedConfigValueError`), naming the setting, never its

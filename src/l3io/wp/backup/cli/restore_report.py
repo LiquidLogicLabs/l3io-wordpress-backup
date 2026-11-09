@@ -215,7 +215,8 @@ def restore_summary(
     ``status`` is ``completed`` (a real Run), ``planned`` (a Dry Run),
     ``resolved``/``would_resolve`` (``--resolve-interrupted-run``) or
     ``failed`` (the report does not call the database restored); ``actions``
-    is the Dry Run's ordered plan, empty for a real Run.
+    is the Dry Run's ordered plan, empty for a real Run; ``notes`` what the
+    Run chose without asking (owner decisions 64 and 65).
     """
     database = outcome.database
     search = outcome.search_replace
@@ -227,6 +228,7 @@ def restore_summary(
         "archive": archive,
         "site_root": site_root,
         "resolved_run_id": outcome.resolved_run_id,
+        "notes": list(outcome.notes),
         "actions": [a.text for a in outcome.actions] if outcome.dry_run else [],
         "skipped_links": (
             None
@@ -351,7 +353,8 @@ def print_outcome(
         emit_result(f"{verb} {outcome.resolved_run_id}")
         return
     if outcome.dry_run:
-        emit_result("\n".join(action.text for action in outcome.actions))
+        # Owner decisions 64 and 65: what the Run chose, before the plan.
+        emit_result("\n".join([*outcome.notes, *(a.text for a in outcome.actions)]))
         lines = planned_link_lines(outcome.skipped_links)
         if lines:
             emit_result("\n".join(lines))

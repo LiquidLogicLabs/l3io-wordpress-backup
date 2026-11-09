@@ -25,7 +25,7 @@ from l3io.wp.backup.core.restore import NonEmptyTargetError, check_target
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.restore import OverrideSet, RestoreMode
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import admin_account  # noqa: F401 - a fixture
 from tests.integration.live_restore import host, port, root_connection
@@ -71,7 +71,7 @@ def _survey(account: str, sentinel: CredentialSentinel, name: str) -> object:
         wpdb.Explicit(account, sentinel.admin_password),
         secrets=secrets,
         admin=admin,
-        admin_tls=AdminTls(mode=None, ca_file=None),
+        db_tls=DbTls(mode=None, ca_file=None),
     )
     location = DatabaseLocation(host=host(), port=port(), name=name)
     return database.survey_target(location, table_prefix="wp_", wordpress_user=None)

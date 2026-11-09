@@ -61,10 +61,12 @@ from l3io.wp.backup.adapters.tar import (
 )
 from l3io.wp.backup.cli.backup import NO_ENVIRONMENT, storage_target_from_cli
 from l3io.wp.backup.cli.context import RunContext, join_or_open
+from l3io.wp.backup.cli.credentials import explicit_secret
 from l3io.wp.backup.cli.logging import configured_format
 from l3io.wp.backup.cli.output import WarningSink, emit_result
 from l3io.wp.backup.cli.passphrase import resolve_passphrase, terminal_prompt
 from l3io.wp.backup.cli.preflight import refuse_unsupported_platform
+from l3io.wp.backup.cli.settings import setting_origins
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.domain.archive_format import (
     ArchiveView,
@@ -251,16 +253,28 @@ def run_verify(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
     The Run owns the root's ``SecretRegistry``, and the root renders its error
     through it (ADR-0018), so the boundary is the same for every command. Only
     ``--authenticate`` resolves a credential: the passphrase, from
-    ``os.environ`` or a terminal prompt — never from ``argv``.
+    ``--passphrase`` or the config file (owner decision 60), else
+    ``os.environ`` or a terminal prompt.
     """
     if args.what_if:
         note_what_if_not_applicable()
     target = storage_target_from_cli(args.archive)
     request = VerifyRequest(archive=target, authenticate=args.authenticate)
+    passphrase, source = (
+        explicit_secret(
+            args.passphrase,
+            setting_origins(vars(args)).get("passphrase"),
+            name="passphrase",
+        )
+        if request.authenticate
+        else (None, None)
+    )
     result = drive_verify(
         request,
         ctx=None,
         secrets=secrets,
+        passphrase=passphrase,
+        passphrase_argument=source,
         environ=os.environ if request.authenticate else NO_ENVIRONMENT,
         prompt=terminal_prompt() if request.authenticate else None,
     )

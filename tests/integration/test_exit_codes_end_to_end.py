@@ -24,7 +24,6 @@ wpdb = pytest.importorskip("l3io.wp.database")
 
 from l3io.wp.backup.cli import main  # noqa: E402
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode  # noqa: E402
-from tests.root_mode import allow_root_argv  # noqa: E402
 from tests.site_lock_holder import HOLDER_RUN_ID, held_elsewhere  # noqa: E402
 
 #: A committed encrypted v1 Archive (its passphrase is a sidecar, unused here).
@@ -124,7 +123,6 @@ def _usage(env: _Env) -> list[int]:
                 str(missing_site),
                 "--archive",
                 str(missing_archive),
-                *allow_root_argv(),
             ]
         ),
         run(
@@ -134,7 +132,6 @@ def _usage(env: _Env) -> list[int]:
                 str(env.site),
                 "--archive",
                 str(missing_archive),
-                *allow_root_argv(),
             ]
         ),
     ]

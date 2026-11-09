@@ -23,13 +23,19 @@ root exits ``USAGE`` rather than ignoring it. Its ``--help`` line ends with
 story that binds each entry is named in a comment beside its reason, never
 in text an operator reads.
 
-**Secret values.** No flag takes a passphrase; passphrases come only from
-AD-26's chain. ``--admin-password`` and ``--new-db-password`` are the two
-frozen v0.2.21 password flags, kept on AD-22's allowance, and their help says
-the value is visible in the process list and names the alternatives: the
-administrator's variable, and ``--new-db-password-file`` or
-:data:`NEW_DB_PASSWORD_VAR` (owner decision 2026-11-07), which keep the
-relocated account's password out of ``argv``.
+**Secret values.** Owner decision 60 gives every setting a flag, so the
+passphrase and the database passwords have one too (``--passphrase``,
+``--db-password``, ``--admin-password``, ``--new-db-password``). Each help
+says the value is visible in the process list and names the variable and the
+config file that keep it out of ``argv``; a value typed there logs WARNING
+``password_on_command_line``.
+
+**Settings (owner decision 60, ADR-0028).** Every option but those in
+``cli/settings.NOT_SETTINGS`` is a setting: its ``dest`` is a field of
+``cli/settings.Settings``, so it can also be given as an ``L3IO_WP_BACKUP_*``
+variable or a config-file key, and ``cli/settings.parse_layered`` resolves it.
+An option registered ``required=True`` is required after that layering, so a
+variable or a key satisfies it too.
 """
 
 from __future__ import annotations
@@ -43,8 +49,12 @@ from types import MappingProxyType
 from typing import Any, Final, NoReturn
 
 from l3io.wp.backup import __version__
-from l3io.wp.backup.adapters.credential_providers import ADMIN_PASSWORD_VAR
-from l3io.wp.backup.adapters.database import ADMIN_TLS_MODES
+from l3io.wp.backup.adapters.credential_providers import (
+    ADMIN_PASSWORD_VAR,
+    WORDPRESS_PASSWORD_VAR,
+)
+from l3io.wp.backup.adapters.database import DB_TLS_MODES
+from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
 
 __all__ = [
@@ -56,6 +66,7 @@ __all__ = [
     "NEW_DB_PASSWORD_VAR",
     "NOT_AVAILABLE_NOTE",
     "NOT_YET_IMPLEMENTED",
+    "PASSPHRASE_VAR",
     "RESTORE_COMMAND",
     "RESTORE_MODE_GROUP",
     "RESTORE_OPTIONS_GROUP",
@@ -80,6 +91,14 @@ RESTORE_MODE_GROUP = "restore mode"
 RESTORE_OPTIONS_GROUP = "restore options"
 #: The relocated account's password from the environment, not the command line.
 NEW_DB_PASSWORD_VAR: Final = "L3IO_WP_BACKUP_NEW_DB_PASSWORD"  # noqa: S105 - a name
+#: AD-26's environment step.
+PASSPHRASE_VAR: Final = PASSPHRASE_ENV
+#: Where a setting's other two spellings are explained, for the help texts.
+_SETTINGS_NOTE: Final = (
+    "Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable\n"
+    "(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file\n"
+    '(wp_dir = "..."); a flag wins over a variable, a variable over the file.'
+)
 
 # Never bound: the legacy option had no meaning without its removed dependency.
 _REMOVED = "this option was removed and will not return"
@@ -167,7 +186,9 @@ def build_parser() -> CliParser:
     """Build the CLI parser with both frozen subcommands registered."""
     parser = CliParser(
         prog="wpbackup2",
-        description="Backup/restore your WordPress content and database.",
+        description=(
+            "Backup/restore your WordPress content and database.\n\n" + _SETTINGS_NOTE
+        ),
         epilog=exit_code_epilog(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -177,6 +198,7 @@ def build_parser() -> CliParser:
         version=f"%(prog)s {__version__}",
         help="Show the program's version number and exit",
     )
+    _add_config(parser, top=True)
     parser.add_argument(
         "--log-level",
         type=_log_level,
@@ -230,12 +252,73 @@ def _command(
     text: str,
 ) -> argparse.ArgumentParser:
     """A subcommand whose ``--help`` has its description and the exit codes."""
-    return subparsers.add_parser(
+    command = subparsers.add_parser(
         name,
         help=_noted(name, text),
-        description=_noted(name, text),
+        description=f"{_noted(name, text)}\n\n{_SETTINGS_NOTE}",
         epilog=exit_code_epilog(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_config(command, top=False)
+    return command
+
+
+def _add_config(parser: argparse.ArgumentParser, *, top: bool) -> None:
+    """``--config``, on the top level and on each subcommand (owner decision 60).
+
+    SUPPRESS on a subcommand: absent there, the top level's value stands.
+    """
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=None if top else argparse.SUPPRESS,
+        help=(
+            "Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; "
+            "default: /etc/l3io-wp-backup/config.toml, then the per-user "
+            "~/.config/l3io-wp-backup/config.toml). A file holding a secret "
+            "must be readable by its owner only"
+        ),
+    )
+
+
+def _add_secret(
+    parser: argparse.ArgumentParser | argparse._ArgumentGroup,
+    flag: str,
+    *,
+    what: str,
+    variable: str,
+) -> None:
+    """A secret-valued setting's flag, whose help names the safer spellings."""
+    parser.add_argument(
+        flag,
+        metavar="SECRET",
+        default=None,
+        help=(
+            f"{what}. The value is visible in the process list; prefer "
+            f"{variable} or the config file (chmod 600)"
+        ),
+    )
+
+
+def _add_db_tls(parser: argparse.ArgumentParser | argparse._ArgumentGroup) -> None:
+    """Owner decision 56: database TLS is opt-in, for every connection a Run makes."""
+    parser.add_argument(
+        "--db-tls",
+        choices=DB_TLS_MODES,
+        default=None,
+        help=(
+            "Require TLS on every database connection, at this level (default: "
+            "no requirement, as WordPress connects)"
+        ),
+    )
+    parser.add_argument(
+        "--db-tls-ca",
+        metavar="FILE",
+        default=None,
+        help=(
+            "CA bundle that verifies the database server, with --db-tls "
+            "verify-ca or verify-identity (default: the system store)"
+        ),
     )
 
 
@@ -255,7 +338,7 @@ def _note_unavailable_flags(
                 break
 
 
-def _add_db_credentials(parser: argparse.ArgumentParser) -> None:
+def _add_db_credentials(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:
     """FR-14: the WordPress account from an AWS secret, mirroring the admin pair."""
     group = parser.add_argument_group("database credentials")
     group.add_argument(
@@ -270,6 +353,7 @@ def _add_db_credentials(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="AWS region of --db-credentials-aws-secret-id (needs the secret id)",
     )
+    return group
 
 
 #: argparse's own message for a missing required flag, kept verbatim for
@@ -300,6 +384,16 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
         ),
         default=None,
     )
+    backup.add_argument(
+        "--archive-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Directory the archive is written to when --archive is not given "
+            "(default: the current directory, or the per-user data directory "
+            "when the current directory is inside the Site Root)"
+        ),
+    )
     # UX-1 (BL-E002-101): as on restore, an addition AD-22 permits; the frozen
     # spelling stays on the top-level parser. SUPPRESS: absent here, the
     # top-level value stands (a default would overwrite `--whatIf backup`).
@@ -318,8 +412,9 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
     backup.add_argument(
         "--archive",
         help=(
-            "Archive path or file: URL "
-            "(default: ./wpbackup2-<db>-<UTC timestamp>.tar.gz)"
+            "Archive path or file: URL (default: wpbackup2-<db>-<UTC "
+            "timestamp>.tar.gz in --archive-dir). Inside the Site Root it is "
+            "written with a warning: the web server may serve it"
         ),
         default=None,
         required=False,
@@ -340,9 +435,15 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
         "--encrypt-with-passphrase",
         action="store_true",
         help=(
-            "Encrypt the archive with a passphrase. The passphrase comes from "
-            "L3IO_WP_BACKUP_PASSPHRASE or a prompt, never the command line"
+            "Encrypt the archive with a passphrase (--passphrase, "
+            f"{PASSPHRASE_VAR}, the config file or a prompt)"
         ),
+    )
+    _add_secret(
+        backup,
+        "--passphrase",
+        what="Passphrase that encrypts the archive (with --encrypt-with-passphrase)",
+        variable=PASSPHRASE_VAR,
     )
     backup.add_argument(
         "--exclude",
@@ -364,27 +465,23 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
             "(needs no --wp-dir; takes no other backup flag)"
         ),
     )
-    # Owner decisions 2026-11-07 (AD-22 additions): BL-E002-063, BL-E002-064.
-    backup.add_argument(
-        "--confirm-db-host",
-        metavar="HOST",
+    group = _add_db_credentials(backup)
+    group.add_argument(
+        "--db-user",
+        metavar="USER",
         default=None,
         help=(
-            "Confirm a database host that is not local (anything but localhost, "
-            "127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, as "
-            "resolved from the environment for a getenv_docker(...) one, or "
-            "the backup is refused before any connection"
+            "WordPress database account to dump as, instead of wp-config.php's "
+            "(give --db-password with it)"
         ),
     )
-    backup.add_argument(
-        "--allow-target-in-site-root",
-        action="store_true",
-        help=(
-            "Write the archive inside the Site Root (refused by default: the web "
-            "server may serve it); prefer a target outside the Site Root"
-        ),
+    _add_secret(
+        group,
+        "--db-password",
+        what="Password of --db-user",
+        variable=WORDPRESS_PASSWORD_VAR,
     )
-    _add_db_credentials(backup)
+    _add_db_tls(group)
 
 
 def _add_restore(restore: argparse.ArgumentParser) -> None:
@@ -394,11 +491,22 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
     restore.add_argument(
         "--archive",
         help=(
-            "Path or file: URL of the archive to restore from (required, "
+            "Path or file: URL of the archive to restore from, or `latest`: the "
+            "newest archive of this site in --archive-dir (required, "
             "--resolve-interrupted-run included)"
         ),
         default=None,
         required=True,
+    )
+    restore.add_argument(
+        "--archive-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Directory --archive latest searches (default: the current "
+            "directory, or the per-user data directory when the current "
+            "directory is inside the Site Root)"
+        ),
     )
 
     mode = restore.add_argument_group(
@@ -432,8 +540,9 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         "--force",
         action="store_true",
         help=(
-            "Restore into a non-empty target for the parts the mode restores. "
-            "It selects no mode and removes nothing"
+            "Restore over a non-empty Site Root that does not look like "
+            "WordPress (none of wp-config.php, wp-includes/, wp-content/), or "
+            "a non-empty database. It selects no mode and removes nothing"
         ),
     )
 
@@ -497,6 +606,12 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
             "without it a plain archive is restored with a warning)"
         ),
     )
+    _add_secret(
+        options,
+        "--passphrase",
+        what=("Passphrase that decrypts the archive and encrypts the Safety Snapshot"),
+        variable=PASSPHRASE_VAR,
+    )
     options.add_argument(
         "--snapshot-dir",
         metavar="PATH",
@@ -513,25 +628,25 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         metavar="USER@HOST[:PORT]/NAME",
         default=None,
         help=(
-            "When the target has no wp-config.php: confirm the database the "
-            "archive's config names (user, host, port and name must all match), "
-            "or the restore is refused"
+            "When the target has no wp-config.php and the archive is not "
+            "encrypted: confirm the database the archive's config names (user, "
+            "host, port and name must all match), or the restore is refused"
         ),
     )
+    _add_db_tls(options)
+    # Owner decision 56: the earlier spellings, kept so a script using them
+    # still runs; each logs WARNING deprecated_option.
     options.add_argument(
         "--admin-tls",
-        choices=ADMIN_TLS_MODES,
+        choices=DB_TLS_MODES,
         default=None,
-        help=(
-            "Raise the TLS the database connections use (default: verified TLS "
-            "to any host but localhost, 127.0.0.1 and ::1; never lowered)"
-        ),
+        help="Deprecated: use --db-tls",
     )
     options.add_argument(
         "--admin-tls-ca",
         metavar="FILE",
         default=None,
-        help="CA bundle that verifies the database server (default: the system store)",
+        help="Deprecated: use --db-tls-ca",
     )
     options.add_argument(
         "--resolve-interrupted-run",
@@ -543,19 +658,21 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         ),
     )
     options.add_argument(
+        "--admin-user",
         "--admin-username",
+        dest="admin_user",
         metavar="USER",
         default=None,
-        help="Database administrator username (give --admin-password with it)",
-    )
-    options.add_argument(
-        "--admin-password",
-        metavar="PASSWORD",
-        default=None,
         help=(
-            "Database administrator password. The value is visible in the "
-            f"process list; prefer {ADMIN_PASSWORD_VAR}"
+            "Database administrator username (give --admin-password with it, "
+            f"or set {ADMIN_PASSWORD_VAR})"
         ),
+    )
+    _add_secret(
+        options,
+        "--admin-password",
+        what="Database administrator password",
+        variable=ADMIN_PASSWORD_VAR,
     )
     options.add_argument(
         "--admin-credentials-aws-secret-id",
@@ -604,14 +721,11 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         default=None,
         help="Relocate to this database user",
     )
-    options.add_argument(
+    _add_secret(
+        options,
         "--new-db-password",
-        metavar="PASSWORD",
-        default=None,
-        help=(
-            "Password of --new-db-user. The value is visible in the process "
-            f"list; prefer --new-db-password-file or {NEW_DB_PASSWORD_VAR}"
-        ),
+        what="Password of --new-db-user",
+        variable=f"--new-db-password-file, {NEW_DB_PASSWORD_VAR}",
     )
     options.add_argument(
         "--new-db-password-file",
@@ -623,21 +737,14 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
             "line; make it readable only by you)"
         ),
     )
-    # Owner decision 2026-11-07 (BL-E002-098; an AD-22 addition).
-    options.add_argument(
-        "--allow-root",
-        action="store_true",
-        help=(
-            "Restore even though running as root (refused by default: "
-            "extraction as root can be raced by a symlink swap in the Site Root)"
-        ),
-    )
+    # Owner decision 59: kept so a script using it still runs; it logs
+    # WARNING deprecated_option and changes nothing.
     options.add_argument(
         "--allow-unencrypted",
         action="store_true",
         help=(
-            "Restore an archive that is not encrypted even though a passphrase "
-            "was given (without it, that is refused as a possible substitution)"
+            "Deprecated, no effect: a plain archive restored with a passphrase "
+            "proceeds with a warning; --require-encrypted refuses it"
         ),
     )
     _add_db_credentials(restore)
@@ -664,10 +771,17 @@ def _add_verify(verify: argparse.ArgumentParser) -> None:
         help=(
             "Decrypt the encrypted payload to prove the archive authentic; "
             "without it, verify proves only that its checksums are consistent. "
-            "The passphrase comes from L3IO_WP_BACKUP_PASSPHRASE or a prompt. "
+            f"The passphrase comes from --passphrase, {PASSPHRASE_VAR}, the "
+            "config file or a prompt. "
             "It does not show the archive is the latest one: an older archive "
             "under the same passphrase also passes"
         ),
+    )
+    _add_secret(
+        verify,
+        "--passphrase",
+        what="Passphrase that decrypts the archive (with --authenticate)",
+        variable=PASSPHRASE_VAR,
     )
 
 

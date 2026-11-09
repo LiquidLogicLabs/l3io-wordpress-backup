@@ -188,3 +188,20 @@ also given. That is the case where a plain Archive most likely means the encrypt
 With no passphrase the behaviour is unchanged (restore with the WARNING), and `--require-encrypted`
 keeps refusing a plain Archive outright. The library `restore()` takes the same rule through an
 `allow_unencrypted` keyword. **Owner:** E008-S01-001.
+
+## Amendment — 2026-11-08: a passphrase with a plain Archive warns; an encrypted Archive's database is trusted (Shawn, owner decisions 59 and 65)
+
+The 2026-11-07 amendment above is **reversed** (owner decision 59, for unattended use). A
+restore given a passphrase that finds an unencrypted Archive logs WARNING `archive_not_encrypted`
+(and prints it, or hands it to the library's `on_warning`) before any effect, and proceeds.
+`--require-encrypted` (`require_encrypted=True`) remains the opt-in hard stop
+(`ArchiveNotEncryptedError`, exit 2). `--allow-unencrypted` (`allow_unencrypted=`) is kept so a
+script using it keeps running, has no effect, and logs WARNING `deprecated_option`; it was the
+least surprising choice pre-1.0, recorded in the CHANGELOG.
+
+The 2026-10-27 rule for a target with no `wp-config.php` is narrowed (owner decision 65): an
+**encrypted** Archive is authenticated by its passphrase before its config member is read
+(`age` authenticates the payload that holds it), so the database its config names is used
+without `--archive-database`; it is logged (INFO `archive_database_trusted`) and is a line of
+the outcome's `notes`, printed first in a Dry Run. An **unencrypted** Archive still needs
+`--archive-database USER@HOST[:PORT]/NAME`, with RT-S02-003's refusal unchanged.

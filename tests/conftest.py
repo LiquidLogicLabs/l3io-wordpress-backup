@@ -189,6 +189,35 @@ def _isolated_state_dir(
     return state
 
 
+@pytest.fixture(autouse=True)
+def _isolated_settings(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No config file of the host's reaches a test (owner decision 60).
+
+    The per-user config and data directories (``XDG_CONFIG_HOME``,
+    ``XDG_DATA_HOME``) are per-test, and the system file
+    (``cli/settings.SYSTEM_CONFIG_FILE``) points at a path that does not exist.
+    """
+    from l3io.wp.backup.cli import settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("xdg-data")))
+    monkeypatch.delenv(settings.CONFIG_VAR, raising=False)
+    absent = tmp_path_factory.mktemp("etc") / "absent" / "config.toml"
+    monkeypatch.setattr(settings, "SYSTEM_CONFIG_FILE", absent)
+
+
+@pytest.fixture(autouse=True)
+def _root_guard(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As root (CI), no in-process restore switches users (``tests/root_mode.py``)."""
+    from tests.root_mode import guard_root
+
+    guard_root(request, monkeypatch)
+
+
 def _environ() -> dict[str, str]:
     """``os.environ`` without the variable pytest itself rewrites per phase."""
     return {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}

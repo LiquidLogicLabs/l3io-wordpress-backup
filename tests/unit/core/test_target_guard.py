@@ -168,8 +168,9 @@ def test_both_parts_unauthorized_are_named_in_one_refusal() -> None:
     err = caught.value
     assert err.parts == ("files", "database")
     assert err.found == f"'{SITE.site_root}'; {LIVE.host}:{LIVE.port}/{LIVE.name}"
-    assert err.detail == "3 entries; 12 tables"
-    assert f"found '{SITE.site_root}' (3 entries); {LIVE.host}:" in str(err)
+    none_of = "none of wp-config.php, wp-includes, wp-content"
+    assert err.detail == f"3 entries, {none_of}; 12 tables"
+    assert f"found '{SITE.site_root}' (3 entries, {none_of}); {LIVE.host}:" in str(err)
     assert err.authorizing == combination(
         mode=BackupScope.ALL, cleanfirst=False, drop_database=False, force=True
     )
@@ -316,3 +317,22 @@ def test_a_survey_without_its_location_is_named_by_role() -> None:
     with pytest.raises(NonEmptyTargetError) as caught:
         check_target(RestoreMode.DATABASE_CLEAN, OverrideSet.none(), target)
     assert caught.value.findings == (("the load database", "12 tables"),)
+
+
+# --------------------------------------------------------------------------
+# Owner decision 57: a Site Root that looks like WordPress needs no --force
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", [m for m in RestoreMode if restores_files(m)])
+def test_a_wordpress_site_root_needs_no_waiver(mode: RestoreMode) -> None:
+    wordpress = dataclasses.replace(TARGETS["files"], site_root_wordpress=True)
+    check_target(mode, OverrideSet.none(), wordpress)
+
+
+def test_a_wordpress_site_root_never_waives_the_database() -> None:
+    """The files narrowing leaves the database part as it is (part 2's seam)."""
+    wordpress = dataclasses.replace(POPULATED, site_root_wordpress=True)
+    with pytest.raises(NonEmptyTargetError) as caught:
+        check_target(RestoreMode.ALL, OverrideSet.none(), wordpress)
+    assert caught.value.parts == ("database",)

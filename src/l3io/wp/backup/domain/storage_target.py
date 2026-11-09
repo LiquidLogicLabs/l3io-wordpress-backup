@@ -17,6 +17,7 @@ from l3io.wp.backup.domain.errors import UnsupportedStorageSchemeError, UsageErr
 
 __all__ = [
     "DEFAULT_ARCHIVE_NAME_GLOB",
+    "LATEST",
     "StorageTarget",
     "default_archive_name",
     "parse_storage_target",
@@ -26,6 +27,9 @@ _FILE_SCHEMES = frozenset({"", "file"})
 
 #: Every name :func:`default_archive_name` produces matches this ``fnmatch`` glob.
 DEFAULT_ARCHIVE_NAME_GLOB: Final = "wpbackup2-*.tar.gz"
+#: ``restore --archive latest`` (owner decision 64): the newest Archive of
+#: this Site in the Archive directory, chosen by its Manifest's ``created_at``.
+LATEST: Final = "latest"
 
 
 @dataclass(frozen=True, slots=True)

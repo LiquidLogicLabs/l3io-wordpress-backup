@@ -3,9 +3,11 @@
 The target's ``DB_*`` reach the Archive's ``wp-config.php`` as the source the
 target wrote (``get_source``/``set_source``, ``l3io-wordpress-config`` 0.1.6),
 so a ``getenv_docker()`` definition stays a lookup. A carried
-``getenv_docker()`` needs the Archive's text to define that function before
-the use; :func:`defines_getenv_docker` is the documented heuristic for it,
-tested here in both directions, including the false answers it documents.
+``getenv_docker()`` needs the Archive's text to declare that function before
+the first carried define; ``l3io-wordpress-config`` 0.1.7's
+``declares_function(name, before=key)`` decides, and its own tests cover its
+lexical limits. Here: the behaviours backup relies on, and that the library's
+answer is the one acted on.
 """
 
 from __future__ import annotations
@@ -22,7 +24,6 @@ from l3io.wp.backup.adapters import noop
 from l3io.wp.backup.adapters.config_writer import (
     WpConfigWriter,
     carry_sources,
-    defines_getenv_docker,
     refuse_uncarriable,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
@@ -300,52 +301,66 @@ def test_a_planted_unsafe_source_is_refused_without_its_text(
 
 
 # --------------------------------------------------------------------------
-# defines_getenv_docker: the heuristic, both directions
+# The declaration, decided by l3io-wordpress-config's declares_function (0.1.7)
 # --------------------------------------------------------------------------
 
 
+def _archive_with(helper: str) -> str:
+    """A literal Archive config with ``helper`` before its defines."""
+    return _literal_config(**ARCHIVE_LITERALS).replace("<?php\n", "<?php\n" + helper)
+
+
 @pytest.mark.parametrize(
-    "text",
+    "helper",
     [
         DOCKER_HELPER,
-        "function getenv_docker($env, $default) { return $default; }\n",
-        "  FUNCTION  GetEnv_Docker ($e, $d) {}\n",
+        "function &getenv_docker($env, $default) { return $default; }\n",
     ],
-    ids=["official", "unconditional", "any-case"],
+    ids=["official", "by-reference"],
 )
-def test_a_declaration_before_the_use_is_found(text: str) -> None:
-    assert defines_getenv_docker(text, before=len(text))
+def test_a_declared_helper_is_accepted(tmp_path: Path, helper: str) -> None:
+    config = _target(tmp_path, _docker_config())
+    text, _ = carry_sources(config, _archive_with(helper), KEEP)
+    assert WpConfigString(text).get_value("DB_HOST") == EnvLookup(
+        name="WORDPRESS_DB_HOST", default="mysql", function="getenv_docker"
+    )
 
 
 @pytest.mark.parametrize(
-    "text",
+    "helper",
     [
-        "<?php\n",
+        "",
+        "/*\nfunction getenv_docker($env, $default) {}\n*/\n",
         "// function getenv_docker($env, $default) {}\n",
-        "# function getenv_docker($env, $default) {}\n",
-        "function getenv_docker_v2($env, $default) {}\n",
-        "$f = 'function getenv_docker(';\n",
-        "if (function_exists('getenv_docker')) {}\n",
     ],
-    ids=["absent", "line-comment", "hash-comment", "other-name", "string", "call"],
+    ids=["plain", "block-comment", "line-comment"],
 )
-def test_no_declaration_is_found(text: str) -> None:
-    assert not defines_getenv_docker(text, before=len(text))
+def test_an_undeclared_helper_is_refused(tmp_path: Path, helper: str) -> None:
+    config = _target(tmp_path, _docker_config())
+    with pytest.raises(UndefinedConfigFunctionError):
+        carry_sources(config, _archive_with(helper), KEEP)
 
 
-def test_a_declaration_at_or_after_the_use_is_not_counted() -> None:
-    at = DOCKER_HELPER.index("\tfunction getenv_docker")
-    assert not defines_getenv_docker(DOCKER_HELPER, before=at)
-    assert defines_getenv_docker(DOCKER_HELPER, before=at + 1)
+@pytest.mark.parametrize("answer", [True, False])
+def test_the_librarys_answer_is_the_one_acted_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: bool
+) -> None:
+    """The decision is ``declares_function``'s: backup reads no text itself."""
+    asked: list[tuple[str, str | None]] = []
 
+    def declares(self: WpConfigString, name: str, before: str | None = None) -> bool:
+        asked.append((name, before))
+        return answer
 
-def test_documented_false_yes_a_declaration_inside_a_block_comment() -> None:
-    """Pinned limitation: a heuristic, not a parse (see the docstring)."""
-    text = "/*\nfunction getenv_docker($env, $default) {}\n*/\n"
-    assert defines_getenv_docker(text, before=len(text))
-
-
-def test_documented_false_no_a_declaration_by_reference() -> None:
-    """Pinned limitation: refused, though PHP would define it."""
-    text = "function &getenv_docker($env, $default) {}\n"
-    assert not defines_getenv_docker(text, before=len(text))
+    monkeypatch.setattr(WpConfigString, "declares_function", declares)
+    config = _target(tmp_path, _docker_config())
+    # The text says the opposite of the library's (stubbed) answer.
+    archive = _archive_with("" if answer else DOCKER_HELPER)
+    if answer:
+        carry_sources(config, archive, KEEP)
+    else:
+        with pytest.raises(UndefinedConfigFunctionError):
+            carry_sources(config, archive, KEEP)
+    assert asked
+    assert {name for name, _ in asked} == {"getenv_docker"}
+    assert {before for _, before in asked} <= set(KEEP)

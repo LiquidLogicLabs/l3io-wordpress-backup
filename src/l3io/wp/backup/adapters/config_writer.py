@@ -38,15 +38,18 @@ environment-driven target (ADR-0027, Proposed).
 ``--overwrite-wp-config`` carries the target's ``DB_*`` into the Archive's
 text as the source the target wrote (``get_source``/``set_source``, 0.1.6), so
 ``getenv_docker('WORDPRESS_DB_HOST', 'mysql')`` stays a lookup. A carried
-``getenv_docker()`` call needs the Archive's text to define that function
-first; :func:`defines_getenv_docker` is a **heuristic** for that (the library
-has no function-definition query), documented there with its failure modes.
+``getenv_docker()`` call needs the Archive's text to declare that function
+before the first carried define; the library answers that
+(``declares_function(name, before=key)``, 0.1.7), a lexical query on its own
+scanner whose limits it documents: a declaration in a branch PHP never takes,
+a class method or a nested function still counts; an ``include``/``require``
+is not followed; ``before`` is text order; heredocs are not recognised.
+Nothing here reads the source text.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import tempfile
 import time
@@ -79,7 +82,6 @@ __all__ = [
     "TABLE_PREFIX",
     "WpConfigWriter",
     "carry_sources",
-    "defines_getenv_docker",
     "read_defined",
     "read_secret_file",
     "read_settings",
@@ -109,11 +111,6 @@ _UNCARRIABLE_REASON: Final = (
 )
 #: The official image's helper, the one lookup function PHP does not define.
 _DOCKER_FUNCTION: Final = "getenv_docker"
-#: A line declaring ``getenv_docker`` (PHP names are case-insensitive). A
-#: heuristic, not a parse: see :func:`defines_getenv_docker`.
-_DOCKER_FUNCTION_DECLARED: Final = re.compile(
-    r"^[ \t]*function[ \t]+getenv_docker[ \t]*\(", re.IGNORECASE | re.MULTILINE
-)
 #: ``$table_prefix``, named without its ``$`` as the library names a variable.
 TABLE_PREFIX: Final = "table_prefix"
 #: The keys whose lookup failure is a credentials failure, not a site one.
@@ -380,32 +377,6 @@ def _sync_directory_after_commit(directory: Path) -> None:
         )
 
 
-def defines_getenv_docker(content: str, *, before: int) -> bool:
-    """Whether ``content`` declares ``getenv_docker`` before offset ``before``.
-
-    **A heuristic, not a PHP parse** (``l3io-wordpress-config`` 0.1.6 has no
-    function-definition query; a textual check was accepted for owner decision
-    48 on this condition). It looks for a line that starts, after blanks, with
-    ``function getenv_docker(`` (any case), as the official image's
-    ``wp-config-docker.php`` writes it inside ``if (!function_exists(...))``,
-    and requires it to start before ``before``, the first carried use: a
-    function declared inside a condition exists only once PHP has run that
-    condition. Failure modes:
-
-    - **false yes** (PHP would still stop with "Call to undefined function"):
-      such a line inside a ``/* */`` comment, a heredoc or a string, or inside
-      a branch PHP never takes; or a declaration of that name that is not the
-      image's helper;
-    - **false no** (refused, though PHP would run): the function defined in a
-      file the config includes, declared unconditionally after its use (PHP
-      hoists that), or written with ``&`` or a line break after ``function``.
-
-    A false no only refuses; the operator keeps the target's config.
-    """
-    found = _DOCKER_FUNCTION_DECLARED.search(content)
-    return found is not None and found.start() < before
-
-
 def _carriable(
     config_file: Path, target: WpConfigFile, keep: Sequence[str]
 ) -> tuple[dict[str, str], tuple[str, ...]]:
@@ -469,16 +440,16 @@ def _carry(
         except WpConfigError as exc:
             raise ConfigWriteFailedError(config_file, key, _set_failure(exc)) from exc
     text = working.content
-    if docker:
-        # The first carried use; ``find`` returning an earlier copy of the
-        # text (a comment) only makes the check stricter.
-        uses = [text.find(sources[key]) for key in docker]
-        if min(uses) < 0 or not defines_getenv_docker(text, before=min(uses)):
-            raise UndefinedConfigFunctionError(
-                function=_DOCKER_FUNCTION,
-                keys=tuple(_shown(k) for k in docker),
-                path=config_file,
-            )
+    # Declared before each carried use, so before the first of them; the
+    # library's lexical query decides (0.1.7, its limits in the module doc).
+    if docker and not all(
+        working.declares_function(_DOCKER_FUNCTION, before=key) for key in docker
+    ):
+        raise UndefinedConfigFunctionError(
+            function=_DOCKER_FUNCTION,
+            keys=tuple(_shown(k) for k in docker),
+            path=config_file,
+        )
     return text, tuple(changed)
 
 
@@ -496,8 +467,8 @@ def carry_sources(
     define, and a source ``set_source`` will not write verbatim
     (``ConfigWriteFailedError``, fixed reasons, never the source); an
     ``Expression`` (``UnsupportedConfigValueError``); a carried
-    ``getenv_docker()`` the new text does not define before it is used
-    (``UndefinedConfigFunctionError``; :func:`defines_getenv_docker`).
+    ``getenv_docker()`` the new text does not declare before it is used
+    (``UndefinedConfigFunctionError``; the library's ``declares_function``).
     """
     _require_extra()
     return _carry(config_file, _open_target(config_file), content, keep)

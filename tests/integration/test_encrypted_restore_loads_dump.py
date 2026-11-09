@@ -58,7 +58,6 @@ from tests.integration.live_restore import (
     read_keys,
     root_connection,
 )
-from tests.root_mode import allow_root_kwargs
 
 __all__ = ["admin_account", "live_site"]
 
@@ -155,7 +154,6 @@ def test_the_right_passphrase_loads_the_dump(
         snapshot_dir=live_site.work / "snapshots",
         admin=ExplicitCredentialSpec(admin_account, credential_sentinel.admin_password),
         passphrase=passphrase,
-        **allow_root_kwargs(),
     )
     assert outcome.snapshot_encrypted is True  # the same passphrase sealed it
     live = str(read_keys(live_site.config)["DB_NAME"])

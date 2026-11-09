@@ -64,7 +64,6 @@ from tests.otel_sdk import (  # noqa: F401 - otel_spans is a fixture
     span_id,
 )
 from tests.restore_root_rig import ALL_WAIVED, Rig
-from tests.root_mode import allow_root_kwargs
 from tests.unit.cli.conftest import (  # noqa: F401 - fixtures, re-registered here
     FakeDatabase,
     fake_database,
@@ -333,7 +332,6 @@ def _restore(rig: Rig, mode: RestoreMode, *, dry_run: bool) -> None:
         config_policy=ConfigPolicy.KEEP,
         snapshot_dir=rig.work / "snapshots",
         dry_run=dry_run,
-        **allow_root_kwargs(),
     )
 
 

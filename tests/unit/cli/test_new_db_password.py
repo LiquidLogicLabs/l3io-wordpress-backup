@@ -30,7 +30,7 @@ from l3io.wp.backup.cli.credentials import (
 )
 from l3io.wp.backup.cli.parser import NEW_DB_PASSWORD_VAR, build_parser
 from l3io.wp.backup.domain.credentials import AwsSecretCredentialSpec
-from l3io.wp.backup.domain.errors import CredentialTooShortError, UsageError
+from l3io.wp.backup.domain.errors import UsageError
 from tests.restore_root_rig import Rig
 
 
@@ -148,19 +148,30 @@ def test_every_source_registers_its_value(tmp_path: Path) -> None:
         assert [_plain(v) for v, _ in registry.seen] == [value]
 
 
-@pytest.mark.parametrize("source", ["explicit", "file", "environ"])
-def test_a_short_password_is_refused_from_every_source(
-    tmp_path: Path, source: str
+@pytest.mark.parametrize(
+    ("source", "named"),
+    [
+        ("explicit", "--new-db-password"),
+        ("file", "--new-db-password-file"),
+        ("environ", NEW_DB_PASSWORD_VAR),
+    ],
+)
+def test_a_short_password_is_accepted_with_a_warning_from_every_source(
+    tmp_path: Path, source: str, named: str
 ) -> None:
+    """Owner decision 61 (amending ADR-0018): accepted, the source named."""
     short = "x9Z"
     kwargs: dict[str, Any] = {
         "explicit": {"explicit": short},
         "file": {"file": _file(tmp_path, short)},
         "environ": {"environ": {NEW_DB_PASSWORD_VAR: short}},
     }[source]
-    with capture_logs(), pytest.raises(CredentialTooShortError) as caught:
-        _resolve(**kwargs)
-    assert short not in str(caught.value)
+    with capture_logs() as logs:
+        value = _resolve(**kwargs)
+    assert _plain(value) == short
+    (warning,) = [e for e in logs if e["event"] == "credential_below_redaction_floor"]
+    assert warning["source"] == named
+    assert short not in repr(warning)
 
 
 # -- run_restore --------------------------------------------------------------

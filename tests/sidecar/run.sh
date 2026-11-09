@@ -19,7 +19,8 @@
 # Credentials are generated at runtime, written to 0600 env files in the
 # scratch dir and never printed. The step table records each step's exit code
 # against the one expected; `*` marks a probe whose outcome is reported, not
-# asserted. The script exits 1 when any asserted step differs.
+# asserted (only the fallback after a failed restore has any). The script
+# exits 1 when any asserted step differs.
 
 # SC2016: single-quoted $VARS are expanded inside the containers, on purpose.
 # shellcheck disable=SC2016
@@ -106,7 +107,8 @@ L3IO_WP_BACKUP_ADMIN_USER=root
 L3IO_WP_BACKUP_ADMIN_PASSWORD=$DB_ROOT_PW
 EOF
 
-# Test CA and a server certificate for `db` (the restore's verified TLS).
+# Test CA and a server certificate for `db`, for the TLS opt-in steps
+# (--db-tls; no TLS is required by default, owner decision 56).
 (
     cd "$L3IO_SCRATCH/tls"
     openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=l3io sidecar test CA $TAG" \
@@ -167,6 +169,10 @@ check() {  # check NAME CONDITION-CMD...  (a yes/no fact about the Site)
 wb() { dc exec -T backup wpbackup2 --log-format json "$@"; }
 wb_pp() { L3IO_WP_BACKUP_PASSPHRASE=$PASSPHRASE dc exec -T -e L3IO_WP_BACKUP_PASSPHRASE backup wpbackup2 --log-format json "$@"; }
 wb_wrong() { L3IO_WP_BACKUP_PASSPHRASE=$WRONG_PASSPHRASE dc exec -T -e L3IO_WP_BACKUP_PASSPHRASE backup wpbackup2 --log-format json "$@"; }
+wb_root_pp() {
+    L3IO_WP_BACKUP_PASSPHRASE=$PASSPHRASE L3IO_WP_BACKUP_MODE=files \
+        dc exec -T -u 0 -e L3IO_WP_BACKUP_PASSPHRASE -e L3IO_WP_BACKUP_MODE backup wpbackup2 --log-format json "$@"
+}
 wb_dbenv() {
     L3IO_WP_BACKUP_DB_USER=$DB_USER L3IO_WP_BACKUP_DB_PASSWORD=$DB_PW \
         dc exec -T -e L3IO_WP_BACKUP_DB_USER -e L3IO_WP_BACKUP_DB_PASSWORD backup wpbackup2 --log-format json "$@"
@@ -231,15 +237,23 @@ check before:page-200-with-sentinel page_serves_sentinel
 # ---- Phase A: the official image's getenv_docker() wp-config.php, as deployed ----
 # The sidecar carries the site's WORDPRESS_DB_* (compose: wp.env), so the
 # getenv_docker() DB_* and $table_prefix resolve as PHP resolves them (owner
-# decision 47), and --confirm-db-host names the resolved host.
+# decision 47). The image sets L3IO_WP_BACKUP_WP_DIR and
+# L3IO_WP_BACKUP_ARCHIVE_DIR (owner decision 60), so no flag names the site or
+# the Archive, and the database host is logged, never confirmed (decision 54).
 db_lines >"$LOGS/A-wp-config-db-lines.txt" || true
 cp "$L3IO_SCRATCH/html/wp-config.php" "$L3IO_SCRATCH/wp-config.docker.php"
-step A-doctor 0 wb doctor --wp-dir "$SITE" --archive /backups/a.tar.gz
-step A-backup-dryrun 0 wb --whatIf backup --wp-dir "$SITE" --archive /backups/a.tar.gz --confirm-db-host db
-check A:dryrun-wrote-nothing absent_in_backups a.tar.gz
-step A-backup 0 wb backup --wp-dir "$SITE" --archive /backups/a.tar.gz --confirm-db-host db
-step A-verify 0 wb verify --archive /backups/a.tar.gz
-step A-backup-dbenv 0 wb_dbenv backup --wp-dir "$SITE" --archive /backups/a2.tar.gz --confirm-db-host db
+no_archives() { [[ -z $(in_backup find /backups -name '*.tar.gz' -print -quit) ]]; }
+logged() { grep -qF "\"event\": \"$2\"" "$LOGS/$1.err"; }
+printed() { grep -qF -- "$2" "$LOGS/$1.out"; }
+step A-doctor 0 wb doctor
+step A-backup-dryrun 0 wb --whatIf backup
+check A:dryrun-wrote-nothing no_archives
+check A:dryrun-names-the-host printed A-backup-dryrun "from db:3306"
+step A-backup 0 wb backup
+check A:host-logged logged A-backup database_host
+check A:default-target-in-archive-dir printed A-backup "/backups/wpbackup2-$DB_NAME-"
+step A-verify 0 wb verify --archive "$(head -1 "$LOGS/A-backup.out")"
+step A-backup-dbenv 0 wb_dbenv backup --archive /backups/a2.tar.gz
 step A-verify-dbenv 0 wb verify --archive /backups/a2.tar.gz
 
 # ---- Phase B: DB_* written as literals (wp config set), then the full cycle ------
@@ -253,18 +267,17 @@ step B-literal-config 0 dc run --rm -T wpcli sh -c '
 db_lines >"$LOGS/B-wp-config-db-lines.txt" || true
 check B:page-200-after-literal page_serves_sentinel
 
-step B-doctor '*' wb doctor --wp-dir "$SITE" --archive /backups/plain.tar.gz
-step B-backup-dryrun 0 wb --whatIf backup --wp-dir "$SITE" --archive /backups/plain.tar.gz --confirm-db-host db
-check B:dryrun-wrote-nothing absent_in_backups plain.tar.gz
-step B-backup-no-confirm '*' wb backup --wp-dir "$SITE" --archive /backups/noconfirm.tar.gz
-step B-backup-plain 0 wb backup --wp-dir "$SITE" --archive /backups/plain.tar.gz --confirm-db-host db
-step B-verify-plain 0 wb verify --archive /backups/plain.tar.gz
-step B-backup-encrypted 0 wb_pp backup --wp-dir "$SITE" --archive /backups/enc.tar.gz --confirm-db-host db --encrypt-with-passphrase
+step B-doctor 0 wb doctor
+step B-backup-dryrun 0 wb --whatIf backup
+step B-backup 0 wb backup
+step B-verify-plain 0 wb verify --archive "$(head -1 "$LOGS/B-backup.out")"
+sleep 1  # created_at has whole seconds: enc.tar.gz is the newest
+step B-backup-encrypted 0 wb_pp backup --archive /backups/enc.tar.gz --encrypt-with-passphrase
 step B-verify-encrypted 0 wb verify --archive /backups/enc.tar.gz
 step B-verify-encrypted-auth 0 wb_pp verify --archive /backups/enc.tar.gz --authenticate
 step B-verify-wrong-passphrase 8 wb_wrong verify --archive /backups/enc.tar.gz --authenticate
 in_backup sh -c 'ls -ln /backups; stat -c "%n %s bytes mode %a uid %u" /backups/*.tar.gz' >"$LOGS/B-archives.txt" 2>&1 || true
-in_backup sh -c 'tar -tzf /backups/plain.tar.gz | head -20; tar -tzf /backups/plain.tar.gz | wc -l' >"$LOGS/B-plain-members.txt" 2>&1 || true
+in_backup sh -c 'tar -tzf /backups/enc.tar.gz | head -20; tar -tzf /backups/enc.tar.gz | wc -l' >"$LOGS/B-enc-members.txt" 2>&1 || true
 
 # Alter the Site: delete the post and the attachment (WordPress removes the file).
 step B-alter-delete-post 0 wp post delete "$POST_ID" --force
@@ -273,38 +286,37 @@ check altered:upload-gone absent_in_site "wp-content/uploads/$UPLOAD_REL"
 check altered:page-404 code_is "/?p=$POST_ID" 404
 
 # The administrator: backup.env sets both L3IO_WP_BACKUP_ADMIN_USER and _PASSWORD,
-# the environment pair README's credential table documents; every restore below
-# takes the administrator from that pair alone, with no --admin-username.
-RESTORE=(restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode all --force --require-encrypted)
-step B-restore-dryrun-env-admin-only 0 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
-step B-restore-dryrun-no-ca '*' wb_pp --whatIf "${RESTORE[@]}"
+# the environment pair README's credential table documents. No TLS is required
+# (owner decision 56); the database's own certificate is exercised by the
+# opt-in steps. --force: the database half of owner decision 57 (no flag over
+# a WordPress database) arrives with the direct load; the files half needs none.
+RESTORE=(restore --archive latest --force)
 db_sql() {
     local client=mysql
     [[ $ENGINE == mariadb ]] && client=mariadb
     dc exec -T "db-$ENGINE" sh -c "MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" $client -uroot" <<<"$1"
 }
-# The official db images grant MYSQL_USER on MYSQL_DATABASE only, and nothing
-# more is granted here: the restore's administrator creates the staging
-# database `<name>_l3s_<run id>` and grants the account on it before the load.
 db_sql "SHOW GRANTS FOR '$DB_USER'@'%';" >"$LOGS/B-wordpress-account-grants.txt" 2>&1 || true
-step B-restore-dryrun-scoped-grant 0 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
-step B-restore-dryrun 0 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
+step B-restore-dryrun 0 wb_pp --whatIf "${RESTORE[@]}"
+check B:dryrun-names-latest printed B-restore-dryrun "archive latest: /backups/enc.tar.gz"
+check B:latest-logged logged B-restore-dryrun archive_latest_selected
 check B:dryrun-changed-nothing absent_in_site "wp-content/uploads/$UPLOAD_REL"
-step B-restore 0 wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA"
+step B-restore-dryrun-tls-verified 0 wb_pp --whatIf "${RESTORE[@]}" --db-tls verify-identity --db-tls-ca "$CA"
+step B-restore-dryrun-tls-untrusted-ca 3 wb_pp --whatIf "${RESTORE[@]}" --db-tls verify-identity
+step B-restore-dryrun-tls-required 0 wb_pp --whatIf "${RESTORE[@]}" --db-tls required
+step B-restore 0 wb_pp "${RESTORE[@]}"
 run_id_of() { jq -r 'select(.event == "run_started") | .l3io_run_id' "$LOGS/$1.err" 2>/dev/null | head -1; }
 if [[ $LAST_RC != 0 ]]; then
     # Fallback, so the rest of the restore path is still exercised: resolve the
     # interrupted Run, try the database alone without a Safety Snapshot (does a
     # failed load leave the live site intact?), resolve again, then restore the
-    # files alone (no database connection, so no TLS).
-    step B-resolve-1 '*' wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA" --resolve-interrupted-run "$(run_id_of B-restore)"
-    step B-restore-db-no-snapshot '*' wb_pp restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode db \
-        --require-encrypted --force --no-safety-snapshot --admin-username root --admin-tls-ca "$CA"
+    # files alone (no database connection).
+    step B-resolve-1 '*' wb_pp "${RESTORE[@]}" --resolve-interrupted-run "$(run_id_of B-restore)"
+    step B-restore-db-no-snapshot '*' wb_pp restore --archive /backups/enc.tar.gz --mode db \
+        --force --no-safety-snapshot
     check after-failed-db-load:home-200 code_is / 200
-    step B-resolve-2 '*' wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA" --resolve-interrupted-run "$(run_id_of B-restore-db-no-snapshot)"
-    # --mode files needs no administrator, and takes none from the environment.
-    step B-restore-files 0 wb_pp restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode files --force \
-        --require-encrypted
+    step B-resolve-2 '*' wb_pp "${RESTORE[@]}" --resolve-interrupted-run "$(run_id_of B-restore-db-no-snapshot)"
+    step B-restore-files 0 wb_pp restore --archive /backups/enc.tar.gz --mode files
 fi
 db_lines >"$LOGS/B-wp-config-after-restore.txt" || true
 in_backup sh -c 'find "$XDG_STATE_HOME" -maxdepth 4 -printf "%M %u %p\n"' >"$LOGS/B-state-tree.txt" 2>&1 || true
@@ -313,21 +325,35 @@ check restored:post-back post_has_sentinel
 check restored:page-200-with-sentinel page_serves_sentinel
 check restored:home-200 code_is / 200
 check restored:files-owned-by-33 no_foreign_owner
-step B-backup-after-restore 0 wb backup --wp-dir "$SITE" --archive /backups/after.tar.gz --confirm-db-host db
+
+# A restore started as root, with no flag but --archive (the Mode from the
+# environment): it reads the passphrase and the Archive, then runs as the Site
+# Root's owner, www-data (owner decision 58). A WordPress Site Root needs no
+# --force (decision 57). The Archive is named: B-restore's staging cutover
+# rewrote DB_NAME, so this site's database no longer matches what its
+# Archives record and --archive latest rightly finds none (exit 2,
+# NoArchiveForSiteError) until the direct load (part 2) removes the cutover.
+step B-latest-after-cutover 2 wb_pp --whatIf restore --archive latest --mode files
+step B-restore-files-as-root 0 wb_root_pp restore --archive /backups/enc.tar.gz
+check root:switched-to-the-owner logged B-restore-files-as-root restore_runs_as_site_owner
+check root:files-owned-by-33 no_foreign_owner
+check root:page-200-with-sentinel page_serves_sentinel
+step B-backup-after-restore 0 wb backup --archive /backups/after.tar.gz
 
 db_sql "SHOW DATABASES;" >"$LOGS/databases-after-restore.txt" 2>&1 || true
 
 # ---- Phase C: a restore onto the getenv_docker() config --------------------------
 # A database restore would rewrite the getenv_docker() DB_NAME, so it is refused
-# (exit 3, EnvironmentDrivenTargetError) until ADR-0027 is accepted, a Dry Run
-# included. --overwrite-wp-config in a files-only Mode carries the target's
+# (exit 3, EnvironmentDrivenTargetError) until the direct load (part 2), a Dry
+# Run included. --overwrite-wp-config in a files-only Mode carries the target's
 # getenv_docker() DB_* into the Archive's wp-config.php as written (owner
 # decision 48): enc.tar.gz holds Phase B's file, which still defines the
 # image's getenv_docker() helper, so it proceeds and the site keeps following
 # its environment. A files-only restore keeping the target's file resolves the
 # lookups and proceeds. An Archive taken from a plain (non-Docker) config does
 # not define getenv_docker(): --overwrite-wp-config from it is refused (exit 3,
-# UndefinedConfigFunctionError), the target's file untouched.
+# UndefinedConfigFunctionError), the target's file untouched. None of these
+# needs --force: the Site Root looks like WordPress (decision 57).
 put_docker_config() {
     docker run --rm --user 0 -v "$L3IO_SCRATCH:/s" --entrypoint sh "$IMAGE" -c \
         'cp /s/wp-config.docker.php /s/html/wp-config.php && chown 33:33 /s/html/wp-config.php'
@@ -351,10 +377,10 @@ php_db_name_is_env() {
 }
 refused_with() { grep -qF "$2" "$LOGS/$1.err"; }
 put_docker_config
-step C-restore-dryrun-docker-config 3 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
-step C-restore-docker-config 3 wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA"
-OVERWRITE=(restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode files --force --require-encrypted
-    --overwrite-wp-config)
+ENC=(restore --archive /backups/enc.tar.gz --require-encrypted)
+step C-restore-dryrun-docker-config 3 wb_pp --whatIf "${ENC[@]}" --force
+step C-restore-docker-config 3 wb_pp "${ENC[@]}" --force
+OVERWRITE=("${ENC[@]}" --mode files --overwrite-wp-config)
 step C-overwrite-dryrun-docker-config 0 wb_pp --whatIf "${OVERWRITE[@]}"
 check C:overwrite-dryrun-changed-nothing site_config_is_docker
 step C-overwrite-docker-config 0 wb_pp "${OVERWRITE[@]}"
@@ -368,8 +394,7 @@ check C:overwrite-landed-archives-file in_backup grep -qF "\$table_prefix = 'wp_
 check C:overwrite-php-resolves-env-db-name php_db_name_is_env
 check C:overwrite-home-200 code_is / 200
 put_docker_config
-step C-restore-files-docker-config 0 wb_pp restore --wp-dir "$SITE" --archive /backups/enc.tar.gz \
-    --mode files --force --require-encrypted
+step C-restore-files-docker-config 0 wb_pp "${ENC[@]}" --mode files
 check C:wp-config-still-getenv-docker in_backup grep -qF "getenv_docker('WORDPRESS_DB_NAME'" "$SITE/wp-config.php"
 check C:page-200-after-files code_is / 200
 
@@ -380,16 +405,15 @@ step C-plain-config 0 dc run --rm -T wpcli sh -c '
     wp --path=/var/www/html config create --dbname="$WORDPRESS_DB_NAME" --dbuser="$WORDPRESS_DB_USER" \
         --dbpass="$WORDPRESS_DB_PASSWORD" --dbhost="$WORDPRESS_DB_HOST" --skip-check --skip-salts --force --quiet
     ! grep -q getenv_docker /var/www/html/wp-config.php'
-step C-backup-plain-config 0 wb backup --wp-dir "$SITE" --archive /backups/plain-config.tar.gz --confirm-db-host db
+step C-backup-plain-config 0 wb backup --archive /backups/plain-config.tar.gz
 put_docker_config
-step C-overwrite-dryrun-plain-archive 3 wb --whatIf restore --wp-dir "$SITE" --archive /backups/plain-config.tar.gz \
-    --mode files --force --overwrite-wp-config
-step C-overwrite-plain-archive 3 wb restore --wp-dir "$SITE" --archive /backups/plain-config.tar.gz \
-    --mode files --force --overwrite-wp-config
+PLAIN=(restore --archive /backups/plain-config.tar.gz --mode files --overwrite-wp-config)
+step C-overwrite-dryrun-plain-archive 3 wb --whatIf "${PLAIN[@]}"
+step C-overwrite-plain-archive 3 wb "${PLAIN[@]}"
 check C:plain-refused-undefined-function refused_with C-overwrite-plain-archive UndefinedConfigFunctionError
 check C:plain-refusal-left-config site_config_is_docker
 check C:page-200-after-plain-refusal code_is / 200
-step C-backup-after 0 wb backup --wp-dir "$SITE" --archive /backups/c.tar.gz --confirm-db-host db
+step C-backup-after 0 wb backup --archive /backups/c.tar.gz
 
 # ---- report -----------------------------------------------------------------------
 {

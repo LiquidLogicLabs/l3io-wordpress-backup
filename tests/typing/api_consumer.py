@@ -11,10 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from l3io.wp.backup.api import (
-    AdminTls,
     BackupResult,
     BackupScope,
     ConfigPolicy,
+    DbTls,
     ExclusionSet,
     ExplicitCredentialSpec,
     Override,
@@ -48,7 +48,7 @@ def main(site: Path, archive: Path) -> tuple[int, bool, str, tuple[str, ...]]:
         overrides=OverrideSet(waived=frozenset({Override.NONEMPTY_FILES})),
         snapshot=SnapshotPolicy.TAKE,
         config_policy=ConfigPolicy.KEEP,
-        admin_tls=AdminTls(mode="required", ca_file=None),
+        db_tls=DbTls(mode="required", ca_file=None),
         relocation=RelocationFlags.none(),
         prompt=input,
     )

@@ -172,3 +172,20 @@ ADR's frames decision left, and what BL-E006-009 recorded as the gap).
 
 **Revisit when:** a host needs to pass credentials across a process boundary (pickling), or the library moves
 to the neutral module of BL-E006-024.
+
+## Amendment — 2026-11-08: a short database password is accepted, with a warning (Shawn, owner decision 61)
+
+The 2026-11-06 amendment above is **reversed for database passwords** (owner decision 61, for
+unattended use: a site's existing account may have a short password, and refusing it blocked
+the backup). A database password (the WordPress account, the administrator or
+`--new-db-password`, from any source) shorter than the registry's 4-character floor is
+**accepted**, with WARNING `credential_below_redaction_floor` naming its source and the floor,
+never the value: it cannot be masked in logs. `adapters/redaction.note_below_redaction_floor` is
+the one place that logs it; `adapters/database.py`'s registering wrapper logs it once per source
+selected, `adapters/credential_providers.py` when an explicit spec is built, and
+`cli/credentials.new_db_password` as the relocated password is read. Every password is still
+offered to the registry as soon as it is read. `CredentialTooShortError` is gone (pre-1.0,
+CHANGELOG). The redaction guarantee therefore holds for every password of 4 characters or more;
+a shorter one is the operator's accepted, logged exception. The 12-character floor for a new
+encryption passphrase (ADR-0024 amendment) stays, and the registry's own 4-character floor for a
+passphrase is unchanged.

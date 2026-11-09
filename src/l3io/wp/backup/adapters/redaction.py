@@ -18,7 +18,9 @@ Limits, stated because string matching cannot see past them:
   package builds a URL or connection string holding a credential;
 - a secret shorter than :data:`MIN_SECRET_LENGTH` is not registered (it would
   redact unrelated text); it is logged as ``secret_too_short_to_redact`` with
-  its source label only;
+  its source label only. A database password that short is still accepted
+  (owner decision 61, amending ADR-0018), with WARNING
+  ``credential_below_redaction_floor`` (:func:`note_below_redaction_floor`);
 - ``str(exc)`` or ``repr(exc)`` called directly by a library caller passes
   through nothing here (ADR-0018 "What this does not cover");
 - a host that configures logging itself has no :func:`redact_open_runs` in its
@@ -58,6 +60,7 @@ __all__ = [
     "MIN_SECRET_LENGTH",
     "REDACTED",
     "SecretRegistry",
+    "note_below_redaction_floor",
     "open_registry",
     "redact_open_runs",
 ]
@@ -69,6 +72,21 @@ MIN_SECRET_LENGTH: Final = 4
 _SEQUENCES: Final = (list, tuple, set, frozenset)
 
 _log = structlog.get_logger(__name__)
+
+
+def note_below_redaction_floor(source: str) -> None:
+    """Owner decision 61: a database password below the floor, accepted.
+
+    WARNING ``credential_below_redaction_floor`` names ``source`` (a flag, a
+    variable or a credential source's label), never the value: the registry
+    cannot mask a value this short in logs.
+    """
+    _log.warning(
+        "credential_below_redaction_floor",
+        source=source,
+        minimum=MIN_SECRET_LENGTH,
+        message="accepted, but too short to be masked in logs",
+    )
 
 
 def _occurrences(text: str, form: str) -> list[int]:

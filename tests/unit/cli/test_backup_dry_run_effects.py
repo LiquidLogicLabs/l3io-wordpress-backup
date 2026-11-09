@@ -58,8 +58,10 @@ ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
     f"{ADAPTERS}.database": frozenset(
         {
             "LocatedConfig",
-            # BL-E002-063 (owner decision 2026-11-07): a pure host query.
+            # Owner decision 54: a pure host query, for the logged host.
             "database_host_is_local",
+            # Owner decision 56: validates --db-tls before any connection.
+            "check_db_tls",
             "locate_wp_config",
             "require_wp_config_credentials",
             "site_descriptor_from_wp_config",
@@ -72,6 +74,9 @@ ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
     f"{ADAPTERS}.exclusions": frozenset({"LoggedExclusionPolicy", "log_path_excluded"}),
     f"{ADAPTERS}.phase": frozenset({"phase"}),
     f"{ADAPTERS}.redaction": frozenset({"SecretRegistry"}),
+    # Owner decision 60: the application name of the per-user data directory
+    # a default Archive goes to; a constant.
+    f"{ADAPTERS}.lock": frozenset({"APP_NAME"}),
 }
 OS_ALLOWANCE = frozenset({"environ"})
 #: The definitions that select the Dry Run (AD-4) and so may name it.

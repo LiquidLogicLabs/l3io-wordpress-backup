@@ -122,7 +122,11 @@ live part is cut to 51 characters, so a name never exceeds MySQL's 64.
 A restore never overwrites something it was not told it may. Before any phase
 is planned, each part the Mode restores is checked:
 
-- **files** — the Site Root holds any entry;
+- **files** — the Site Root holds any entry **and looks like no WordPress
+  site**: it has none of `wp-config.php`, `wp-includes/` or `wp-content/`
+  (owner decision 57). Restoring over a recognisable WordPress site needs no
+  flag; the Safety Snapshot covers the overwrite. An empty Site Root needs
+  none either;
 - **database** — the live database (or the `--new-db-name` database) exists
   with at least one table, view, stored routine or event. The live database is always surveyed by the
   administrator in a Mode that restores the database; "not looked at" is never
@@ -134,9 +138,15 @@ found, and the exact flags that would authorize it, for example:
 
 ```
 refusing to restore with --mode files (Restore Mode files) over a non-empty
-target (files): found '/srv/www' (3 entries); nothing was changed.
---mode files --force would authorize it
+target (files): found '/srv/www' (3 entries, none of wp-config.php,
+wp-includes, wp-content); nothing was changed. --mode files --force would
+authorize it
 ```
+
+The database part is unchanged for now: any table needs `--force`. Owner
+decision 57's database half (tables, but none carrying the site's prefix, need
+`--force`; a WordPress database does not) arrives with the direct load into
+the live database.
 
 `--force` waives the parts the Mode restores; `--cleanfirst` and
 `--drop-database` choose the clean Modes. Waiving the files never waives the
@@ -160,10 +170,13 @@ explicit `--cleanfirst` (and `--force` over a non-empty target); check
 
 The Site Descriptor then comes from the Archive's config member, read into the
 Run workspace (mode `0600`). Because an Archive can be forged, the database it
-names is used only when you confirm it: `--archive-database
-USER@HOST[:PORT]/NAME` must name the same user, host (case-insensitive), port
-and database as the Archive's config, or the restore is refused (exit 3) before
-any database connection. Name the database from your own records, not from
+names is used only when you confirm it **or the Archive is encrypted**. An
+encrypted Archive is authenticated by its passphrase before its config is
+read, so its database is used as it says, logged (`archive_database_trusted`)
+and shown as the first line of a Dry Run (owner decision 65). For an
+unencrypted Archive, `--archive-database USER@HOST[:PORT]/NAME` must name the
+same user, host (case-insensitive), port and database as the Archive's
+config, or the restore is refused (exit 3) before any database connection. Name the database from your own records, not from
 the Archive. When the flag is absent, the refusal deliberately does not show
 the Archive's database, so it cannot be pasted back without checking it
 (RT-S02-003). When yours differs, the refusal shows the Archive's user, host,
@@ -252,8 +265,9 @@ constant's prior value.
   `--new-db-user`) rather than `--new-db-password`, whose value is visible in
   the process list and which logs WARNING `password_on_command_line`. The
   first given wins: the flag, then the file, then the variable. The password
-  is redacted from every log record and message, is never journaled, and one
-  shorter than 4 characters is refused (exit 4).
+  is redacted from every log record and message and is never journaled; one
+  shorter than 4 characters, too short to redact, is accepted with WARNING
+  `credential_below_redaction_floor` (owner decision 61).
 - **`--new-site-url` and `--new-site-home-url`** must start with `http://` or
   `https://`, name a host, hold no whitespace, control character, quote or
   backslash, and not end with `/` (WordPress stores them without one). Anything
@@ -378,10 +392,10 @@ drop-ins such as `wp-content/db.php`. Regular plugins and themes do not run
   hold the Site Lock for ever. Its output is capped at 8 MiB on each of
   stdout and stderr; past that its whole process group is killed and the Run
   fails (exit 1).
-- **As root.** When the restore runs as root, `wp` is given `--allow-root` and
-  the Run logs WARNING `wp_cli_running_as_root`: WP-CLI then executes the
-  restored Site's `wp-config.php`, mu-plugins and drop-ins as root. Run the
-  restore as the Site's owner instead where you can.
+- **Not as root.** A restore started as root runs as the Site Root's owner
+  (below), so `wp` does too. A library caller running as root is refused; if
+  WP-CLI is somehow reached as root, it is given `--allow-root` and the Run
+  logs WARNING `wp_cli_running_as_root`.
 
 **It is not confined (accepted for v1, owner decision 2026-11-07,
 BL-E008-014).** The restored Site's `wp-config.php`, mu-plugins and drop-ins
@@ -402,13 +416,17 @@ the `wp` child is planned after v1.
 
 ## TLS to the database
 
-A restore's database connections use verified TLS (`verify-identity`, against
-the system CA store) to any host but `localhost`, `127.0.0.1` and `::1`, which
-stay plaintext. `--admin-tls {required,verify-ca,verify-identity}` may raise
-that, never lower it: a value below the host's policy exits 2 `USAGE` before
-any connection. `--admin-tls-ca FILE` names the CA bundle for a private CA. A
-server that cannot complete the required handshake exits 5 `UNREACHABLE`; one
-whose certificate does not verify exits 3 `REFUSED`. Backups are unchanged.
+By default no TLS is required, for backup or restore, the WordPress account
+or the administrator: the tool connects the way WordPress does (owner
+decision 56, amending BL-E002-114's verified-TLS policy). `--db-tls
+{required,verify-ca,verify-identity}` (also `L3IO_WP_BACKUP_DB_TLS`, config
+key `db_tls`) requires it on every connection of the Run, local hosts
+included; `--db-tls-ca FILE` names the CA bundle for a private CA, with
+`verify-ca` or `verify-identity` (alone, or with `required`, it exits 2
+`USAGE` before any connection). A server that cannot complete the required
+handshake exits 5 `UNREACHABLE`; one whose certificate does not verify exits
+3 `REFUSED`. `--admin-tls` and `--admin-tls-ca` are deprecated spellings of
+the two, logged as WARNING `deprecated_option`.
 
 On every connection, a server that asks for an authentication plugin that
 would expose the password (`mysql_clear_password`, `mysql_old_password` or
@@ -528,7 +546,11 @@ Archives that are encrypted. Someone who can write the Storage Target can
 replace an encrypted Archive with a forged plain one, and a restore that
 finds no encryption does not know one was expected. By default it restores the
 plain Archive with the warning above (plain Archives are not authenticated,
-ADR-0016 amendment). `restore --require-encrypted` refuses any Archive that is
+ADR-0016 amendment). That holds when a passphrase was given too: the restore
+proceeds, with WARNING `archive_not_encrypted` on stderr, since a passphrase
+meant an encrypted Archive was expected (owner decision 59, reversing the
+2026-11-07 refusal; `--allow-unencrypted` is deprecated and does nothing).
+`restore --require-encrypted` refuses any Archive that is
 not encrypted, before anything changes, with `ArchiveNotEncryptedError` (a usage
 error, exit 2, the same refusal `verify --authenticate` gives a plain Archive).
 Use it in cron and disaster-recovery runs that only ever restore encrypted
@@ -730,19 +752,20 @@ target's `wp-config.php` (omit `--overwrite-wp-config`), or restore from an
 Archive taken from a Docker site. `getenv('NAME')` needs nothing: PHP defines
 it.
 
-That check is **a textual heuristic, not a PHP parse**: it looks for a line
-beginning, after blanks, with `function getenv_docker(` (in any case), as the
-image writes it, before the first carried use. It can be wrong both ways:
+That check is `l3io-wordpress-config`'s own (`declares_function`, 0.1.7): a
+lexical search of the Archive's file, outside comments and strings, for
+`function getenv_docker(` or `function &getenv_docker(` (in any case) before
+the first carried definition. Its limits are the library's, as it documents
+them:
 
-- **It can accept a file PHP would still reject:** such a line inside a
-  `/* */` comment, a heredoc or a string, or in a branch PHP never runs, or a
-  function of that name that is not the image's helper. The restored site
-  then fails with that error; the saved copy of the original (above) is the
-  way back.
-- **It can refuse a file PHP would run:** the function defined in a file
-  the config includes, declared without a condition after its use (PHP
-  hoists that), or written as `function &getenv_docker(` or across lines.
-  Keep the target's file then.
+- **It can accept a file PHP would still reject:** a declaration in a branch
+  PHP never runs, inside a class (a method), nested in another function, or
+  inside a heredoc string, still counts. The restored site then fails with
+  that error; the saved copy of the original (above) is the way back.
+- **It can refuse a file PHP would run:** the function defined in a file the
+  config includes (`include`/`require` is not followed), or declared after
+  its use (the check is text order; PHP hoists a top-level function). Keep
+  the target's file then.
 
 How a database restore should switch such a site to the restored data, by
 loading into the database name the environment names rather than by rewriting
@@ -923,7 +946,49 @@ verdict on the first line: `database restored`, or `database NOT restored:
 <reason>` (owner decision 2026-11-07, BL-E003-106; the JSON form is
 unchanged).
 
-A restore run as root is refused (exit 2) unless `--allow-root` is given;
-with it, a WARNING `restore_running_as_root` names the extraction race (a
-symlink swapped in between a member's check and its open). Run restores as
-the site's owner instead (owner decision 2026-11-07, BL-E002-098).
+## Running as root
+
+A restore started as root reads first what only root may read: the config
+file, the passphrase, `--new-db-password-file`, the target's `wp-config.php`
+(for `--archive latest`) and the Archive itself, which it keeps open. It then
+switches the whole process to the uid and gid that own the Site Root
+(`setgroups`, `setgid`, `setuid`, in that order, each read back; regaining
+root must fail) and runs the Run as that user, logging INFO
+`restore_runs_as_site_owner` (owner decision 58, reversing decision 1's
+`--allow-root`, now removed). Restored files belong to the site's owner, and
+the extraction race a root restore had (a symlink swapped in by a local user
+between a member's check and its open) has no root to win. `HOME` becomes the
+owner's home directory from the password database, so the per-user state
+directory (the Site Lock, the Run Journal, the default Safety Snapshots) is
+the owner's; an `XDG_STATE_HOME` you set is kept and must then belong to that
+owner. After the switch the process is not dumpable, so the site's PHP,
+running as the same user, cannot read its environment.
+
+Refused (exit 2 `USAGE`, before the Run opens): a Site Root owned by root,
+which has no owner to switch to (`RootRestoreRefusedError`). A switch that
+does not hold stops the Run (exit 3, `PrivilegeDropError`). The library
+(`api.restore`) never changes its host's user, so it refuses a restore
+running as root; run such a host as the site's owner. A backup does not
+switch.
+
+## `--archive latest`
+
+`--archive latest` (also `L3IO_WP_BACKUP_ARCHIVE=latest`, config key
+`archive = "latest"`) restores the newest Archive **of this site** in the
+Archive directory: `--archive-dir`, else the current directory when it is
+outside the Site Root, else the per-user data directory, the same directory a
+backup writes to by default (owner decision 64). Only each Archive's
+Manifest is read, not the rest of it.
+
+"This site" is what the Manifest records of the Site the backup read: its
+Site Root and its database host (any case), port and name, and its table
+prefix, all five equal to the target's, as its `wp-config.php` gives them. A
+directory shared by several sites therefore never yields another site's
+Archive; two sites alike in all five cannot be told apart, so give each its
+own `--archive-dir`. A target with no `wp-config.php` cannot be told apart
+from any other and is refused (exit 2); name the Archive then. Safety
+Snapshots, files that are no Archive and Manifests without a readable
+`created_at` never count; a tie goes to the later file name. None found is
+`NoArchiveForSiteError` (exit 2). The choice is logged
+(`archive_latest_selected`) and is the first line of a Dry Run. `--archive`
+stays required: a restore never runs on an Archive nobody named.

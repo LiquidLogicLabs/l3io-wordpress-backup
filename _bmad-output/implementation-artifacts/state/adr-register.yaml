@@ -1,4 +1,4 @@
-next: 28
+next: 29
 reserved:
 - number: 14
   slug: age-encryption-via-database
@@ -48,3 +48,7 @@ reserved:
   slug: restore-into-an-environment-driven-database
   epic: E008
   reserved_at: '2026-11-09T00:08:06Z'
+- number: 28
+  slug: layered-configuration-pydantic-settings
+  epic: E008
+  reserved_at: '2026-11-09T01:15:13Z'

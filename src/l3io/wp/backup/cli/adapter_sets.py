@@ -50,7 +50,7 @@ from l3io.wp.backup.domain.journal import JournalHeader, JournalRecord
 from l3io.wp.backup.domain.restore import RestorePhase
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport, UrlRelocation
 from l3io.wp.backup.ports.adapter_set import AdapterSet
-from l3io.wp.backup.ports.database import AdminTls, DatabaseCommand
+from l3io.wp.backup.ports.database import DatabaseCommand, DbTls
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
 from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.search_replace import SearchReplaceCommand
@@ -134,7 +134,7 @@ def real_adapters(
     restore_wordpress_source: CredentialSource | None = None,
     search_replace: SearchReplaceCommand | None = None,
     journal: tuple[RunJournalQuery, RunJournalCommand] | None = None,
-    admin_tls: AdminTls | None = None,
+    db_tls: DbTls | None = None,
     create_archive_directory: bool = False,
     environ: Mapping[str, str] | None = None,
 ) -> AdapterSet:
@@ -146,8 +146,9 @@ def real_adapters(
     which case they are a second ``WpDatabase`` bound to it and the same
     administrator; the Safety Snapshot keeps using ``database_*``. The
     credential sources are built by ``cli/credentials.py``, never here.
-    ``admin_tls`` (the restore root's only) puts every connection of both
-    ``WpDatabase`` instances under the TLS policy; ``None`` keeps plaintext.
+    ``db_tls`` (``--db-tls``/``--db-tls-ca``, either root's) is the TLS
+    every connection of both ``WpDatabase`` instances uses; ``None`` requires
+    none, as WordPress connects (owner decision 56).
     ``create_archive_directory`` (the restore root's only) has the store
     create a missing Archive directory ``0700`` when it stages, so the Safety
     Snapshot's directory is made by the command a Dry Run replaces (AD-4).
@@ -159,7 +160,7 @@ def real_adapters(
         verify=verify_or_raise, create_directory=create_archive_directory
     )
     database = WpDatabase(
-        wordpress_source, secrets=secrets, admin=admin_source, admin_tls=admin_tls
+        wordpress_source, secrets=secrets, admin=admin_source, db_tls=db_tls
     )
     restore_database = (
         database
@@ -168,7 +169,7 @@ def real_adapters(
             restore_wordpress_source,
             secrets=secrets,
             admin=admin_source,
-            admin_tls=admin_tls,
+            db_tls=db_tls,
         )
     )
     site_files = LocalSiteFiles()

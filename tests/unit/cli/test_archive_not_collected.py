@@ -71,8 +71,6 @@ def test_a_files_backup_inside_the_site_root_does_not_contain_its_partial(
             str(archive),
             "--mode",
             "files",
-            # BL-E002-064: inside the Site Root only when allowed.
-            "--allow-target-in-site-root",
         ]
     )
     assert code == 0
@@ -132,7 +130,12 @@ def test_skip_staged_leaves_out_earlier_archives_even_with_no_exclusions(
 def test_a_second_default_backup_from_the_site_root_does_not_hold_the_first(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The red team's reproduction: ``cd site && backup --wp-dir .`` twice."""
+    """The red team's reproduction: ``cd site && backup --wp-dir .`` twice.
+
+    Owner decision 60: the default target is no longer the docroot, so the
+    reproduction names it, ``--archive-dir .``, which is written with a
+    warning.
+    """
     site = tmp_path / "www"
     site.mkdir()
     (site / "wp-config.php").write_text(
@@ -146,7 +149,7 @@ def test_a_second_default_backup_from_the_site_root_does_not_hold_the_first(
     earlier.write_bytes(b"an earlier archive")
     leftover = site / ".wpbackup2-rtdb-20261103184136.tar.gz.l9cp4mzz.partial"
     leftover.write_bytes(b"a killed run's staged file")
-    argv = ["backup", "--wp-dir", ".", "--mode", "files", "--allow-target-in-site-root"]
+    argv = ["backup", "--wp-dir", ".", "--mode", "files", "--archive-dir", "."]
     assert main(argv) == 0
     written = sorted(set(site.glob("wpbackup2-rtdb-*.tar.gz")) - {earlier})
     assert len(written) == 1

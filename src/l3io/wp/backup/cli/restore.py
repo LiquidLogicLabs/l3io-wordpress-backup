@@ -62,7 +62,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC
 from pathlib import Path, PurePath, PurePosixPath
 from types import MappingProxyType
-from typing import Final
+from typing import BinaryIO, Final
 
 import structlog
 
@@ -70,7 +70,7 @@ from l3io.wp.backup.adapters.config_writer import refuse_uncarriable
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
-    check_admin_tls,
+    check_db_tls,
     locate_wp_config,
     password_at_call_time,
     site_descriptor_from_archive_config,
@@ -93,17 +93,30 @@ from l3io.wp.backup.adapters.staging import (
     complete_cutover,
     load_staged,
 )
-from l3io.wp.backup.adapters.tar import TarArchiveProbe, decrypt_payload
+from l3io.wp.backup.adapters.tar import (
+    TarArchiveProbe,
+    decrypt_payload,
+    read_leading_manifest,
+)
+from l3io.wp.backup.cli import privileges
 from l3io.wp.backup.cli.adapter_sets import (
     dry_run_adapters,
     real_adapters,
     real_site_lock,
 )
-from l3io.wp.backup.cli.backup import NO_ENVIRONMENT, backup, storage_target_from_cli
+from l3io.wp.backup.cli.backup import (
+    NO_ENVIRONMENT,
+    backup,
+    default_archive_directory,
+    storage_target_from_cli,
+)
 from l3io.wp.backup.cli.context import RunContext, join_or_open
 from l3io.wp.backup.cli.credentials import (
+    NEW_DB_PASSWORD_FLAG,
     admin_source,
     admin_spec,
+    db_tls_setting,
+    explicit_secret,
     new_db_password,
     note_password_on_command_line,
     wordpress_source,
@@ -141,8 +154,15 @@ from l3io.wp.backup.cli.restore_request import (
     restore_mode_from_cli,
     snapshot_policy_from_cli,
 )
+from l3io.wp.backup.cli.settings import setting_origins
+from l3io.wp.backup.core.archive_choice import (
+    ArchiveSite,
+    LatestCandidate,
+    choose_latest,
+)
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
+    WORDPRESS_MARKERS,
     ArchiveHasNoConfigError,
     NonEmptyTargetError,
     RestoreInputs,
@@ -166,10 +186,13 @@ from l3io.wp.backup.domain.archive_format import (
     WP_CONFIG_NAME,
     ArchiveView,
     Integrity,
+    Manifest,
     ManifestOrigin,
     OriginKind,
     classify,
     config_member,
+    ignore_unknown,
+    manifest_from_json,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
@@ -180,8 +203,8 @@ from l3io.wp.backup.domain.errors import (
     BackupError,
     ConfigWriteFailedError,
     InvalidSiteDescriptorError,
+    MalformedManifestError,
     PassphraseRequiredError,
-    RootRestoreRefusedError,
     RunTerminated,
     SiteRootNotFoundError,
     UnknownInterruptedRunError,
@@ -201,18 +224,18 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
+from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.site import SiteDescriptor
-from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.domain.storage_target import LATEST, StorageTarget
 from l3io.wp.backup.ports.config import WHOLE_FILE
 from l3io.wp.backup.ports.crypto import PayloadCipher
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
 from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.restore import RestorePorts, restore_ports
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
-    "ALLOW_ROOT_FLAG",
     "RESTORE_PROMPT",
     "drive_restore",
     "run_restore",
@@ -284,13 +307,24 @@ def _write_private(path: Path, body: bytes) -> Path:
     return path
 
 
-def _bind_archive(archive: StorageTarget, workspace: Path) -> StorageTarget:
-    """RT-001: the Archive copied into the workspace; every later read is of it."""
+def _bind_archive(
+    archive: StorageTarget, workspace: Path, opened: BinaryIO | None = None
+) -> StorageTarget:
+    """RT-001: the Archive copied into the workspace; every later read is of it.
+
+    ``opened`` is the Archive the root opened before it switched to the Site
+    Root's owner (owner decision 58), read from its start; ``None`` opens
+    ``archive.path`` here.
+    """
     source = Path(archive.path)
     destination = _private_dir(workspace / _ARCHIVE_DIR) / (source.name or "archive")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     try:
-        reader = source.open("rb")
+        if opened is None:
+            reader = source.open("rb")
+        else:
+            reader = os.fdopen(os.dup(opened.fileno()), "rb")
+            reader.seek(0)
     except OSError as exc:
         raise ArchiveNotFoundError(source) from exc
     try:
@@ -345,16 +379,22 @@ def _snapshot_dir(request: RestoreRequest, site_root: Path) -> Path:
 class _Archive:
     """The Archive's verified copy and view, made once and reused (step 5)."""
 
-    def __init__(self, archive: StorageTarget, workspace: Path) -> None:
+    def __init__(
+        self,
+        archive: StorageTarget,
+        workspace: Path,
+        opened: BinaryIO | None = None,
+    ) -> None:
         self._archive = archive
         self._workspace = workspace
+        self._opened = opened
         self._copy: StorageTarget | None = None
         self._view: ArchiveView | None = None
 
     @property
     def copy(self) -> StorageTarget:
         if self._copy is None:
-            self._copy = _bind_archive(self._archive, self._workspace)
+            self._copy = _bind_archive(self._archive, self._workspace, self._opened)
         return self._copy
 
     def view(self) -> ArchiveView:
@@ -541,6 +581,9 @@ def _surveyor(
             msg = "a database Mode was planned without surveying the live database"
             raise ValueError(msg)
         return TargetState(
+            site_root_wordpress=any(
+                files.file_exists(site_root / name) for name in WORDPRESS_MARKERS
+            ),
             site_root_empty=files.is_empty(site_root),
             database=live,
             config_exists=files.file_exists(
@@ -603,41 +646,6 @@ def _require_reset_consent(
         raise ExistingDatabaseUserError(user=user, location=location)
 
 
-#: The flag that allows a restore running as root (BL-E002-098).
-ALLOW_ROOT_FLAG: Final = "--allow-root"
-
-
-def _running_as_root() -> bool:
-    geteuid = getattr(os, "geteuid", None)
-    return geteuid is not None and geteuid() == 0
-
-
-def _require_root_allowed(*, allow: bool, on_warning: WarningSink | None) -> None:
-    """BL-E002-098 (owner decision 2026-11-07, option c): root needs the flag.
-
-    Refused (``USAGE``) before the Run opens; with the flag the Run proceeds
-    and a WARNING names the extraction race. WP-CLI's own root warning
-    (``wp_cli_running_as_root``) still applies after this.
-    """
-    if not _running_as_root():
-        return
-    if not allow:
-        raise RootRestoreRefusedError(flag=ALLOW_ROOT_FLAG)
-    risk = (
-        "extraction as root checks a member and then opens it; a symlink "
-        "swapped in between by a local user can redirect the write"
-    )
-    _log.warning("restore_running_as_root", allowed_by=ALLOW_ROOT_FLAG, risk=risk)
-    emit_warning(
-        RunWarning(
-            code="restore_running_as_root",
-            message=f"restoring as root ({ALLOW_ROOT_FLAG}): {risk}",
-            fields=MappingProxyType({"allowed_by": ALLOW_ROOT_FLAG}),
-        ),
-        on_warning,
-    )
-
-
 def drive_restore(
     request: RestoreRequest,
     *,
@@ -675,7 +683,9 @@ def drive_restore(
     (8); the outcome (9). An error escaping after ``SNAPSHOT`` completed
     carries ``snapshot_path``.
     """
-    _require_root_allowed(allow=request.allow_root, on_warning=on_warning)
+    # Owner decision 58: the CLI root has switched to the Site Root's owner
+    # by now; a library caller running as root is refused.
+    privileges.require_not_root(request.site_root)
     if request.config_policy is ConfigPolicy.OVERWRITE and not restores_files(
         request.mode
     ):
@@ -718,7 +728,8 @@ def drive_restore(
         # before anything reads the Site or the Archive (BL-E003-094: once).
         ext: RestoreExtension = extension(request.relocation, secrets=run.secrets)
         # Step 3: the Site Descriptor, the credential sources, the one bind.
-        archive = _Archive(request.archive, run.workspace)
+        archive = _Archive(request.archive, run.workspace, request.archive_handle)
+        notes: list[str] = list(request.notes)
         located = _locate(site_root, request.relocation.wp_config)
         config_from_archive = located is None
         if located is not None:
@@ -749,7 +760,7 @@ def drive_restore(
         run.run_span.set_attributes(db_name=site.db_name)
         # BL-E002-114: an override below the host's TLS policy is USAGE here,
         # before any connection.
-        check_admin_tls(request.admin_tls, site.db_host)
+        check_db_tls(request.db_tls)
         admin = admin_source(request.admin, environ=environ, secrets=run.secrets)
         # The restored account is wp-config.php's alone: the survey, the
         # reset-consent check and the restored config all name its DB_USER, so
@@ -781,14 +792,19 @@ def drive_restore(
                 restore_wordpress_source=relocated,
                 search_replace=ext.search_replace(),
                 journal=pair,
-                admin_tls=request.admin_tls,
+                db_tls=request.db_tls,
                 create_archive_directory=True,
                 environ=environ,
             )
             run.bind_adapters(dry_run_adapters(real) if request.dry_run else real)
         db_user = _db_user(run, descriptor_file)
         if located.location is None and descriptor_file != target_config:
-            confirm_identity(request.archive_database, site=site, user=db_user)
+            if archive.view().encrypted:
+                # Owner decision 65: the passphrase authenticates the
+                # Archive, so its config's database is used as it says.
+                notes.append(_trusted_database(site, db_user))
+            else:
+                confirm_identity(request.archive_database, site=site, user=db_user)
         elif request.archive_database is not None:
             _log.info("archive_database_unused", reason="the target has wp-config.php")
         cutover = None if relocated is None else password_at_call_time(relocated)
@@ -820,24 +836,20 @@ def drive_restore(
                 resolved_run_id=record.header.run_id,
                 skipped_links=(),
                 wp_config_kept=False,
+                notes=tuple(notes),
             )
         # Step 5: the probe (reused when step 3 already probed).
         view = archive.view()
-        _note_allow_unencrypted(request, encrypted=view.encrypted)
+        _note_allow_unencrypted(request)
         if not view.encrypted and request.require_encrypted:
             # RT-1: the operator said an encrypted Archive was expected; a
             # plain one may be a substitution. Refused before any effect.
             raise ArchiveNotEncryptedError(str(request.archive.path), required=True)
-        if (
-            not view.encrypted
-            and request.cipher is not None
-            and not request.allow_unencrypted
-        ):
-            # ADR-0016 amendment 2026-11-07: a passphrase was given, so an
-            # encrypted Archive was expected. Refused before any effect.
-            raise ArchiveNotEncryptedError(
-                str(request.archive.path), passphrase_supplied=True
-            )
+        if not view.encrypted and request.cipher is not None:
+            # Owner decision 59 (ADR-0016 amendment reversed): a passphrase
+            # was given, so an encrypted Archive was expected; warned, before
+            # any effect, and restored. --require-encrypted is the hard stop.
+            _warn_not_encrypted(str(request.archive.path), on_warning)
         if not view.encrypted:
             # RT-002 waiver (ADR-0016 amendment, 2026-11-06): restore, warning
             # before any effect, so the warning is seen even if the Run fails.
@@ -1052,6 +1064,7 @@ def drive_restore(
             # links the plan says the real Run would skip.
             skipped_links=plan.skipped_links if run.dry_run else report.skipped_links,
             wp_config_kept=report.wp_config_kept,
+            notes=tuple(notes),
         )
 
 
@@ -1101,24 +1114,174 @@ def _warn_after_snapshot(warning: RunWarning, sink: WarningSink | None) -> None:
         _log.error("on_warning_failed", code=warning.code, error=type(exc).__name__)
 
 
-def _note_allow_unencrypted(request: RestoreRequest, *, encrypted: bool) -> None:
-    """INFO ``restore_flag_no_effect`` when ``allow_unencrypted`` changes nothing.
+def _note_allow_unencrypted(request: RestoreRequest) -> None:
+    """WARNING ``deprecated_option`` when ``allow_unencrypted`` is given.
 
-    BL-E008-021 (owner decision 2026-11-07): accepted, never refused, but not
-    silently: it has an effect only for a plain Archive restored with a
-    passphrase and without ``require_encrypted``.
+    Owner decision 59: a plain Archive restored with a passphrase proceeds
+    with a warning, so the option has no effect left; it is accepted, so a
+    script using it keeps running, and said to be deprecated.
     """
-    if not request.allow_unencrypted:
-        return
-    if encrypted:
-        reason = "the Archive is encrypted"
-    elif request.require_encrypted:
-        reason = "require_encrypted refuses a plain Archive"
-    elif request.cipher is None:
-        reason = "no passphrase was given, so a plain Archive is restored anyway"
-    else:
-        return
-    _log.info("restore_flag_no_effect", option="allow_unencrypted", reason=reason)
+    if request.allow_unencrypted:
+        _log.warning(
+            "deprecated_option",
+            option="allow_unencrypted",
+            replacement=None,
+            reason="has no effect: a plain archive restored with a passphrase "
+            "proceeds with a warning; require_encrypted refuses it",
+        )
+
+
+def _warn_not_encrypted(archive: str, on_warning: WarningSink | None) -> None:
+    """Owner decision 59: WARNING ``archive_not_encrypted``, and a notice."""
+    reason = (
+        "a passphrase was given but the archive is not encrypted; it may have "
+        "been substituted for an encrypted one (--require-encrypted refuses it)"
+    )
+    _log.warning("archive_not_encrypted", archive=archive, reason=reason)
+    emit_warning(
+        RunWarning(
+            code="archive_not_encrypted",
+            message=f"WARNING: {reason}: {archive}",
+            fields=MappingProxyType({"archive": archive}),
+        ),
+        on_warning,
+    )
+
+
+def _trusted_database(site: SiteDescriptor, user: str) -> str:
+    """Owner decision 65: an encrypted Archive's database, logged; its note."""
+    location = site.database_location()
+    _log.info(
+        "archive_database_trusted",
+        db_host=location.host,
+        db_port=location.port,
+        db_name=location.name,
+        db_user=user,
+        reason="the archive is encrypted, so its passphrase authenticates it",
+    )
+    return (
+        f"database from the archive's wp-config.php (encrypted, so trusted): "
+        f"{user}@{location.host}:{location.port}/{location.name}"
+    )
+
+
+#: The origins whose secret the chain reads for itself (owner decision 60).
+_CHAIN_ORIGINS: Final = frozenset({"environment", "default", None})
+#: The Archive file names ``--archive latest`` reads.
+_ARCHIVE_GLOB: Final = "*.tar.gz"
+
+
+def _admin_pair(
+    user: str | None, password: Secret | str | None, origins: Mapping[str, str]
+) -> tuple[str | None, Secret | str | None]:
+    """The administrator flags as ``admin_spec`` takes them.
+
+    Both from the environment (or unset): ``(None, None)``, the chain's own
+    environment step. Either typed or from the config file: both values, and
+    ``admin_spec`` takes a missing password from the variable, as before.
+    """
+    if all(origins.get(n) in _CHAIN_ORIGINS for n in ("admin_user", "admin_password")):
+        return None, None
+    return user, password
+
+
+def _db_tls(
+    db_tls: str | None,
+    db_tls_ca: str | None,
+    *,
+    admin_tls: str | None,
+    admin_tls_ca: str | None,
+) -> DbTls:
+    """``--db-tls``/``--db-tls-ca``, or their deprecated ``--admin-tls*`` spellings.
+
+    Owner decision 56: each deprecated spelling logs WARNING
+    ``deprecated_option`` and is taken as the new one; both, disagreeing,
+    are ``UsageError``.
+    """
+    pairs = (
+        ("--admin-tls", admin_tls, "--db-tls", db_tls),
+        ("--admin-tls-ca", admin_tls_ca, "--db-tls-ca", db_tls_ca),
+    )
+    for old, old_value, new, new_value in pairs:
+        if old_value is None:
+            continue
+        _log.warning("deprecated_option", option=old, replacement=new)
+        if new_value is not None and new_value != old_value:
+            msg = f"{old} and {new} disagree; give only {new}"
+            raise UsageError(msg, arguments=(new,))
+    return db_tls_setting(db_tls or admin_tls, db_tls_ca or admin_tls_ca)
+
+
+def _manifest(path: Path) -> Manifest | None:
+    text = read_leading_manifest(path)
+    if text is None:
+        return None
+    try:
+        return manifest_from_json(text, on_unknown=ignore_unknown)
+    except MalformedManifestError:
+        return None
+
+
+def _latest(
+    site_root: Path,
+    *,
+    archive_dir: str | None,
+    wp_config: str | None,
+    secrets: SecretRegistry,
+) -> tuple[StorageTarget, str]:
+    """Owner decision 64: the Archive ``--archive latest`` names, and its note.
+
+    "This Site" is the target's ``wp-config.php``'s database and the canonical
+    Site Root (``core/archive_choice.py``), so a target without one is
+    refused: nothing would tell its Archives from another site's.
+    """
+    canonical = _canonical(site_root)
+    located = _locate(canonical, None if wp_config is None else Path(wp_config))
+    if located is None:
+        msg = (
+            "--archive latest needs the target's wp-config.php to tell this "
+            "site's archives from another site's; name the archive instead"
+        )
+        raise UsageError(msg, arguments=("archive",))
+    site, _ = site_descriptor_from_wp_config(
+        canonical, config_file=located.path, environ=os.environ, secrets=secrets
+    )
+    directory = (
+        Path(archive_dir).resolve()
+        if archive_dir is not None
+        else default_archive_directory(canonical)[0]
+    )
+    paths = sorted(p for p in directory.glob(_ARCHIVE_GLOB) if p.is_file())
+    candidates = [
+        LatestCandidate(path=PurePosixPath(p), manifest=_manifest(p)) for p in paths
+    ]
+    choice = choose_latest(
+        candidates,
+        ArchiveSite.from_descriptor(site),
+        directory=PurePosixPath(directory),
+    )
+    _log.info(
+        "archive_latest_selected",
+        archive=str(choice.path),
+        created_at=choice.created_at,
+        archive_dir=str(directory),
+        considered=choice.considered,
+        matched=choice.matched,
+    )
+    note = (
+        f"archive latest: {choice.path} (created {choice.created_at}; the newest "
+        f"of {choice.matched} archives of this site in {directory})"
+    )
+    return storage_target_from_cli(str(choice.path)), note
+
+
+def _open_archive(archive: StorageTarget) -> BinaryIO:
+    """The Archive, opened before the root switches users (owner decision 58)."""
+    path = Path(archive.path)
+    try:
+        return path.open("rb")
+    except OSError as exc:
+        raise ArchiveNotFoundError(path) from exc
 
 
 def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
@@ -1128,10 +1291,22 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
     passphrase is resolved into ``secrets`` on every restore (AD-26) so the
     one passphrase decrypts an encrypted Archive and encrypts the Safety
     Snapshot; with none, the snapshot is written unencrypted and said so.
+
+    Started as root (owner decision 58), everything only root may read is
+    read first — the passphrase, ``--new-db-password-file``, the target's
+    ``wp-config.php`` for ``--archive latest``, and the Archive, kept open —
+    and then the process switches to the Site Root's owner
+    (``cli/privileges.drop_to_site_owner``) before the Run opens.
     """
-    if args.admin_password is not None:
+    origins = setting_origins(vars(args))
+    admin_user, admin_password = _admin_pair(
+        args.admin_user, args.admin_password, origins
+    )
+    typed = origins.get("admin_password", "command line")
+    if args.admin_password is not None and typed == "command line":
         # RT-03: the notice ``--new-db-password`` gives, never the value.
         note_password_on_command_line("--admin-password")
+    relocated_origin = origins.get("new_db_password")
     # Passthrough: copied verbatim, validated by Epic 7.
     relocation = RelocationFlags(
         new_site_url=args.new_site_url,
@@ -1140,11 +1315,16 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         new_db_name=args.new_db_name,
         new_db_user=args.new_db_user,
         new_db_password=new_db_password(
-            explicit=args.new_db_password,
+            explicit=None
+            if relocated_origin == "environment"
+            else args.new_db_password,
             file=args.new_db_password_file,
             environ=os.environ,
             secrets=secrets,
             user_given=args.new_db_user is not None,
+            explicit_source="config file key new_db_password"
+            if relocated_origin == "config file"
+            else NEW_DB_PASSWORD_FLAG,
         ),
         wp_config=None if args.wp_config is None else Path(args.wp_config),
     )
@@ -1154,12 +1334,16 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         drop_database=args.drop_database,
         force=args.force,
     )
+    passphrase, passphrase_source = explicit_secret(
+        args.passphrase, origins.get("passphrase"), name="passphrase"
+    )
     resolved = resolve_passphrase(
-        explicit=None,
+        explicit=passphrase,
         environ=os.environ,
         prompt=terminal_prompt(),
         secrets=secrets,
         label=RESTORE_PROMPT,
+        explicit_source=passphrase_source,
     )
     note_short_restore_passphrase(resolved)
     # The one factory (E004-S01-003): it re-registers the passphrase and runs
@@ -1168,57 +1352,81 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
     cipher = build_payload_cipher(
         passphrase=None if resolved is None else resolved.value, secrets=secrets
     )
-    request = RestoreRequest(
-        site_root=Path(args.wp_dir),
-        archive=storage_target_from_cli(args.archive),
-        mode=mode,
-        overrides=overrides,
-        mode_flags=render_flags(
-            flag_combination(
-                mode=args.mode,
-                cleanfirst=args.cleanfirst,
-                drop_database=args.drop_database,
-                force=args.force,
-            )
-        ),
-        snapshot=snapshot_policy_from_cli(no_safety_snapshot=args.no_safety_snapshot),
-        snapshot_dir=None if args.snapshot_dir is None else Path(args.snapshot_dir),
-        config_policy=config_policy_from_cli(
-            overwrite_wp_config=args.overwrite_wp_config
-        ),
-        resolve_run_id=args.resolve_interrupted_run,
-        admin=admin_spec(
-            username=args.admin_username,
-            password=args.admin_password,
-            aws_secret_id=args.admin_credentials_aws_secret_id,
-            aws_region=args.admin_credentials_aws_region,
-            environ=os.environ,
-        ),
-        cipher=cipher,
-        extra_tools=() if cipher is None else cipher.required_tools(),
-        archive_database=args.archive_database,
-        admin_tls=AdminTls(
-            mode=args.admin_tls,
-            ca_file=None if args.admin_tls_ca is None else Path(args.admin_tls_ca),
-        ),
-        relocation=relocation,
-        reset_existing_db_user=bool(args.reset_existing_db_user),
-        dry_run=bool(args.what_if),
-        require_encrypted=bool(args.require_encrypted),
-        allow_unencrypted=bool(args.allow_unencrypted),
-        allow_root=bool(args.allow_root),
-        credentials=wordpress_spec(
-            aws_secret_id=args.db_credentials_aws_secret_id,
-            aws_region=args.db_credentials_aws_region,
-        ),
-    )
+    notes: tuple[str, ...] = ()
+    if args.archive == LATEST:
+        archive, note = _latest(
+            Path(args.wp_dir),
+            archive_dir=args.archive_dir,
+            wp_config=args.wp_config,
+            secrets=secrets,
+        )
+        notes = (note,)
+    else:
+        archive = storage_target_from_cli(args.archive)
+    handle = _open_archive(archive)
     try:
-        outcome = drive_restore(request, ctx=None, secrets=secrets, environ=os.environ)
-    except BaseException as exc:
-        kept = _kept_snapshot(exc)
-        if kept is not None:
-            print_kept_snapshot(kept, error=exc)
-        raise
+        request = RestoreRequest(
+            site_root=Path(args.wp_dir),
+            archive=archive,
+            mode=mode,
+            overrides=overrides,
+            mode_flags=render_flags(
+                flag_combination(
+                    mode=args.mode,
+                    cleanfirst=args.cleanfirst,
+                    drop_database=args.drop_database,
+                    force=args.force,
+                )
+            ),
+            snapshot=snapshot_policy_from_cli(
+                no_safety_snapshot=args.no_safety_snapshot
+            ),
+            snapshot_dir=None if args.snapshot_dir is None else Path(args.snapshot_dir),
+            config_policy=config_policy_from_cli(
+                overwrite_wp_config=args.overwrite_wp_config
+            ),
+            resolve_run_id=args.resolve_interrupted_run,
+            admin=admin_spec(
+                username=admin_user,
+                password=admin_password,
+                aws_secret_id=args.admin_credentials_aws_secret_id,
+                aws_region=args.admin_credentials_aws_region,
+                environ=os.environ,
+            ),
+            cipher=cipher,
+            extra_tools=() if cipher is None else cipher.required_tools(),
+            archive_database=args.archive_database,
+            db_tls=_db_tls(
+                args.db_tls,
+                args.db_tls_ca,
+                admin_tls=args.admin_tls,
+                admin_tls_ca=args.admin_tls_ca,
+            ),
+            relocation=relocation,
+            reset_existing_db_user=bool(args.reset_existing_db_user),
+            dry_run=bool(args.what_if),
+            require_encrypted=bool(args.require_encrypted),
+            allow_unencrypted=bool(args.allow_unencrypted),
+            credentials=wordpress_spec(
+                aws_secret_id=args.db_credentials_aws_secret_id,
+                aws_region=args.db_credentials_aws_region,
+            ),
+            archive_handle=handle,
+            notes=notes,
+        )
+        # Owner decision 58: everything only root may read has been read.
+        privileges.drop_to_site_owner(Path(args.wp_dir), environ=os.environ)
+        try:
+            outcome = drive_restore(
+                request, ctx=None, secrets=secrets, environ=os.environ
+            )
+        except BaseException as exc:
+            kept = _kept_snapshot(exc)
+            if kept is not None:
+                print_kept_snapshot(kept, error=exc)
+            raise
+    finally:
+        handle.close()
     shown = {"archive": str(request.archive.path), "site_root": str(request.site_root)}
     try:
         require_database_restored(outcome, dry_run=outcome.dry_run)

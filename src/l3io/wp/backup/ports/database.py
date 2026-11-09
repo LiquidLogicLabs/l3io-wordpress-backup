@@ -29,7 +29,7 @@ from l3io.wp.backup.domain.database import (
     Readiness,
 )
 
-__all__ = ["AdminTls", "DatabaseCommand", "DatabaseQuery"]
+__all__ = ["DatabaseCommand", "DatabaseQuery", "DbTls"]
 
 
 class DatabaseQuery(Protocol):
@@ -102,16 +102,18 @@ class DatabaseCommand(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class AdminTls:
-    """The restore's TLS override for its database connections.
+class DbTls:
+    """The TLS every database connection of a Run uses (owner decision 56).
 
-    ``mode`` is an ``adapters/database.py::ADMIN_TLS_MODES`` value or ``None``
-    (the policy for the host as it is); ``ca_file`` the CA bundle, ``None``
-    meaning the system store. A port-level value (BL-E003-099; ``Path`` keeps
-    it out of ``domain/``): it holds no ``l3io.wp.database`` type (ADR-0015
-    amendment), so ``RestoreRequest`` and the library carry no adapters-layer
-    type; ``adapters/database.py`` validates and applies it.
+    ``mode`` is an ``adapters/database.py::DB_TLS_MODES`` value, or ``None``
+    for no requirement: the connection is made the way WordPress makes it.
+    ``ca_file`` is the CA bundle that verifies the server, ``None`` meaning the
+    system store; it needs a verifying ``mode``. A port-level value
+    (BL-E003-099; ``Path`` keeps it out of ``domain/``): it holds no
+    ``l3io.wp.database`` type (ADR-0015 amendment), so ``RestoreRequest`` and
+    the library carry no adapters-layer type; ``adapters/database.py``
+    validates and applies it.
     """
 
-    mode: str | None
-    ca_file: Path | None
+    mode: str | None = None
+    ca_file: Path | None = None

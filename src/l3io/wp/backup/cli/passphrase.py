@@ -1,7 +1,9 @@
 """AD-26 — the one passphrase resolution chain, shared by both composition roots.
 
-First present wins: (1) the library's ``passphrase=`` argument — no CLI flag
-takes a passphrase value, so it never reaches ``argv``; (2)
+First present wins: (1) an explicit value: the library's ``passphrase=``
+argument, or the CLI's ``--passphrase`` or config-file ``passphrase`` (owner
+decision 60; ``explicit_source`` names which, and a typed one is in the
+process list); (2)
 ``L3IO_WP_BACKUP_PASSPHRASE`` from the ``environ`` the root passes in (the CLI
 passes ``os.environ``; nothing deeper reads the environment). Its exposure:
 ``/proc/<pid>/environ`` is readable by the same user and by root; (3) a prompt,
@@ -113,8 +115,13 @@ def resolve_passphrase(
     secrets: SecretRegistry,
     label: str = _PROMPT,
     argument: str | None = None,
+    explicit_source: str | None = None,
 ) -> ResolvedPassphrase | None:
     """The AD-26 chain. ``None`` when no step supplies a passphrase.
+
+    ``explicit_source`` names ``explicit`` when it is not the library's
+    argument (``--passphrase``, the config file's key); the registry and an
+    empty-source warning name it.
 
     ``label`` is the text ``prompt`` shows. ``argument`` is the root's name
     for ``explicit`` that a refusal's hint names (the library's
@@ -128,7 +135,7 @@ def resolve_passphrase(
     """
     resolved: ResolvedPassphrase | None = None
     if explicit is not None and not explicit:
-        note_empty_source("passphrase")
+        note_empty_source(explicit_source or "passphrase")
     if PASSPHRASE_ENV in environ and not environ[PASSPHRASE_ENV] and not explicit:
         note_empty_source(PASSPHRASE_ENV)
     if explicit:
@@ -145,7 +152,8 @@ def resolve_passphrase(
         raise PassphraseUnavailableError(
             PASSPHRASE_ENV, reason="too short to protect", argument=argument
         )
-    secrets.register(resolved.value, source=f"passphrase:{resolved.source}")
+    named = explicit_source if resolved.source == "argument" else None
+    secrets.register(resolved.value, source=f"passphrase:{named or resolved.source}")
     return resolved
 
 
@@ -156,6 +164,7 @@ def require_passphrase(
     prompt: Callable[[str], str] | None,
     secrets: SecretRegistry,
     argument: str | None = None,
+    explicit_source: str | None = None,
 ) -> ResolvedPassphrase:
     """:func:`resolve_passphrase` where encryption was requested: ``None`` refuses.
 
@@ -172,6 +181,7 @@ def require_passphrase(
         prompt=prompt,
         secrets=secrets,
         argument=argument,
+        explicit_source=explicit_source,
     )
     if resolved is None:
         reason = "none was given" + (
@@ -221,20 +231,26 @@ def note_short_restore_passphrase(
 
 
 def note_unused_passphrase(
-    environ: Mapping[str, str], on_warning: WarningSink | None = None
+    environ: Mapping[str, str],
+    on_warning: WarningSink | None = None,
+    *,
+    explicit_source: str | None = None,
 ) -> None:
-    """One notice when the variable is set but no encryption was requested.
+    """One notice when a passphrase is set but no encryption was requested.
 
-    To ``on_warning`` or stderr, with the WARNING record logged either way.
+    ``explicit_source`` names a passphrase given as ``--passphrase`` or in the
+    config file; otherwise the variable is checked. To ``on_warning`` or
+    stderr, with the WARNING record logged either way.
     """
-    if environ.get(PASSPHRASE_ENV):
+    named = explicit_source or (PASSPHRASE_ENV if environ.get(PASSPHRASE_ENV) else None)
+    if named is not None:
         message = "encryption was not requested, so the Archive is unencrypted"
-        _log.warning("passphrase_ignored", variable=PASSPHRASE_ENV, message=message)
+        _log.warning("passphrase_ignored", variable=named, message=message)
         emit_warning(
             RunWarning(
                 code="passphrase_ignored",
-                message=f"{PASSPHRASE_ENV} is set but {message}",
-                fields=MappingProxyType({"variable": PASSPHRASE_ENV}),
+                message=f"{named} is set but {message}",
+                fields=MappingProxyType({"variable": named}),
             ),
             on_warning,
         )

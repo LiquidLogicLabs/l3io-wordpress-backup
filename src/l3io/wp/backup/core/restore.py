@@ -23,7 +23,12 @@ size and free-space rule :func:`check_expansion`, with
 FR-7's guard is :func:`check_target`, which :func:`build_restore_plan` calls
 before any phase is planned: a part the Mode restores whose target is not
 empty refuses (:class:`NonEmptyTargetError`) unless the Run's
-:class:`~l3io.wp.backup.domain.restore.OverrideSet` waives that part. The
+:class:`~l3io.wp.backup.domain.restore.OverrideSet` waives that part. Owner
+decision 57 narrows the files part: a non-empty Site Root that looks like a
+WordPress site (any of :data:`WORDPRESS_MARKERS`) needs no ``--force``; the
+Safety Snapshot covers the overwrite. The database part's narrowing (tables,
+but none with the site's prefix) arrives with the direct load (part 2):
+:func:`_database_needs_waiver` is its seam. The
 authorizing flags come from AD-25's table
 (:func:`~l3io.wp.backup.domain.flag_map.authorizing_combination`) and are
 rendered here in the domain spelling (:func:`render_flags`); the CLI's own
@@ -88,6 +93,7 @@ __all__ = [
     "MAX_DATABASE_NAME",
     "NO_RELOCATION",
     "STAGING_INFIX",
+    "WORDPRESS_MARKERS",
     "ArchiveHasNoConfigError",
     "DatabaseRestoreReport",
     "ExecutionReport",
@@ -119,6 +125,9 @@ __all__ = [
 
 #: The name WordPress gives its configuration file (``WP_CONFIG_NAME``).
 CONFIG_FILE_NAME: Final = WP_CONFIG_NAME
+#: Owner decision 57: a Site Root holding any of these looks like WordPress,
+#: so a restore over it needs no ``--force``.
+WORDPRESS_MARKERS: Final = (WP_CONFIG_NAME, "wp-includes", "wp-content")
 
 #: The ``wp-config.php`` keys only ``LOAD_DUMP``'s cutover writes (AD-17 as
 #: amended 2026-10-27); :class:`RestoreRelocation` refuses them in
@@ -275,7 +284,9 @@ class TargetState:
     same survey of the operator-named load database (``--new-db-name``), else
     ``None``. ``site_root``, ``site_root_entries`` and the two locations are
     the facts an FR-7 refusal names, so :func:`check_target` reads nothing
-    else.
+    else. ``site_root_wordpress`` says the Site Root holds one of
+    :data:`WORDPRESS_MARKERS` (owner decision 57); ``False``, the default,
+    keeps FR-7's refusal for a non-empty Site Root.
     """
 
     site_root_empty: bool
@@ -286,6 +297,7 @@ class TargetState:
     database_location: DatabaseLocation | None
     load_target: DatabaseTargetState | None
     load_location: DatabaseLocation | None
+    site_root_wordpress: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -598,34 +610,55 @@ def _contents(db: DatabaseTargetState) -> str:
     return ", ".join(parts)
 
 
+def _database_needs_waiver(db: DatabaseTargetState | None) -> bool:
+    """Whether restoring over ``db`` needs ``--force``: today, any content.
+
+    SEAM (owner decision 57, database side; part 2, with the direct load):
+    a database with tables but none carrying the site's table prefix needs
+    ``--force``, and a recognisable WordPress database
+    (``DatabaseTargetState.is_wordpress``, surveyed with the site's prefix)
+    does not. Until then every non-empty database does, as before.
+    """
+    return db is not None and not _survey_empty(db)
+
+
 def check_target(
     mode: RestoreMode, overrides: OverrideSet, target: TargetState
 ) -> None:
     """Refuse ``mode`` over a non-empty part of ``target`` that is not waived.
 
     Each part ``mode`` restores is checked against its own ``overrides``
-    member, so waiving ``files`` never waives ``database``. The ``database``
-    part is non-empty when the live database or the operator-named load
-    database exists with a table. Every unauthorized part is named in one
-    :class:`NonEmptyTargetError`; nothing is read beyond ``target``.
+    member, so waiving ``files`` never waives ``database``. The ``files``
+    part needs the waiver only when the Site Root is not empty and does not
+    look like WordPress (owner decision 57). The ``database`` part is
+    non-empty when the live database or the operator-named load database
+    exists with a table (:func:`_database_needs_waiver`). Every unauthorized
+    part is named in one :class:`NonEmptyTargetError`; nothing is read
+    beyond ``target``.
     """
     parts: list[RestorePart] = []
     findings: list[tuple[str, str]] = []
     if (
         restores_files(mode)
         and not target.site_root_empty
+        and not target.site_root_wordpress
         and not overrides.waives("files")
     ):
         parts.append("files")
         entries = _count(target.site_root_entries, "entry", "entries")
-        findings.append((repr(str(target.site_root)), entries))
+        findings.append(
+            (
+                repr(str(target.site_root)),
+                f"{entries}, none of {', '.join(WORDPRESS_MARKERS)}",
+            )
+        )
     occupied = [
         (_where(location, name), _contents(db))
         for db, location, name in (
             (target.database, target.database_location, "the live database"),
             (target.load_target, target.load_location, "the load database"),
         )
-        if db is not None and not _survey_empty(db)
+        if _database_needs_waiver(db) and db is not None
     ]
     if restores_database(mode) and occupied and not overrides.waives("database"):
         parts.append("database")

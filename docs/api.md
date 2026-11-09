@@ -60,6 +60,18 @@ There is no public way to join a Run: the `context=` parameter was removed
 before 1.0 (owner decision 2026-11-07), and a public `open_run()` and
 the parameter return with the post-v1 library refactor (BL-E006-024).
 
+**Pre-1.0 changes (2026-11-08, the automation-first set, owner decisions
+54-65).** `backup` loses `confirm_db_host` and `allow_target_in_site_root`
+(the host is logged, a target in the Site Root is written with a warning) and
+gains `db_tls`; `restore` loses `allow_root` (a library restore as root is
+refused: the library never switches its host's user), its `admin_tls` is
+renamed `db_tls` and `AdminTls` is renamed `DbTls` (no TLS is required by
+default); `allow_unencrypted` has no effect (a plain Archive restored with a
+passphrase proceeds with a warning); `RestoreOutcome` gains `notes`.
+`CredentialTooShortError`, `DatabaseHostUnconfirmedError` and
+`TargetInsideSiteRootError` are gone; `NoArchiveForSiteError` and
+`PrivilegeDropError` are new (raised by the CLI).
+
 **Pre-1.0 changes (2026-11-07).** `backup`'s `target` is now required (no
 default; a call without it is a `TypeError`, raised before anything runs);
 the `context` parameter is gone from `backup`, `restore` and `verify`; passwords and
@@ -186,17 +198,16 @@ none resolves, before the Site is read; a
 than ignored, so an Archive is never written plain by omission, and a
 `L3IO_WP_BACKUP_PASSPHRASE` set without it is logged as the CLI logs it
 (`passphrase_ignored`).
-`dry_run=True` plans, checks and writes nothing. `on_warning` is accepted
-for parity with `restore`; `backup` gives no notice today.
-A backup that dumps the database refuses a non-local `DB_HOST` (anything but
-`localhost`, `127.0.0.1`, `::1` or a socket path) before any connection with
-`DatabaseHostUnconfirmedError` unless `confirm_db_host` names that host, and a
-`target` that resolves inside the Site Root is refused with
-`TargetInsideSiteRootError` unless `allow_target_in_site_root=True` (owner
-decisions 2026-11-07; `--confirm-db-host`, `--allow-target-in-site-root`).
+`dry_run=True` plans, checks and writes nothing. `on_warning` receives the
+notices `backup` gives (`passphrase_ignored`, `archive_target_in_site_root`).
+The database host is logged (INFO `database_host`), never confirmed (owner
+decision 54), and a `target` inside the Site Root is written with WARNING
+`archive_target_in_site_root` (owner decision 60). `db_tls` requires TLS on
+the database connections, as `--db-tls`/`--db-tls-ca`; `None` requires none,
+as WordPress connects (owner decision 56).
 
 ```python
-backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, confirm_db_host: str | None = None, allow_target_in_site_root: bool = False) -> BackupResult
+backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, db_tls: DbTls | None = None) -> BackupResult
 ```
 
 | Parameter | Type | Default |
@@ -212,8 +223,7 @@ backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarge
 | `prompt` | `Callable[[str], str] \| None` | `None` |
 | `dry_run` | `bool` | `False` |
 | `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
-| `confirm_db_host` | `str \| None` | `None` |
-| `allow_target_in_site_root` | `bool` | `False` |
+| `db_tls` | `DbTls \| None` | `None` |
 
 Returns: `BackupResult`.
 
@@ -255,20 +265,28 @@ Restore `archive` into the Site at `site_root`; returns what was done.
 `mode`, `overrides`, `snapshot` and `config_policy` have no
 defaults (AD-5); FR-7's guard runs whichever root called. The passphrase
 is resolved on every call: it decrypts an encrypted Archive and encrypts
-the Safety Snapshot. `admin_tls=None` is the policy default
-(`AdminTls(mode=None, ca_file=None)`), `relocation=None` no
-relocation. A passphrase (`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE` or
-`prompt`) means an encrypted Archive is expected: a plain one is refused with
-`ArchiveNotEncryptedError` before any effect unless `allow_unencrypted=True`
-(ADR-0016 amendment 2026-11-07). Decryption accepts any passphrase length.
+the Safety Snapshot. `db_tls=None` requires no TLS, as WordPress connects
+(owner decision 56); `relocation=None` is no relocation. A plain Archive
+restored with a passphrase (`passphrase`, `L3IO_WP_BACKUP_PASSPHRASE` or
+`prompt`) proceeds with WARNING `archive_not_encrypted`, a notice through
+`on_warning`; `require_encrypted=True` refuses it with
+`ArchiveNotEncryptedError` before any effect (owner decision 59).
+`allow_unencrypted` is deprecated and has no effect (WARNING
+`deprecated_option`). With no target `wp-config.php`, an encrypted Archive's
+config gives the database without `archive_database` (owner decision 65,
+noted in `RestoreOutcome.notes`); an unencrypted one still needs it.
+Decryption accepts any passphrase length.
 `relocation.new_db_password`, when not given, is read from
 `L3IO_WP_BACKUP_NEW_DB_PASSWORD` if `relocation.new_db_user` is set. Notices go
 to `on_warning` as `RunWarning` values when given, else to stderr. A real
 restore whose database report does not say restored raises
 `DatabaseNotRestoredError`, as the CLI exits `FAILED`. A process running as
-root is refused with `RootRestoreRefusedError` before the Run opens unless
-`allow_root=True` (`--allow-root`; owner decision 2026-11-07), and then a
-WARNING `restore_running_as_root` names the extraction race.
+root is refused with `RootRestoreRefusedError` before the Run opens: the
+library never switches its host's user. The `wpbackup2` command started as
+root switches to the Site Root's owner instead (owner decision 58). A Site
+Root that does not look like WordPress (none of `wp-config.php`,
+`wp-includes/`, `wp-content/`) and is not empty needs the files waiver in
+`overrides`; one that does needs none (owner decision 57).
 
 **Forwarding user input.** `mode` and `overrides` are values, not the CLI's
 flag-combination table (AD-25): `RestoreMode.ALL_CLEAN` clears the Site Root
@@ -280,7 +298,7 @@ the operator spell out flag by flag, so it should check that input against
 what those users may authorize.
 
 ```python
-restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, admin_tls: AdminTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, allow_root: bool = False) -> RestoreOutcome
+restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, db_tls: DbTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> RestoreOutcome
 ```
 
 | Parameter | Type | Default |
@@ -293,7 +311,7 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 | `config_policy` | `ConfigPolicy` | required |
 | `snapshot_dir` | `str \| os.PathLike[str] \| None` | `None` |
 | `admin` | `CredentialSpec \| None` | `None` |
-| `admin_tls` | `AdminTls \| None` | `None` |
+| `db_tls` | `DbTls \| None` | `None` |
 | `archive_database` | `str \| None` | `None` |
 | `reset_existing_db_user` | `bool` | `False` |
 | `relocation` | `RelocationFlags \| None` | `None` |
@@ -304,7 +322,6 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 | `resolve_run_id` | `str \| None` | `None` |
 | `dry_run` | `bool` | `False` |
 | `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
-| `allow_root` | `bool` | `False` |
 
 Returns: `RestoreOutcome`.
 
@@ -385,18 +402,21 @@ Secret(value: str | Secret)
 
 `value` is the text to hold (a `Secret` is copied).
 
-### `AdminTls`
+### `DbTls`
 
-The restore's TLS override for its database connections.
+The TLS every database connection of a Run uses (owner decision 56). `mode`
+is `required`, `verify-ca` or `verify-identity`, or `None` for no
+requirement, as WordPress connects; `ca_file` verifies the server (with a
+verifying mode), `None` meaning the system store.
 
 ```python
-AdminTls(mode: str | None, ca_file: Path | None)
+DbTls(mode: str | None = None, ca_file: Path | None = None)
 ```
 
 | Field | Type | Default |
 |---|---|---|
-| `mode` | `str \| None` | required |
-| `ca_file` | `Path \| None` | required |
+| `mode` | `str \| None` | `None` |
+| `ca_file` | `Path \| None` | `None` |
 
 ### `AwsSecretCredentialSpec`
 
@@ -486,7 +506,9 @@ ExplicitCredentialSpec(username: str, password: Secret | str)
 ```
 
 `password` is held as a `Secret` (a `str` is wrapped at once). A password
-shorter than 4 characters is refused when it is read (`CredentialTooShortError`).
+shorter than 4 characters is accepted with WARNING
+`credential_below_redaction_floor`: too short to be masked in logs (owner
+decision 61).
 
 | Field | Type | Default |
 |---|---|---|
@@ -552,7 +574,7 @@ Members: `FILES` (`'files'`), `FILES_CLEAN` (`'files-clean'`), `DATABASE` (`'dat
 What one restore did (or, in a Dry Run, planned); built, never printed.
 
 ```python
-RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ...], dry_run: bool, actions: tuple[PlannedRestoreAction, ...], integrity: Integrity | None, snapshot_path: PurePosixPath | None, snapshot_encrypted: bool, database: DatabaseRestoreReport | None, search_replace: SearchReplaceReport | None, resolved_run_id: str | None, skipped_links: tuple[SkippedLink, ...] | None, wp_config_kept: bool)
+RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ...], dry_run: bool, actions: tuple[PlannedRestoreAction, ...], integrity: Integrity | None, snapshot_path: PurePosixPath | None, snapshot_encrypted: bool, database: DatabaseRestoreReport | None, search_replace: SearchReplaceReport | None, resolved_run_id: str | None, skipped_links: tuple[SkippedLink, ...] | None, wp_config_kept: bool, notes: tuple[str, ...] = ())
 ```
 
 | Field | Type | Default |
@@ -570,6 +592,12 @@ RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ..
 | `resolved_run_id` | `str \| None` | required |
 | `skipped_links` | `tuple[SkippedLink, ...] \| None` | required |
 | `wp_config_kept` | `bool` | required |
+| `notes` | `tuple[str, ...]` | `()` |
+
+`notes` are what the Run chose without asking, each also logged: the
+Archive `--archive latest` named (owner decision 64) and an encrypted
+Archive's database used as its config gives it (owner decision 65). A Dry
+Run prints them before its plan.
 
 `skipped_links` holds the symlinks extraction skipped. In a Dry Run it holds
 the ones the real Run would skip, and is `None` when the Archive (v0) records
@@ -805,16 +833,16 @@ Fields: `user`, `location`, `differs`, each holding the argument of the same nam
 `--authenticate` was asked of an Archive with no encrypted payload.
 
 ```python
-ArchiveNotEncryptedError(archive: str, *, required: bool = False, passphrase_supplied: bool = False)
+ArchiveNotEncryptedError(archive: str, *, required: bool = False)
 ```
 
 Also raised by `restore` for a plain Archive when `require_encrypted=True`
-(`required`), or when a passphrase was given without `allow_unencrypted=True`
-(`passphrase_supplied`).
+(`required`). A plain Archive restored with a passphrase is not refused: it
+proceeds with WARNING `archive_not_encrypted` (owner decision 59).
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `archive`, `required`, `passphrase_supplied`, each holding the argument of the same name.
+Fields: `archive`, `required`, each holding the argument of the same name.
 
 ### `ArchiveNotFoundError`
 
@@ -927,19 +955,6 @@ Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `journal_path`, `reason`, each holding the argument of the same name.
 
-### `CredentialTooShortError`
-
-A database password shorter than the redaction floor (4 characters), refused
-from every source before any connection (ADR-0018 amendment).
-
-```python
-CredentialTooShortError(source: str, *, minimum: int)
-```
-
-Base: `CredentialsError`. Exit code: `CREDENTIALS` (4).
-
-Fields: `source`, `minimum`; never the value.
-
 ### `CredentialsError`
 
 Database credentials could not be obtained or were rejected.
@@ -975,18 +990,6 @@ DatabaseAuthPluginRefusedError(host: str, port: int, plugin: str)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `host`, `port`, `plugin`, each holding the argument of the same name.
-
-### `DatabaseHostUnconfirmedError`
-
-A backup that dumps the database found a non-local `DB_HOST` (anything but `localhost`, `127.0.0.1`, `::1` or a socket path) that `--confirm-db-host` (`confirm_db_host=`) did not name. Raised before any connection, whatever the credential source (BL-E002-063).
-
-```python
-DatabaseHostUnconfirmedError(*, host: str, confirmed: str | None, flag: str)
-```
-
-Base: `RefusedError`. Exit code: `REFUSED` (3).
-
-Fields: `host`, `confirmed`, `flag`, each holding the argument of the same name.
 
 ### `DatabaseNotRestoredError`
 
@@ -1480,15 +1483,39 @@ Fields: `flags`, `mode`, each holding the argument of the same name; `arguments`
 
 ### `RootRestoreRefusedError`
 
-A restore was started as root without `--allow-root` (`allow_root=True`). Raised before the Run opens (BL-E002-098).
+A restore as root that cannot run as the Site Root's owner (owner decision 58): the `wpbackup2` command refuses a Site Root owned by root (there is no owner to switch to), and the library refuses any restore running as root (it never switches its host's user). Raised before the Run opens.
 
 ```python
-RootRestoreRefusedError(*, flag: str)
+RootRestoreRefusedError(*, site_root: str, reason: str)
 ```
 
 Base: `UsageError`. Exit code: `USAGE` (2).
 
-Fields: `flag`, holding the argument of the same name; `arguments` is `("allow_root",)`.
+Fields: `site_root`, `reason`, each holding the argument of the same name; `arguments` is `("site_root",)`.
+
+### `PrivilegeDropError`
+
+The `wpbackup2` command, started as root, switched to the Site Root's owner and the switch did not hold: an id read back unchanged, a supplementary group remained, or root could be regained (owner decision 58). Raised before the Run opens; nothing was changed.
+
+```python
+PrivilegeDropError(*, uid: int, gid: int, step: str)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `uid`, `gid`, `step`, each holding the argument of the same name.
+
+### `NoArchiveForSiteError`
+
+`--archive latest` found no Archive of this Site in the Archive directory (owner decision 64): none whose Manifest records this Site Root, database host, port and name and table prefix. Raised by the `wpbackup2` command before the Run opens.
+
+```python
+NoArchiveForSiteError(*, directory: PurePath, considered: int, site: str)
+```
+
+Base: `UsageError`. Exit code: `USAGE` (2).
+
+Fields: `directory`, `considered`, `site`, each holding the argument of the same name; `arguments` is `("archive",)`.
 
 ### `RunContextActiveError`
 
@@ -1622,18 +1649,6 @@ Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `option`, each holding the argument of the same name.
 
-### `TargetInsideSiteRootError`
-
-A backup's Archive target resolves inside the Site Root and `--allow-target-in-site-root` (`allow_target_in_site_root=True`) was not given. Raised before any effect (BL-E002-064).
-
-```python
-TargetInsideSiteRootError(*, target: PurePath, site_root: PurePath, flag: str)
-```
-
-Base: `UsageError`. Exit code: `USAGE` (2).
-
-Fields: `target`, `site_root`, `flag`, each holding the argument of the same name; `arguments` is `("target", "allow_target_in_site_root")`.
-
 ### `TargetChangedError`
 
 RT-003: the target gained content the plan's snapshot does not cover.
@@ -1672,7 +1687,7 @@ Fields: `port`, `supplier`, each holding the argument of the same name.
 
 ### `UndefinedConfigFunctionError`
 
-`--overwrite-wp-config` (`config_policy=ConfigPolicy.OVERWRITE`) carries the target's `DB_*` definitions into the Archive's `wp-config.php` as written, and the target reads one of them through `function` (`getenv_docker`, the official `wordpress` image's helper, which PHP itself does not define), but the Archive's file does not define that function before the carried use: PHP would stop with "Call to undefined function". Refused before any change, a Dry Run included (owner decision 48). `keys` are the constants, `path` the target's `wp-config.php`. Whether the Archive's file defines the function is a textual check for a line `function getenv_docker(`, not a PHP parse; [docs/restore.md](restore.md) lists what it can get wrong. Omit `--overwrite-wp-config` to keep the target's file.
+`--overwrite-wp-config` (`config_policy=ConfigPolicy.OVERWRITE`) carries the target's `DB_*` definitions into the Archive's `wp-config.php` as written, and the target reads one of them through `function` (`getenv_docker`, the official `wordpress` image's helper, which PHP itself does not define), but the Archive's file does not define that function before the carried use: PHP would stop with "Call to undefined function". Refused before any change, a Dry Run included (owner decision 48). `keys` are the constants, `path` the target's `wp-config.php`. Whether the Archive's file declares the function is `l3io-wordpress-config`'s lexical `declares_function` (0.1.7); [docs/restore.md](restore.md) lists the limits it documents. Omit `--overwrite-wp-config` to keep the target's file.
 
 ```python
 UndefinedConfigFunctionError(*, function: str, keys: tuple[str, ...], path: PurePath)

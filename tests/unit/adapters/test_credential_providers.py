@@ -743,7 +743,8 @@ def test_every_database_extra_maps_to_an_extra_this_package_offers() -> None:
 
 
 # --------------------------------------------------------------------------
-# E008-S01-001 (BL-E005-005, ADR-0018 amendment): short passwords refused
+# Owner decision 61 (amending BL-E005-005's ADR-0018 amendment): short
+# database passwords accepted, with WARNING credential_below_redaction_floor
 # --------------------------------------------------------------------------
 
 SHORT = "a7Q"  # 3 characters: below MIN_SECRET_LENGTH
@@ -775,24 +776,22 @@ def no_connection(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     return calls
 
 
-def _refused(source: CredentialSource, label_part: str) -> None:
-    from l3io.wp.backup.adapters.redaction import MIN_SECRET_LENGTH
-    from l3io.wp.backup.domain.errors import CredentialTooShortError
+def _accepted(source: CredentialSource, label_part: str, *, again: bool = True) -> None:
+    """Owner decision 61: resolved, warned once naming the source, never the value."""
+    with capture_logs() as logs:
+        assert source.resolve().password == SHORT
+        if again:  # a Run resolves one source several times; warned once
+            source.resolve()
+    warnings = [e for e in logs if e["event"] == "credential_below_redaction_floor"]
+    assert len(warnings) == 1
+    assert warnings[0]["log_level"] == "warning"
+    assert label_part in warnings[0]["source"]
+    assert SHORT not in repr(logs)
 
-    with pytest.raises(CredentialTooShortError) as caught:
-        source.resolve()
-    assert caught.value.minimum == MIN_SECRET_LENGTH
-    assert label_part in caught.value.source
-    assert str(MIN_SECRET_LENGTH) in str(caught.value)
-    assert SHORT not in str(caught.value)
-    assert isinstance(caught.value, CredentialsError)
 
-
-def test_a_short_explicit_password_is_refused_as_it_is_read(
+def test_a_short_explicit_password_is_accepted_with_a_warning(
     wp_config: CredentialSource, no_connection: list[object]
 ) -> None:
-    from l3io.wp.backup.domain.errors import CredentialTooShortError
-
     for build in (
         lambda r: wordpress_source(
             ExplicitCredentialSpec("u", SHORT),
@@ -804,14 +803,17 @@ def test_a_short_explicit_password_is_refused_as_it_is_read(
             ExplicitCredentialSpec("u", SHORT), environ={}, secrets=r
         ),
     ):
-        with pytest.raises(CredentialTooShortError) as caught:
-            build(SecretRegistry())
-        assert caught.value.source == "explicit"
-        assert SHORT not in str(caught.value)
+        with capture_logs() as logs:
+            assert build(SecretRegistry()) is not None
+        (warning,) = [
+            e for e in logs if e["event"] == "credential_below_redaction_floor"
+        ]
+        assert warning["source"] == "explicit"
+        assert SHORT not in repr(logs)
     assert no_connection == []
 
 
-def test_a_short_environment_password_is_refused(
+def test_a_short_environment_password_is_accepted_with_a_warning(
     wp_config: CredentialSource,
     monkeypatch: pytest.MonkeyPatch,
     no_connection: list[object],
@@ -821,30 +823,29 @@ def test_a_short_environment_password_is_refused(
     source = wordpress_source(
         None, wp_config=wp_config, environ=_environ(), secrets=SecretRegistry()
     )
-    _refused(source, "environment")
+    _accepted(source, "environment")
     monkeypatch.setenv(ADMIN_USER_VAR, "env-admin")
     monkeypatch.setenv(ADMIN_PASSWORD_VAR, SHORT)
     admin = admin_source(None, environ=_environ(), secrets=SecretRegistry())
     assert admin is not None
-    _refused(admin, "environment")
+    _accepted(admin, "environment")
     assert no_connection == []
 
 
-def test_an_empty_environment_password_is_refused_too(
+def test_an_empty_environment_password_is_accepted_with_a_warning(
     wp_config: CredentialSource, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(WORDPRESS_USER_VAR, "env-user")
     monkeypatch.setenv(WORDPRESS_PASSWORD_VAR, "")
-    from l3io.wp.backup.domain.errors import CredentialTooShortError
-
     source = wordpress_source(
         None, wp_config=wp_config, environ=_environ(), secrets=SecretRegistry()
     )
-    with pytest.raises(CredentialTooShortError):
-        source.resolve()
+    with capture_logs() as logs:
+        assert source.resolve().password == ""
+    assert [e["event"] for e in logs].count("credential_below_redaction_floor") == 1
 
 
-def test_a_short_wp_config_password_is_refused(
+def test_a_short_wp_config_password_is_accepted_with_a_warning(
     tmp_path: Path, no_connection: list[object]
 ) -> None:
     source = wordpress_source(
@@ -853,33 +854,19 @@ def test_a_short_wp_config_password_is_refused(
         environ={},
         secrets=SecretRegistry(),
     )
-    _refused(source, "wp-config")
+    _accepted(source, "wp-config")
     assert no_connection == []
 
 
-def test_a_short_wp_config_password_never_reaches_a_dump(
-    tmp_path: Path, no_connection: list[object]
-) -> None:
-    from l3io.wp.backup.domain.errors import CredentialTooShortError
-
-    registry = SecretRegistry()
-    source = wordpress_source(
-        None, wp_config=_short_wp_config(tmp_path), environ={}, secrets=registry
-    )
-    database = WpDatabase(source, secrets=registry)
-    with pytest.raises(CredentialTooShortError):
-        database.dump_to(LOCATION, tmp_path / "dump.sql")
-    assert no_connection == []
-    assert not (tmp_path / "dump.sql").exists()
-
-
-def test_a_short_aws_password_is_refused(
+def test_a_short_aws_password_is_accepted_with_a_warning(
     stub_aws: Callable[..., None],
     wp_config: CredentialSource,
     no_connection: list[object],
 ) -> None:
     stub_aws(payload=json.dumps({"username": "aws-user", "password": SHORT}))
-    _refused(_aws_source(SecretRegistry(), wp_config), "aws-secrets-manager")
+    _accepted(
+        _aws_source(SecretRegistry(), wp_config), "aws-secrets-manager", again=False
+    )
     assert no_connection == []
 
 

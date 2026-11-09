@@ -2,7 +2,7 @@
 
 On every path a library call reaches, ``arguments`` names the library
 parameter (``config_policy``), dotted for a field of one
-(``admin_tls.ca_file``), or an environment variable (``PATH``). A CLI flag
+(``db_tls.ca_file``), or an environment variable (``PATH``). A CLI flag
 spelling (``--x``) is allowed only in the modules that only the command line
 reaches, :data:`CLI_ONLY`, each with its reason.
 
@@ -86,7 +86,7 @@ def test_arguments_name_parameters(path: Path) -> None:
 def test_a_planted_flag_is_found_outside_the_cli_only_modules() -> None:
     planted = (
         'raise UsageError(m, arguments=("--admin-tls",))\n'
-        'raise UsageError(m, arguments=(f"--{p}-x", "admin_tls.ca_file", "PATH"))\n'
+        'raise UsageError(m, arguments=(f"--{p}-x", "db_tls.ca_file", "PATH"))\n'
     )
     assert violations(planted, "adapters/database.py") == [
         "adapters/database.py:1 '--admin-tls'",

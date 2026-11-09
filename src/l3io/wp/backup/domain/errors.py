@@ -49,9 +49,7 @@ __all__ = [
     "CleanFailedError",
     "ConfigLocationConflictError",
     "ConfigWriteFailedError",
-    "CredentialTooShortError",
     "CredentialsError",
-    "DatabaseHostUnconfirmedError",
     "DatabaseRefusedError",
     "DatabaseUnreachableError",
     "DumpFailedError",
@@ -68,6 +66,7 @@ __all__ = [
     "ManifestTooLargeError",
     "MemberReadRefusedError",
     "MissingExtraError",
+    "NoArchiveForSiteError",
     "PassphraseMismatchError",
     "PassphraseRejectedError",
     "PassphraseRequiredError",
@@ -75,6 +74,7 @@ __all__ = [
     "PassphraseUnavailableError",
     "PayloadDamagedError",
     "PreflightFailedError",
+    "PrivilegeDropError",
     "ProvisioningFailedError",
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
@@ -88,7 +88,6 @@ __all__ = [
     "SiteRootNotFoundError",
     "StoredUrlInvalidError",
     "StoredUrlMissingError",
-    "TargetInsideSiteRootError",
     "UnboundAdapterError",
     "UndefinedConfigFunctionError",
     "UnknownInterruptedRunError",
@@ -164,8 +163,8 @@ class UsageError(BackupError):
 
     ``arguments`` names the arguments at fault, never their values, in one
     vocabulary (BL-E006-015): on every path the library reaches, the library
-    parameter's name (``admin_tls``, ``config_policy``), dotted for a field of
-    one (``admin_tls.ca_file``, ``relocation.new_site_url``); an environment
+    parameter's name (``db_tls``, ``config_policy``), dotted for a field of
+    one (``db_tls.ca_file``, ``relocation.new_site_url``); an environment
     variable by its name (``PATH``). Only the command line's own checks,
     which no library call reaches, name its flags (``--admin-password``). It
     is empty where no single argument is at fault: a combination, or an
@@ -399,26 +398,6 @@ class ManifestTooLargeError(RefusedError):
             f"refused: the Manifest for {members} members would be {size} bytes, "
             f"over the {limit}-byte limit an Archive can be read with; exclude "
             "paths (--exclude) or back the Site up in parts"
-        )
-
-
-class CredentialTooShortError(CredentialsError):
-    """ADR-0018 amendment (BL-E005-005): a database password below the floor.
-
-    A password shorter than the redaction registry can mask
-    (``minimum``, ``adapters/redaction.MIN_SECRET_LENGTH``) is refused at the
-    credential boundary, from every source, before any connection.
-    ``source`` names the source; the value is never carried.
-    """
-
-    def __init__(self, source: str, *, minimum: int) -> None:
-        self.minimum = minimum
-        super().__init__(
-            source,
-            reason=(
-                f"the password is shorter than {minimum} characters, too short "
-                "to be kept out of logs and errors"
-            ),
         )
 
 
@@ -838,25 +817,14 @@ class ArchiveNotEncryptedError(UsageError):
     false reassurance BL-E002-060 removes. ``restore --require-encrypted``
     raises it too (``required=True``) for a plain Archive. ``archive`` names
     it, ``required`` says which, and ``arguments`` is the parameter at fault
-    (``authenticate``, ``require_encrypted`` or ``allow_unencrypted``).
+    (``authenticate`` or ``require_encrypted``). A plain Archive restored
+    with a passphrase is not refused (owner decision 59): it proceeds with
+    WARNING ``archive_not_encrypted``.
     """
 
-    def __init__(
-        self, archive: str, *, required: bool = False, passphrase_supplied: bool = False
-    ) -> None:
+    def __init__(self, archive: str, *, required: bool = False) -> None:
         self.archive = archive
         self.required = required
-        self.passphrase_supplied = passphrase_supplied
-        if passphrase_supplied:
-            # ADR-0016 amendment 2026-11-07: a passphrase was given, so an
-            # encrypted Archive was expected.
-            super().__init__(
-                f"archive {archive!r} is not encrypted, but a passphrase was "
-                "given; it may have been substituted for an encrypted one. "
-                "Give --allow-unencrypted to restore it anyway",
-                arguments=("allow_unencrypted",),
-            )
-            return
         if required:
             # ``restore --require-encrypted`` (RT-1): a plain Archive where an
             # encrypted one was expected may be a substitution.
@@ -1246,9 +1214,9 @@ class UndefinedConfigFunctionError(RefusedError):
     the Archive's config, which replaces the target's, does not define it
     before that use, so PHP would stop with "Call to undefined function".
     Refused before any change, a Dry Run included. ``path`` is the target's
-    ``wp-config.php``. Whether the Archive's config defines it is read by a
-    documented textual heuristic, not a PHP parse
-    (``config_writer.defines_getenv_docker``).
+    ``wp-config.php``. Whether the Archive's config declares it is
+    ``l3io-wordpress-config``'s lexical ``declares_function`` (0.1.7), with
+    the limits that library documents.
     """
 
     def __init__(self, *, function: str, keys: tuple[str, ...], path: PurePath) -> None:
@@ -1266,66 +1234,63 @@ class UndefinedConfigFunctionError(RefusedError):
 
 
 class RootRestoreRefusedError(UsageError):
-    """BL-E002-098 (owner decision 2026-11-07): a restore running as root.
+    """A restore as root that cannot run as the Site Root's owner (owner decision 58).
 
-    Extraction as root has a check-then-open race a symlink swap can win, so a
-    root restore is refused before the Run opens unless the caller allows it.
-    ``flag`` names the flag that does (``--allow-root``; the library's
-    ``allow_root=True``); ``arguments`` is ``("allow_root",)``.
+    Started as root, the CLI reads what only root can read, then runs the rest
+    of the Run as the uid and gid that own the Site Root. Refused (``USAGE``,
+    before the Run opens) when the Site Root is owned by root, which leaves
+    no owner to run as, and when a library caller runs as root: the library
+    never changes its host's user, so the host runs it as the site's owner.
+    ``site_root`` names the Site Root and ``reason`` why; ``arguments`` is
+    ``("site_root",)``.
     """
 
-    def __init__(self, *, flag: str) -> None:
-        self.flag = flag
-        super().__init__(
-            "refused to restore as root: extraction as root can be raced by a "
-            "symlink swap inside the Site Root; run the restore as the site's "
-            f"owner, or pass {flag} to accept that risk",
-            arguments=("allow_root",),
-        )
-
-
-class DatabaseHostUnconfirmedError(RefusedError):
-    """BL-E002-063 (owner decision 2026-11-07): a non-local ``DB_HOST`` unconfirmed.
-
-    A backup sends the WordPress account's credentials to the Site's
-    ``DB_HOST``. Any host but ``localhost``, ``127.0.0.1``, ``::1`` or a
-    socket path is refused before any connection unless ``flag`` names it.
-    ``host`` is the Site's ``DB_HOST`` host, ``confirmed`` what the flag named
-    (``None`` when not given), and ``flag`` the flag's spelling.
-    """
-
-    def __init__(self, *, host: str, confirmed: str | None, flag: str) -> None:
-        self.host = host
-        self.confirmed = confirmed
-        self.flag = flag
-        given = "" if confirmed is None else f" ({flag} named {confirmed!r}, not it)"
-        super().__init__(
-            f"refused: wp-config.php's DB_HOST {host!r} is not local, and the "
-            f"backup would send the WordPress account's credentials there{given}; "
-            f"confirm it with {flag} {host}"
-        )
-
-
-class TargetInsideSiteRootError(UsageError):
-    """BL-E002-064 (owner decision 2026-11-07): the Archive target is in the Site Root.
-
-    An Archive there can be served by the web server and is collected by the
-    next backup. Refused before any effect unless ``flag`` is given.
-    ``target`` is the resolved target path, ``site_root`` the canonical Site
-    Root and ``flag`` the allowing flag; ``arguments`` is
-    ``("target", "allow_target_in_site_root")``.
-    """
-
-    def __init__(self, *, target: PurePath, site_root: PurePath, flag: str) -> None:
-        self.target = target
+    def __init__(self, *, site_root: str, reason: str) -> None:
         self.site_root = site_root
-        self.flag = flag
+        self.reason = reason
         super().__init__(
-            f"refused: the archive {str(target)!r} is inside the Site Root "
-            f"{str(site_root)!r}, where the web server may serve it; write it "
-            "outside the Site Root (--archive /var/backups/<name>.tar.gz), or "
-            f"pass {flag}",
-            arguments=("target", "allow_target_in_site_root"),
+            f"refused to restore as root into {site_root!r}: {reason}",
+            arguments=("site_root",),
+        )
+
+
+class PrivilegeDropError(RefusedError):
+    """Switching to the Site Root's owner did not hold (owner decision 58).
+
+    After ``setgroups``, ``setgid`` and ``setuid`` the process's real,
+    effective and saved ids are read back, and regaining root must fail.
+    Anything else stops the Run before it opens. ``uid``/``gid`` are the ids
+    asked for; ``step`` names what did not hold.
+    """
+
+    def __init__(self, *, uid: int, gid: int, step: str) -> None:
+        self.uid = uid
+        self.gid = gid
+        self.step = step
+        super().__init__(
+            f"could not switch to the Site Root's owner (uid {uid}, gid {gid}): "
+            f"{step}; nothing was changed"
+        )
+
+
+class NoArchiveForSiteError(UsageError):
+    """``--archive latest`` found no Archive of this Site (owner decision 64).
+
+    ``directory`` is the Archive directory searched, ``considered`` how many
+    Archives in it were read, and ``site`` what identifies this Site (its
+    Site Root and database), as the Manifest records it. ``arguments`` is
+    ``("archive",)``.
+    """
+
+    def __init__(self, *, directory: PurePath, considered: int, site: str) -> None:
+        self.directory = directory
+        self.considered = considered
+        self.site = site
+        super().__init__(
+            f"--archive latest: none of the {considered} archives read in "
+            f"{str(directory)!r} is a backup of this site ({site}); name the "
+            "archive, or point --archive-dir at this site's archives",
+            arguments=("archive",),
         )
 
 

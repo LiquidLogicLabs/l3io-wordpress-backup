@@ -147,6 +147,12 @@ RSS_COVERED: dict[str, frozenset[str]] = {
             "verify_or_raise",
             # BL-E002-115: driven on the encrypted leg's restore path below.
             "read_inner_manifest",
+            # Owner decision 64 (--archive latest): reads the outer tar's first
+            # member only, a Manifest held to MANIFEST_MAX_BYTES as every
+            # Manifest read is; it moves no payload byte, and
+            # tests/unit/cli/test_restore_latest.py proves it reads a cut
+            # Archive's Manifest without the rest.
+            "read_leading_manifest",
             "_inner_manifest_failure",
             "_is_reserved",
             # The writer's inner Manifest, on the encrypted leg's backup.

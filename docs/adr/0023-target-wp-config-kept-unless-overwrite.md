@@ -184,10 +184,15 @@ amendment such a target was refused. `l3io-wordpress-config` 0.1.6 adds `set_sou
   will not write verbatim (`ConfigWriteFailedError` with a fixed reason, never the source); an
   `Expression` (`UnsupportedConfigValueError`, owner decision 47); and a carried `getenv_docker()`
   call the Archive's text does not define before its use (`UndefinedConfigFunctionError`).
-- That last check is a **textual heuristic** (`config_writer.defines_getenv_docker`), because the
-  library has no function-definition query; its failure modes are in its docstring and
-  `docs/restore.md`. `cli/restore.py` runs it before any effect, a Dry Run included, reading the
+- That last check is `l3io-wordpress-config`'s `declares_function("getenv_docker", before=key)`
+  (0.1.7), asked for each carried key that uses it. *(Revised 2026-11-08: the revisit condition
+  below was met; backup's own textual heuristic, `config_writer.defines_getenv_docker`, is gone.)*
+  The query is lexical, on the library's own scanner: it ignores comments and strings and accepts
+  `function &name(`. Its documented limits are the library's: a declaration in a branch PHP
+  never takes, a class method or a function nested in another still counts as found;
+  `include`/`require` is not followed; `before` is text order, not PHP's hoisting; heredocs are
+  not recognised. `cli/restore.py` runs it before any effect, a Dry Run included, reading the
   Archive's config into memory only when the target uses `getenv_docker()`; the Dry Run's
   `NoopConfigWriter.replace_file` runs `carry_sources` too.
-- Revisit when `l3io-wordpress-config` can say whether a config defines a function: the heuristic
-  is then replaced by that query.
+- ~~Revisit when `l3io-wordpress-config` can say whether a config defines a function~~: met by
+  0.1.7 (2026-11-08), whose `declares_function` replaced the heuristic.

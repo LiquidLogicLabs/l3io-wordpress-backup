@@ -1,19 +1,23 @@
-"""FR-4 / NFR-3 — no passphrase or password is a command-line value.
+"""FR-4 / NFR-3, as owner decision 60 amends them — a secret flag says so.
 
 A value on the command line is visible to every user through the process
-list. Passphrases come only from AD-26's chain, so every action whose
-``dest`` mentions ``passphrase`` must be a ``store_true`` switch. No action's
-``dest`` may mention ``password`` either, except the two frozen v0.2.21 flags
-AD-22 keeps (:data:`FROZEN_PASSWORD_FLAGS`), whose help states the exposure,
-and a flag that names a **file** holding one (E008-S01-001, owner decision
-2026-11-07): ``dest`` ends in ``_file`` and its argparse ``type`` is
-``pathlib.Path``, so what reaches ``argv`` is a path, never the secret.
+list. Owner decision 60 gives every setting a flag, the passphrase and the
+database passwords included, so a flag may take a secret only when its
+``dest`` is a secret setting (``cli/settings.SECRET_SETTINGS``, derived from
+the ``SecretStr`` fields), and its help must say the value is visible in the
+process list and name that setting's variable. Any other action whose
+``dest`` mentions ``passphrase`` must be a ``store_true`` switch, and any other
+``dest`` mentioning ``password`` must name a **file** holding one: ``dest``
+ends in ``_file`` and its argparse ``type`` is ``pathlib.Path``, so what
+reaches ``argv`` is a path, never the secret. A secret typed on the command
+line logs WARNING ``password_on_command_line``.
 
 Scope is every action of every parser, walked from ``build_parser()``, so a
 subcommand added later is covered the moment it exists.
 
 **Not covered:** a secret under a ``dest`` that names neither word
-(``--token``, ``--key``). Review is the guard for that.
+(``--token``, ``--key``) and is not a ``SecretStr`` setting. Review is the
+guard for that.
 """
 
 from __future__ import annotations
@@ -22,12 +26,11 @@ import argparse
 from collections.abc import Iterator
 from pathlib import Path
 
-from l3io.wp.backup.cli.parser import RESTORE_COMMAND, build_parser
+from l3io.wp.backup.cli.parser import build_parser
+from l3io.wp.backup.cli.settings import SECRET_SETTINGS, env_name
 
-#: AD-22's named allowance: ``(subcommand, dest)``.
-FROZEN_PASSWORD_FLAGS = frozenset(
-    {(RESTORE_COMMAND, "admin_password"), (RESTORE_COMMAND, "new_db_password")}
-)
+#: The secret settings: the only ``dest`` a value-taking secret flag may have.
+ALLOWED = SECRET_SETTINGS
 
 
 def _actions(parser: argparse.ArgumentParser) -> Iterator[tuple[str, argparse.Action]]:
@@ -39,23 +42,23 @@ def _actions(parser: argparse.ArgumentParser) -> Iterator[tuple[str, argparse.Ac
                     yield name, inner
 
 
-def _violations(parser: argparse.ArgumentParser) -> list[str]:
+def _violations(
+    parser: argparse.ArgumentParser, allowed: frozenset[str] = ALLOWED
+) -> list[str]:
     found = []
     for command, action in _actions(parser):
         dest = action.dest.lower()
+        path_valued = dest.endswith("_file") and action.type is Path
+        if action.dest in allowed or path_valued:
+            continue
         if "passphrase" in dest and not isinstance(
             action,
             argparse._StoreTrueAction,  # noqa: SLF001
         ):
             found.append(f"{command} {action.dest}: a passphrase flag takes a value")
-        path_valued = dest.endswith("_file") and action.type is Path
-        if (
-            "password" in dest
-            and (command, action.dest) not in FROZEN_PASSWORD_FLAGS
-            and not path_valued
-        ):
+        elif "password" in dest:
             found.append(
-                f"{command} {action.dest}: a password flag outside AD-22's allowance"
+                f"{command} {action.dest}: a password flag outside the settings"
             )
     return found
 
@@ -64,13 +67,13 @@ def test_no_flag_takes_a_secret_value() -> None:
     assert _violations(build_parser()) == []
 
 
-def test_each_allowed_password_flag_exists_and_warns() -> None:
-    present = {(c, a.dest): a for c, a in _actions(build_parser())}
-    for key in FROZEN_PASSWORD_FLAGS:
-        assert key in present, f"{key} is allowed but not registered"
-        assert "process list" in (present[key].help or "")
-    admin = present[(RESTORE_COMMAND, "admin_password")]
-    assert "L3IO_WP_BACKUP_ADMIN_PASSWORD" in (admin.help or "")
+def test_each_secret_flag_exists_and_warns() -> None:
+    present = [(c, a) for c, a in _actions(build_parser()) if a.dest in ALLOWED]
+    assert {a.dest for _, a in present} == set(ALLOWED)
+    for _, action in present:
+        assert "process list" in (action.help or "")
+        assert env_name(action.dest) in (action.help or "")
+    assert {"passphrase", "db_password", "admin_password", "new_db_password"} == ALLOWED
 
 
 def test_the_walk_reaches_subcommands_and_catches_planted_values() -> None:
@@ -80,9 +83,9 @@ def test_the_walk_reaches_subcommands_and_catches_planted_values() -> None:
     sub = subs.add_parser("later")
     sub.add_argument("--db-password")
     sub.add_argument("--encrypt-with-passphrase", action="store_true")
-    assert _violations(planted) == [
+    assert _violations(planted, frozenset()) == [
         " passphrase: a passphrase flag takes a value",
-        "later db_password: a password flag outside AD-22's allowance",
+        "later db_password: a password flag outside the settings",
     ]
 
 
@@ -92,6 +95,6 @@ def test_only_a_path_valued_file_flag_is_allowed() -> None:
     planted.add_argument("--y-password-file")
     planted.add_argument("--z-password", type=Path)
     assert _violations(planted) == [
-        " y_password_file: a password flag outside AD-22's allowance",
-        " z_password: a password flag outside AD-22's allowance",
+        " y_password_file: a password flag outside the settings",
+        " z_password: a password flag outside the settings",
     ]

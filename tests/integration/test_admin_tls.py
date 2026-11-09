@@ -1,9 +1,11 @@
-"""BL-E002-114 — the administrator's TLS policy against the CI database.
+"""Owner decision 56 (amending BL-E002-114) — opt-in TLS against the CI database.
 
-Three live cases over the CI server:
+Four live cases over the CI server:
 
-* TLS switched off on the server (``tls_disabled``, below) → the handshake
-  the policy requires cannot complete → ``DatabaseTlsHandshakeError``,
+* no ``--db-tls`` → no TLS is required, so the survey succeeds whatever the
+  host (as WordPress connects);
+* TLS switched off on the server (``tls_disabled``, below) with
+  ``required`` → the handshake cannot complete → ``DatabaseTlsHandshakeError``,
   exit ``UNREACHABLE``;
 * ``verify-identity`` against the server's auto-generated self-signed
   certificate → ``DatabaseTlsVerificationError``, exit ``REFUSED``;
@@ -36,7 +38,7 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.exit_codes import ExitCode
-from l3io.wp.backup.ports.database import AdminTls
+from l3io.wp.backup.ports.database import DbTls
 from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import admin_account  # noqa: F401 - a fixture
 from tests.integration.live_restore import host, port, root_connection
@@ -50,12 +52,6 @@ pytestmark = [
 
 _TLS_FILES = ("ssl_cert", "ssl_key", "ssl_ca")
 _MISSING = "/nonexistent-l3io-tls-test.pem"
-
-
-def _is_local() -> bool:
-    from l3io.wp import database as wpdb
-
-    return host().lower() in {h.lower() for h in wpdb.tls.DEFAULT_LOCAL_HOSTS}
 
 
 def _tls_enabled(cursor: object) -> str:
@@ -128,7 +124,7 @@ def tls_disabled() -> Iterator[None]:
 
 
 def _database(
-    account: str, sentinel: CredentialSentinel, tls: AdminTls
+    account: str, sentinel: CredentialSentinel, tls: DbTls | None
 ) -> tuple[WpDatabase, DatabaseLocation]:
     from l3io.wp import database as wpdb
 
@@ -142,7 +138,7 @@ def _database(
         wpdb.Explicit(account, sentinel.admin_password),
         secrets=secrets,
         admin=admin,
-        admin_tls=tls,
+        db_tls=tls,
     )
     return database, DatabaseLocation(host=host(), port=port(), name="mysql")
 
@@ -152,7 +148,7 @@ def test_a_server_refusing_tls_is_unreachable(
     credential_sentinel: CredentialSentinel,
     admin_account: str,  # noqa: F811
 ) -> None:
-    tls = AdminTls(mode="required" if _is_local() else None, ca_file=None)
+    tls = DbTls(mode="required")
     database, location = _database(admin_account, credential_sentinel, tls)
     with pytest.raises(DatabaseTlsHandshakeError) as caught:
         database.survey_target(location, table_prefix="wp_", wordpress_user=None)
@@ -169,7 +165,7 @@ def test_an_unverifiable_certificate_is_refused(
     database, location = _database(
         admin_account,
         credential_sentinel,
-        AdminTls(mode="verify-identity", ca_file=None),
+        DbTls(mode="verify-identity", ca_file=None),
     )
     with pytest.raises(DatabaseTlsVerificationError) as caught:
         database.survey_target(location, table_prefix="wp_", wordpress_user=None)
@@ -178,17 +174,24 @@ def test_an_unverifiable_certificate_is_refused(
     credential_sentinel.assert_clean()
 
 
+@pytest.mark.parametrize("tls", [DbTls(), None], ids=["no-mode", "unbound"])
+def test_no_tls_is_required_by_default(
+    credential_sentinel: CredentialSentinel,
+    admin_account: str,  # noqa: F811
+    tls: DbTls | None,
+) -> None:
+    database, location = _database(admin_account, credential_sentinel, tls)
+    survey = database.survey_target(location, table_prefix="wp_", wordpress_user=None)
+    assert survey is not None
+    credential_sentinel.assert_clean()
+
+
 def test_required_tls_against_a_tls_server_surveys(
     credential_sentinel: CredentialSentinel,
     admin_account: str,  # noqa: F811
 ) -> None:
-    if not _is_local():
-        pytest.skip(
-            f"DB_HOST {host()!r} is not local: its policy is verify-identity, "
-            "which 'required' may not lower"
-        )
     database, location = _database(
-        admin_account, credential_sentinel, AdminTls(mode="required", ca_file=None)
+        admin_account, credential_sentinel, DbTls(mode="required", ca_file=None)
     )
     survey = database.survey_target(location, table_prefix="wp_", wordpress_user=None)
     assert survey is not None

@@ -233,7 +233,28 @@ ADDITIONS = [
     (DOCTOR_COMMAND, "--wp-dir"),
     (DOCTOR_COMMAND, "--archive"),
     (DOCTOR_COMMAND, "--json"),
-    # Close-out owner decisions 2026-11-07: BL-E002-098, -063, -064.
+    # Owner decisions 56, 60, 64 (2026-11-08): settings in three spellings.
+    (TOP, "--config"),
+    (BACKUP_COMMAND, "--config"),
+    (RESTORE_COMMAND, "--config"),
+    (VERIFY_COMMAND, "--config"),
+    (DOCTOR_COMMAND, "--config"),
+    (BACKUP_COMMAND, "--archive-dir"),
+    (RESTORE_COMMAND, "--archive-dir"),
+    (BACKUP_COMMAND, "--passphrase"),
+    (RESTORE_COMMAND, "--passphrase"),
+    (VERIFY_COMMAND, "--passphrase"),
+    (BACKUP_COMMAND, "--db-user"),
+    (BACKUP_COMMAND, "--db-password"),
+    (BACKUP_COMMAND, "--db-tls"),
+    (BACKUP_COMMAND, "--db-tls-ca"),
+    (RESTORE_COMMAND, "--db-tls"),
+    (RESTORE_COMMAND, "--db-tls-ca"),
+    (RESTORE_COMMAND, "--admin-user"),
+]
+#: Removed by owner decisions 54, 58 and 60 (2026-11-08): additions, never
+#: frozen spellings, so AD-22 allows it (CHANGELOG).
+REMOVED = [
     (RESTORE_COMMAND, "--allow-root"),
     (BACKUP_COMMAND, "--confirm-db-host"),
     (BACKUP_COMMAND, "--allow-target-in-site-root"),
@@ -247,8 +268,14 @@ def test_each_addition_is_where_the_story_placed_it(
     assert spelling in _spellings(command)
 
 
-def test_doctor_has_exactly_its_three_options() -> None:
+@pytest.mark.parametrize(("command", "spelling"), REMOVED)
+def test_each_removed_addition_is_gone(command: str, spelling: str) -> None:
+    assert spelling not in _spellings(command)
+
+
+def test_doctor_has_exactly_its_four_options() -> None:
     assert _spellings(DOCTOR_COMMAND) - {"-h", "--help"} == {
+        "--config",
         "--wp-dir",
         "--archive",
         "--json",
