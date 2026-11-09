@@ -3,8 +3,9 @@
 ``wpbackup2 restore`` of a ``PARENT``-config Archive into a fresh
 ``<tmp>/b/public`` runs in a ``multiprocessing`` **spawn** child whose
 ``WpConfigWriter.set_constants`` SIGKILLs the child on the first write of
-``DB_NAME`` (the cutover; the config itself was laid down before it by
-extraction). Then, in this process, ``wpbackup2 restore
+``DB_NAME`` (a relocation's cutover, ``--new-db-name``: since owner decision
+49 a restore without relocation writes no ``DB_*``; the config itself was
+laid down before it by extraction). Then, in this process, ``wpbackup2 restore
 --resolve-interrupted-run`` must complete the cutover in
 ``<tmp>/b/wp-config.php``, the file the journal header names, and never
 create ``<tmp>/b/public/wp-config.php`` (the O2 edit to ``cli/restore.py``:
@@ -93,6 +94,8 @@ def test_a_parent_lay_down_killed_at_the_cutover_resolves_into_the_parent(
         "--archive-database",
         site.identity(),
         "--reset-existing-db-user",
+        "--new-db-name",
+        f"{site.site.database}_moved",
         root=root,
     )
     context = multiprocessing.get_context("spawn")

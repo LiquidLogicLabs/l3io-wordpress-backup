@@ -65,12 +65,6 @@ _WARNING_TEXT = {
         "left unchanged"
     ),
 }
-_PREVIOUS_TEXT = {
-    "dropped": "dropped",
-    "retained": "retained, not removed",
-    "none": "none (no live database existed)",
-    "absent": "none (loaded in place)",
-}
 
 
 # --------------------------------------------------------------------------
@@ -96,10 +90,15 @@ def _flag(done: bool, yes: str, no: str) -> str:
 
 
 #: Why a performed load is not reported restored: one of the three FR-9 facts
-#: (load, post-load check, cutover) did not hold.
+#: (load, post-load check, a relocation's cutover) did not hold.
 _NOT_RESTORED_REASON: Final = (
     "the load, its post-load check or the cutover did not complete"
 )
+
+
+def _tables(names: tuple[str, ...]) -> str:
+    count = f"{len(names)} table{'' if len(names) == 1 else 's'}"
+    return f"{count} ({', '.join(names)})" if names else "no table"
 
 
 def database_report_lines(report: DatabaseRestoreReport) -> tuple[str, ...]:
@@ -110,31 +109,40 @@ def database_report_lines(report: DatabaseRestoreReport) -> tuple[str, ...]:
     details. The JSON form (:func:`database_report_json`) is unchanged.
     """
     after, before = report.live_database_after, report.live_database_before
+    moved = after != before
     if not report.performed:
         would = [
-            f"database: would ensure {after!r} (database, WordPress user, password, "
-            "grant)",
-            f"database: would load the Dump into {after!r}",
-            f"database: would switch wp-config.php from {before!r} to {after!r}",
+            f"database: would load the Dump into {report.database}, overwriting it "
+            "(owner decision 49)",
+            "database: would first drop the tables with the site's prefix: "
+            + _tables(report.dropped_tables),
         ]
-        if report.previous_database == "dropped":
-            would.append(f"database: would drop the previous database {before!r}")
+        if moved:
+            would.append(
+                f"database: would switch wp-config.php from {before!r} to {after!r}"
+            )
         return ("database NOT restored: Dry Run", *would)
     ensure = report.ensure
     lines = [
-        f"database: the site now runs on {after!r} (was {before!r})",
-        "database: "
-        + _flag(ensure.created_database, "created", "already existed")
-        + f" {after!r}",
-        "database: WordPress user "
-        + _flag(ensure.created_user, "created", "already existed"),
-        "database: password " + _flag(ensure.password_set, "set", "unchanged"),
-        "database: access " + _flag(ensure.granted, "granted", "already granted"),
+        f"database: loaded into {report.database}"
+        + (f" (the site now runs on {after!r}, was {before!r})" if moved else ""),
+        "database: dropped first " + _tables(report.dropped_tables),
         f"database: loaded {report.loaded_bytes} bytes in "
         f"{report.load_duration_ms:.0f} ms",
-        f"database: previous database {before!r}: "
-        + _PREVIOUS_TEXT[report.previous_database],
     ]
+    if report.administrator:
+        lines += [
+            "database: administrator used: database "
+            + _flag(ensure.created_database, "created", "already existed")
+            + ", WordPress user "
+            + _flag(ensure.created_user, "created", "already existed")
+            + ", password "
+            + _flag(ensure.password_set, "set", "unchanged")
+            + ", access "
+            + _flag(ensure.granted, "granted", "already granted"),
+        ]
+    else:
+        lines.append("database: no administrator needed (the WordPress account)")
     lines.extend(
         f"database: warning {code}: {_WARNING_TEXT.get(code, code)}"
         for code in ensure.warnings

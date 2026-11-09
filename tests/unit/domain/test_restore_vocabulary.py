@@ -12,6 +12,12 @@ FR-6's table, transcribed from the PRD (§5.2) — what each Restore Mode does:
 
 ("files" and "database": whether the Mode restores that part.)
 
+Owner decision 63 (2026-11-08) retired the last column: every database
+restore loads straight into the live database (decision 49), so no Mode
+leaves a previous database to remove, and ``removes_database`` is gone. The
+``-clean`` database Modes keep their names; ``database-clean`` restores as
+``database`` does.
+
 The cases are parametrised from the enum, so a Mode added without a row here
 fails rather than going unchecked.
 """
@@ -36,19 +42,18 @@ from l3io.wp.backup.domain.restore import (
     SnapshotPolicy,
     clears_site_root,
     is_subsequence,
-    removes_database,
     restores_database,
     restores_files,
 )
 
-#: (restores files, restores database, clears Site Root, removes database)
-FR6: dict[str, tuple[bool, bool, bool, bool]] = {
-    "files": (True, False, False, False),
-    "files-clean": (True, False, True, False),
-    "database": (False, True, False, False),
-    "database-clean": (False, True, False, True),
-    "all": (True, True, False, False),
-    "all-clean": (True, True, True, True),
+#: (restores files, restores database, clears Site Root)
+FR6: dict[str, tuple[bool, bool, bool]] = {
+    "files": (True, False, False),
+    "files-clean": (True, False, True),
+    "database": (False, True, False),
+    "database-clean": (False, True, False),
+    "all": (True, True, False),
+    "all-clean": (True, True, True),
 }
 
 #: AD-17's order, transcribed.
@@ -69,12 +74,11 @@ def test_the_modes_are_fr6s_names_verbatim() -> None:
 
 
 @pytest.mark.parametrize("mode", list(RestoreMode), ids=str)
-def test_each_mode_has_fr6s_four_columns(mode: RestoreMode) -> None:
+def test_each_mode_has_fr6s_columns(mode: RestoreMode) -> None:
     assert (
         restores_files(mode),
         restores_database(mode),
         clears_site_root(mode),
-        removes_database(mode),
     ) == FR6[mode.value]
 
 

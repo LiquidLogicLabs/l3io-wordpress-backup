@@ -6,9 +6,13 @@ The restore subcommand's mode-selecting flags, and what each one means:
   the :class:`~l3io.wp.backup.domain.backup_scope.BackupScope` the CLI's
   ``CLI_MODE_TO_SCOPE`` translates it to, so there is no second spelling table.
 * ``--cleanfirst`` authorises **clearing the Site Root**, and nothing else.
-* ``--drop-database`` authorises **removing the database that loses the
-  cutover**, and nothing else. Destruction of each part needs its own flag
-  (FR-6, PRD §7.1).
+* ``--drop-database`` is accepted and changes nothing (owner decision 63):
+  every database restore loads straight into the live database and drops the
+  tables carrying the site's prefix first (decisions 49 and 53), so there is
+  no previous database to remove. It still selects ``database-clean`` with
+  ``--mode db``, which now behaves as ``database``; with ``--mode files`` or
+  ``--mode all`` it selects what the same flags without it select. The CLI
+  logs WARNING ``deprecated_option`` when it is given.
 * ``--force`` waives FR-7's non-empty-target refusal for exactly the parts the
   Mode restores. It selects no Mode and authorises no removal: it yields an
   :class:`~l3io.wp.backup.domain.restore.OverrideSet`, a distinct type.
@@ -19,7 +23,8 @@ branch — and ``tests/contracts/test_flag_map.py`` derives the combinations fro
 the parser's ``restore mode`` argument group and asserts equality.
 
 Behaviour change from v0.2.21 (B-3): ``--force`` no longer means
-``ALLCLEAN``, and ``--cleanfirst`` no longer removes the database.
+``ALLCLEAN``, and ``--cleanfirst`` no longer removes the database. Since
+owner decision 63, ``--mode all --cleanfirst`` alone selects ``all-clean``.
 """
 
 from __future__ import annotations
@@ -86,38 +91,11 @@ _BOTH = OverrideSet(
     waived=frozenset({Override.NONEMPTY_FILES, Override.NONEMPTY_DATABASE})
 )
 
-_FILES_DROP = FlagRejection(
-    reason=(
-        "--drop-database removes the database, which --mode files does not restore"
-    ),
-    use_instead=(
-        "leave out --drop-database, or use --mode all --cleanfirst "
-        "--drop-database to replace both the files and the database"
-    ),
-)
 _DATABASE_CLEAN = FlagRejection(
     reason="--cleanfirst clears the Site Root, which --mode db does not restore",
-    use_instead="to remove the previous database use --mode db --drop-database",
-)
-_ALL_CLEAN_ONLY = FlagRejection(
-    reason=(
-        "--mode all --cleanfirst without --drop-database would clear the Site "
-        "Root but keep the previous database, which no Restore Mode does"
-    ),
     use_instead=(
-        "use --mode all --cleanfirst --drop-database (all-clean), or "
-        "--mode files --cleanfirst to clear only the Site Root"
-    ),
-)
-_ALL_DROP_ONLY = FlagRejection(
-    reason=(
-        "--mode all --drop-database without --cleanfirst would remove the "
-        "previous database but keep the Site Root's files, which no Restore "
-        "Mode does"
-    ),
-    use_instead=(
-        "use --mode all --cleanfirst --drop-database (all-clean), or "
-        "--mode db --drop-database to replace only the database"
+        "use --mode all --cleanfirst to clear the Site Root and restore both; "
+        "--mode db alone already replaces every table with the site's prefix"
     ),
 )
 
@@ -146,18 +124,23 @@ FLAG_MAP: Final[Mapping[FlagCombination, FlagEntry]] = MappingProxyType(
             RestoreMode.FILES_CLEAN,
             _FILES,
         ),
-        combination(
-            mode=_F, cleanfirst=False, drop_database=True, force=False
-        ): _FILES_DROP,
-        combination(
-            mode=_F, cleanfirst=False, drop_database=True, force=True
-        ): _FILES_DROP,
-        combination(
-            mode=_F, cleanfirst=True, drop_database=True, force=False
-        ): _FILES_DROP,
-        combination(
-            mode=_F, cleanfirst=True, drop_database=True, force=True
-        ): _FILES_DROP,
+        # --drop-database changes nothing (owner decision 63).
+        combination(mode=_F, cleanfirst=False, drop_database=True, force=False): (
+            RestoreMode.FILES,
+            _NONE,
+        ),
+        combination(mode=_F, cleanfirst=False, drop_database=True, force=True): (
+            RestoreMode.FILES,
+            _FILES,
+        ),
+        combination(mode=_F, cleanfirst=True, drop_database=True, force=False): (
+            RestoreMode.FILES_CLEAN,
+            _NONE,
+        ),
+        combination(mode=_F, cleanfirst=True, drop_database=True, force=True): (
+            RestoreMode.FILES_CLEAN,
+            _FILES,
+        ),
         # --mode db
         combination(mode=_D, cleanfirst=False, drop_database=False, force=False): (
             RestoreMode.DATABASE,
@@ -204,18 +187,24 @@ FLAG_MAP: Final[Mapping[FlagCombination, FlagEntry]] = MappingProxyType(
             RestoreMode.ALL_CLEAN,
             _BOTH,
         ),
-        combination(
-            mode=_A, cleanfirst=True, drop_database=False, force=False
-        ): _ALL_CLEAN_ONLY,
-        combination(
-            mode=_A, cleanfirst=True, drop_database=False, force=True
-        ): _ALL_CLEAN_ONLY,
-        combination(
-            mode=_A, cleanfirst=False, drop_database=True, force=False
-        ): _ALL_DROP_ONLY,
-        combination(
-            mode=_A, cleanfirst=False, drop_database=True, force=True
-        ): _ALL_DROP_ONLY,
+        # Owner decision 63: --cleanfirst alone selects all-clean, and
+        # --drop-database changes nothing.
+        combination(mode=_A, cleanfirst=True, drop_database=False, force=False): (
+            RestoreMode.ALL_CLEAN,
+            _NONE,
+        ),
+        combination(mode=_A, cleanfirst=True, drop_database=False, force=True): (
+            RestoreMode.ALL_CLEAN,
+            _BOTH,
+        ),
+        combination(mode=_A, cleanfirst=False, drop_database=True, force=False): (
+            RestoreMode.ALL,
+            _NONE,
+        ),
+        combination(mode=_A, cleanfirst=False, drop_database=True, force=True): (
+            RestoreMode.ALL,
+            _BOTH,
+        ),
     }
 )
 
@@ -241,9 +230,13 @@ def authorizing_combination(mode: RestoreMode, part: RestorePart) -> FlagCombina
     Derived from :data:`FLAG_MAP`, so a refusal message names the waiving flag
     from the table rather than from text typed into the message. Raises
     ``ValueError`` when ``mode`` does not restore ``part``, since then there
-    is no refusal to waive.
+    is no refusal to waive. A combination without ``--drop-database`` is
+    preferred (owner decision 63: the flag changes nothing).
     """
-    for flags, entry in FLAG_MAP.items():
+    ordered = sorted(
+        FLAG_MAP.items(), key=lambda item: dict(item[0])["drop_database"] is True
+    )
+    for flags, entry in ordered:
         if isinstance(entry, FlagRejection):
             continue
         entry_mode, overrides = entry

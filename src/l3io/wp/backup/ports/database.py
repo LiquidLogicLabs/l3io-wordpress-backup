@@ -4,14 +4,20 @@ No method takes a credential: the WordPress source and, when given, the
 administrator source are bound into the adapter at construction. The Dump is
 written to a path, never returned as ``bytes`` (AD-21).
 
-**The restore halves (E002-S02-012).** Every restore-half method except
-:meth:`DatabaseCommand.load_dump` answers through the bound administrator and
-raises ``AdminCredentialsRequiredError`` before any connection when none is
-bound — existence is answered by the administrator, never inferred from a
-failed login (AD-29). ``load_dump`` loads as the bound WordPress account into
-``location.name``; it has no ``replace``, credential or decryption parameter,
-so loading over a non-empty database cannot be expressed through the port
-(AD-18.3, ADR-0015 amendment, ADR-0024).
+**The restore halves (E002-S02-012; owner decisions 53 and 55, ADR-0027).**
+A restore loads straight into the live database as the WordPress account:
+:meth:`DatabaseQuery.check_load`, :meth:`DatabaseCommand.load_dump` and
+:meth:`DatabaseCommand.drop_tables` answer as that account, and
+``load_dump(..., replace=True, prune_prefix=<site prefix>)`` first drops every
+table and view carrying the site's prefix, so the database holds exactly the
+Dump's tables afterwards; tables without the prefix are never touched.
+:meth:`DatabaseQuery.survey_target` observes as the WordPress account and
+turns to the administrator only when that account cannot see the database
+(AD-29 as amended). ``ensure_database``, ``check_ensure``, ``revoke_grants``,
+``check_revoke``, ``drop_database`` and ``check_drop_database`` answer through
+the bound administrator and raise ``AdminCredentialsRequiredError`` before
+any connection when none is bound. ``load_dump`` takes no credential or
+decryption parameter (ADR-0015 amendment, ADR-0024).
 """
 
 from __future__ import annotations
@@ -46,7 +52,7 @@ class DatabaseQuery(Protocol):
         table_prefix: str,
         wordpress_user: str | None,
     ) -> DatabaseTargetState:
-        """What the administrator observes of ``location`` (AD-29)."""
+        """What the WordPress account, else the administrator, observes (AD-29)."""
         ...
 
     def check_ensure(self, location: DatabaseLocation) -> Readiness:
@@ -54,9 +60,14 @@ class DatabaseQuery(Protocol):
         ...
 
     def check_load(
-        self, location: DatabaseLocation, *, source: Path | None
+        self,
+        location: DatabaseLocation,
+        *,
+        source: Path | None,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> Readiness:
-        """Whether ``load_dump`` into ``location`` would run."""
+        """Whether ``load_dump`` into ``location`` with the same options would run."""
         ...
 
     def check_revoke(
@@ -85,9 +96,26 @@ class DatabaseCommand(Protocol):
         ...
 
     def load_dump(
-        self, location: DatabaseLocation, source: IO[bytes] | Path
+        self,
+        location: DatabaseLocation,
+        source: IO[bytes] | Path,
+        *,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> LoadResult:
-        """Load the plain Dump ``source`` into the empty ``location.name``."""
+        """Load the plain Dump ``source`` into ``location.name``.
+
+        Without ``replace`` the database must be empty. With it, the Dump is
+        loaded over what is there, after every table and view whose name
+        starts with ``prune_prefix`` (when given) was dropped
+        (``LoadResult.dropped``).
+        """
+        ...
+
+    def drop_tables(
+        self, location: DatabaseLocation, *, prefix: str
+    ) -> tuple[str, ...]:
+        """Drop every table and view of ``location`` starting with ``prefix``."""
         ...
 
     def revoke_grants(

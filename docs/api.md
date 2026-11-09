@@ -97,7 +97,7 @@ Site's; the rest are standard process variables it uses.
 | `L3IO_WP_BACKUP_PASSPHRASE` | the call resolves a passphrase: `backup(encrypt=True)`, `verify(authenticate=True)`, every `restore`. The `passphrase` argument is tried first and `prompt` last. A backup without `encrypt=True` only notes that it is set. |
 | `L3IO_WP_BACKUP_DB_USER`, `L3IO_WP_BACKUP_DB_PASSWORD` | the WordPress database account is resolved and no `credentials=` spec was given. |
 | `L3IO_WP_BACKUP_ADMIN_USER`, `L3IO_WP_BACKUP_ADMIN_PASSWORD` | a restore resolves the database administrator account and no `admin=` spec was given. |
-| the variables the Site's `wp-config.php` names | its `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or `$table_prefix` is `getenv_docker('NAME', <default>)` or `getenv('NAME')`, as the official `wordpress` image writes them: `NAME`, and for `getenv_docker` the file `NAME_FILE` names (a Docker secret), resolved as PHP would (owner decision 47). `backup`, `doctor` and a files-only `restore` resolve them; a database `restore` refuses such a target (`EnvironmentDrivenTargetError`). A files-only `restore` with `config_policy=ConfigPolicy.OVERWRITE` carries the definitions into the Archive's file as written (owner decision 48), and refuses an Archive's file that does not define `getenv_docker()` (`UndefinedConfigFunctionError`). |
+| the variables the Site's `wp-config.php` names | its `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or `$table_prefix` is `getenv_docker('NAME', <default>)` or `getenv('NAME')`, as the official `wordpress` image writes them: `NAME`, and for `getenv_docker` the file `NAME_FILE` names (a Docker secret), resolved as PHP would (owner decision 47). `backup`, `doctor` and `restore` resolve them; a database `restore` loads the database they name and writes no `DB_*` (owner decision 49), and only a relocation that would rewrite one is refused (`EnvironmentDrivenTargetError`). A files-only `restore` with `config_policy=ConfigPolicy.OVERWRITE` carries the definitions into the Archive's file as written (owner decision 48), and refuses an Archive's file that does not define `getenv_docker()` (`UndefinedConfigFunctionError`). |
 | `PATH` | the package locates an external tool (`wp` and the readiness probes). Only absolute entries are searched. `PATH` is also passed to the WP-CLI and probe child processes. |
 | `HOME` | passed to the WP-CLI and probe child processes, which use it for their own cache and configuration. No other variable of yours reaches them. |
 | `TMPDIR`, `TEMP`, `TMP` | the Run's private workspace is created, through `tempfile`. The workspace holds the database dump (and a decrypted payload) while a Run is in progress. A Run killed outright (`SIGKILL`, power loss) leaves it behind; each later Run of the same OS user removes `l3io-wp-backup-*` workspaces untouched for 24 hours, logging each path (`stale_residue_removed`). Pointing `TMPDIR` at a memory-backed filesystem (tmpfs) keeps that plaintext off disk altogether. |
@@ -302,11 +302,20 @@ library never switches its host's user. The `wpbackup2` command started as
 root switches to the Site Root's owner instead (owner decision 58). A Site
 Root that does not look like WordPress (none of `wp-config.php`,
 `wp-includes/`, `wp-content/`) and is not empty needs the files waiver in
-`overrides`; one that does needs none (owner decision 57).
+`overrides`; one that does needs none (owner decision 57). Likewise a
+database with tables none of which carries the site's table prefix needs the
+database waiver; a WordPress or empty database needs none. A Mode that
+restores the database loads the Dump straight into the live database, after
+the Safety Snapshot, dropping the tables with the site's prefix first, and
+reloads the snapshot if the load fails (`RollbackFailedError` when that fails
+too; [ADR-0027](adr/0027-restore-into-an-environment-driven-database.md)).
+`admin` is used only when the database does not exist yet or the WordPress
+account lacks the rights (owner decision 55); without one such a restore
+raises `AdminCredentialsRequiredError` before anything changes.
 
 **Forwarding user input.** `mode` and `overrides` are values, not the CLI's
 flag-combination table (AD-25): `RestoreMode.ALL_CLEAN` clears the Site Root
-and drops the losing database as one value, and an `OverrideSet` can waive one
+and replaces the database as one value, and an `OverrideSet` can waive one
 FR-7 refusal without the other. FR-7's guard, the Safety Snapshot, the Site
 Lock and the consent checks still run. A host that builds `RestoreMode(...)`
 or `Override(...)` from its own users' input takes on the choice the CLI makes
@@ -776,13 +785,20 @@ Fields: `run_id`, each holding the argument of the same name.
 
 The operation needs administrator credentials that were not given.
 
+Owner decision 55: a restore needs an administrator only when the database
+does not exist yet or the WordPress account lacks the rights. `missing` then
+names what is missing, as finding codes (`database_absent`,
+`missing_privilege`, `authentication_failed`, `database_not_visible`),
+`database` the database and `account` the WordPress account's credential
+source; never a secret.
+
 ```python
-AdminCredentialsRequiredError(source: str, *, flags: tuple[str, ...])
+AdminCredentialsRequiredError(source: str, *, flags: tuple[str, ...], missing: tuple[str, ...] = (), database: str | None = None, account: str | None = None)
 ```
 
 Base: `CredentialsError`. Exit code: `CREDENTIALS` (4).
 
-Fields: `source`, `flags`, each holding the argument of the same name.
+Fields: `source`, `flags`, `missing`, `database`, `account`, each holding the argument of the same name.
 
 ### `ArchiveChangedError`
 
@@ -1093,7 +1109,7 @@ Fields: `relative_path`, each holding the argument of the same name.
 
 ### `EnvironmentDrivenTargetError`
 
-A restore target's `wp-config.php` reads one of `DB_HOST`, `DB_USER`, `DB_PASSWORD` or `DB_NAME` from the environment (`getenv_docker()` or `getenv()`, as the official `wordpress` image writes them), and the restore would rewrite it as a fixed value: a Mode that restores the database (its cutover rewrites `DB_NAME`). Refused before any change, a Dry Run included (owner decision 47; [ADR-0027](adr/0027-restore-into-an-environment-driven-database.md), Proposed). `keys` are the constants, `variables` the environment variables they read (names only), `path` the file and `operation` what was refused (`"a database restore"`). A files-only restore resolves the lookups instead; with `config_policy=ConfigPolicy.OVERWRITE` it carries them into the Archive's file as written (owner decision 48).
+A restore target's `wp-config.php` reads one of `DB_HOST`, `DB_USER`, `DB_PASSWORD` or `DB_NAME` from the environment (`getenv_docker()` or `getenv()`, as the official `wordpress` image writes them), and a relocation (`--new-db-*`) would rewrite it as a fixed value. Refused before any change, a Dry Run included ([ADR-0027](adr/0027-restore-into-an-environment-driven-database.md), Accepted). `keys` are the constants, `variables` the environment variables they read (names only), `path` the file and `operation` what was refused. A restore without relocation resolves the lookups and loads the database they name, writing no `DB_*` (owner decisions 47 and 49); with `config_policy=ConfigPolicy.OVERWRITE` a files restore carries them into the Archive's file as written (owner decision 48).
 
 ```python
 EnvironmentDrivenTargetError(*, keys: tuple[str, ...], variables: tuple[str, ...], path: PurePath, operation: str)
@@ -1271,6 +1287,23 @@ Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `path`, `reason`, each holding the argument of the same name.
 
+### `LoadCheckFailedError`
+
+The loaded database is not a WordPress database (the post-load check).
+
+The load went into the live database (owner decision 49), so the automatic
+rollback reloads the Safety Snapshot before this is raised (decision 50);
+when that fails, `RollbackFailedError` is raised instead. Renamed from
+`StagingCheckFailedError`.
+
+```python
+LoadCheckFailedError(database: str, *, is_wordpress: bool, schema_version: str | None)
+```
+
+Base: `BackupError`. Exit code: `FAILED` (1).
+
+Fields: `database`, `is_wordpress`, `schema_version`, each holding the argument of the same name.
+
 ### `LoadFailedError`
 
 Loading a Dump started and failed, or the Dump was unreadable.
@@ -1346,7 +1379,7 @@ Fields: `extra`, each holding the argument of the same name.
 
 ### `NoConfigForCutoverError`
 
-A database Mode, and no `wp-config.php` will exist for the cutover.
+A relocation's cutover, and no `wp-config.php` will exist to write it.
 
 `path` is where the cutover would write; `searched` is every place a target
 `wp-config.php` was looked for (`path` alone when not given).
@@ -1521,6 +1554,25 @@ Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `uid`, `gid`, `step`, each holding the argument of the same name.
 
+### `RollbackFailedError`
+
+Decision 50: the load failed, and putting the database back failed too.
+
+`cause` is the load's failure and `rollback` the rollback's (`None` when
+nothing could roll back: no Safety Snapshot); `database` the live database,
+now partly loaded; `snapshot` the Safety Snapshot's path (`None` without one)
+and `recovery` the commands that restore it. The Run stays recorded as
+interrupted. Names, paths, error classes and this package's own messages
+only.
+
+```python
+RollbackFailedError(*, cause: BaseException, rollback: BaseException | None, database: str, snapshot: str | None, recovery: str)
+```
+
+Base: `BackupError`. Exit code: `FAILED` (1).
+
+Fields: `cause`, `rollback`, `database`, `snapshot`, `recovery`, each holding the argument of the same name.
+
 ### `RootBackupRefusedError`
 
 A backup as root that cannot run as the Site Root's owner (owner decisions 67, 68): the `wpbackup2` command refuses a Site Root owned by root (there is no owner to switch to), and the library refuses any backup running as root (it never switches its host's user; drop privileges first, or use the command). Raised before the Run opens.
@@ -1652,18 +1704,6 @@ SnapshotFailedError(path: str | None, cause: BaseException | str)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `path`, `cause`, each holding the argument of the same name.
-
-### `StagingCheckFailedError`
-
-The loaded database is not a WordPress database; nothing was cut over.
-
-```python
-StagingCheckFailedError(database: str, *, is_wordpress: bool, schema_version: str | None)
-```
-
-Base: `BackupError`. Exit code: `FAILED` (1).
-
-Fields: `database`, `is_wordpress`, `schema_version`, each holding the argument of the same name.
 
 ### `StoredUrlInvalidError`
 

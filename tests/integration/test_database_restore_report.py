@@ -1,18 +1,18 @@
 """FR-9, AD-28, AD-29 — three servers, three accurate reports (E003-S02-004).
 
-A restore through the real ``check_staged``/``load_staged`` slots
+A restore through the real ``check_live``/``load_live`` slots
 (``tests/integration/live_restore.py``) onto:
 
-- (a) a fresh server — no database, no WordPress account: the report says
-  both were created;
+- (a) a fresh server — no database, no WordPress account: an administrator
+  is needed (owner decision 55), and the report says both were created;
 - (b) an account that exists without its database: the database was
   created, the account was not (AD-29's reachable case);
-- (c) a populated server: refused by FR-7 without ``--force``, naming the
-  live database the administrator surveyed; with ``--force`` alone the load
-  went into staging, and the report says restored with the live database
-  retained;
+- (c) a populated WordPress database: no ``--force`` (owner decision 57); the
+  Dump loads straight into it (decision 49) and the report names the live
+  database and the prefixed tables dropped first (decision 53);
 - (d) a truncated Dump member: the Run raises, exits non-zero, and the live
-  database's ``CHECKSUM TABLE`` is unchanged;
+  database's ``CHECKSUM TABLE`` is unchanged, put back from the Safety
+  Snapshot by the automatic rollback (decision 50);
 - (e) AD-28 by reachability: the restored account sees its own database and
   cannot open a neighbour whose name differs only where ``_`` would match
   as a pattern.
@@ -40,16 +40,12 @@ pytest.importorskip("l3io.wp.database")
 from l3io.wp.backup.adapters.database import WpDatabase, admin_source
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.exit import exit_code_for
-from l3io.wp.backup.core.restore import (
-    NO_RELOCATION,
-    NonEmptyTargetError,
-    staging_name,
-)
+from l3io.wp.backup.core.restore import NO_RELOCATION
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
 from l3io.wp.backup.domain.errors import BackupError
 from l3io.wp.backup.domain.exit_codes import ExitCode
-from l3io.wp.backup.domain.restore import Override, OverrideSet, RestoreMode
+from l3io.wp.backup.domain.restore import OverrideSet, RestoreMode
 from tests.conftest import CredentialSentinel
 from tests.integration import live_restore
 from tests.integration.live_restore import (
@@ -206,19 +202,18 @@ def test_a_fresh_server_reports_database_and_user_created(
     report = restore(spec).database
 
     assert report is not None
-    assert report.live_database_after == staging_name(fresh.site.database, spec.run_id)
+    assert report.live_database_after == fresh.site.database
+    assert report.administrator is True
     ensure = report.ensure
     assert (ensure.created_database, ensure.created_user) == (True, True)
     assert (ensure.password_set, ensure.granted) == (True, True)
     assert (report.performed, report.restored) == (True, True)
-    assert report.previous_database == "none"
+    assert report.dropped_tables == ()
     assert report.loaded_bytes > 0
+    # Observed as the WordPress account now that it exists (owner decision
+    # 55), which cannot read the account table: user_exists is not known.
     after = fresh.survey(report.live_database_after)
-    assert (after.database_exists, after.is_wordpress, after.user_exists) == (
-        True,
-        True,
-        True,
-    )
+    assert (after.database_exists, after.is_wordpress) == (True, True)
     credential_sentinel.add_repr("report", report)
     credential_sentinel.assert_clean()
 
@@ -233,37 +228,31 @@ def test_an_existing_account_without_its_database_is_reported_as_existing(
     ).database
 
     assert report is not None
+    assert report.administrator is True
     assert report.ensure.created_database is True
     assert report.ensure.created_user is False
     assert report.restored is True
-    assert report.previous_database == "none"
 
 
-def test_a_populated_server_with_force_loads_into_staging_and_keeps_the_live(
+def test_a_populated_wordpress_database_is_loaded_in_place_without_force(
     populated: Server,
 ) -> None:
     site = populated.site
     before = populated.survey(site.database)
     assert before.database_exists is True
-    assert before.table_count > 0
-    checksums = site.checksums()
+    assert before.prefixed_tables == ("wp_options", "wp_original")
     archive = build_archive(site.work, config=None)
-    with pytest.raises(NonEmptyTargetError) as refused:
-        restore(populated.spec(archive))
-    assert site.database in refused.value.found
-    assert exit_code_for(refused.value) is ExitCode.REFUSED
-    force = OverrideSet(waived=frozenset({Override.NONEMPTY_DATABASE}))
-    spec = populated.spec(archive, overrides=force)
-    report = restore(spec).database
+    report = restore(populated.spec(archive)).database
 
     assert report is not None
     assert report.live_database_before == site.database
-    assert report.live_database_after == staging_name(site.database, spec.run_id)
-    assert report.ensure.created_database is True
-    assert report.previous_database == "retained"
+    assert report.live_database_after == site.database
+    assert report.administrator is False
+    assert set(report.dropped_tables) == {"wp_options", "wp_original"}
     assert report.restored is True
-    assert read_keys(site.config)["DB_NAME"] == report.live_database_after
-    assert site.checksums() == checksums
+    assert read_keys(site.config)["DB_NAME"] == site.database
+    assert set(site.checksums()) == {"wp_options", "wp_restored"}
+    assert site.databases() == [site.database]
 
 
 def test_a_truncated_dump_exits_non_zero_and_leaves_the_live_database(
@@ -273,7 +262,9 @@ def test_a_truncated_dump_exits_non_zero_and_leaves_the_live_database(
     checksums = site.checksums()
     whole = live_restore.WP_DUMP
     monkeypatch.setattr(live_restore, "WP_DUMP", whole[: len(whole) // 2])
-    spec = populated.spec(build_archive(site.work, config=None))
+    spec = replace_spec(
+        populated.spec(build_archive(site.work, config=None)), snapshot=True
+    )
 
     with pytest.raises(BackupError) as caught:
         restore(spec)
@@ -289,6 +280,7 @@ def test_the_restored_account_cannot_reach_a_pattern_neighbour(fresh: Server) ->
     report = restore(spec).database
     assert report is not None
     own = report.live_database_after
+    assert own == fresh.site.database
     assert "_" in own
     neighbour = own.replace("_", "X", 1)
     with root_connection().cursor() as cursor:

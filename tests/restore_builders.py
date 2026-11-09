@@ -58,8 +58,16 @@ FULL_DB = DatabaseTargetState(
     user_exists=True,
     routine_count=0,
     event_count=0,
+    prefixed_tables=("wp_options", "wp_posts"),
 )
-EMPTY_DB = dataclasses.replace(FULL_DB, table_count=0, is_wordpress=False)
+EMPTY_DB = dataclasses.replace(
+    FULL_DB, table_count=0, is_wordpress=False, prefixed_tables=()
+)
+#: Owner decision 57: tables, none with the site's prefix (another
+#: application's database), so a restore over it needs ``--force``.
+FOREIGN_DB = dataclasses.replace(
+    FULL_DB, is_wordpress=False, schema_version=None, prefixed_tables=()
+)
 
 #: A populated target: files, a database with tables and a config.
 POPULATED = TargetState(

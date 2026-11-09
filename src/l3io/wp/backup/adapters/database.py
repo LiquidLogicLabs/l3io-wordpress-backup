@@ -99,6 +99,7 @@ if TYPE_CHECKING:
         Connection,
         CredentialSource,
         ResolvedCredentials,
+        Survey,
         TlsSettings,
         Verdict,
     )
@@ -110,6 +111,7 @@ __all__ = [
     "INVALID_DATABASE_NAME",
     "INVALID_DB_HOST",
     "TLS_SETTINGS_UNUSABLE",
+    "WORDPRESS_OBSERVER",
     "DatabaseAuthPluginRefusedError",
     "DatabaseTlsHandshakeError",
     "DatabaseTlsVerificationError",
@@ -125,6 +127,7 @@ __all__ = [
     "locate_wp_config",
     "password_at_call_time",
     "require_wp_config_credentials",
+    "resolve_admin_now",
     "resolve_wordpress_now",
     "site_descriptor_from_archive_config",
     "site_descriptor_from_wp_config",
@@ -157,6 +160,9 @@ ADMIN_FLAGS: Final = (
 )
 #: The ``source`` label of that error: the half that was not given.
 ADMIN_SOURCE: Final = "administrator"
+#: ``database_surveyed``'s ``observed_by`` when the WordPress account
+#: answered (owner decision 55).
+WORDPRESS_OBSERVER: Final = "wordpress"
 #: The flag that supplies each account's AWS region, named when none is known.
 _DB_REGION_FLAG: Final = "--db-credentials-aws-region"
 _ADMIN_REGION_FLAG: Final = "--admin-credentials-aws-region"
@@ -301,7 +307,7 @@ def _backup_extra(extra: str) -> str:
 def database_name_is_valid(name: str) -> bool:
     """Whether database's ``validate_database_name`` accepts ``name``.
 
-    The one door for that check (ADR-0015): ``adapters/staging.py`` asks here
+    The one door for that check (ADR-0015): ``adapters/database_load.py`` asks here
     instead of importing ``l3io.wp.database``. ``MissingExtraError`` without
     the ``database`` extra (AD-8).
     """
@@ -427,8 +433,8 @@ def _location_of(path: Path, in_root: Path, in_parent: Path) -> ConfigLocation |
 
 
 #: The ``DB_*`` a restore rewrites at its cutover, and ``--overwrite-wp-config``
-#: carries over; ADR-0027 (Proposed) refuses a target that reads one of them
-#: from the environment.
+#: carries over; ADR-0027 refuses a relocation that would rewrite one a
+#: target reads from the environment.
 _TARGET_KEYS: Final = ("DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME")
 
 
@@ -439,6 +445,7 @@ def site_descriptor_from_wp_config(
     environ: Mapping[str, str],
     secrets: SecretRegistry,
     refuse_environment: str | None = None,
+    refuse_keys: tuple[str, ...] = _TARGET_KEYS,
 ) -> tuple[SiteDescriptor, CredentialSource]:
     """The descriptor for a live Site, and its ``wp-config.php`` credential source.
 
@@ -446,9 +453,11 @@ def site_descriptor_from_wp_config(
     ``$table_prefix`` defined with ``getenv_docker()``/``getenv()`` is
     resolved against it (owner decision 47); this adapter never reads
     ``os.environ`` (BL-E005-007). ``refuse_environment`` names an operation
-    that cannot keep such a definition (a restore's): when given, a ``DB_*``
-    read from the environment is ``EnvironmentDrivenTargetError`` before
-    anything is resolved (ADR-0027).
+    that cannot keep such a definition (a relocation's cutover, which
+    rewrites ``refuse_keys``): when given, any of ``refuse_keys`` read from
+    the environment is ``EnvironmentDrivenTargetError`` before anything is
+    resolved (ADR-0027). A database restore that relocates nothing writes no
+    ``DB_*`` and passes none (owner decision 49).
     """
     root = _site_root(site_root)
     if not config_file.is_file():
@@ -460,6 +469,7 @@ def site_descriptor_from_wp_config(
         environ=environ,
         secrets=secrets,
         refuse_environment=refuse_environment,
+        refuse_keys=refuse_keys,
     )
 
 
@@ -470,12 +480,14 @@ def site_descriptor_from_archive_config(
     environ: Mapping[str, str],
     secrets: SecretRegistry,
     refuse_environment: str | None = None,
+    refuse_keys: tuple[str, ...] = _TARGET_KEYS,
 ) -> tuple[SiteDescriptor, CredentialSource]:
     """The descriptor for a restore target with no ``wp-config.php`` (AD-3).
 
     ``config_file`` is the Archive's config member, already extracted into the
     Run workspace; ``site_root`` is the target's canonical Site Root.
-    ``environ``, ``secrets`` and ``refuse_environment`` are as for
+    ``environ``, ``secrets``, ``refuse_environment`` and ``refuse_keys`` are
+    as for
     :func:`site_descriptor_from_wp_config`.
     """
     if config_file is None or not config_file.is_file():
@@ -492,6 +504,7 @@ def site_descriptor_from_archive_config(
         environ=environ,
         secrets=secrets,
         refuse_environment=refuse_environment,
+        refuse_keys=refuse_keys,
     )
 
 
@@ -502,6 +515,7 @@ def _parse(
     environ: Mapping[str, str],
     secrets: SecretRegistry,
     refuse_environment: str | None,
+    refuse_keys: tuple[str, ...] = _TARGET_KEYS,
 ) -> tuple[SiteDescriptor, CredentialSource]:
     """The one parsing path both descriptor constructors share.
 
@@ -516,9 +530,9 @@ def _parse(
     from l3io.wp import database as wpdb
 
     label = f"wp-config:{config_file}"
-    if refuse_environment is not None:
+    if refuse_environment is not None and refuse_keys:
         refuse_environment_lookups(
-            config_file, _TARGET_KEYS, operation=refuse_environment, label=label
+            config_file, refuse_keys, operation=refuse_environment, label=label
         )
     values = read_settings(
         config_file,
@@ -717,6 +731,38 @@ def resolve_wordpress_now(
     )
 
 
+def resolve_admin_now(source: CredentialSource) -> ResolvedCredentialSpec:
+    """Owner decision 71: resolve the administrator's chain before a switch of user.
+
+    A restore the CLI started as root resolves a configured administrator
+    while it can still read what only root may (an AWS profile in root's
+    home) and carries the answer into the Run (:func:`admin_source`), which
+    uses it only where an administrator is needed (owner decision 55).
+    Failures are ``CredentialsError`` naming the source's label; never a
+    value.
+    """
+    _require_extra()
+    from l3io.wp import database as wpdb
+
+    label = source.source
+    try:
+        resolved = source.resolve()
+    except wpdb.MissingDependencyError as exc:
+        raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+    except (
+        wpdb.CredentialsUnobtainableError,
+        wpdb.CredentialsAbsentError,
+        wpdb.ConfigurationError,
+    ) as exc:
+        raise CredentialsError(label, reason=type(exc).__name__) from exc
+    return ResolvedCredentialSpec(
+        username=resolved.username,
+        password=resolved.password,
+        source=resolved.source,
+        chain=label,
+    )
+
+
 def _resolve_mapped(
     source: CredentialSource, *, environ: Mapping[str, str]
 ) -> ResolvedCredentials:
@@ -897,7 +943,7 @@ def wordpress_source(
 
 
 def admin_source(
-    spec: CredentialSpec | None,
+    spec: CredentialSpec | ResolvedCredentialSpec | None,
     *,
     environ: Mapping[str, str],
     secrets: SecretRegistry,
@@ -905,9 +951,16 @@ def admin_source(
     """The administrator's source, or ``None``: never ``wp-config.php``.
 
     The spec (explicit or AWS), then the environment
-    (``credential_providers.admin_credentials``).
+    (``credential_providers.admin_credentials``). A
+    :class:`ResolvedCredentialSpec` is that chain's answer already, resolved
+    by a restore the CLI started as root before it switched to the Site
+    Root's owner (owner decision 71): nothing is read again.
     """
     _require_extra()
+    if isinstance(spec, ResolvedCredentialSpec):
+        if len(spec.secret) >= MIN_SECRET_LENGTH:
+            secrets.register(spec.secret, source=spec.source)
+        return resolved_credentials(spec)
     chain = admin_credentials(spec, environ=environ, secrets=secrets)
     if chain is None:
         return None
@@ -966,10 +1019,16 @@ class WpDatabase:
     :func:`admin_source` is wrapped so that what database resolves from it is
     registered all the same.
 
-    Every restore-half method but ``load_dump`` answers as the bound
-    administrator and raises ``AdminCredentialsRequiredError`` before any
-    connection when none is bound (AD-29). ``load_dump`` loads as the WordPress
-    account. Every real command result carries ``performed=True`` (ADR-0022).
+    ``check_load``, ``load_dump`` and ``drop_tables`` answer as the WordPress
+    account (owner decision 55: a restore loads straight into the live
+    database with the site's own account). ``survey_target`` observes as that
+    account and turns to the administrator only when the account cannot see
+    the database (AD-29 as amended). The provisioning methods
+    (``check_ensure``, ``ensure_database``, ``check_revoke``,
+    ``revoke_grants``, ``check_drop_database``, ``drop_database``) answer as
+    the bound administrator and raise ``AdminCredentialsRequiredError`` before
+    any connection when none is bound. Every real command result carries
+    ``performed=True`` (ADR-0022).
     """
 
     __slots__ = ("_admin", "_credentials", "_db_tls")
@@ -1107,25 +1166,48 @@ class WpDatabase:
         table_prefix: str,
         wordpress_user: str | None,
     ) -> DatabaseTargetState:
-        """Database's ``survey`` as the administrator, copied field by field.
+        """Database's ``survey``, copied field by field, with the prefixed tables.
 
-        Existence is what the administrator observes, never inferred from the
-        WordPress account failing to log in (AD-29).
+        Owner decision 55, AD-29 as amended: observed as the WordPress
+        account first. When it logs in and sees the database, that is the
+        answer, and ``check_drop_tables`` lists the tables carrying
+        ``table_prefix`` (``None`` when the account may not drop them).
+        A failed login, or a database the account cannot see, is no fact
+        about the database: the administrator observes it instead when one is
+        bound, else ``AdminCredentialsRequiredError`` names what is missing,
+        before anything changes.
         """
-        admin = self._require_admin()
         _require_extra()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
         started = time.monotonic_ns()
-        with self._mapped(location, admin.source, ProvisioningFailedError):
-            survey = wpdb.survey(
-                connection,
-                admin,
-                wordpress_user=wordpress_user,
-                user_host=_ANY_HOST,
-                table_prefix=table_prefix,
+        observer: CredentialSource = self._credentials
+        survey = self._survey_as_wordpress(
+            connection, location, wordpress_user, table_prefix
+        )
+        if survey is None or not survey.database_exists:
+            missing = (
+                "authentication_failed" if survey is None else "database_not_visible"
             )
+            if self._admin is None:
+                raise AdminCredentialsRequiredError(
+                    ADMIN_SOURCE,
+                    flags=ADMIN_FLAGS,
+                    missing=(missing,),
+                    database=location.name,
+                    account=self._credentials.source,
+                )
+            observer = self._admin
+            with self._mapped(location, observer.source, ProvisioningFailedError):
+                survey = wpdb.survey(
+                    connection,
+                    observer,
+                    wordpress_user=wordpress_user,
+                    user_host=_ANY_HOST,
+                    table_prefix=table_prefix,
+                )
+        prefixed = self._prefixed_tables(connection, location, observer, table_prefix)
         version = survey.schema_version
         state = DatabaseTargetState(
             database_exists=survey.database_exists,
@@ -1135,20 +1217,64 @@ class WpDatabase:
             user_exists=survey.user_exists,
             routine_count=survey.routine_count,
             event_count=survey.event_count,
+            prefixed_tables=prefixed,
         )
         _completed(
             "database_surveyed",
             location,
             started,
-            observed_by=ADMIN_SOURCE,
+            observed_by=ADMIN_SOURCE if observer is self._admin else WORDPRESS_OBSERVER,
             database_exists=state.database_exists,
             table_count=state.table_count,
             routine_count=state.routine_count,
             event_count=state.event_count,
             is_wordpress=state.is_wordpress,
             user_exists=state.user_exists,
+            prefixed_tables=None if prefixed is None else len(prefixed),
         )
         return state
+
+    def _survey_as_wordpress(
+        self,
+        connection: Connection,
+        location: DatabaseLocation,
+        wordpress_user: str | None,
+        table_prefix: str,
+    ) -> Survey | None:
+        """The WordPress account's survey; ``None`` when it cannot log in.
+
+        A login or access failure says nothing about the database (AD-29):
+        ``None`` here is "not observed", never "absent".
+        """
+        from l3io.wp import database as wpdb
+
+        try:
+            with self._mapped(
+                location, self._credentials.source, ProvisioningFailedError
+            ):
+                return wpdb.survey(
+                    connection,
+                    self._credentials,
+                    wordpress_user=wordpress_user,
+                    user_host=_ANY_HOST,
+                    table_prefix=table_prefix,
+                )
+        except CredentialsError:
+            return None
+
+    def _prefixed_tables(
+        self,
+        connection: Connection,
+        location: DatabaseLocation,
+        observer: CredentialSource,
+        table_prefix: str,
+    ) -> tuple[str, ...] | None:
+        """Database's ``check_drop_tables`` list; ``None`` when it is refused."""
+        from l3io.wp import database as wpdb
+
+        with self._mapped(location, observer.source, ProvisioningFailedError):
+            result = wpdb.check_drop_tables(connection, observer, prefix=table_prefix)
+        return tuple(result.tables) if result.verdict.ok else None
 
     def check_ensure(self, location: DatabaseLocation) -> Readiness:
         """Database's ``check_ensure``, as finding codes."""
@@ -1164,11 +1290,18 @@ class WpDatabase:
         return _readiness(verdict)
 
     def check_load(
-        self, location: DatabaseLocation, *, source: Path | None
+        self,
+        location: DatabaseLocation,
+        *,
+        source: Path | None,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> Readiness:
-        """Database's ``check_load`` for the WordPress account; no ``replace``.
+        """Database's ``check_load`` for the WordPress account.
 
-        No administrator: the check answers as the account the load runs as
+        ``replace`` passes database's ``replace=<the database's name>``;
+        ``prune_prefix`` its ``prune_prefix`` (owner decision 53). No
+        administrator: the check answers as the account the load runs as
         (BL-E002-104), so a failure to run it is :class:`LoadReadinessError`
         (``NOT_READY``) naming that account's credential source.
         """
@@ -1177,7 +1310,13 @@ class WpDatabase:
 
         connection = self._connection(location)
         with self._mapped(location, self._credentials.source, LoadReadinessError):
-            verdict = wpdb.check_load(connection, self._credentials, source=source)
+            verdict = wpdb.check_load(
+                connection,
+                self._credentials,
+                source=source,
+                replace=location.name if replace else None,
+                prune_prefix=prune_prefix,
+            )
         return _readiness(verdict)
 
     def check_revoke(
@@ -1252,14 +1391,22 @@ class WpDatabase:
         return outcome
 
     def load_dump(
-        self, location: DatabaseLocation, source: IO[bytes] | Path
+        self,
+        location: DatabaseLocation,
+        source: IO[bytes] | Path,
+        *,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> LoadResult:
-        """Database's ``load`` as the WordPress account into the empty database.
+        """Database's ``load`` as the WordPress account.
 
-        ``replace`` is never passed and no decryption argument either: the
-        Dump is plain inside the payload (AD-18.3, ADR-0024). A non-empty
-        target is refused by database (``database_not_empty``) and raised as
-        ``DatabaseRefusedError``; nothing is loaded over it.
+        No decryption argument: the Dump is plain inside the payload
+        (ADR-0024). Without ``replace`` a non-empty target is refused by
+        database (``database_not_empty``) and raised as
+        ``DatabaseRefusedError``. With it (owner decisions 49 and 53) the Dump
+        loads over the database, after database dropped every table and view
+        whose name starts with ``prune_prefix``; their names are
+        ``LoadResult.dropped``.
         """
         _require_extra()
         from l3io.wp import database as wpdb
@@ -1271,12 +1418,35 @@ class WpDatabase:
                 connection,
                 self._credentials,
                 source,
+                replace=location.name if replace else None,
+                prune_prefix=prune_prefix,
                 options=_LOAD_OPTIONS,
             )
-        _completed("dump_loaded", location, started, bytes=result.bytes)
-        return LoadResult(
-            bytes=result.bytes, duration_ms=result.duration_ms, performed=True
+        dropped = tuple(result.dropped)
+        _completed(
+            "dump_loaded", location, started, bytes=result.bytes, dropped=len(dropped)
         )
+        return LoadResult(
+            bytes=result.bytes,
+            duration_ms=result.duration_ms,
+            performed=True,
+            dropped=dropped,
+        )
+
+    def drop_tables(
+        self, location: DatabaseLocation, *, prefix: str
+    ) -> tuple[str, ...]:
+        """Database's ``drop_tables`` as the WordPress account; the names dropped."""
+        _require_extra()
+        from l3io.wp import database as wpdb
+
+        connection = self._connection(location)
+        started = time.monotonic_ns()
+        with self._mapped(location, self._credentials.source, LoadFailedError):
+            result = wpdb.drop_tables(connection, self._credentials, prefix=prefix)
+        dropped = tuple(result.tables)
+        _completed("tables_dropped", location, started, dropped=len(dropped))
+        return dropped
 
     def revoke_grants(
         self, location: DatabaseLocation, *, user: str, confirm: str

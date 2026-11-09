@@ -13,15 +13,18 @@ password is resolved by the CLI's own chain (``cli/credentials.new_db_password``
   ``define( 'KEY', 'value' );`` spacing, every key defined) and every other
   byte is the original's, by literal substitution of the changed value spans;
   ``php -l`` accepts the result;
-* ``DB_NAME`` ends as ``--new-db-name`` (else the staging name), and that
-  database holds the Archive's tables;
+* ``DB_NAME`` ends as ``--new-db-name`` (else it is unchanged: owner
+  decision 49 loads the live database's name), and that database holds the
+  Archive's tables;
 * the relocated password is in ``wp-config.php`` and in no journal file.
 
 Then: a read-back mismatch (``l3io.wp.config``'s ``verify_write`` patched)
 leaves the file byte-identical, journals ``REWRITE_CONFIG`` started and not
-completed, and loads nothing; a non-empty ``--new-db-name`` database is
-``REFUSED`` (under ``--force``, by the database checks) with nothing changed;
-and a DB-only relocation runs end to end through ``wpbackup2 restore``.
+completed, and loads nothing; a ``--new-db-name`` database holding tables
+none of which has the site's prefix is ``REFUSED`` without ``--force`` with
+nothing changed, and with it is loaded over, its own tables untouched (owner
+decisions 53 and 57); and a DB-only relocation runs end to end through
+``wpbackup2 restore``.
 
 BL-E007-008 (E008-S01-001): a ``wp-cli.yml`` in the per-Site state directory's
 parent makes a URL-relocating ``wpbackup2 restore`` exit 3
@@ -65,10 +68,10 @@ from l3io.wp.backup.adapters.tar import verify_archive_view
 from l3io.wp.backup.cli.credentials import new_db_password
 from l3io.wp.backup.cli.parser import RESTORE_COMMAND, build_parser
 from l3io.wp.backup.cli.restore_request import RelocationFlags
-from l3io.wp.backup.core.restore import RestoreRelocation, staging_name
+from l3io.wp.backup.core.restore import RestoreRelocation
 from l3io.wp.backup.domain.errors import BackupError, ConfigWriteFailedError
 from l3io.wp.backup.domain.exit_codes import ExitCode
-from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
+from l3io.wp.backup.domain.restore import OverrideSet, RestoreMode, RestorePhase
 from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import (
     CliSite,
@@ -86,6 +89,7 @@ from tests.integration.live_restore import (
     live_site,
     port,
     read_keys,
+    replace_spec,
     restore,
     root_connection,
     sha,
@@ -327,10 +331,10 @@ def test_each_relocation_flag_reaches_wp_config(
     )
     restore(spec)
 
-    load = given.get("--new-db-name") or staging_name(site.database, spec.run_id)
+    load = given.get("--new-db-name") or site.database
     # Literal value-span substitution on the original text, not a re-render
     # by the library that wrote the file: only these spans may differ.
-    changed = {"DB_NAME": load}
+    changed: dict[str, str] = {}
     changed.update({FLAG_KEY[flag]: expected_values[flag] for flag in given})
     expected = before
     for key, value in changed.items():
@@ -387,14 +391,15 @@ def test_a_read_back_mismatch_changes_nothing_and_loads_nothing(
     assert ("phase_started", RestorePhase.LOAD_DUMP) not in events
 
 
-def test_a_non_empty_new_database_is_refused_and_nothing_changes(
-    live_site: LiveSite, credential_sentinel: CredentialSentinel
+@pytest.mark.parametrize("force", [False, True], ids=["refused", "forced"])
+def test_a_new_database_of_another_application_needs_force(
+    live_site: LiveSite, credential_sentinel: CredentialSentinel, force: bool
 ) -> None:
-    """Under ``--force`` (the spec's waivers), the database checks still refuse.
+    """Owner decision 57: tables, but none with the site's prefix, need ``--force``.
 
-    ``check_staged`` at ``PREFLIGHT`` reports the database not empty, so the
-    refusal comes before any destructive phase (``LOAD_DUMP`` is the fallback
-    only when the account cannot see the database).
+    Without it the plan refuses before any phase. With it the Dump loads over
+    that database: only the tables with the site's prefix are dropped first
+    (decision 53), so the other application's table survives.
     """
     site = live_site
     occupied = f"{site.database}_full"
@@ -416,8 +421,13 @@ def test_a_non_empty_new_database_is_refused_and_nothing_changes(
     before = site.config.read_bytes()
     checksums = site.checksums(occupied)
     spec = spec_for(site, archive, RestoreMode.DATABASE, relocation=relocation)
-    with pytest.raises(BackupError) as caught:
+    if force:
         restore(spec)
+        assert _tables(occupied) == {"keep_me", "wp_options", "wp_restored"}
+        assert read_keys(site.config)["DB_NAME"] == occupied
+        return
+    with pytest.raises(BackupError) as caught:
+        restore(replace_spec(spec, overrides=OverrideSet.none()))
     assert caught.value.exit_code is ExitCode.REFUSED, caught.value
     assert site.config.read_bytes() == before
     assert site.checksums(occupied) == checksums

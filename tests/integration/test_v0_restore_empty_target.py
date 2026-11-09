@@ -18,9 +18,10 @@ Two ways in, over the CI database:
   lays the tree's config down before the plan, so it passed before the fix
   too; it pins that the two paths end the same way.
 
-Each asserts the site's ``wp-config.php`` ends with the values the cutover
-sets (``DB_NAME`` the Run's load database; the account and host the
-Archive's) and that the Dump is loaded into that database.
+Each asserts the site's ``wp-config.php`` ends with the Archive's values
+(since owner decision 49 there is no ``DB_NAME`` cutover: the Dump loads
+straight into the database the Archive's config names) and that the Dump is
+loaded into that database.
 
 Needs the CI ``db`` service: skips without ``DB_HOST`` and fails, rather than
 skips, when ``CI`` is set.
@@ -39,7 +40,7 @@ import pytest
 pytest.importorskip("l3io.wp.database")
 pytest.importorskip("pymysql")
 
-from l3io.wp.backup.core.restore import NO_RELOCATION, load_names, staging_name
+from l3io.wp.backup.core.restore import NO_RELOCATION
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import RestoreMode
 from tests.conftest import CredentialSentinel
@@ -111,7 +112,8 @@ def _restored_rows(database: str) -> list[int]:
 
 
 def _assert_cut_over(config: Path, *, load: str, site: LiveSite) -> None:
-    """The cutover's values are in ``config``, and the Dump is in ``load``."""
+    """``config`` names ``load`` (the Archive's, unchanged: owner decision 49),
+    and the Dump is in it."""
     keys = read_keys(config)
     assert keys["DB_NAME"] == load
     assert keys["DB_USER"] == site.user
@@ -135,10 +137,8 @@ def test_execute_restore_cuts_over_into_the_trees_config(
     _drop_database(site.database)
     spec = spec_for(site, archive, RestoreMode.ALL, relocation=NO_RELOCATION)
     restore(spec)
-    load, staging = load_names(site.database, spec.run_id, NO_RELOCATION)
-    assert staging == load
     assert (site.site_root / "index.php").read_bytes() == b"<?php // v0\n"
-    _assert_cut_over(site.config, load=load, site=site)
+    _assert_cut_over(site.config, load=site.database, site=site)
     credential_sentinel.assert_clean()
 
 
@@ -173,10 +173,9 @@ def test_the_cli_restores_a_v0_archive_onto_an_empty_directory(
         capsys,
     )
     assert ran.code == int(ExitCode.OK), ran.err[-3000:]
-    (run_id,) = {r["l3io_run_id"] for r in ran.records if "l3io_run_id" in r}
-    load = staging_name(site.site.database, run_id)
+    assert len({r["l3io_run_id"] for r in ran.records if "l3io_run_id" in r}) == 1
     assert (target / "index.php").read_bytes() == b"<?php // v0\n"
-    _assert_cut_over(target / "wp-config.php", load=load, site=site.site)
+    _assert_cut_over(target / "wp-config.php", load=site.site.database, site=site.site)
     credential_sentinel.add("stdout", ran.out)
     credential_sentinel.add("stderr", ran.err)
     credential_sentinel.assert_clean()

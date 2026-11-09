@@ -1,17 +1,19 @@
 """A live restore over the CI database, for E003-S02-005's integration tests.
 
 Not a test module. :func:`restore` drives ``execute_restore`` with the real
-``check_staged``/``load_staged`` slots over the real adapters — ``WpDatabase``
+``check_live``/``load_live`` slots over the real adapters — ``WpDatabase``
 as ``live_account``'s throwaway account (also the administrator),
 ``WpConfigWriter``, ``LocalSiteFiles``, ``TarArchiveProbe`` and
 ``FileRunJournal`` — not the library entry point (Epic 6) and not
-``drive_restore`` (E003-S02-006). The Safety Snapshot is skipped (story 3.3's
-slot is not this story's); undo texts say so.
+``drive_restore`` (E003-S02-006). The Safety Snapshot is skipped unless
+``RestoreSpec.snapshot`` asks for one: then the live database is dumped as
+the WordPress account into a real Archive (:func:`live_snapshot`), which the
+automatic rollback (owner decision 50) reloads.
 
 :class:`LiveSite` owns a throwaway live database whose name is unique to the
 test, seeded WordPress-shaped; its teardown drops that database and every
-database whose name starts with it (the staging and ``--new-db-name``
-databases this story creates), through CI's own connection only.
+database whose name starts with it (``--new-db-name`` databases the tests
+create), through CI's own connection only.
 """
 
 from __future__ import annotations
@@ -37,12 +39,12 @@ from l3io.wp.backup.adapters.database import (
     site_descriptor_from_archive_config,
     site_descriptor_from_wp_config,
 )
+from l3io.wp.backup.adapters.database_load import check_live, load_live
 from l3io.wp.backup.adapters.journal import FileRunJournal, journal_directory
 from l3io.wp.backup.adapters.noop import NoopTracer
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.restore_runner import execute_restore
+from l3io.wp.backup.adapters.restore_runner import execute_restore, snapshot_result
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
-from l3io.wp.backup.adapters.staging import check_staged, load_staged
 from l3io.wp.backup.adapters.tar import (
     TarArchiveProbe,
     collect_site_root,
@@ -58,7 +60,8 @@ from l3io.wp.backup.core.restore import (
     SnapshotResult,
     TargetState,
     build_restore_plan,
-    load_names,
+    database_rollback,
+    load_database_name,
     planned_cutover_keys,
     planned_cutover_targets,
 )
@@ -72,7 +75,9 @@ from l3io.wp.backup.domain.archive_format import (
     MemberRole,
     config_member,
 )
+from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
+from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 from l3io.wp.backup.domain.journal import JOURNALED_CONSTANTS, JournalHeader
 from l3io.wp.backup.domain.preflight import ToolRequirement
@@ -299,6 +304,10 @@ class RestoreSpec:
     overrides: OverrideSet = field(
         default_factory=lambda: OverrideSet(waived=frozenset(Override))
     )
+    #: Take a real Safety Snapshot of the live database (:func:`live_snapshot`).
+    snapshot: bool = False
+    #: Bind no administrator: the WordPress account alone (owner decision 55).
+    no_admin: bool = False
 
 
 Wrap = Callable[[str, object], object]
@@ -321,7 +330,9 @@ def adapters_for(
     )
     if spec.admin_user is not None and spec.admin_password is not None:
         admin_spec = ExplicitCredentialSpec(spec.admin_user, spec.admin_password)
-    admin = admin_source(admin_spec, environ={}, secrets=secrets)
+    admin = (
+        None if spec.no_admin else admin_source(admin_spec, environ={}, secrets=secrets)
+    )
     live = WpDatabase(
         wpdb.Explicit(spec.user, spec.password), secrets=secrets, admin=admin
     )
@@ -386,6 +397,52 @@ def _no_snapshot(_scope: object) -> SnapshotResult:
     raise AssertionError(msg)
 
 
+def live_snapshot(
+    adapters: AdapterSet, location: DatabaseLocation, path: Path
+) -> Callable[[BackupScope], SnapshotResult]:
+    """A real Safety Snapshot of the live database, as the WordPress account.
+
+    The database is dumped through ``WpDatabase.dump_to`` and written by the
+    real Archive writer with no Site files, owner-only, then verified by
+    ``snapshot_result`` as the root's snapshot is.
+    """
+
+    def take(scope: BackupScope) -> SnapshotResult:
+        work = path.parent / f"snapshot-build-{uuid.uuid4().hex[:6]}"
+        work.mkdir(parents=True)
+        dump = work / "dump.sql"
+        adapters.database_command.dump_to(location, dump)
+        members = [file_member(MemberRole.DUMP, DUMP_RELATIVE, dump)]
+
+        def manifest(index: tuple[ManifestMember, ...]) -> Manifest:
+            return Manifest(
+                format_version=FORMAT_VERSION,
+                created_at="2026-11-03T00:00:00+00:00",
+                backup_scope="database",
+                source={"db_name": location.name},
+                encrypted=False,
+                payload=ManifestPayload(name=PAYLOAD_MEMBER, size=0, sha256="0" * 64),
+                members=index,
+                dump_present=True,
+                config_path=None,
+            )
+
+        workspace = work / "write"
+        workspace.mkdir(mode=0o700)
+        with path.open("wb") as out:
+            write_archive(out, manifest, members, workspace=workspace, cipher=None)
+        path.chmod(0o600)
+        return snapshot_result(
+            PurePosixPath(path),
+            scope=scope,
+            encrypted=False,
+            size=path.stat().st_size,
+            performed=True,
+        )
+
+    return take
+
+
 def restore(
     spec: RestoreSpec,
     wrap: Wrap = _identity,
@@ -443,11 +500,18 @@ def restore(
             site_root=site.site_root,
             site_root_entries=files.entry_count(root),
             database_location=location,
-            load_target=None,
+            load_target=None
+            if spec.relocation.load_location is None
+            else adapters.restore_database_query.survey_target(
+                spec.relocation.load_location,
+                table_prefix=site.table_prefix,
+                wordpress_user=None,
+            ),
             load_location=spec.relocation.load_location,
         )
 
     target = survey_target()
+    snapshot_path = root.parent / "snapshots" / f"{spec.run_id}.tar.gz"
     plan = build_restore_plan(
         site,
         spec.mode,
@@ -456,7 +520,7 @@ def restore(
         target,
         archive=archive,
         relocation=spec.relocation,
-        snapshot=SnapshotPolicy.SKIP,
+        snapshot=SnapshotPolicy.TAKE if spec.snapshot else SnapshotPolicy.SKIP,
         snapshot_dir=root.parent / "snapshots",
         config_dir=config_path.parent,
         config_policy=ConfigPolicy.KEEP,
@@ -470,16 +534,16 @@ def restore(
         prior = {k: None if v is None else str(v) for k, v in read.items()}
     else:
         prior["DB_USER"] = spec.user
-    load, staging = load_names(site.db_name, spec.run_id, spec.relocation)
+    load = load_database_name(site.db_name, spec.relocation)
     header = JournalHeader(
         run_id=spec.run_id,
         started_at="2026-11-03T00:00:00+00:00",
         site_root=site.site_root,
         restore_mode=spec.mode,
         archive=spec.archive,
-        snapshot_path=None,
+        snapshot_path=str(snapshot_path) if spec.snapshot else None,
         live_database_before=site.db_name,
-        staging_database=staging,
+        staging_database=None,
         wp_config_path=str(config_path),
         load_database=load,
         cutover_keys=planned_cutover_keys(spec.relocation),
@@ -501,15 +565,20 @@ def restore(
         workspace=workspace,
         live_database_exists=target.database is not None
         and target.database.database_exists,
+        rollback=database_rollback(site, spec.relocation, target, plan),
     )
     ports = ports_for(spec, adapters, preflight)
+    if spec.snapshot:
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     return execute_restore(
         plan,
         inputs,
         ports,
-        _no_snapshot,
-        functools.partial(check_staged, ports=ports),
-        functools.partial(load_staged, ports=ports, workspace=workspace),
+        live_snapshot(adapters, location, snapshot_path)
+        if spec.snapshot
+        else _no_snapshot,
+        functools.partial(check_live, ports=ports),
+        functools.partial(load_live, ports=ports, workspace=workspace),
         adapters.journal_command,
         None,
         survey_target=survey_target,

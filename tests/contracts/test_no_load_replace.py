@@ -1,15 +1,19 @@
-"""AD-18.3/ADR-0015/ADR-0024 — loading over a non-empty database cannot be expressed.
+"""ADR-0027/ADR-0015/ADR-0024 — a load over a database always prunes the prefix.
 
-Two halves:
+AD-18.3's "never ``replace``" is superseded by owner decisions 49 and 53
+(ADR-0027, ADR-0015 amendment of 2026-11-09): a restore loads over the live
+database, and then must drop every table carrying the site's prefix first, so
+the database matches the Archive. Two halves:
 
 * **The ports.** No method named ``load*`` on any ``Protocol`` under ``ports/``
-  declares a ``replace``, ``identities``/``identity``, ``passphrase`` or
-  credential parameter — by name (``*credential*``, ``*password*``) or by an
-  annotation naming a ``Credential`` type.
+  declares an ``identities``/``identity``, ``passphrase`` or credential
+  parameter — by name (``*credential*``, ``*password*``) or by an annotation
+  naming a ``Credential`` type — and one that declares ``replace`` declares
+  ``prune_prefix`` too.
 * **The adapters.** Every call to database's ``load`` — reached through
   ``l3io.wp.database`` imported under any alias, or ``load`` imported from it
-  by name — passes ``replace=None`` or omits it, and passes no ``**`` mapping
-  that could carry one.
+  by name — that passes a ``replace`` other than ``None`` also passes
+  ``prune_prefix``, and passes no ``**`` mapping that could carry either.
 
 **Scope, derived.** The ports half parses every ``*.py`` under ``ports/``
 (walked recursively, asserted non-empty, and asserted to reach
@@ -31,7 +35,7 @@ PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
 PORTS = PACKAGE / "ports"
 DATABASE_MODULE = "l3io.wp.database"
 
-FORBIDDEN_NAMES = frozenset({"replace", "identities", "identity", "passphrase"})
+FORBIDDEN_NAMES = frozenset({"identities", "identity", "passphrase"})
 FORBIDDEN_FRAGMENTS = ("credential", "password")
 
 
@@ -72,9 +76,11 @@ def load_methods(root: Path) -> dict[str, list[str]]:
                     a = item.args
                     params = [*a.posonlyargs, *a.args, *a.kwonlyargs]
                     params += [p for p in (a.vararg, a.kwarg) if p is not None]
-                    found[f"{cls.name}.{item.name}"] = [
-                        p.arg for p in params if _forbidden(p)
-                    ]
+                    names = {p.arg for p in params}
+                    bad = [p.arg for p in params if _forbidden(p)]
+                    if "replace" in names and "prune_prefix" not in names:
+                        bad.append("replace")
+                    found[f"{cls.name}.{item.name}"] = bad
     return found
 
 
@@ -111,12 +117,15 @@ def _is_database_load(call: ast.Call, modules: set[str], loads: set[str]) -> boo
 
 
 def _replaces(call: ast.Call) -> bool:
+    """A ``replace`` without ``prune_prefix``, or a ``**`` mapping."""
+    named = {k.arg for k in call.keywords}
     for keyword in call.keywords:
         if keyword.arg is None:  # ``**mapping`` could carry ``replace``
             return True
         if keyword.arg == "replace":
             value = keyword.value
-            if not (isinstance(value, ast.Constant) and value.value is None):
+            none = isinstance(value, ast.Constant) and value.value is None
+            if not none and "prune_prefix" not in named:
                 return True
     return False
 
@@ -148,10 +157,10 @@ def test_no_port_load_method_can_express_replace_or_a_secret() -> None:
     assert {k: v for k, v in found.items() if v} == {}
 
 
-def test_no_database_load_call_passes_replace() -> None:
+def test_no_database_load_call_replaces_without_pruning() -> None:
     assert (PACKAGE / "adapters" / "database.py").is_file()
     _, bad = load_calls(PACKAGE)
-    assert bad == [], f"AD-18.3 — load(replace=...) at {bad}"
+    assert bad == [], f"decision 53 — load(replace=...) without prune at {bad}"
 
 
 def test_the_walk_reaches_a_database_load_call() -> None:
@@ -173,6 +182,7 @@ def test_a_planted_port_in_a_nested_directory_is_seen(tmp_path: Path) -> None:
         "import typing\n"
         "class LoaderCommand(typing.Protocol):\n"
         "    def load_all(self, src, *, replace: bool) -> None: ...\n"
+        "    def load_pruned(self, src, *, replace: bool, prune_prefix) -> None: ...\n"
         "    def load_secret(self, src, admin: 'CredentialSource') -> None: ...\n"
         "    def load_key(self, src, *, passphrase, db_password) -> None: ...\n"
         "    def load_ok(self, src) -> None: ...\n"
@@ -184,6 +194,7 @@ def test_a_planted_port_in_a_nested_directory_is_seen(tmp_path: Path) -> None:
     )
     assert load_methods(tmp_path / "ports") == {
         "LoaderCommand.load_all": ["replace"],
+        "LoaderCommand.load_pruned": [],
         "LoaderCommand.load_secret": ["admin"],
         "LoaderCommand.load_key": ["passphrase", "db_password"],
         "LoaderCommand.load_ok": [],
@@ -198,7 +209,8 @@ def test_a_planted_load_call_is_seen_through_every_spelling(tmp_path: Path) -> N
         "from l3io.wp import database as wpdb\n"
         "wpdb.load(c, s, src, replace=True)\n"
         "wpdb.load(c, s, src, replace=None)\n"
-        "wpdb.load(c, s, src)\n",
+        "wpdb.load(c, s, src)\n"
+        "wpdb.load(c, s, src, replace=db, prune_prefix=p)\n",
         encoding="utf-8",
     )
     (deep / "b.py").write_text(
@@ -210,7 +222,7 @@ def test_a_planted_load_call_is_seen_through_every_spelling(tmp_path: Path) -> N
         encoding="utf-8",
     )
     total, bad = load_calls(tmp_path)
-    assert total == 5
+    assert total == 6
     assert bad == [
         "elsewhere/deeper/a.py:2",
         "elsewhere/deeper/b.py:2",

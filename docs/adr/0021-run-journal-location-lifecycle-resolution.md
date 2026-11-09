@@ -89,3 +89,13 @@ never imports `platformdirs`. AD-18.1 is amended to say so.
   new order.
 - **Revisit when:** journals must be shared between hosts (a remote lock backend). The
   location would then follow the lock, not the snapshot.
+
+## Amendment — 2026-11-09: the orderly failure of a direct load (Shawn, owner decision 50)
+
+With [ADR-0027](0027-restore-into-an-environment-driven-database.md) (Accepted),
+`is_orderly_failure` is true when no file phase started, no cutover key landed, and the
+database is as it was: the automatic rollback completed (`"rolled_back"`), or the relocated
+database this Run created was dropped again (`"load_target_dropped"`); or, in a journal of the
+staging design, as before. `"rollback_failed"` is never orderly: the Run stays recorded as
+interrupted. `--resolve-interrupted-run` acknowledges a direct-load interruption, logging
+`database_rollback_owed` with the snapshot and the recovery command; it never restores.

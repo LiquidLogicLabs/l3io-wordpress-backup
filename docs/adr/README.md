@@ -22,18 +22,18 @@ which carries the invariants (`AD-n`). An ADR here records a *mechanism*; an `AD
 | [0011](0011-observability-structlog-plus-api-only-tracing.md) | structlog for logs; tracing API-only and inert unless a host configures it | Proposed | AD-10, AD-24 |
 | [0010](0010-wpconfigr-regex-parser-scope.md) | Keep the regex `wp-config.php` reader, with documented limits and whole-file read-back | Proposed | AD-2, AD-18 |
 | [0014](0014-age-encryption-via-database.md) | Archives are `age`, through `l3io-wp-database` (passphrase via binder or `age` CLI, amended 2026-10-27) | **Accepted** | AD-6, AD-21, AD-26 |
-| [0015](0015-credentials-delegated-to-database.md) | Credentials reach MySQL client tools only through `l3io-wp-database` (credential construction only in adapters, `load` with `replace=None`, amended 2026-10-27) | **Accepted** | AD-7, AD-14, AD-29 |
+| [0015](0015-credentials-delegated-to-database.md) | Credentials reach MySQL client tools only through `l3io-wp-database` (credential construction only in adapters; `load` with `replace=None`, amended 2026-10-27 and 2026-11-09) | **Accepted** | AD-7, AD-14, AD-29 |
 | [0016](0016-run-context-binds-adapters-once.md) | The Run Context is opened without adapters and binds them exactly once | **Accepted** | AD-16, AD-19 |
 | [0017](0017-manifest-v1-member-index.md) | The v1 Manifest member index, and `SUPPORTED_FORMAT_VERSIONS` tested against the fixtures | **Accepted** | AD-6, AD-11, AD-23 |
 | [0018](0018-redaction-at-the-boundary.md) | Redaction is applied where text leaves the program, not inside domain errors | **Accepted** | AD-1, AD-7, AD-14 |
 | [0019](0019-backup-dry-run-scope.md) | What a backup Dry Run executes | **Accepted** | AD-4 |
 | [0020](0020-restore-undo-derived-at-read.md) | Restore undo text is derived when the journal is read | **Accepted** | AD-18 |
 | [0021](0021-run-journal-location-lifecycle-resolution.md) | Run Journal location (per-Site state directory), lifecycle and resolution | **Accepted** | AD-18 |
-| [0022](0022-restore-planned-from-probe-executor-runs-every-phase.md) | A restore is planned from a probe; the executor runs every phase, in a Dry Run too | **Accepted** | AD-4, AD-13, AD-17 |
+| [0022](0022-restore-planned-from-probe-executor-runs-every-phase.md) | A restore is planned from a probe; the executor runs every phase, in a Dry Run too (staging cutover superseded by 0027, amended 2026-11-09) | **Accepted** | AD-4, AD-13, AD-17 |
 | [0023](0023-target-wp-config-kept-unless-overwrite.md) | The target's `wp-config.php` is kept unless `--overwrite-wp-config` | **Accepted** | AD-18, AD-22 |
 | [0024](0024-one-encrypted-payload-passphrase-only.md) | One encrypted payload per Archive, passphrase only for v1 | **Accepted** | AD-6, AD-11, AD-21, AD-26 |
 | [0025](0025-api-composes-through-the-cli-drivers.md) | `api/` composes through the `cli/` drivers, not a second sequence | **Accepted** | AD-1, AD-16, AD-22 |
-| [0027](0027-restore-into-an-environment-driven-database.md) | A site whose `DB_NAME` comes from the environment is restored by staging, then one atomic `RENAME TABLE` into the live name (until accepted, such a restore is refused) | Proposed | AD-4, AD-18, AD-28 |
+| [0027](0027-restore-into-an-environment-driven-database.md) | A database restore loads straight into the live database after the Safety Snapshot, drops the site's prefixed tables first, and rolls back automatically; an administrator only when needed | **Accepted** | AD-4, AD-18, AD-28, AD-29 |
 | [0028](0028-layered-configuration-pydantic-settings.md) | Every Run setting as a flag, an `L3IO_WP_BACKUP_*` variable and a TOML key, layered by pydantic-settings over argparse | Accepted | AD-22, AD-26 |
 
 The spine carries 30 invariants (AD-1..AD-30). AD-16..AD-21 came from the reviewer gate: Run Context, phase ordering, recoverability, Site Lock, atomic publication, streaming. AD-22..AD-24 came from the rewrite mandate: the CLI as a frozen contract, archive-format detection with permanent v0 reads, and API-only tracing. AD-25..AD-27 close the flag-to-mode map, the passphrase chain, and the PEP 420 namespace discipline. AD-28 and AD-29 came from the database work (GRANT escaping, administrator-answered existence); AD-30 records the git tag as the only version.

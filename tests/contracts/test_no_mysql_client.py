@@ -13,7 +13,7 @@ name assembled at runtime; review covers that.
 
 **Scope, derived.** Every ``*.py`` under the package, walked recursively,
 asserted non-empty and to reach ``adapters/database.py`` and
-``adapters/staging.py`` (the modules that drive database's load). The planted
+``adapters/database_load.py`` (the modules that drive database's load). The planted
 cases attack the scope — a nested module, a path, an ``argv`` list.
 """
 
@@ -53,7 +53,7 @@ def test_the_walk_reaches_the_database_modules() -> None:
     modules = set(PACKAGE.rglob("*.py"))
     assert len(modules) > 10, f"no Python source under {PACKAGE}"
     assert PACKAGE / "adapters" / "database.py" in modules
-    assert PACKAGE / "adapters" / "staging.py" in modules
+    assert PACKAGE / "adapters" / "database_load.py" in modules
 
 
 def test_no_module_names_a_mysql_client_binary() -> None:

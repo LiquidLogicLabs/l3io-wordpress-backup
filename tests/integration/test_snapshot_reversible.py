@@ -124,11 +124,10 @@ def test_restoring_the_snapshot_gives_back_the_database(
     assert first.code == int(ExitCode.OK), first.err[-3000:]
     (written,) = first.events("safety_snapshot_written")
     snapshot = Path(written["path"])
-    restored = str(read_keys(site.site.config)["DB_NAME"])
-    assert restored != site.site.database
-    assert site.site.checksums(restored) != before
+    # Owner decision 49: the restore loaded the live database in place.
+    assert str(read_keys(site.site.config)["DB_NAME"]) == site.site.database
+    assert site.site.checksums() != before
     second = run_cli(site.argv(snapshot, *flags), capsys)
     assert second.code == int(ExitCode.OK), second.err[-3000:]
-    live = str(read_keys(site.site.config)["DB_NAME"])
-    after = site.site.checksums(live)
-    assert {table: after.get(table) for table in before} == before
+    # Decision 53: exactly the snapshot's tables, the Archive's extra gone.
+    assert site.site.checksums() == before

@@ -7,7 +7,6 @@ import dataclasses
 import pytest
 
 from l3io.wp.backup.core.restore import (
-    NoConfigForCutoverError,
     NonEmptyTargetError,
     TargetChangedError,
     recheck_target,
@@ -22,7 +21,7 @@ from l3io.wp.backup.domain.restore import (
     restores_database,
     restores_files,
 )
-from tests.restore_builders import EMPTY_DB, POPULATED, SITE_ROOT, WAIVED, plan
+from tests.restore_builders import EMPTY_DB, POPULATED, WAIVED, plan
 
 TARGETS = {
     "full": POPULATED,
@@ -59,17 +58,8 @@ def test_the_scope_covers_every_populated_part_the_plan_destroys(
 ) -> None:
     target = TARGETS[name]
     scope = snapshot_scope(mode, target)
-    if not target.config_exists and not restores_files(mode):
-        # E003-S02-005: a database Mode with no config to cut over refuses.
-        assert restores_database(mode)
-        with pytest.raises(NoConfigForCutoverError) as caught:
-            plan(mode, target=target)
-        root = SITE_ROOT / "wp-config.php"
-        parent = SITE_ROOT.parent / "wp-config.php"
-        assert caught.value.searched == (str(root), str(parent))
-        assert repr(str(root)) in str(caught.value)
-        assert repr(str(parent)) in str(caught.value)
-        return
+    # Owner decision 49: no cutover without a relocation, so a database Mode
+    # with no config to write is planned like any other.
     built = plan(mode, target=target)
     destroyed = set()
     if FILE_PHASES & set(built.phases) and not target.site_root_empty:

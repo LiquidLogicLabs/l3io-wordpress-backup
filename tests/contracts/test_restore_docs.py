@@ -9,8 +9,9 @@ Each claim checked here is derived from its source of truth, never retyped:
 - every ``$ wpbackup2 ...`` command in the document parses with the real
   parser, so a documented spelling (``restore --whatIf``) cannot drift from
   what the CLI accepts;
-- the staging database's name is described with ``core/restore.py``'s
-  infix and length rule.
+- the direct load (owner decisions 49, 50, 53) is described, and the
+  staging database it replaced is not: no ``_l3s_`` name, no ``DB_NAME``
+  cutover.
 
 **Not covered:** the prose around them, and the worked examples' output text
 (it was captured from a real Run; only the commands are re-checked).
@@ -26,15 +27,12 @@ import pytest
 
 from l3io.wp.backup.cli.parser import build_parser
 from l3io.wp.backup.cli.restore_request import render_flags
-from l3io.wp.backup.core.restore import MAX_DATABASE_NAME, STAGING_INFIX
 from l3io.wp.backup.domain.flag_map import FLAG_MAP, FlagRejection
 from l3io.wp.backup.domain.restore import RestoreMode
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "restore.md"
 #: The heading whose section holds the Modes table.
 MODES_HEADING = "## Restore Modes"
-#: The Run ID characters ``staging_name`` keeps.
-RUN_CHARS = 8
 
 
 def _text() -> str:
@@ -64,12 +62,18 @@ def _mode_rows(text: str) -> dict[str, str]:
 
 
 def _selecting_flags() -> dict[str, str]:
-    """Each Mode's combination without ``--force``, from ``FLAG_MAP``."""
+    """Each Mode's combination without ``--force``, from ``FLAG_MAP``.
+
+    Without the no-op ``--drop-database`` (owner decision 63) unless it is
+    what selects the Mode (``database-clean``).
+    """
     expected: dict[str, str] = {}
     for key, entry in FLAG_MAP.items():
         if isinstance(entry, FlagRejection) or dict(key)["force"]:
             continue
         mode, _ = entry
+        if dict(key)["drop_database"] and mode is not RestoreMode.DATABASE_CLEAN:
+            continue
         expected[mode.value] = render_flags(key)
     return expected
 
@@ -126,11 +130,12 @@ def test_every_documented_command_parses(argv: list[str]) -> None:
     assert args.what_if is ("--whatIf" in argv or "--what-if" in argv)
 
 
-def test_the_staging_name_is_documented_from_its_rule() -> None:
-    live_chars = MAX_DATABASE_NAME - len(STAGING_INFIX) - RUN_CHARS
-    text = _text()
-    assert (
-        f"`<live name, first {live_chars} characters>{STAGING_INFIX}<first "
-        f"{RUN_CHARS} characters of the Run ID>`"
-    ) in " ".join(text.split())
-    assert "the site permanently runs on the staging database's name" in text
+def test_the_direct_load_is_documented_and_the_staging_database_is_not() -> None:
+    text = " ".join(_text().split()).lower()
+    assert "straight into the live database" in text
+    assert "reloads the safety snapshot" in text
+    assert "every table and view whose name starts with the site's table prefix" in (
+        text
+    )
+    assert "_l3s_" not in text
+    assert "staging database" not in text

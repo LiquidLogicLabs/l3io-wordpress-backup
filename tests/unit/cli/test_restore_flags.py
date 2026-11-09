@@ -56,7 +56,7 @@ def test_the_policies_default_to_the_safe_value() -> None:
 def test_a_rejected_combination_is_a_usage_error() -> None:
     with pytest.raises(FlagCombinationRejectedError):
         check_restore_arguments(
-            mode="files", **(DEFAULT_FLAGS | {"drop_database": True}), **NO_CREDENTIALS
+            mode="db", **(DEFAULT_FLAGS | {"cleanfirst": True}), **NO_CREDENTIALS
         )
 
 

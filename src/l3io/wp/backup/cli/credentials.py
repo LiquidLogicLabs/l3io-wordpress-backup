@@ -205,7 +205,7 @@ def wordpress_source(
 
 
 def admin_source(
-    spec: CredentialSpec | None,
+    spec: CredentialSpec | ResolvedCredentialSpec | None,
     *,
     environ: Mapping[str, str],
     secrets: SecretRegistry,

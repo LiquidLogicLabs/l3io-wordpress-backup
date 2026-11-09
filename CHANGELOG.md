@@ -7,6 +7,66 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Changed: a database restore loads straight into the live database (owner decisions 49-55, 57, 63, 71; ADR-0027, 2026-11-09)
+
+- **No staging database, no `DB_NAME` change** (decisions 49, 55). A restore
+  that loads the database loads the Dump straight into the live database
+  `wp-config.php` names, as the site's WordPress account, after the Safety
+  Snapshot. v0.2.21 and the earlier pre-releases loaded into
+  `<name>_l3s_<run>` and switched `wp-config.php`'s `DB_NAME` to it, so the
+  site ran on a new database name after every restore; it now keeps its
+  name, and `--archive latest` finds the site's Archives after a restore.
+  The site is down for the length of the load.
+- **The database matches the Archive** (decisions 52, 53): every table and
+  view whose name starts with the site's table prefix is dropped before the
+  load, so a table added after the backup (a plugin's) is gone. Tables
+  without the prefix are never touched. The dropped tables are logged
+  (`database_tables_dropped`), printed in the report and listed in the Dry
+  Run, whose `LOAD_DUMP` line also names the host and database overwritten.
+- **Automatic rollback** (decision 50): a failure after the load began
+  reloads the Safety Snapshot into the live database (WARNING
+  `database_rolled_back`) and exits with the load's error. If the rollback
+  fails, or there is no snapshot (`--no-safety-snapshot`), the Run exits 1
+  with the new `RollbackFailedError`, naming both failures, the snapshot and
+  the recovery commands, and stays recorded as interrupted.
+- **An administrator only when needed** (decision 55): only when the
+  database does not exist yet or the WordPress account cannot log in or lacks
+  a right. Without one, such a restore is refused before anything changes
+  (exit 4, `AdminCredentialsRequiredError`, now naming the database, the
+  account and what is missing). Previously every database restore needed one.
+  Started as root, a restore resolves a configured administrator (an AWS
+  profile in root's home included) before it switches to the Site Root's
+  owner (decision 71).
+- **`--force` for a database** (decision 57): only a database with tables
+  none of which carries the site's prefix needs it; a WordPress database or
+  an empty one does not. Previously any table needed it.
+- **Environment-driven `DB_*` restore directly** (decision 47): a target
+  whose `wp-config.php` reads `DB_*` with `getenv_docker()`/`getenv()` (the
+  official `wordpress` image) is no longer refused with
+  `EnvironmentDrivenTargetError`; the database the environment names is
+  loaded and `wp-config.php` is left as it is. `EnvironmentDrivenTargetError`
+  now refuses only a relocation flag (`--new-db-*`) that would rewrite such
+  a constant.
+- **`--drop-database` is deprecated and has no effect** (decision 63): there
+  is no previous database left to remove. It is accepted and logs WARNING
+  `deprecated_option`; `--mode db --drop-database` still names the Mode
+  `database-clean`, which now restores exactly as `database` does.
+  `--mode all --cleanfirst` alone now selects `all-clean` (it was refused
+  without `--drop-database`), and `--mode all --drop-database` or `--mode
+  files --drop-database` now select what the same flags without it select
+  (they were refused).
+- **A relocation** (`--new-db-name`, `--new-db-host`) loads its database the
+  same way (prefixed tables dropped first) and still cuts `wp-config.php`
+  over to it; a database-only restore onto a target with no `wp-config.php`
+  no longer needs one (`NoConfigForCutoverError` is a relocation's only).
+- **Library:** `StagingCheckFailedError` is renamed `LoadCheckFailedError`;
+  `RollbackFailedError` is new. `DatabaseRestoreReport` drops
+  `previous_database` and gains `database`, `administrator` and
+  `dropped_tables`. The Run Journal's file format is unchanged; a journal an
+  earlier version left is still read.
+- Needs `l3io-wordpress-database` 0.3.5 (`drop_tables`, `load(...,
+  prune_prefix=)`).
+
 ### Changed: root backups switch user, the library refuses root, short decryption passphrases warn (owner decisions 67-69, 2026-11-08)
 
 - **A backup started as root runs as the Site Root's owner** (decision 67),

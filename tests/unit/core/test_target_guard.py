@@ -44,8 +44,16 @@ from l3io.wp.backup.domain.restore import (
     restores_files,
 )
 from tests.conftest import CredentialSentinel
-from tests.restore_builders import EMPTY, EMPTY_DB, FULL_DB, POPULATED, SITE, plan
+from tests.restore_builders import EMPTY, EMPTY_DB, FOREIGN_DB, POPULATED, SITE, plan
+from tests.restore_builders import FULL_DB as WORDPRESS_DB
 from tests.restore_harness import Harness, write_v1
+
+#: Owner decision 57: only a database that does not look like this WordPress
+#: site (tables, none with its prefix) needs the database waiver; the guard's
+#: refusal cases are built over one. A WordPress database never refuses
+#: (``test_a_wordpress_or_empty_database_needs_no_waiver``).
+FULL_DB = FOREIGN_DB
+POPULATED = dataclasses.replace(POPULATED, database=FOREIGN_DB)
 
 LIVE = SITE.database_location()
 LOAD = DatabaseLocation(host="db2.internal", port=3306, name="moved_db")
@@ -336,3 +344,31 @@ def test_a_wordpress_site_root_never_waives_the_database() -> None:
     with pytest.raises(NonEmptyTargetError) as caught:
         check_target(RestoreMode.ALL, OverrideSet.none(), wordpress)
     assert caught.value.parts == ("database",)
+
+
+@pytest.mark.parametrize(
+    "database",
+    [
+        WORDPRESS_DB,
+        dataclasses.replace(WORDPRESS_DB, prefixed_tables=None),
+        dataclasses.replace(WORDPRESS_DB, is_wordpress=False),
+        EMPTY_DB,
+    ],
+    ids=["wordpress", "unlisted-but-wordpress", "prefixed-tables-only", "empty"],
+)
+@pytest.mark.parametrize("mode", [m for m in RestoreMode if restores_database(m)])
+def test_a_wordpress_or_empty_database_needs_no_waiver(
+    mode: RestoreMode, database: DatabaseTargetState
+) -> None:
+    """Owner decision 57: the Safety Snapshot and the rollback cover it."""
+    target = dataclasses.replace(
+        EMPTY, database=database, load_target=database, load_location=LOAD
+    )
+    check_target(mode, OverrideSet.none(), target)
+
+
+def test_routines_without_a_prefixed_table_need_the_waiver() -> None:
+    routines = dataclasses.replace(EMPTY_DB, routine_count=2)
+    target = dataclasses.replace(EMPTY, database=routines)
+    with pytest.raises(NonEmptyTargetError):
+        check_target(RestoreMode.DATABASE, OverrideSet.none(), target)

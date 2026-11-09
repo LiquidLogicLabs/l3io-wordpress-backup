@@ -77,3 +77,12 @@ MINOR on `replace=`.
 - **Revisit when:** a caller needs to pass a credential provider this package does not
   model in `CredentialSpec`. Add the case to the backup-owned value; do not expose
   database's type.
+
+## Amendment — 2026-11-09: `load` with `replace` and `prune_prefix` (Shawn, owner decisions 49 and 53)
+
+A restore now calls database's `load` with `replace=<the live database>` and
+`prune_prefix=<the site's table prefix>` (l3io-wordpress-database 0.3.5), as the WordPress
+account, so the Dump loads over the live database after every table carrying the prefix was
+dropped ([ADR-0027](0027-restore-into-an-environment-driven-database.md), Accepted). The
+"`load` with `replace=None`" rule above no longer holds for a restore; credentials still reach
+the client tools only through database.

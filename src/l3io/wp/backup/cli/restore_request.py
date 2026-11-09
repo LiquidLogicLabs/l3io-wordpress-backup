@@ -40,7 +40,7 @@ from l3io.wp.backup.domain.archive_format import (
     SkippedLink,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
-from l3io.wp.backup.domain.credentials import CredentialSpec
+from l3io.wp.backup.domain.credentials import CredentialSpec, ResolvedCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.errors import (
     RefusedError,
@@ -478,8 +478,10 @@ class RestoreRequest:
     ``archive_handle`` is the Archive already opened by a root that then
     switched users (owner decision 58), read instead of opening
     ``archive.path``; the root closes it. ``notes`` are lines the root adds
-    to the outcome's (``--archive latest``'s choice). No field carries an
-    ``l3io.wp.database`` type (ADR-0015 amendment).
+    to the outcome's (``--archive latest``'s choice). ``admin`` is a
+    ``ResolvedCredentialSpec`` only when the CLI, started as root, resolved
+    the administrator before it switched users (owner decision 71). No field
+    carries an ``l3io.wp.database`` type (ADR-0015 amendment).
     """
 
     site_root: Path
@@ -490,7 +492,7 @@ class RestoreRequest:
     snapshot_dir: Path | None
     config_policy: ConfigPolicy
     resolve_run_id: str | None
-    admin: CredentialSpec | None
+    admin: CredentialSpec | ResolvedCredentialSpec | None
     cipher: PayloadCipher | None
     archive_database: str | None
     relocation: RelocationFlags

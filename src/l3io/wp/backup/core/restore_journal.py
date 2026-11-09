@@ -8,6 +8,18 @@ and the read-back of an interrupted Run's journal: the phase it stopped in
 text an operator is given (:func:`undo_for`) and the refusal that names it
 (:class:`IncompleteRunError`).
 
+**The direct load (owner decisions 49 to 55, ADR-0027).** ``LOAD_DUMP``
+loads straight into the live database after the Safety Snapshot, journaling
+``"database_created"`` (an administrator created it), ``"load_started"``,
+``"loaded"`` (loaded and checked), then, on a failure after the load began,
+``"rollback_started"`` and ``"rolled_back"`` or ``"rollback_failed"``; a
+relocated database this Run created and dropped again is
+``"load_target_dropped"``. The staging steps of the earlier design
+(``"check_failed"``, ``"cutover_readback_failed"``, ``"staging_dropped"``,
+``"loser_*"``) are never written now, but a journal an earlier version left
+is read with them: the on-disk format is unchanged, so the undo table keeps
+their rows.
+
 Pure: the journal's records are values here; ``adapters/journal.py`` reads
 and writes the file.
 """
@@ -31,8 +43,15 @@ __all__ = [
     "STEP_CUTOVER",
     "STEP_CUTOVER_READBACK_FAILED",
     "STEP_CUTOVER_STARTED",
+    "STEP_DATABASE_CREATED",
+    "STEP_LOADED",
+    "STEP_LOAD_STARTED",
+    "STEP_LOAD_TARGET_DROPPED",
     "STEP_LOSER_DROPPED",
     "STEP_LOSER_DROP_STARTED",
+    "STEP_ROLLBACK_FAILED",
+    "STEP_ROLLBACK_STARTED",
+    "STEP_ROLLED_BACK",
     "STEP_STAGING_DROPPED",
     "IncompleteRunError",
     "cutover_progress",
@@ -40,7 +59,10 @@ __all__ = [
     "interrupted_phase",
     "is_orderly_failure",
     "last_step",
+    "loads_live_database",
+    "recovery_command",
     "replaced_files",
+    "rollback_owed",
     "undo_for",
 ]
 
@@ -54,8 +76,17 @@ STEP_CONFIG_REPLACED: Final = "config_replaced"
 STEP_CUTOVER_STARTED: Final = "cutover_started:"
 #: Prefix: followed by the key name, e.g. ``"cutover:DB_NAME"``.
 STEP_CUTOVER: Final = "cutover:"
-STEP_CHECK_FAILED: Final = "check_failed"
 STEP_CUTOVER_READBACK_FAILED: Final = "cutover_readback_failed"
+# The direct load (owner decisions 49, 50 and 55).
+STEP_DATABASE_CREATED: Final = "database_created"
+STEP_LOAD_STARTED: Final = "load_started"
+STEP_LOADED: Final = "loaded"
+STEP_ROLLBACK_STARTED: Final = "rollback_started"
+STEP_ROLLED_BACK: Final = "rolled_back"
+STEP_ROLLBACK_FAILED: Final = "rollback_failed"
+STEP_LOAD_TARGET_DROPPED: Final = "load_target_dropped"
+# The staging design's steps, read from a journal an earlier version wrote.
+STEP_CHECK_FAILED: Final = "check_failed"
 STEP_STAGING_DROPPED: Final = "staging_dropped"
 STEP_LOSER_DROP_STARTED: Final = "loser_drop_started"
 STEP_LOSER_DROPPED: Final = "loser_dropped"
@@ -74,14 +105,24 @@ def is_orderly_failure(entries: tuple[JournalEntry, ...]) -> bool:
     """Whether a failed Run left the Site as it found it (ADR-0021).
 
     True only when no ``CLEAN``, ``EXTRACT`` or ``REWRITE_CONFIG`` phase
-    started, no ``"cutover:*"`` step completed, ``"staging_dropped"``
-    completed, and ``"check_failed"`` or ``"cutover_readback_failed"`` did.
+    started, no ``"cutover:*"`` step completed, and the database is as it
+    was: the automatic rollback completed (``"rolled_back"``, owner decision
+    50), or the relocated database this Run created was dropped again
+    (``"load_target_dropped"``), or, in a journal of the staging design,
+    ``"staging_dropped"`` with ``"check_failed"`` or
+    ``"cutover_readback_failed"``. ``"rollback_failed"`` is never orderly:
+    the Run is recorded interrupted, so the next Run refuses until it is
+    resolved.
     """
     steps = {e.step for e in entries if e.event == "step_completed" and e.step}
     if any(e.event == "phase_started" and e.phase in _FILE_PHASES for e in entries):
         return False
     if any(step.startswith(STEP_CUTOVER) for step in steps):
         return False
+    if STEP_ROLLBACK_FAILED in steps:
+        return False
+    if steps & {STEP_ROLLED_BACK, STEP_LOAD_TARGET_DROPPED}:
+        return True
     return STEP_STAGING_DROPPED in steps and bool(
         steps & {STEP_CHECK_FAILED, STEP_CUTOVER_READBACK_FAILED}
     )
@@ -181,14 +222,148 @@ def _site_untouched(header: JournalHeader, *, files_changed: bool) -> str:
     )
 
 
+def loads_live_database(header: JournalHeader) -> bool:
+    """Whether the Run loaded the live database itself (owner decision 49).
+
+    A relocation to another database (``--new-db-name``) or server
+    (``--new-db-host``) loads elsewhere; the live one is then untouched.
+    """
+    return (
+        header.staging_database is None
+        and header.load_database == header.live_database_before
+        and "DB_HOST" not in header.cutover_targets
+    )
+
+
+def recovery_command(header: JournalHeader) -> str:
+    """The commands that put the live database back from the Safety Snapshot.
+
+    Resolving and restoring are never one command (E003-S02-006): the
+    interrupted Run is acknowledged first, then the snapshot's database is
+    restored. ``""`` when no snapshot was taken.
+    """
+    snapshot = header.snapshot_path
+    if snapshot is None:
+        return ""
+    root = str(header.site_root)
+    return (
+        f"`wpbackup2 restore --wp-dir {root} --resolve-interrupted-run "
+        f"{header.run_id}`, then `wpbackup2 restore --wp-dir {root} --archive "
+        f"{snapshot} --mode db` (with this Run's passphrase if the snapshot is "
+        "encrypted)"
+    )
+
+
+def rollback_owed(record: JournalRecord) -> bool:
+    """Whether ``record``'s Run left the live database partly loaded.
+
+    It stopped in ``LOAD_DUMP`` after ``"load_started"``, during its rollback,
+    or after a failed one, and it loaded the live database itself. Resolving
+    it acknowledges; restoring the Safety Snapshot is the operator's next
+    command (owner decision 50).
+    """
+    phase = interrupted_phase(record.entries)
+    step = last_step(record.entries, phase)
+    owed = {STEP_LOAD_STARTED, STEP_ROLLBACK_STARTED, STEP_ROLLBACK_FAILED}
+    return (
+        phase is RestorePhase.LOAD_DUMP
+        and step in owed
+        and loads_live_database(record.header)
+    )
+
+
+def _from_snapshot(header: JournalHeader) -> str:
+    if header.snapshot_path is None:
+        return (
+            "no Safety Snapshot was taken (opted out, or the database was "
+            "empty): restore the database from another backup, or empty it"
+        )
+    return (
+        f"restore it from Safety Snapshot {header.snapshot_path}: "
+        f"{recovery_command(header)}"
+    )
+
+
+def _direct_undo(step: str, header: JournalHeader, *, files_changed: bool) -> str:
+    """The direct load's rows of the undo table (owner decisions 49 and 50)."""
+    load = header.load_database
+    untouched = _site_untouched(header, files_changed=files_changed)
+    live = loads_live_database(header)
+    if step == STEP_DATABASE_CREATED:
+        return (
+            f"{untouched}; this Run created database {load}, and nothing was "
+            "loaded into it yet; drop it or keep it"
+        )
+    if step in {STEP_LOAD_STARTED, STEP_ROLLBACK_STARTED, STEP_ROLLBACK_FAILED}:
+        what = {
+            STEP_LOAD_STARTED: "the load was interrupted",
+            STEP_ROLLBACK_STARTED: (
+                "the load failed and its automatic rollback was interrupted"
+            ),
+            STEP_ROLLBACK_FAILED: "the load failed and its automatic rollback failed",
+        }[step]
+        if not live:
+            return (
+                f"{untouched}; {what}, so the relocated database {load} is "
+                "partly loaded: empty or drop it"
+            )
+        return f"{what}, so the live database {load} is partly loaded; " + (
+            _from_snapshot(header)
+        )
+    if step == STEP_LOADED:
+        if header.cutover_keys:
+            return (
+                f"{untouched}; the Dump was loaded into {load} and checked, and "
+                "the cutover had not started; empty or drop the relocated "
+                "database, or restore again"
+            )
+        return (
+            f"the Dump was loaded into {load} and checked: the database is "
+            f"restored; {_resolve_hint(header)}"
+        )
+    if step == STEP_ROLLED_BACK:
+        return (
+            f"the load failed and the database {load} was put back from Safety "
+            f"Snapshot {header.snapshot_path or '(none: it was empty)'}"
+            + (f"; {_snapshot_undo(header)}" if files_changed else "")
+        )
+    # STEP_LOAD_TARGET_DROPPED
+    return f"{untouched}; the relocated database {load} this Run created was dropped"
+
+
+_DIRECT_STEPS: Final = frozenset(
+    {
+        STEP_DATABASE_CREATED,
+        STEP_LOAD_STARTED,
+        STEP_LOADED,
+        STEP_ROLLBACK_STARTED,
+        STEP_ROLLED_BACK,
+        STEP_ROLLBACK_FAILED,
+        STEP_LOAD_TARGET_DROPPED,
+    }
+)
+
+
 def _load_undo(step: str | None, header: JournalHeader, *, files_changed: bool) -> str:
-    """The ``LOAD_DUMP`` rows of the undo table (ADR-0020)."""
+    """The ``LOAD_DUMP`` rows of the undo table (ADR-0020).
+
+    The direct load's steps (:func:`_direct_undo`), the relocation cutover's,
+    and the staging design's, which a journal an earlier version wrote may
+    still hold (its header names a ``staging_database``).
+    """
     load, before = header.load_database, header.live_database_before
     keys = header.cutover_keys
     untouched = _site_untouched(header, files_changed=files_changed)
+    if step in _DIRECT_STEPS:
+        return _direct_undo(step, header, files_changed=files_changed)
+    if step is None and header.staging_database is None:
+        return (
+            f"{untouched}; nothing was loaded yet; if this Run created {load}, "
+            "it is empty"
+        )
     if step is None or step in {STEP_CHECK_FAILED, STEP_CUTOVER_READBACK_FAILED}:
         if header.staging_database is None:
-            named = f"{load} existed and was empty before this Run; empty or drop it"
+            named = f"{load} was loaded by this Run; empty or drop it"
             return f"{untouched}; {named}" if files_changed else named
         return f"{untouched}; drop staging database {load} if it exists"
     if step == STEP_STAGING_DROPPED:

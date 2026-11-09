@@ -205,7 +205,7 @@ def test_the_lock_is_held_across_the_snapshot(tmp_path: Path) -> None:
 def test_a_destructive_all_clean_restore_joins_one_run(
     cli_site: CliSite,  # noqa: F811
 ) -> None:
-    """``all-clean`` with ``load_staged``: one Run, snapshot and load, no deadlock."""
+    """``all-clean`` with ``load_live``: one Run, snapshot and load, no deadlock."""
     site = cli_site
     original = site.site.database
     argv = [
@@ -240,7 +240,8 @@ def test_a_destructive_all_clean_restore_joins_one_run(
     snapshot = Path(written["path"])
     assert not snapshot.resolve().is_relative_to(site.root.resolve())
     assert verify_archive(snapshot).integrity is Integrity.VERIFIED
-    # The load cut over and the previous database was dropped (all-clean).
-    assert original not in site.site.databases()
+    # Owner decision 49: the Dump loaded into the live database itself.
+    assert site.site.databases() == [original]
+    assert "wp_restored" in site.site.checksums()
     with FcntlSiteLock().acquire(site.root, _holder()):
         pass

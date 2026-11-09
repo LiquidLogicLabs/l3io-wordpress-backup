@@ -55,13 +55,14 @@ EXPECTED: dict[RestoreMode, tuple[RestorePhase, ...]] = {
 }
 #: FR-6's row per Mode: (files written, file removal, database written,
 #: database removal).
-ROWS: dict[RestoreMode, tuple[bool, bool, bool, bool]] = {
-    RestoreMode.FILES: (True, False, False, False),
-    RestoreMode.FILES_CLEAN: (True, True, False, False),
-    RestoreMode.DATABASE: (False, False, True, False),
-    RestoreMode.DATABASE_CLEAN: (False, False, True, True),
-    RestoreMode.ALL: (True, False, True, False),
-    RestoreMode.ALL_CLEAN: (True, True, True, True),
+#: (extracts, cleans, loads). Owner decision 63: no Mode drops a database.
+ROWS: dict[RestoreMode, tuple[bool, bool, bool]] = {
+    RestoreMode.FILES: (True, False, False),
+    RestoreMode.FILES_CLEAN: (True, True, False),
+    RestoreMode.DATABASE: (False, False, True),
+    RestoreMode.DATABASE_CLEAN: (False, False, True),
+    RestoreMode.ALL: (True, False, True),
+    RestoreMode.ALL_CLEAN: (True, True, True),
 }
 
 
@@ -79,14 +80,22 @@ def test_the_plan_is_exactly_the_modes_phases(mode: RestoreMode) -> None:
 
 @pytest.mark.parametrize("mode", list(RestoreMode))
 def test_the_plan_touches_only_what_the_mode_names(mode: RestoreMode) -> None:
-    files, clean, database, drop = ROWS[mode]
+    files, clean, database = ROWS[mode]
     built = plan(mode)
     assert (P.EXTRACT in built.phases) is files
     assert (P.CLEAN in built.phases) is clean
     assert (P.LOAD_DUMP in built.phases) is database
     loads = [a for a in built.actions if a.phase is P.LOAD_DUMP]
-    assert [a.fields["drop_previous"] for a in loads] == ([drop] if database else [])
-    assert all("drop" not in a.text for a in loads) is not drop
+    assert len(loads) == (1 if database else 0)
+    for action in loads:
+        # Owner decisions 49, 51, 53: the live database named, the tables
+        # dropped first listed, the rollback said.
+        assert action.fields["database"] == action.fields["live_database"]
+        assert action.fields["drop_tables"] == ["wp_options", "wp_posts"]
+        assert "into the live database" in action.text
+        assert "wp_options, wp_posts" in action.text
+        assert action.fields["rollback"] == "snapshot"
+        assert "reload the Safety Snapshot" in action.text
 
 
 def test_two_swapped_phases_are_refused() -> None:

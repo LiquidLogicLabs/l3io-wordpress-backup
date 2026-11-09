@@ -1,7 +1,7 @@
 """NFR-1/AD-18 — a restore SIGKILLed at every ordinal leaves the Site recoverable.
 
 E003-S02-005's kill harness. The restore is ``execute_restore`` with the real
-``load_staged``/``check_staged`` slots over the real adapters, in a
+``load_live``/``check_live`` slots over the real adapters, in a
 ``multiprocessing`` **spawn** child (``live_restore.child_main``) — not the
 library entry point and not ``drive_restore``. The child's journal command,
 ``SiteFilesCommand``, ``ConfigCommand`` and restore database command signal an
@@ -10,23 +10,27 @@ returns, and block; the parent SIGKILLs the child at ordinal *k*. So *k* also
 falls between an effect and the journal entry recording it.
 
 **Scope, derived.** *k* runs over every ordinal of a first, uninterrupted
-recording run of each scenario — an ``all-clean`` restore, one with a
-four-key relocation (same server, new user, new name: CI has one listener),
-and one into a target with no ``wp-config.php`` (a lay-down) — asserted
-non-empty and to include the cutover writes, the loser drop and, for the
-lay-down, ``"config_started"``. A phase or effect added later is covered
-without editing this file.
+recording run of each scenario — an ``all-clean`` restore straight into the
+live database (owner decision 49), one with a four-key relocation (same
+server, new user, new name: CI has one listener), and one into a target with
+no ``wp-config.php`` (a lay-down) — asserted non-empty and to include the
+load's steps, the relocation's cutover writes and, for the lay-down,
+``"config_started"``. A phase or effect added later is covered without
+editing this file.
 
 **Per k:** ``wp-config.php`` parses and names the original database, or —
-only after the cutover write — the load database, with all four keys at
-their original values before it; the original database's ``CHECKSUM TABLE``
-is unchanged before it; the next Run's query (this process, after the child
-died) raises ``IncompleteRunError`` naming the Run and the phase; the undo
-text equals the undo table's row for the phase and step the parent saw (and
-starts with no other row), names the load database to drop only before the
-cutover began and the ``"cutover_started"`` row inside a write; written/pending
-keys match the journal; ``complete_cutover`` and ``resolve`` then leave every
-key at its new value on a WordPress database, and a further restore succeeds.
+only after the relocation's cutover write — the load database, with all four
+keys at their original values before it; the original database's
+``CHECKSUM TABLE`` is unchanged before the load lands (for the relocation,
+always: it loads another database); the next Run's query (this process,
+after the child died) raises ``IncompleteRunError`` naming the Run and the
+phase; the undo text equals the undo table's row for the phase and step the
+parent saw (and starts with no other row), names the Safety Snapshot's
+absence once the live database is partly loaded, and the
+``"cutover_started"`` row inside a write; written/pending keys match the
+journal; ``complete_cutover`` and ``resolve`` then leave every key at its new
+value on a WordPress database, and a further restore succeeds. A SIGKILL is
+never rolled back: there is no process left to do it.
 ``credential_sentinel`` (the live and the relocated password) must find no
 leak in this process's logs or the refusal after resolution and after the
 further restore.
@@ -47,18 +51,18 @@ import pytest
 
 pytest.importorskip("l3io.wp.database")
 
+from l3io.wp.backup.adapters.database_load import complete_cutover
 from l3io.wp.backup.adapters.journal import (
     CURRENT,
     journal_directory,
     refuse_incomplete,
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.staging import complete_cutover
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
     RestoreRelocation,
-    load_names,
+    load_database_name,
     planned_cutover_keys,
 )
 from l3io.wp.backup.core.restore_journal import (
@@ -66,8 +70,8 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_CONFIG_STARTED,
     STEP_CUTOVER,
     STEP_CUTOVER_STARTED,
-    STEP_LOSER_DROP_STARTED,
-    STEP_LOSER_DROPPED,
+    STEP_LOAD_STARTED,
+    STEP_LOADED,
     IncompleteRunError,
     undo_for,
 )
@@ -97,7 +101,7 @@ from tests.integration.live_restore import (
     spec_for,
     survey_named,
 )
-from tests.staging_fakes import FILE_PHASES, assert_one_row
+from tests.load_fakes import FILE_PHASES, assert_one_row
 
 needs_database = pytest.mark.skipif(
     "DB_HOST" not in os.environ, reason="needs the CI database (DB_HOST unset)"
@@ -107,6 +111,7 @@ JOURNAL_STEP = "journal.step_completed:"
 JOURNAL_PHASE = "journal.phase_started:"
 JOURNAL_PHASE_DONE = "journal.phase_completed:"
 CUTOVER_WRITE = "config.set_constants:"
+LOAD_EFFECT = "database.load_dump:"
 
 
 @dataclass(frozen=True)
@@ -162,14 +167,19 @@ def _setup(
 
 
 def _ordinal(labels: list[str], prefix: str) -> int:
-    """The 1-based ordinal of the first label starting with ``prefix``."""
+    """The 1-based ordinal of the first label starting with ``prefix``.
+
+    One past the last label when none does (a restore with no relocation
+    writes no cutover key).
+    """
     return next(
-        i for i, label in enumerate(labels, start=1) if label.startswith(prefix)
+        (i for i, label in enumerate(labels, start=1) if label.startswith(prefix)),
+        len(labels) + 1,
     )
 
 
 def _targets(site: LiveSite, spec: RestoreSpec) -> dict[str, str]:
-    load, _ = load_names(site.database, spec.run_id, spec.relocation)
+    load = load_database_name(site.database, spec.relocation)
     targets = {"DB_NAME": load}
     if spec.relocated_user is not None and spec.relocated_password is not None:
         targets |= {
@@ -224,6 +234,9 @@ def _check_kill(
         assert driven.labels == done
         cut_write = _ordinal(recorded, CUTOVER_WRITE)
         before_cutover = k < cut_write
+        # Owner decision 49: the live database changes when the load lands,
+        # unless a relocation loads another database.
+        live_untouched = k < _ordinal(recorded, LOAD_EFFECT) or scenario.relocated
         targets = _targets(site, spec)
         load = targets["DB_NAME"]
 
@@ -238,7 +251,7 @@ def _check_kill(
         else:
             assert scenario.lay_down
             assert JOURNAL_STEP + STEP_CONFIG not in done
-        if before_cutover:
+        if live_untouched:
             assert site.checksums() == tables
 
         # The next Run refuses, naming the Run and the phase.
@@ -273,8 +286,12 @@ def _check_kill(
         loading = error.interrupted_phase is RestorePhase.LOAD_DUMP
         if loading and not begun:
             assert load in error.undo
+        if loading and not live_untouched and not begun:
+            # No Safety Snapshot in this harness: the undo text says so.
+            assert "no Safety Snapshot was taken" in error.undo or (
+                STEP_LOADED in steps
+            )
         if begun:
-            assert "drop staging database" not in error.undo
             assert f"drop {load}" not in error.undo.replace("not drop", "")
         if loading and in_write:
             assert "the cutover was writing" in error.undo
@@ -353,11 +370,13 @@ def test_a_restore_killed_at_every_ordinal_is_recoverable(
     keys = planned_cutover_keys(spec.relocation)
     assert {STEP_CUTOVER_STARTED + key for key in keys} <= steps
     assert {STEP_CUTOVER + key for key in keys} <= steps
-    assert {STEP_LOSER_DROP_STARTED, STEP_LOSER_DROPPED} <= steps
+    assert {STEP_LOAD_STARTED, STEP_LOADED} <= steps
     assert sum(label.startswith(CUTOVER_WRITE) for label in labels) == len(keys)
-    assert "database.drop_database:" in labels
+    assert sum(label.startswith(LOAD_EFFECT) for label in labels) == 1
     if scenario.relocated:
         assert keys == CUTOVER_KEYS
+    else:
+        assert keys == ()
     if scenario.lay_down:
         assert STEP_CONFIG_STARTED in steps
 

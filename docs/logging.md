@@ -145,24 +145,34 @@ never appear in any of them.
 | `cutover_key_written` | DEBUG | One cutover key was written to `wp-config.php` (`key`, `wp_config_path`) |
 | `cutover_read_back_failed` | ERROR | After a cutover write failed, reading the key back failed too; the write's error is raised (`key`, `error_type`) |
 | `cutover_write_error_landed` | WARNING | A cutover write reported an error but the value read back is the one written, so the Run continues (`key`, `error_type`) |
-| `database_cutover` | INFO | `wp-config.php` now points at the loaded database (`keys`, `wp_config_path`, `from`, `to`; `host_from`, `host_to` when the host changed) |
+| `database_cutover` | INFO | A relocation's cutover pointed `wp-config.php` at the relocated database (`keys`, `wp_config_path`, `from`, `to`; `host_from`, `host_to` when the host changed) |
 | `database_drop_warnings` | WARNING | Dropping a database succeeded with server warnings (`db_name`, `warnings`) |
 | `database_dropped` | INFO | A database was dropped (`db_host`, `db_port`, `db_name`, `changed`, `warnings`, `duration_ms`) |
-| `database_ensured` | INFO | The load database and its account were ensured (`db_name`, `created_database`, `created_user`, `duration_ms`) |
-| `database_restore_report` | INFO, ERROR | The database part of a restore finished (INFO) or failed (ERROR), with what was done (loaded, checked, cutover keys written) |
-| `database_surveyed` | INFO | A restore target's database was surveyed as the administrator (`db_name`, `database_exists`, `duration_ms`) |
+| `database_ensured` | INFO | The administrator ensured the load database and its account (`db_name`, `created_database`, `created_user`, `duration_ms`) |
+| `database_ensured_for_load` | INFO | The WordPress account could not load the database as it stood, so the administrator provisioned it (`database`, `missing`, `created_database`, `created_user`, `granted`, `warnings`; owner decision 55) |
+| `database_load_checked` | INFO | The loaded database was surveyed after the load (`database`, `is_wordpress`, `schema_version`; `performed` `false` in a Dry Run) |
+| `database_load_ready` | INFO | The load checks passed at `PREFLIGHT`, as the WordPress account (`database`, `administrator_needed`; `missing` when an administrator will provision) |
+| `database_restore_report` | INFO, ERROR | The database part of a restore finished (INFO) or failed (ERROR), with what was done (`database`, `administrator`, `dropped_tables`, loaded, checked, a relocation's cutover keys written) |
+| `database_rollback_failed` | ERROR | A failed load's automatic rollback failed, or nothing could roll it back; the Run is recorded as interrupted (`database`, `cause`, `rollback_error`, `snapshot`, `recovery`; owner decision 50) |
+| `database_rollback_owed` | WARNING | `--resolve-interrupted-run` acknowledged a Run that left the live database partly loaded; restore it from the snapshot (`run_id_resolved`, `database`, `snapshot`, `recovery`) |
+| `database_rollback_started` | WARNING | A load failed after it began; the live database is being put back (`database`, `rollback` `snapshot` or `empty`, `snapshot`, `cause`) |
+| `database_rolled_back` | WARNING | The live database was put back as it was before the Run, from the Safety Snapshot or by emptying it (`database`, `rollback`, `snapshot`, `cause`); the Run then exits with the load's error |
+| `database_surveyed` | INFO | A restore target's database was surveyed (`db_name`, `observed_by` `wordpress` or `administrator`, `database_exists`, `prefixed_tables` count, `duration_ms`; owner decision 55) |
+| `database_tables_dropped` | INFO | The load dropped every table and view carrying the site's prefix before loading the Dump (`database`, `table_prefix`, `count`, `tables`; owner decision 53) |
 | `database_host` | INFO | The host a backup's dump connects to, as `wp-config.php` gives it (`db_host`, `db_port`, `local`); logged, never confirmed (owner decision 54) |
-| `deprecated_option` | WARNING | A deprecated option was given: `--admin-tls`/`--admin-tls-ca` (taken as `--db-tls`/`--db-tls-ca`) or `--allow-unencrypted` (no effect) (`option`, `replacement`) |
-| `dump_loaded` | INFO | The Archive's Dump was loaded into the load database (`db_name`, `bytes`, `duration_ms`) |
+| `deprecated_option` | WARNING | A deprecated option was given: `--admin-tls`/`--admin-tls-ca` (taken as `--db-tls`/`--db-tls-ca`), `--allow-unencrypted` or `--drop-database` (no effect; owner decision 63) (`option`, `replacement`) |
+| `dump_loaded` | INFO | A Dump was loaded into the load database, the Archive's or, in a rollback, the Safety Snapshot's (`db_name`, `bytes`, `dropped`, `duration_ms`) |
 | `dump_readiness` | INFO | The database reported whether it can be dumped (`db_name`, `credential_source`, blockers and warnings) |
 | `encryption_configured` | INFO | A backup encrypts its payload (`scheme` `age`, `mode` `passphrase`) |
 | `exclusions_applied` | INFO | The first exclusion decision of a backup (`source`, `pattern_count`) |
-| `grants_revoked` | INFO | The losing database's account had its grants revoked before the drop (`db_name`, `changed`, `duration_ms`) |
+| `grants_revoked` | INFO | An account had its grants on a database revoked (`db_name`, `changed`, `duration_ms`); no restore step revokes since the direct load (owner decision 55) |
 | `hard_link_stored_as_file` | WARNING | Files that are hard links of each other were each stored in full (`paths`) |
 | `incomplete_run_found` | ERROR | A restore found an interrupted Run's journal for this Site and refuses (`run_id_interrupted`, `started_at`, `interrupted_phase`) |
 | `interrupted_run_resolved` | INFO | `--resolve-interrupted-run` completed and cleared the interrupted Run's journal (`run_id_resolved`) |
 | `journal_finish_failed` | ERROR | The Run Journal could not be finished after an orderly restore failure; the Run's own error is re-raised (`error`, the class name) |
 | `journal_written` | DEBUG | A Run Journal entry was written and fsynced (`journal_run_id`, `phase`, `journal_event`, `step`) |
+| `load_database_drop_failed` | ERROR | After a failure, dropping the relocated database this Run created failed; the original error is raised (`database`, `error_type`) |
+| `load_database_dropped` | WARNING | After a failure, the relocated database this Run created was dropped (`database`) |
 | `manifest_value_unknown` | WARNING | A Manifest field held a value this version does not know; it reads as absent (`field`, `value`) |
 | `member_decryption_failed` | ERROR | Decrypting the payload failed (`member`, `reason` `wrong_passphrase` or `corrupt`) |
 | `on_warning_failed` | ERROR | A library caller's `on_warning` sink raised on a notice given after the Safety Snapshot was taken; the restore continues (`code`, `error`) |
@@ -175,9 +185,6 @@ never appear in any of them.
 | `post_check_skipped` | WARNING | The search-replace post-check for a URL pair was skipped because the new URL contains the old one (`old`, `new`) |
 | `preflight_checked` | DEBUG, INFO, ERROR | One required tool was checked: DEBUG when present, INFO when an optional one is missing, ERROR otherwise (`outcome`) |
 | `preflight_passed` | INFO | Every required tool is present (`tools`) |
-| `previous_database_absent` | INFO | The database the restore replaces did not exist (`database`) |
-| `previous_database_dropped` | INFO | The database that lost the cutover was dropped (`database`, `performed`) |
-| `previous_database_retained` | INFO | The database that lost the cutover was kept (`database`, `reason`: `mode` or `different server`) |
 | `protected_path_kept` | WARNING | A path an exclusion pattern matched was kept because it is protected (`path`, `pattern`) |
 | `relocation_planned` | INFO | A restore resolved what it will relocate (`keys`, `cutover_keys`, `db_location`) |
 | `restore_mode_resolved` | INFO | The restore flags resolved to one Mode (`restore_mode`, `overrides`, `snapshot_policy`, `flags`) |
@@ -203,15 +210,12 @@ never appear in any of them.
 | `site_locked` | ERROR | Another Run holds the Site Lock; the Run exits 9 `LOCKED` (`site_root`, `lock_path`, the holder's `holder_*` fields) |
 | `site_root_cleaned` | INFO | A restore cleared the Site Root; a kept entry is matched case-insensitively (`path`, `removed`, `kept`, `duration_ms`) |
 | `special_file_skipped` | WARNING | A backup skipped a file that is not regular, a directory or a symlink (`path`) |
-| `staging_database_created` | INFO | A restore created its load database (`staging_database`, `created_user`, `granted`) |
-| `staging_database_drop_failed` | ERROR | After a failure, dropping the load database failed; the original error is raised (`staging_database`, `error_type`) |
-| `staging_database_dropped` | WARNING | After a failure, the load database was dropped (`staging_database`) |
-| `staging_dropped_not_journaled` | ERROR | The load database was dropped but the journal could not record it (`staging_database`, `error_type`) |
-| `staging_load_checked` | INFO | The loaded database was surveyed before the cutover (`staging_database`, `is_wordpress`, `schema_version`; `performed` `false` in a Dry Run) |
+| `rollback_failed_not_journaled` | ERROR | A failed rollback could not be journaled; the journal stays at `rollback_started`, still blocking (`error_type`) |
 | `stale_lock_reclaimed` | WARNING | A dead Run's lock record was overwritten (`previous_run_id`, `previous_pid`, `previous_started_at`, `previous_pid_alive`) |
 | `stale_residue_removed` | INFO | A dead Run's workspace or `.partial` file older than 24 h was removed (`path`) |
 | `symlink_outside_site_root` | WARNING | A backup stored a symlink whose target leaves the Site Root (`path`, `target`) |
 | `symlink_skipped` | WARNING | A restore did not restore a symlink (`path`, `link_target`, `reason`) |
+| `tables_dropped` | INFO | An empty live database was emptied again by a rollback (`db_name`, `dropped`, `duration_ms`) |
 | `target_checked` | INFO | A restore surveyed its target before planning (`site_root_empty`, `database_exists`) |
 | `target_resurveyed` | INFO | A restore surveyed its target again before the first destructive phase (`site_root_empty`, `restore_mode`) |
 | `tracer_failed` | WARNING | The caller's tracer raised; tracing is disabled for the rest of the Run (`tracer`, `error`) |
@@ -221,7 +225,7 @@ never appear in any of them.
 | `workspace_created` | DEBUG | The Run workspace was created (`path`) |
 | `workspace_not_removed` | WARNING | The Run workspace survived removal; the Run fails (no path) |
 | `workspace_not_removed_path` | DEBUG | The path of the workspace that survived removal (`path`) |
-| `would_check` | INFO | A Dry Run would survey the loaded database (`staging_database`) |
+| `would_check` | INFO | A Dry Run would survey the loaded database (`database`) |
 | `wp_cli_invoked` | DEBUG | A WP-CLI command ran (`argv` redacted, `cwd`, `step`) |
 | `wp_cli_running_as_root` | WARNING | WP-CLI runs as root, executing the Site's PHP as root (`site_root`, `archive_encrypted`) |
 | `wp_config_exclusion_ignored` | DEBUG | An exclusion pattern matched `wp-config.php`, which is never excluded (`path`) |

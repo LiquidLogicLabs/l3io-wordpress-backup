@@ -35,7 +35,6 @@ __all__ = [
     "SnapshotPolicy",
     "clears_site_root",
     "is_subsequence",
-    "removes_database",
     "restores_database",
     "restores_files",
 ]
@@ -97,34 +96,15 @@ def clears_site_root(mode: RestoreMode) -> bool:
             assert_never(mode)
 
 
-def removes_database(mode: RestoreMode) -> bool:
-    """Whether ``mode`` drops the database that loses the cutover.
-
-    Only the ``*-clean`` Modes that restore the database do (decision 6 of
-    2026-10-20); ``--drop-database`` is the flag that authorises it.
-    """
-    match mode:
-        case RestoreMode.DATABASE_CLEAN | RestoreMode.ALL_CLEAN:
-            return True
-        case (
-            RestoreMode.FILES
-            | RestoreMode.FILES_CLEAN
-            | RestoreMode.DATABASE
-            | RestoreMode.ALL
-        ):
-            return False
-        case _:
-            assert_never(mode)
-
-
 class RestorePhase(Enum):
     """AD-17's restore phases, declared in the order a Run performs them.
 
-    ``REWRITE_CONFIG`` writes no ``DB_*`` key. The cutover of ``DB_NAME``
-    (with relocation, also ``DB_HOST``, ``DB_USER`` and ``DB_PASSWORD``) is
-    the **last journaled step of** ``LOAD_DUMP``, taken only after the load is
-    checked, so a failed load never leaves ``wp-config.php`` pointing at a
-    half-loaded database. Epic 3's phase-sequence test asserts it.
+    ``REWRITE_CONFIG`` writes no ``DB_*`` key. ``LOAD_DUMP`` loads straight
+    into the live database after ``SNAPSHOT`` (owner decision 49) and rolls
+    it back from the Safety Snapshot on a failure (decision 50); a
+    relocation's cutover (``DB_NAME``, ``DB_HOST``, ``DB_USER``,
+    ``DB_PASSWORD``) is its **last journaled step**, taken only after the
+    load is checked. Epic 3's phase-sequence test asserts it.
 
     **Two spellings, one per medium (BL-E002-109, owner decision 2026-11-07).**
     A log record's ``phase`` field and a span name carry the member's

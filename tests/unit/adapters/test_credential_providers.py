@@ -546,9 +546,11 @@ def test_no_aws_region_names_the_db_region_flag_from_the_dump_handler(
 
 
 @pytest.mark.usefixtures("no_aws_region")
-def test_no_aws_region_names_the_admin_region_flag_from_the_survey_handler(
+def test_no_aws_region_names_the_admin_region_flag_from_an_admin_handler(
     wp_config: CredentialSource,
 ) -> None:
+    """The survey asks the WordPress account first (owner decision 55), so an
+    administrator method is where the administrator's source is resolved."""
     admin = admin_source(
         AwsSecretCredentialSpec(SECRET_ID, None), environ={}, secrets=SecretRegistry()
     )
@@ -557,7 +559,7 @@ def test_no_aws_region_names_the_admin_region_flag_from_the_survey_handler(
     )
     database = WpDatabase(wordpress, secrets=SecretRegistry(), admin=admin)
     with pytest.raises(CredentialsError) as caught:
-        database.survey_target(LOCATION, table_prefix="wp_", wordpress_user="u")
+        database.check_ensure(LOCATION)
     assert "--admin-credentials-aws-region" in caught.value.reason
 
 

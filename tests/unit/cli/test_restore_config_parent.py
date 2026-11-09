@@ -7,10 +7,12 @@ real extension, a fake database): an Archive whose config was at
 * the journal header's ``wp_config_path`` and the survey's ``config_exists``
   name the file the cutover writes, ``<root>/../wp-config.php`` (the O2 edit
   to ``cli/restore.py``), and the plan lists the lay-down;
-* killed inside the cutover (an exception no handler catches stands in for
-  SIGKILL; ``tests/integration/test_config_parent_resolve.py`` kills a real
-  process), ``--resolve-interrupted-run`` completes the cutover in the parent
-  file and never creates ``<root>/wp-config.php``;
+* killed inside a relocation's cutover (``--new-db-name``: since owner
+  decision 49 a restore without relocation writes no ``DB_*``; an exception
+  no handler catches stands in for SIGKILL;
+  ``tests/integration/test_config_parent_resolve.py`` kills a real process),
+  ``--resolve-interrupted-run`` completes the cutover in the parent file and
+  never creates ``<root>/wp-config.php``;
 * a Dry Run prints the lay-down and lays nothing down.
 """
 
@@ -124,8 +126,9 @@ def test_a_kill_inside_the_cutover_resolves_into_the_parent_file(
         return real_set(self, path, values)  # type: ignore[arg-type]
 
     monkeypatch.setattr(WpConfigWriter, "set_constants", set_constants)
+    moved = dataclasses.replace(RelocationFlags.none(), new_db_name="ops_db")
     with pytest.raises(_Killed):
-        _drive(rig)
+        _drive(rig, relocation=moved)
     parent = _parent(rig)
     root_config = rig.site_root / "wp-config.php"
     assert seen, "the cutover never wrote"
@@ -141,7 +144,7 @@ def test_a_kill_inside_the_cutover_resolves_into_the_parent_file(
     assert load is not None
 
     monkeypatch.setattr(WpConfigWriter, "set_constants", real_set)
-    outcome = _drive(rig, resolve_run_id=record.header.run_id)
+    outcome = _drive(rig, resolve_run_id=record.header.run_id, relocation=moved)
     assert outcome.resolved_run_id == record.header.run_id
     assert not root_config.exists()
     read = WpConfigWriter(SecretRegistry()).read_constants(parent, ("DB_NAME",))

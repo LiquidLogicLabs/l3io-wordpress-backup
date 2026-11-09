@@ -27,7 +27,7 @@ from l3io.wp.backup.core.restore_journal import (
 from l3io.wp.backup.domain.errors import RefusedError
 from l3io.wp.backup.domain.journal import JournalEntry
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
-from tests.staging_fakes import staged_header
+from tests.load_fakes import load_header
 
 SITE = PurePosixPath("/srv/www")
 #: One recorded write sequence: (method, args) in the order a Run writes them.
@@ -43,7 +43,7 @@ EVENT = {"phase_started", "step_completed", "phase_completed"}
 
 
 def _header(run_id: str = "run-1") -> object:
-    return staged_header(
+    return load_header(
         run_id=run_id,
         site_root=SITE,
         live="wp",

@@ -341,8 +341,10 @@ class NoopDatabase:
     """``DatabaseCommand``: dumps, creates, loads, revokes and drops nothing.
 
     ``administrator`` is whether the real adapter it stands in for has an
-    administrator bound: the restore methods other than ``load_dump`` refuse
-    without one, as the real ones do (AD-29).
+    administrator bound: the provisioning methods (``ensure_database``,
+    ``revoke_grants``, ``drop_database``) refuse without one, as the real
+    ones do (AD-29); ``load_dump`` and ``drop_tables`` are the WordPress
+    account's.
     """
 
     __slots__ = ("_administrator", "_log")
@@ -378,13 +380,31 @@ class NoopDatabase:
         )
 
     def load_dump(
-        self, location: DatabaseLocation, source: IO[bytes] | Path
+        self,
+        location: DatabaseLocation,
+        source: IO[bytes] | Path,
+        *,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> LoadResult:
-        """Nothing loaded; ``source`` is not read."""
+        """Nothing loaded or dropped; ``source`` is not read."""
         del source
-        _skip(RestorePhase.LOAD_DUMP.name, method="load_dump")
+        _skip(
+            RestorePhase.LOAD_DUMP.name,
+            method="load_dump",
+            replace=replace,
+            prune_prefix=prune_prefix,
+        )
         self._log.record("NoopDatabase", "load_dump", location.name)
         return LoadResult(bytes=0, duration_ms=0.0, performed=False)
+
+    def drop_tables(
+        self, location: DatabaseLocation, *, prefix: str
+    ) -> tuple[str, ...]:
+        """``()``: nothing dropped."""
+        _skip(RestorePhase.LOAD_DUMP.name, method="drop_tables", prefix=prefix)
+        self._log.record("NoopDatabase", "drop_tables", location.name)
+        return ()
 
     def revoke_grants(
         self, location: DatabaseLocation, *, user: str, confirm: str

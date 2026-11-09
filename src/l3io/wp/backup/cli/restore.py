@@ -25,8 +25,9 @@ Three layers, each calling only the next, as ``cli/backup.py`` does:
   runs every phase. It returns or raises; it never prints, except the AD-26
   ``safety snapshot is NOT encrypted`` warning, which is a safety warning,
   not a result.
-- The executor, the plan, the staging cutover and the journal are Epic 3's
-  (``core/restore``, ``adapters/{restore_runner,staging,journal}``); this root
+- The executor, the plan, the direct load with its rollback, and the journal
+  are Epic 3's (``core/restore``,
+  ``adapters/{restore_runner,database_load,journal}``); this root
   decides none of them. It iterates no phase list: :data:`RestorePhase`
   members are named only as ``... in <x>.phases``.
 
@@ -73,8 +74,14 @@ from l3io.wp.backup.adapters.database import (
     check_db_tls,
     locate_wp_config,
     password_at_call_time,
+    resolve_admin_now,
     site_descriptor_from_archive_config,
     site_descriptor_from_wp_config,
+)
+from l3io.wp.backup.adapters.database_load import (
+    check_live,
+    complete_cutover,
+    load_live,
 )
 from l3io.wp.backup.adapters.journal import (
     CURRENT,
@@ -87,11 +94,6 @@ from l3io.wp.backup.adapters.restore_runner import (
     CONFIG_MAX_BYTES,
     execute_restore,
     snapshot_result,
-)
-from l3io.wp.backup.adapters.staging import (
-    check_staged,
-    complete_cutover,
-    load_staged,
 )
 from l3io.wp.backup.adapters.tar import (
     TarArchiveProbe,
@@ -172,11 +174,16 @@ from l3io.wp.backup.core.restore import (
     SnapshotResult,
     TargetState,
     build_restore_plan,
-    load_names,
+    database_rollback,
+    load_database_name,
     planned_cutover_keys,
     planned_cutover_targets,
 )
-from l3io.wp.backup.core.restore_journal import incomplete_run_error
+from l3io.wp.backup.core.restore_journal import (
+    incomplete_run_error,
+    recovery_command,
+    rollback_owed,
+)
 from l3io.wp.backup.core.restore_space import (
     FREE_SPACE_MARGIN,
     WORKSPACE_FILESYSTEM,
@@ -229,7 +236,7 @@ from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import LATEST, StorageTarget
 from l3io.wp.backup.ports.config import WHOLE_FILE
 from l3io.wp.backup.ports.crypto import PayloadCipher
-from l3io.wp.backup.ports.database import DbTls
+from l3io.wp.backup.ports.database import DatabaseQuery, DbTls
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
 from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.restore import RestorePorts, restore_ports
@@ -465,20 +472,34 @@ def _archive_config_text(
         raise ConfigWriteFailedError(target, WHOLE_FILE, reason) from exc
 
 
-def _refused_on_environment(request: RestoreRequest) -> str | None:
-    """What this restore would do that an environment-driven ``DB_*`` refuses.
+#: The relocation flag that rewrites each ``DB_*`` key at the cutover.
+_RELOCATED_KEYS: Final = (
+    ("new_db_host", "DB_HOST"),
+    ("new_db_user", "DB_USER"),
+    ("new_db_password", "DB_PASSWORD"),
+    ("new_db_name", "DB_NAME"),
+)
 
-    Owner decision 47, ADR-0027 (Proposed): a Mode that restores the database
-    cuts over by rewriting ``DB_NAME``, which does not keep a
-    ``getenv_docker()`` definition. ``None`` (a files-only restore) resolves
-    the lookups instead; ``--overwrite-wp-config`` then carries them into the
-    Archive's file as source (owner decision 48, :func:`_refuse_uncarriable`).
-    A target with no ``wp-config.php``, whose descriptor is the Archive's
-    copy, is refused alike.
+
+def _refused_on_environment(
+    request: RestoreRequest,
+) -> tuple[str | None, tuple[str, ...]]:
+    """What this restore would rewrite that an environment-driven ``DB_*`` refuses.
+
+    Owner decisions 47 and 49, ADR-0027: a database restore loads straight
+    into the database the environment names and writes no ``DB_*``, so only
+    a relocation's cutover can be refused: the keys its ``--new-db-*``
+    flags rewrite. ``(None, ())`` otherwise; the lookups are then resolved,
+    and ``--overwrite-wp-config`` carries them into the Archive's file as
+    source (owner decision 48, :func:`_refuse_uncarriable`).
     """
-    if restores_database(request.mode):
-        return "a database restore"
-    return None
+    flags = request.relocation
+    keys = tuple(
+        key for name, key in _RELOCATED_KEYS if getattr(flags, name) is not None
+    )
+    if not keys or not restores_database(request.mode):
+        return None, ()
+    return "a relocation of the database (--new-db-*)", keys
 
 
 def _refuse_uncarriable(
@@ -561,22 +582,27 @@ def _surveyor(
 ) -> Callable[[], TargetState]:
     """The target's survey, through query ports only (BL-E003-035).
 
-    In every Mode that restores the database the live database is surveyed
-    by the administrator, so ``TargetState.database`` is ``None`` only for a
-    Mode that does not touch it: "not looked at" is never read as "empty".
+    In every Mode that restores the database the live database is surveyed,
+    as the WordPress account or, where it cannot see the database, the
+    administrator (owner decision 55, AD-29 as amended), so
+    ``TargetState.database`` is ``None`` only for a Mode that does not touch
+    it: "not looked at" is never read as "empty". A relocated load database
+    is surveyed as the account that loads it.
     """
     location = site.database_location()
 
-    def database(at: DatabaseLocation | None) -> DatabaseTargetState | None:
+    def database(
+        at: DatabaseLocation | None, query: DatabaseQuery
+    ) -> DatabaseTargetState | None:
         if at is None or not restores_database(mode):
             return None
-        return run.adapters.database_query.survey_target(
+        return query.survey_target(
             at, table_prefix=site.table_prefix, wordpress_user=wordpress_user or None
         )
 
     def survey() -> TargetState:
         files = run.adapters.site_files_query
-        live = database(location)
+        live = database(location, run.adapters.database_query)
         if restores_database(mode) and live is None:  # pragma: no cover - by type
             msg = "a database Mode was planned without surveying the live database"
             raise ValueError(msg)
@@ -592,7 +618,9 @@ def _surveyor(
             site_root=PurePosixPath(site_root),
             site_root_entries=files.entry_count(site_root),
             database_location=location if live is not None else None,
-            load_target=database(relocation.load_location),
+            load_target=database(
+                relocation.load_location, run.adapters.restore_database_query
+            ),
             load_location=relocation.load_location,
         )
 
@@ -635,7 +663,10 @@ def _require_reset_consent(
 ) -> None:
     """RT-S02-004: refuse resetting an existing account's password from the
     Archive without ``--reset-existing-db-user``; existence is the
-    administrator's survey (AD-29)."""
+    administrator's survey (AD-29): ``user_exists`` is known only when the
+    administrator surveyed, which is when the account could not log in, so
+    an administrator's ``ensure`` would set its password (owner decision
+    55)."""
     if (
         config_from_archive
         and restores_database(request.mode)
@@ -732,13 +763,15 @@ def drive_restore(
         notes: list[str] = list(request.notes)
         located = _locate(site_root, request.relocation.wp_config)
         config_from_archive = located is None
+        refused_operation, refused_keys = _refused_on_environment(request)
         if located is not None:
             site, wp_config = site_descriptor_from_wp_config(
                 site_root,
                 config_file=located.path,
                 environ=environ,
                 secrets=run.secrets,
-                refuse_environment=_refused_on_environment(request),
+                refuse_environment=refused_operation,
+                refuse_keys=refused_keys,
             )
             target_config, config_dir = located.path, located.path.parent
             descriptor_file = located.path
@@ -753,7 +786,8 @@ def drive_restore(
                 config_file=descriptor_file,
                 environ=environ,
                 secrets=run.secrets,
-                refuse_environment=_refused_on_environment(request),
+                refuse_environment=refused_operation,
+                refuse_keys=refused_keys,
             )
             located = LocatedConfig(path=descriptor_file, location=None)
             target_config, config_dir = site_root / _CONFIG_NAME, site_root
@@ -818,6 +852,7 @@ def drive_restore(
                 table_prefix=site.table_prefix,
                 journal_path=str(journal_directory(site_root) / CURRENT),
             )
+            _note_rollback_owed(record)
             run.adapters.journal_command.resolve(
                 record.header.run_id, resolved_by=_RESOLVED_BY
             )
@@ -926,7 +961,7 @@ def drive_restore(
             if request.config_policy is ConfigPolicy.OVERWRITE
             else None
         )
-        load, staging = load_names(site.db_name, run.run_id, relocation)
+        load = load_database_name(site.db_name, relocation)
         header = JournalHeader(
             run_id=run.run_id,
             started_at=run.started_at.astimezone(UTC).isoformat(),
@@ -939,7 +974,9 @@ def drive_restore(
                 str(snapshot_path) if RestorePhase.SNAPSHOT in plan.phases else None
             ),
             live_database_before=site.db_name,
-            staging_database=staging,
+            # Owner decision 49: there is no staging database any more; the
+            # field stays so an earlier version's journal reads back.
+            staging_database=None,
             wp_config_path=str(relocation.config_file or target_config),
             load_database=load,
             cutover_keys=planned_cutover_keys(relocation),
@@ -962,6 +999,8 @@ def drive_restore(
             live_database_exists=target.database is not None
             and target.database.database_exists,
             archive_name=str(request.archive.path),
+            rollback=database_rollback(site, relocation, target, plan),
+            prefixed_tables=_prefixed_tables(relocation, target),
         )
         taken: list[SnapshotResult] = []
 
@@ -1028,9 +1067,13 @@ def drive_restore(
                 inputs,
                 ports,
                 take_snapshot,
-                functools.partial(check_staged, ports=ports),
+                functools.partial(check_live, ports=ports),
                 functools.partial(
-                    load_staged, ports=ports, workspace=run.workspace, clock=run.clock
+                    load_live,
+                    ports=ports,
+                    workspace=run.workspace,
+                    cipher=request.cipher,
+                    clock=run.clock,
                 ),
                 run.adapters.journal_command,
                 request.cipher,
@@ -1066,6 +1109,24 @@ def drive_restore(
             wp_config_kept=report.wp_config_kept,
             notes=tuple(notes),
         )
+
+
+def _prefixed_tables(
+    relocation: RestoreRelocation, target: TargetState
+) -> tuple[str, ...]:
+    """The load database's tables with the site's prefix, as surveyed (decision 53).
+
+    What a Dry Run's database report says would be dropped; ``()`` when the
+    survey could not list them (the plan's line then names the prefix).
+    """
+    surveyed = (
+        target.load_target
+        if relocation.load_location is not None and target.load_target is not None
+        else target.database
+    )
+    if surveyed is None or surveyed.prefixed_tables is None:
+        return ()
+    return surveyed.prefixed_tables
 
 
 #: The attribute an escaping exception carries the Safety Snapshot's path on:
@@ -1112,6 +1173,26 @@ def _warn_after_snapshot(warning: RunWarning, sink: WarningSink | None) -> None:
         raise
     except Exception as exc:  # RunTerminated: mapped here (re-raised above)
         _log.error("on_warning_failed", code=warning.code, error=type(exc).__name__)
+
+
+def _note_rollback_owed(record: JournalRecord) -> None:
+    """WARNING ``database_rollback_owed`` when the resolved Run left the live
+    database partly loaded (owner decision 50).
+
+    Resolving acknowledges; it never restores (resolving and restoring are
+    never one command), so the record names the Safety Snapshot and the
+    command that restores it.
+    """
+    if not rollback_owed(record):
+        return
+    header = record.header
+    _log.warning(
+        "database_rollback_owed",
+        run_id_resolved=header.run_id,
+        database=header.load_database,
+        snapshot=header.snapshot_path,
+        recovery=recovery_command(header) or None,
+    )
 
 
 def _note_allow_unencrypted(request: RestoreRequest) -> None:
@@ -1275,6 +1356,40 @@ def _latest(
     return storage_target_from_cli(str(choice.path)), note
 
 
+def _note_drop_database(given: bool) -> None:
+    """Owner decision 63: ``--drop-database`` is accepted and does nothing more.
+
+    Every database restore loads straight into the live database and drops
+    the tables carrying the site's prefix first (decisions 49 and 53), so
+    there is no previous database left to remove. A script that passes the
+    flag keeps running; WARNING ``deprecated_option`` says it has no effect.
+    """
+    if given:
+        _log.warning(
+            "deprecated_option",
+            option="--drop-database",
+            replacement=None,
+            reason="has no effect: a database restore loads into the live "
+            "database and leaves no previous database to remove",
+        )
+
+
+def _admin_as_root(
+    request: RestoreRequest, *, environ: Mapping[str, str], secrets: SecretRegistry
+) -> RestoreRequest:
+    """Owner decision 71: the administrator's chain, resolved while still root.
+
+    Only when one is configured (the flags, an AWS secret, or the
+    ``L3IO_WP_BACKUP_ADMIN_*`` pair): the answer is carried into the Run as a
+    ``ResolvedCredentialSpec`` and nothing is read again after the switch.
+    It is still used only where an administrator is needed (decision 55).
+    """
+    source = admin_source(request.admin, environ=environ, secrets=secrets)
+    if source is None:
+        return request
+    return dataclasses.replace(request, admin=resolve_admin_now(source))
+
+
 def _open_archive(archive: StorageTarget) -> BinaryIO:
     """The Archive, opened before the root switches users (owner decision 58)."""
     path = Path(archive.path)
@@ -1334,6 +1449,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         drop_database=args.drop_database,
         force=args.force,
     )
+    _note_drop_database(bool(args.drop_database))
     passphrase, passphrase_source = explicit_secret(
         args.passphrase, origins.get("passphrase"), name="passphrase"
     )
@@ -1414,6 +1530,11 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
             archive_handle=handle,
             notes=notes,
         )
+        if privileges.running_as_root():
+            # Owner decision 71: a configured administrator (an AWS profile in
+            # root's home, say) is resolved before the switch, as a backup
+            # resolves its WordPress account (owner decision 67).
+            request = _admin_as_root(request, environ=os.environ, secrets=secrets)
         # Owner decision 58: everything only root may read has been read.
         privileges.drop_to_site_owner(
             Path(args.wp_dir), environ=os.environ, operation="restore"

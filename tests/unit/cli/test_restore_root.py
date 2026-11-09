@@ -37,7 +37,6 @@ from l3io.wp.backup.cli.restore_request import (
 from l3io.wp.backup.core.restore import (
     SnapshotFailedError,
     SnapshotResult,
-    staging_name,
 )
 from l3io.wp.backup.core.restore_journal import IncompleteRunError
 from l3io.wp.backup.domain.archive_format import Integrity
@@ -429,7 +428,7 @@ def _interrupted(rig: Rig) -> str:
         live_database_before="target_db",
         staging_database=None,
         wp_config_path=str(rig.config),
-        load_database=staging_name("target_db", "interrupted-run-1"),
+        load_database="target_db",
         cutover_keys=(),
         cutover_targets={},
         prior_constants={},

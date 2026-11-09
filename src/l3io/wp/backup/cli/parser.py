@@ -523,17 +523,17 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         "--cleanfirst",
         action="store_true",
         help=(
-            "Clear the Site Root before restoring the files. It does not "
-            "remove the database: that is --drop-database"
+            "Clear the Site Root before restoring the files. The database "
+            "is replaced by every restore that loads it"
         ),
     )
     mode.add_argument(
         "--drop-database",
         action="store_true",
         help=(
-            "Remove the previous database once the restored one has taken "
-            "over. Valid as --mode db --drop-database, or with --mode all "
-            "--cleanfirst; alone (the default --mode all) it is refused"
+            "Deprecated; has no effect. A database restore loads into the "
+            "live database and drops the tables with the site's prefix "
+            "first, so no previous database is left to remove"
         ),
     )
     mode.add_argument(
@@ -542,7 +542,8 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         help=(
             "Restore over a non-empty Site Root that does not look like "
             "WordPress (none of wp-config.php, wp-includes/, wp-content/), or "
-            "a non-empty database. It selects no mode and removes nothing"
+            "a non-empty database none of whose tables has the site's table "
+            "prefix. It selects no mode and removes nothing"
         ),
     )
 

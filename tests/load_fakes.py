@@ -1,30 +1,38 @@
-"""Fakes for ``adapters/staging.py``'s slots (E003-S02-005). Not a test module.
+"""Fakes for ``adapters/database_load.py``'s slots. Not a test module.
 
 :class:`FakeDatabase` stands in for both restore database halves and records
-every call, query or command, in one ordered list. :class:`StagedHarness` is
+every call, query or command, in one ordered list. :class:`LoadHarness` is
 ``tests/restore_harness.py``'s :class:`~tests.restore_harness.Harness` with
-the real ``load_staged``/``check_staged`` bound over that fake, and a journal
+the real ``load_live``/``check_live`` bound over that fake, and a journal
 header built the way the restore root builds it (from ``core/restore.py``'s
-``load_names``/``planned_cutover_*``). :class:`EntryJournal` keeps the
-``JournalEntry`` values a Run wrote.
+``load_database_name``/``planned_cutover_*``). :class:`EntryJournal` keeps the
+``JournalEntry`` values a Run wrote. A rollback reads the Safety Snapshot the
+harness's ``take_snapshot`` wrote (a real Archive holding a Dump).
 """
 
 from __future__ import annotations
 
 import functools
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import IO
 
+from l3io.wp.backup.adapters.database import ADMIN_FLAGS, ADMIN_SOURCE
+from l3io.wp.backup.adapters.database_load import check_live, load_live
 from l3io.wp.backup.adapters.restore_runner import execute_restore
-from l3io.wp.backup.adapters.staging import check_staged, load_staged
+from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.core import restore_journal as core_restore
 from l3io.wp.backup.core.restore import (
     ExecutionReport,
+    RestoreInputs,
     RestoreRelocation,
-    load_names,
+    RollbackKind,
+    SnapshotResult,
+    database_rollback,
+    load_database_name,
     planned_cutover_keys,
     planned_cutover_targets,
 )
@@ -35,10 +43,24 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
     STEP_CUTOVER_STARTED,
+    STEP_DATABASE_CREATED,
+    STEP_LOAD_STARTED,
+    STEP_LOAD_TARGET_DROPPED,
+    STEP_LOADED,
     STEP_LOSER_DROP_STARTED,
     STEP_LOSER_DROPPED,
+    STEP_ROLLBACK_FAILED,
+    STEP_ROLLBACK_STARTED,
+    STEP_ROLLED_BACK,
     STEP_STAGING_DROPPED,
 )
+from l3io.wp.backup.domain.archive_format import (
+    ArchiveView,
+    ExtractResult,
+    Integrity,
+    MemberRole,
+)
+from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.config import ConfigWriteResult
 from l3io.wp.backup.domain.database import (
     DatabaseLocation,
@@ -48,7 +70,10 @@ from l3io.wp.backup.domain.database import (
     LoadResult,
     Readiness,
 )
-from l3io.wp.backup.domain.errors import ConfigWriteFailedError
+from l3io.wp.backup.domain.errors import (
+    AdminCredentialsRequiredError,
+    ConfigWriteFailedError,
+)
 from l3io.wp.backup.domain.journal import (
     JOURNALED_CONSTANTS,
     JournalEntry,
@@ -56,15 +81,21 @@ from l3io.wp.backup.domain.journal import (
     JournalHeader,
 )
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
+from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.adapter_set import AdapterSet
 from l3io.wp.backup.ports.clock import Clock
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
-from tests.restore_harness import TARGET_DB, CommandLog, FakeConfig, Harness
+from l3io.wp.backup.ports.site_files import SiteFilesCommand
+from tests.restore_harness import TARGET_DB, CommandLog, FakeConfig, Harness, write_v1
 
 READY = Readiness(ready=True)
-WORDPRESS = DatabaseTargetState(True, 12, True, "57155", True, 0, 0)
-NOT_WORDPRESS = DatabaseTargetState(True, 3, False, None, True, 0, 0)
+WORDPRESS = DatabaseTargetState(
+    True, 12, True, "57155", True, 0, 0, prefixed_tables=("wp_options", "wp_users")
+)
+NOT_WORDPRESS = DatabaseTargetState(True, 3, False, None, True, 0, 0, ())
+#: What ``check_load`` answers for an account an administrator must provision.
+NEEDS_ADMIN = Readiness(ready=False, blockers=("database_absent",))
 RUN_ID = "run-1"
 
 
@@ -80,13 +111,23 @@ class FakeDatabase:
     failures: dict[str, BaseException] = field(default_factory=dict)
     log: CommandLog | None = None
     administrator_bound: bool = True
+    #: Each ``load_dump``'s source, ``replace`` and ``prune_prefix``, in order.
+    loads: list[tuple[Path, bool, str | None]] = field(default_factory=list)
+    #: The tables ``load_dump`` reports it dropped first.
+    dropped: tuple[str, ...] = ("wp_options", "wp_users", "wp_extra")
+    #: ``load_dump`` fails only on these calls (1-based); every call when empty.
+    fail_loads: frozenset[int] = frozenset()
 
     def _call(self, kind: str, method: str, location: DatabaseLocation) -> None:
         self.calls.append((kind, method, location.name))
         if self.log is not None:
             self.log.add("database", method, location.name)
         failure = self.failures.get(method)
-        if failure is not None:
+        if failure is not None and method != "load_dump":
+            raise failure
+        if failure is not None and (
+            not self.fail_loads or len(self.loads) in self.fail_loads
+        ):
             raise failure
 
     def methods(self, kind: str | None = None) -> list[str]:
@@ -112,11 +153,21 @@ class FakeDatabase:
         return self.readiness.get(method, READY)
 
     def check_ensure(self, location: DatabaseLocation) -> Readiness:
+        if not self.administrator_bound:
+            self._call("query", "check_ensure", location)
+            raise AdminCredentialsRequiredError(ADMIN_SOURCE, flags=ADMIN_FLAGS)
         return self._ready("check_ensure", location)
 
     def check_load(
-        self, location: DatabaseLocation, *, source: Path | None
+        self,
+        location: DatabaseLocation,
+        *,
+        source: Path | None,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> Readiness:
+        assert replace, "a restore always loads over the live database"
+        assert prune_prefix == "wp_", prune_prefix
         return self._ready("check_load", location)
 
     def check_revoke(
@@ -142,10 +193,29 @@ class FakeDatabase:
         )
 
     def load_dump(
-        self, location: DatabaseLocation, source: IO[bytes] | Path
+        self,
+        location: DatabaseLocation,
+        source: IO[bytes] | Path,
+        *,
+        replace: bool = False,
+        prune_prefix: str | None = None,
     ) -> LoadResult:
+        assert isinstance(source, Path)
+        self.loads.append((source, replace, prune_prefix))
         self._call("command", "load_dump", location)
-        return LoadResult(bytes=10, duration_ms=1.0, performed=self.performed)
+        return LoadResult(
+            bytes=10,
+            duration_ms=1.0,
+            performed=self.performed,
+            dropped=self.dropped if self.performed else (),
+        )
+
+    def drop_tables(
+        self, location: DatabaseLocation, *, prefix: str
+    ) -> tuple[str, ...]:
+        assert prefix == "wp_"
+        self._call("command", "drop_tables", location)
+        return self.dropped
 
     def revoke_grants(
         self, location: DatabaseLocation, *, user: str, confirm: str
@@ -157,6 +227,10 @@ class FakeDatabase:
         assert confirm == location.name
         self._call("command", "drop_database", location)
         return True
+
+    def ensure_needed(self) -> None:
+        """``check_load`` answers that an administrator must provision first."""
+        self.readiness["check_load"] = NEEDS_ADMIN
 
 
 class FailingConfig(FakeConfig):
@@ -221,15 +295,56 @@ class EntryJournal:
         return [e.step for e in self.entries if e.step is not None]
 
 
+class DumpingSiteFiles:
+    """The harness's site-files command; a Dump is extracted for real.
+
+    The load and the rollback read the Dump they extract (the Safety
+    Snapshot's included); every other extraction goes to ``inner``.
+    """
+
+    def __init__(self, log: CommandLog, inner: SiteFilesCommand) -> None:
+        self.log = log
+        self.inner = inner
+        self.real = LocalSiteFiles()
+
+    def clean(self, site_root: Path, *, keep: frozenset[PurePosixPath]) -> int:
+        return self.inner.clean(site_root, keep=keep)
+
+    def extract(
+        self,
+        source: StorageTarget,
+        destination: Path,
+        view: ArchiveView,
+        *,
+        roles: frozenset[MemberRole],
+        exclude: frozenset[PurePosixPath] = frozenset(),
+        payload: Path | None = None,
+    ) -> ExtractResult:
+        if roles != frozenset({MemberRole.DUMP}):
+            return self.inner.extract(
+                source, destination, view, roles=roles, exclude=exclude, payload=payload
+            )
+        self.log.add("site_files", "extract", (str(destination), ["dump"], []))
+        return self.real.extract(
+            source, destination, view, roles=roles, exclude=exclude, payload=payload
+        )
+
+
 @dataclass
-class StagedHarness(Harness):
-    """``Harness`` with the real staging slots over :class:`FakeDatabase`."""
+class LoadHarness(Harness):
+    """``Harness`` with the real load slots over :class:`FakeDatabase`.
+
+    ``take_snapshot`` writes a real Safety Snapshot (an Archive holding a
+    Dump), so a rollback reads it as the real Run would.
+    """
 
     database: FakeDatabase = field(default_factory=FakeDatabase)
     failing_keys: frozenset[str] = frozenset()
     password: str | None = None
-    #: The Run's ``Clock`` for ``load_staged``; the system clock when ``None``.
+    #: The Run's ``Clock`` for ``load_live``; the system clock when ``None``.
     clock: Clock | None = None
+    #: ``RestoreInputs.rollback`` in place of the plan's (``None``: derived).
+    rollback: RollbackKind | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -245,6 +360,7 @@ class StagedHarness(Harness):
             base,
             restore_database_query=self.database,
             restore_database_command=self.database,
+            site_files_command=DumpingSiteFiles(self.log, base.site_files_command),
         )
 
     def ports(self, adapters: AdapterSet | None = None) -> RestorePorts:
@@ -257,7 +373,7 @@ class StagedHarness(Harness):
         return dataclasses.replace(ports, cutover_credentials=lambda: password)
 
     def header(self) -> JournalHeader:
-        return staged_header(
+        return load_header(
             run_id=RUN_ID,
             site_root=PurePosixPath(self.site_root),
             live=self.site.db_name,
@@ -268,7 +384,33 @@ class StagedHarness(Harness):
             snapshot_path=str(self.snapshot_file),
         )
 
-    def run_staged(
+    def inputs(self) -> RestoreInputs:
+        import dataclasses
+
+        base = super().inputs()
+        kind = self.rollback or database_rollback(
+            self.site, self.relocation, self.target(), self.plan()
+        )
+        return dataclasses.replace(base, rollback=kind)
+
+    def take_snapshot(self, scope: BackupScope) -> SnapshotResult:
+        self.snapshots.append(scope)
+        self.log.add("snapshot", "take", scope)
+        self.snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+        if not self.snapshot_file.exists():
+            build = self.work / "snapshot-build"
+            build.mkdir()
+            shutil.copyfile(write_v1(build), self.snapshot_file)
+        return SnapshotResult(
+            path=PurePosixPath(self.snapshot_file),
+            scope=scope,
+            encrypted=False,
+            bytes=1,
+            integrity=Integrity.VERIFIED,
+            performed=True,
+        )
+
+    def run_load(
         self,
         journal: RunJournalCommand | None = None,
         adapters: AdapterSet | None = None,
@@ -279,11 +421,12 @@ class StagedHarness(Harness):
             self.inputs(),
             ports,
             self.take_snapshot,
-            functools.partial(check_staged, ports=ports),
+            functools.partial(check_live, ports=ports),
             functools.partial(
-                load_staged,
+                load_live,
                 ports=ports,
                 workspace=self.workspace,
+                cipher=self.cipher,
                 **({} if self.clock is None else {"clock": self.clock}),
             ),
             journal or self.journal,
@@ -293,7 +436,7 @@ class StagedHarness(Harness):
         )
 
 
-def staged_header(
+def load_header(
     *,
     run_id: str,
     site_root: PurePosixPath,
@@ -306,7 +449,7 @@ def staged_header(
     prior: Mapping[str, str | None] | None = None,
 ) -> JournalHeader:
     """The header the restore root builds before ``SNAPSHOT`` (ADR-0021)."""
-    load, staging = load_names(live, run_id, relocation)
+    load = load_database_name(live, relocation)
     prior_values = dict(prior) if prior is not None else dict(TARGET_DB)
     return JournalHeader(
         run_id=run_id,
@@ -316,7 +459,7 @@ def staged_header(
         archive=archive,
         snapshot_path=snapshot_path,
         live_database_before=live,
-        staging_database=staging,
+        staging_database=None,
         wp_config_path=config_path,
         load_database=load,
         cutover_keys=planned_cutover_keys(relocation),
@@ -354,13 +497,61 @@ def _files(header: JournalHeader) -> str:
     )
 
 
+def _live(header: JournalHeader) -> bool:
+    """The Run loaded the live database itself: no relocation moved it."""
+    return (
+        header.staging_database is None
+        and header.load_database == header.live_database_before
+        and "DB_HOST" not in header.cutover_targets
+    )
+
+
+_INTERRUPTED = {
+    STEP_LOAD_STARTED: "the load was interrupted",
+    STEP_ROLLBACK_STARTED: "the load failed and its automatic rollback was interrupted",
+    STEP_ROLLBACK_FAILED: "the load failed and its automatic rollback failed",
+}
+
+
+def _direct_row(step: str, header: JournalHeader, untouched: str) -> str:
+    """The direct load's rows (owner decisions 49 and 50)."""
+    load = header.load_database
+    if step == STEP_DATABASE_CREATED:
+        return f"{untouched}; this Run created database {load}"
+    if step in _INTERRUPTED:
+        what = _INTERRUPTED[step]
+        if _live(header):
+            return f"{what}, so the live database {load} is partly loaded"
+        return f"{untouched}; {what}, so the relocated database {load} is partly"
+    if step == STEP_LOADED:
+        if header.cutover_keys:
+            return (
+                f"{untouched}; the Dump was loaded into {load} and checked, and "
+                "the cutover had not started"
+            )
+        return f"the Dump was loaded into {load} and checked: the database is restored"
+    if step == STEP_ROLLED_BACK:
+        return f"the load failed and the database {load} was put back"
+    assert step == STEP_LOAD_TARGET_DROPPED
+    return f"{untouched}; the relocated database {load} this Run created was dropped"
+
+
+_DIRECT = frozenset({*_INTERRUPTED, STEP_DATABASE_CREATED, STEP_LOADED})
+_DIRECT_ALL = _DIRECT | {STEP_ROLLED_BACK, STEP_LOAD_TARGET_DROPPED}
+
+
 def _load_row(step: str | None, header: JournalHeader, *, files_changed: bool) -> str:
     load, before = header.load_database, header.live_database_before
     keys = header.cutover_keys
     untouched = _files(header) if files_changed else "live site untouched"
+    if step in _DIRECT_ALL:
+        assert step is not None
+        return _direct_row(step, header, untouched)
+    if step is None and header.staging_database is None:
+        return f"{untouched}; nothing was loaded yet"
     if step in {None, STEP_CHECK_FAILED, STEP_CUTOVER_READBACK_FAILED}:
         if header.staging_database is None:
-            named = f"{load} existed and was empty before this Run; empty or drop it"
+            named = f"{load} was loaded by this Run; empty or drop it"
             return f"{untouched}; {named}" if files_changed else named
         return f"{untouched}; drop staging database {load}"
     assert step is not None
@@ -460,9 +651,9 @@ __all__ = [
     "EntryJournal",
     "FailingConfig",
     "FakeDatabase",
-    "StagedHarness",
+    "LoadHarness",
     "assert_one_row",
-    "staged_header",
+    "load_header",
     "undo_row",
     "undo_rows",
 ]

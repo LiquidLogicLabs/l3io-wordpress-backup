@@ -108,11 +108,13 @@ def report_for(
     if RestorePhase.LOAD_DUMP in plan.phases:
         database = DatabaseRestoreReport(
             live_database_before="target_db",
-            live_database_after="target_db_l3s_x",
+            live_database_after="target_db",
+            database="db.target:3306/target_db",
             ensure=EnsureOutcome(False, False, False, False, (), performed),
+            administrator=False,
             loaded_bytes=1,
             load_duration_ms=1.0,
-            previous_database="retained",
+            dropped_tables=(),
             restored=restored,
             performed=performed,
         )

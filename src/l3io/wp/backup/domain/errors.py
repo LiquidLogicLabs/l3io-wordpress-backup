@@ -375,12 +375,41 @@ class CredentialsError(BackupError):
 
 
 class AdminCredentialsRequiredError(CredentialsError):
-    """The operation needs administrator credentials that were not given."""
+    """The operation needs administrator credentials that were not given.
 
-    def __init__(self, source: str, *, flags: tuple[str, ...]) -> None:
+    Owner decision 55: a restore needs an administrator only when the
+    database does not exist yet or the WordPress account lacks the rights.
+    ``missing`` then names what is missing, as finding codes
+    (``database_absent``, ``missing_privilege``, ``authentication_failed``,
+    ``database_not_visible``), ``database`` the database and ``account`` the
+    WordPress account's credential source; never a secret.
+    """
+
+    def __init__(
+        self,
+        source: str,
+        *,
+        flags: tuple[str, ...],
+        missing: tuple[str, ...] = (),
+        database: str | None = None,
+        account: str | None = None,
+    ) -> None:
         self.flags = flags
+        self.missing = missing
+        self.database = database
+        self.account = account
+        need = ""
+        if missing:
+            on = "" if database is None else f" {database!r}"
+            who = "" if account is None else f" (credentials from {account!r})"
+            need = (
+                f"the WordPress account{who} cannot restore database{on} as it "
+                f"stands ({', '.join(missing)}); an administrator is needed only "
+                "to create the database or the account, or to grant its rights; "
+            )
         super().__init__(
-            source, reason=f"administrator credentials required: {', '.join(flags)}"
+            source,
+            reason=f"{need}administrator credentials required: {', '.join(flags)}",
         )
 
 
@@ -1171,17 +1200,18 @@ class UnsupportedConfigValueError(RefusedError):
 
 
 class EnvironmentDrivenTargetError(RefusedError):
-    """Owner decision 47, ADR-0027 (Proposed): a restore target whose ``DB_*``
-    are read from the environment.
+    """ADR-0027: a relocation would rewrite a ``DB_*`` the target reads from
+    the environment.
 
-    A database restore switches the site to the loaded database by rewriting
-    ``wp-config.php``'s ``DB_NAME``, which cannot keep a
-    ``getenv_docker()``/``getenv()`` definition. Refused before any change, a
-    Dry Run included. ``keys`` are the constants, ``variables`` the
-    environment variables they read (names only, never values), ``path`` the
-    ``wp-config.php`` and ``operation`` what was refused (``"a database
-    restore"``). ``--overwrite-wp-config`` in a files-only Mode carries the
-    definitions as source instead (owner decision 48).
+    A restore without relocation loads straight into the database the
+    environment names and writes no ``DB_*`` (owner decisions 47 and 49).
+    A relocation (``--new-db-host``, ``--new-db-name``, ``--new-db-user``,
+    ``--new-db-password``) rewrites the keys it moves in ``wp-config.php``,
+    which cannot keep a ``getenv_docker()``/``getenv()`` definition; it is
+    refused before any change, a Dry Run included. ``keys`` are the
+    constants, ``variables`` the environment variables they read (names
+    only, never values), ``path`` the ``wp-config.php`` and ``operation``
+    what was refused.
     """
 
     def __init__(
@@ -1199,11 +1229,11 @@ class EnvironmentDrivenTargetError(RefusedError):
         read = ", ".join(f"{k} from {v}" for k, v in zip(keys, variables, strict=True))
         super().__init__(
             f"refused: {str(path)!r} reads {read} from the environment, and "
-            f"{operation} cannot yet be done on such a site: it would rewrite "
-            "those definitions as fixed values (docs/adr/0027-restore-into-an-"
-            "environment-driven-database.md, Proposed); restore the files alone "
-            "(--mode files), or define the DB_* constants as literals; nothing "
-            "was changed"
+            f"{operation} would rewrite those definitions as fixed values "
+            "(docs/adr/0027-restore-into-an-environment-driven-database.md); "
+            "change the container's environment instead and restore without "
+            "the --new-db-* flags, or define the DB_* constants as literals; "
+            "nothing was changed"
         )
 
 

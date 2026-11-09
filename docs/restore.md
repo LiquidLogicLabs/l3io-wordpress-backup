@@ -16,8 +16,7 @@ The capitalised words below have one meaning throughout this page (UX-9).
 - **Archive** — the file a backup writes and a restore reads (`--archive`).
 - **Dump** — the database's SQL contents inside an Archive.
 - **Restore Mode** (or Mode) — what a restore puts back and what it may remove:
-  files, the database or both (`--mode`, `--cleanfirst`, `--drop-database`;
-  see the table below).
+  files, the database or both (`--mode`, `--cleanfirst`; see the table below).
 - **Run** — one invocation of `wpbackup2`, named by its Run ID (a UUID in
   every log record, `l3io_run_id`).
 - **Dry Run** — a Run with `--whatIf`: it checks and prints, and changes nothing.
@@ -44,20 +43,27 @@ The capitalised words below have one meaning throughout this page (UX-9).
 ## Restore Modes
 
 The Mode is resolved once from the flags and governs the whole Run. A Mode that
-does not name file removal removes no files; one that does not name database
-removal drops no database.
+does not name file removal removes no files.
 
-| Mode             | Flags                                    | Clears the Site Root | Writes files | Loads the Dump | Drops the losing database |
-|------------------|------------------------------------------|----------------------|--------------|----------------|---------------------------|
-| `files`          | `--mode files`                           | no                   | yes          | no             | no                        |
-| `files-clean`    | `--mode files --cleanfirst`              | yes                  | yes          | no             | no                        |
-| `database`       | `--mode db`                              | no                   | no           | yes            | no                        |
-| `database-clean` | `--mode db --drop-database`              | no                   | no           | yes            | yes                       |
-| `all`            | `--mode all`                             | no                   | yes          | yes            | no                        |
-| `all-clean`      | `--mode all --cleanfirst --drop-database` | yes                  | yes          | yes            | yes                       |
+| Mode             | Flags                         | Clears the Site Root | Writes files | Loads the Dump |
+|------------------|-------------------------------|----------------------|--------------|----------------|
+| `files`          | `--mode files`                | no                   | yes          | no             |
+| `files-clean`    | `--mode files --cleanfirst`   | yes                  | yes          | no             |
+| `database`       | `--mode db`                   | no                   | no           | yes            |
+| `database-clean` | `--mode db --drop-database`   | no                   | no           | yes            |
+| `all`            | `--mode all`                  | no                   | yes          | yes            |
+| `all-clean`      | `--mode all --cleanfirst`     | yes                  | yes          | yes            |
 
-`--mode all` is the default, so `--cleanfirst --drop-database` alone selects
-`all-clean`. The Mode names are what the log (`restore_mode`), refusals
+Every Mode that loads the Dump replaces the database's tables that carry the
+site's table prefix (below), so the database matches the Archive. There is no
+"previous database" left to remove, and `--drop-database` is **deprecated and
+has no effect** (owner decision 63): it is accepted, so a script that passes
+it keeps running, and logs WARNING `deprecated_option`. With `--mode db` it
+still selects the Mode named `database-clean`, which restores exactly as
+`database` does; with `--mode files` or `--mode all` it changes nothing.
+
+`--mode all` is the default, so `--cleanfirst` alone selects `all-clean`. The
+Mode names are what the log (`restore_mode`), refusals
 ("Restore Mode files") and the completion line use; the flags are what you
 type. A library host passes the Mode and its overrides as values, without this
 flag table: see [`api.md`](api.md#restore) before forwarding user input into
@@ -75,43 +81,75 @@ A Mode that loads the database refuses (exit 3 `REFUSED`) when the Archive
 holds no Dump, naming the Archive and its backup scope; `--mode files` restores
 its files.
 
-## The database after a restore: a new name, by design
+## The database: loaded straight into the live database
 
-A restore never loads the Dump over the live database. It loads it into a new
-**staging database** on the same server, named
-`<live name, first 51 characters>_l3s_<first 8 characters of the Run ID>` (for
-example `example_wp_l3s_90e53fd8`), checks that it is a WordPress database, and
-only then switches `wp-config.php`'s `DB_NAME` to it (the cutover). This is
-what keeps the live site intact if the load or the check fails (ADR-0022).
+A restore loads the Dump **straight into the live database** that
+`wp-config.php` names (owner decisions 49 and 55, ADR-0027), as the site's own
+WordPress account, after the Safety Snapshot. It does not rename the database
+or rewrite `DB_NAME`: the site keeps running on the database it ran on, and a
+`wp-config.php` whose `DB_*` come from the environment (the official
+`wordpress` image's `getenv_docker()`) keeps following it.
 
-So after a successful `database`, `database-clean`, `all` or `all-clean`
-restore **the site permanently runs on the staging database's name**; nothing
-renames it back. The report gives its verdict first, then says so:
+In order, inside `LOAD_DUMP`:
+
+1. The load checks run as the WordPress account first (at `PREFLIGHT`, before
+   anything changes). An administrator is used **only** when the database
+   does not exist yet or the account lacks a right on it (below).
+2. Every table and view whose name starts with the site's table prefix
+   (`$table_prefix`, `wp_` by default) is dropped, then the Dump is loaded.
+   So after a restore the database holds exactly the Archive's tables with
+   that prefix: a plugin's table that was added after the backup is gone
+   (owner decisions 52 and 53). **Tables without the prefix are never
+   touched**: another application's tables, or another WordPress sharing the
+   database under another prefix. The tables dropped are logged by name
+   (`database_tables_dropped`) and printed in the report.
+3. The loaded database is checked: it must be a WordPress database with a
+   schema version.
+4. Only with a relocation (`--new-db-*`, below), the `wp-config.php` keys it
+   moves are written, one journaled atomic write each.
+
+**The site is down for the length of the load**: WordPress reads a database
+that is being replaced. Restore when a short outage is acceptable.
+
+**A failure rolls back automatically** (owner decision 50). If anything fails
+after the load began (the load itself, the check, or a relocation key that did
+not land), the Run reloads the Safety Snapshot into the live database the same
+way (prefixed tables dropped, then its Dump loaded) before it exits, logs
+WARNING `database_rolled_back`, and exits with the load's own error. The
+database is then as it was before the Run. A database that held nothing
+before is emptied again instead (its prefixed tables dropped, or the database
+dropped if this Run created it).
+
+If the rollback fails too, or nothing can roll back (`--no-safety-snapshot`
+over a database that held tables), the Run exits 1 `FAILED` with
+`RollbackFailedError`, which names both failures, the Safety Snapshot and the
+commands that restore it, and the Run is recorded as interrupted, so the next
+restore refuses until you resolve it:
 
 ```
-database restored
-database: the site now runs on 'example_wp_l3s_90e53fd8' (was 'example_wp')
+wpbackup2 restore --wp-dir /srv/www/example --resolve-interrupted-run <run id>
+wpbackup2 restore --wp-dir /srv/www/example --archive <safety snapshot> --mode db
 ```
 
-The previous database is kept by `database` and `all`, and dropped (after its
-WordPress user's grants on it are revoked) by `database-clean` and
-`all-clean`. Either way, **update anything outside this tool that names the
-old database**: cron jobs or scripts that dump it, monitoring, other
-applications' grants, and your own backup jobs if they name the database
-rather than reading `wp-config.php`. A later restore of the same Site names
-its staging database after the database the site runs on at that time, so a
-second restore gives a name like `example_wp_l3s_90e53fd8_l3s_1a2b3c4d`; the
-live part is cut to 51 characters, so a name never exceeds MySQL's 64.
+A SIGTERM or Ctrl-C during the load is not rolled back: the Run stops at once
+and is recorded as interrupted, and its undo text names the snapshot and the
+same commands.
+
+**The Dry Run shows what would be overwritten**: the `LOAD_DUMP` line names the
+live database (host, port and name), every table that would be dropped first,
+and what would roll it back; the `SNAPSHOT` line names where the snapshot would
+be written. The host and database are also logged (`planned_action`), as a
+backup logs its host (owner decision 51): no confirmation flag is asked for.
 
 ## Exit codes
 
 | Exit | Name                  | A restore exits with it when                                                                 |
 |------|-----------------------|----------------------------------------------------------------------------------------------|
 | 0    | `OK`                  | it completed (a Dry Run: its plan completed without a refusal)                              |
-| 1    | `FAILED`              | something failed, including a database load the report does not call restored               |
+| 1    | `FAILED`              | something failed, including a database load the report does not call restored, and a load whose automatic rollback failed (`RollbackFailedError`) |
 | 2    | `USAGE`               | the flags express no Restore Mode, `--archive` is missing, or `--overwrite-wp-config` is given with a Mode that restores no files |
-| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a target whose `DB_*` are read from the environment (database Modes) or are another PHP expression, an `--overwrite-wp-config` whose Archive's file does not define `getenv_docker()` for the target's definitions |
-| 4    | `CREDENTIALS`         | a Mode that touches the database has no administrator credentials                           |
+| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a relocation (`--new-db-*`) that would rewrite a `DB_*` read from the environment, a `DB_*` that is another PHP expression, an `--overwrite-wp-config` whose Archive's file does not define `getenv_docker()` for the target's definitions |
+| 4    | `CREDENTIALS`         | the database does not exist yet or the WordPress account cannot log in or lacks a right on it, and no administrator credentials are configured (`AdminCredentialsRequiredError`, naming what is missing); or a credential source is unusable |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
 | 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
 | 8    | `VERIFICATION_FAILED` | the Archive is malformed or corrupt, or a passphrase is wrong                                |
@@ -127,10 +165,15 @@ is planned, each part the Mode restores is checked:
   (owner decision 57). Restoring over a recognisable WordPress site needs no
   flag; the Safety Snapshot covers the overwrite. An empty Site Root needs
   none either;
-- **database** — the live database (or the `--new-db-name` database) exists
-  with at least one table, view, stored routine or event. The live database is always surveyed by the
-  administrator in a Mode that restores the database; "not looked at" is never
-  taken as empty.
+- **database** — the live database (or the relocated load database) holds
+  tables, views, stored routines or events, **and none of its tables carries
+  the site's table prefix** (owner decision 57): it does not look like this
+  WordPress site, so it may be another application's. A WordPress database
+  (a table with the prefix) or an empty one needs no flag; the Safety Snapshot
+  and the automatic rollback cover the overwrite. The live database is always
+  surveyed in a Mode that restores the database, as the WordPress account or,
+  when that account cannot see it, the administrator; "not looked at" is
+  never taken as empty.
 
 A non-empty part is refused (exit 3 `REFUSED`) unless a flag waives it. The
 message names the Mode as you typed it, every non-empty part with what was
@@ -143,13 +186,8 @@ wp-includes, wp-content); nothing was changed. --mode files --force would
 authorize it
 ```
 
-The database part is unchanged for now: any table needs `--force`. Owner
-decision 57's database half (tables, but none carrying the site's prefix, need
-`--force`; a WordPress database does not) arrives with the direct load into
-the live database.
-
-`--force` waives the parts the Mode restores; `--cleanfirst` and
-`--drop-database` choose the clean Modes. Waiving the files never waives the
+`--force` waives the parts the Mode restores; `--cleanfirst` chooses the clean
+Modes. Waiving the files never waives the
 database. There is no prompt. A Dry Run refuses the same way, with the same
 exit code. The log record is `restore_refused` (`reason`, `parts`, `found`,
 `detail`, `authorizing`, `restore_mode`); when the guard passes, the Run logs
@@ -187,8 +225,9 @@ is refused as a usage error (exit 2) without being shown. With a target `wp-conf
 needed and is ignored (logged `archive_database_unused`).
 
 The WordPress database account and its password then also come from the
-Archive. If the administrator's survey finds that account already exists, the
-restore is refused (exit 3, `ExistingDatabaseUserError`) before anything is
+Archive. When that account cannot log in and an administrator is configured,
+the administrator surveys the server; if it finds the account already exists,
+the restore is refused (exit 3, `ExistingDatabaseUserError`) before anything is
 changed, because restoring would reset that account's password to the
 Archive's, and it may belong to another application. Pass
 `--reset-existing-db-user` when the account belongs to this site. A missing
@@ -197,8 +236,8 @@ another host, such as a separate web server or container (RT-S02-004).
 
 ## What the Dump can reach
 
-The Dump is loaded into a new staging database as the site's WordPress
-database account, with whatever rights that account already holds. A normal
+The Dump is loaded into the live database as the site's WordPress database
+account, with whatever rights that account already holds. A normal
 Dump touches only the database it is loaded into, but a tampered one can name
 other databases, and the server allows whatever the account is allowed. The
 live database of the site being restored is covered by the Safety Snapshot;
@@ -208,12 +247,24 @@ trust, or encrypted ones, whose payload `age` authenticates (ADR-0022
 amendment, 2026-11-06).
 
 Such an account (the official `mysql` and `mariadb` images create
-`MYSQL_USER` with rights on `MYSQL_DATABASE` only) needs no grant on the
-staging database beforehand: the administrator creates it and grants the
-account `ALL` on it before the load, so the preflight does not refuse the
-privileges that grant will give. A load check that still refuses names the
-database and the account it ran as (`DatabaseRefusedError`, its `database`
-and `account`), never a password.
+`MYSQL_USER` with rights on `MYSQL_DATABASE` only) is all a restore needs:
+it loads its own database, and **no administrator is needed** (owner decision
+55). An administrator (`--admin-username`/`--admin-password`, the
+`L3IO_WP_BACKUP_ADMIN_USER`/`_PASSWORD` pair, or an AWS secret) is used only
+when the database does not exist yet, the account does not exist or cannot
+log in, or it lacks a right the load needs; then it creates the database or
+the account and grants the account `ALL` on the database, and nothing else.
+Without one, such a restore is refused at `PREFLIGHT`, before anything
+changes (exit 4, `AdminCredentialsRequiredError`), naming the database, the
+account and what is missing (`database_absent`, `missing_privilege`,
+`authentication_failed`, `database_not_visible`). A load check that refuses
+for any other reason names the database and the account it ran as
+(`DatabaseRefusedError`, its `database` and `account`), never a password.
+
+Started as root (owner decisions 58 and 71), a restore resolves a configured
+administrator's credentials before it switches to the Site Root's owner, so
+an AWS profile in root's home is read; the credentials are still used only
+where an administrator is needed.
 
 ## Relocation: a new URL, database host, name or account
 
@@ -240,9 +291,10 @@ phase writes which `wp-config.php` constant:
 | `DB_USER` | `--new-db-user` | the cutover at the end of `LOAD_DUMP` |
 | `DB_PASSWORD` | `--new-db-password` | the cutover at the end of `LOAD_DUMP` |
 
-The four `DB_*` constants are written together, by the journaled cutover, only
-after the Dump has loaded and been checked, so the Site never points at a
-half-loaded database. `REWRITE_CONFIG` writes only the two URL constants. Each
+The cutover exists only for a relocation: a restore without `--new-db-*`
+flags writes no `DB_*` constant. The `DB_*` constants a relocation moves are
+written by the journaled cutover, only after the Dump has loaded and been
+checked, so the Site never points at a half-loaded database. `REWRITE_CONFIG` writes only the two URL constants. Each
 constant is written by its own atomic write, read back before it replaces the
 file: a mismatch fails the Run (exit 1) and leaves `wp-config.php` as it was
 before that constant. Constants written earlier in the same phase stay written,
@@ -251,10 +303,13 @@ constant's prior value.
 
 - **`--new-db-host`** is `host` or `host:port` (port 1 to 65535); a socket
   path is not accepted. With `--new-db-name` alone, the Site's own host is used; with
-  `--new-db-host` alone, the Dump is loaded into a staging database on the new
-  host, as described above.
-- **`--new-db-name`** loads the Dump straight into that database, which is
-  provisioned when absent; `DB_NAME` ends as that name, not a staging name.
+  `--new-db-host` alone, the Dump is loaded into the Site's database name on
+  the new host.
+- **`--new-db-name`** loads the Dump into that database, which is provisioned
+  when absent (an administrator is then needed); `DB_NAME` ends as that name.
+- **The live database is untouched** by a relocation that loads another
+  database: the Safety Snapshot does not cover the relocated one, so a failed
+  load leaves it partly loaded (one this Run created is dropped again).
 - **`--new-db-user` and `--new-db-password`** go together: one without the
   other exits 2 `USAGE`, since keeping half from the Archive would mix two
   accounts. The account is provisioned with rights on the load database, and
@@ -280,13 +335,18 @@ constant's prior value.
 `files-clean` any of them exits 2 `USAGE` before anything is changed: such a
 Mode has no cutover, so the value would be accepted and silently discarded.
 
-**A non-empty load database** (the `--new-db-name` database, or the Site's name
-on the `--new-db-host` server) is refused like any non-empty target: exit 3
-`REFUSED`, before anything is changed. `--force` waives that check, but the
-load itself still never loads over a database that holds tables: the database
-checks at `PREFLIGHT` refuse it (exit 3), still before anything is changed.
-Only when the Site's account cannot see that database does the refusal come
-later, at `LOAD_DUMP`, after the Safety Snapshot, journaled.
+**A load database that does not look like this site** (the `--new-db-name`
+database, or the Site's name on the `--new-db-host` server, holding tables
+none of which has the site's prefix) is refused like any such target: exit 3
+`REFUSED`, before anything is changed. With `--force` the Dump is loaded over
+it; as always, only the tables with the site's prefix are dropped first, so
+its other tables stay.
+
+**An environment-driven `DB_*` is not rewritten.** A relocation flag whose
+constant the target reads from the environment (`getenv_docker()`/`getenv()`)
+is refused (exit 3, `EnvironmentDrivenTargetError`, naming the constants and
+their variables) before anything is changed: change the container's
+environment instead.
 
 The Run logs `relocation_planned` once, with the constants each phase writes,
 the relocated host, port and database name, and whether each URL changes; never
@@ -297,7 +357,7 @@ a URL value or the password. A Dry Run prints the same plan, naming the keys.
 With `--new-site-url` or `--new-site-home-url`, the last phase,
 `SEARCH_REPLACE`, rewrites the old URL across the restored database's content,
 so widgets, menus and theme options keep working. It runs after
-`REWRITE_CONFIG` and after `LOAD_DUMP`'s cutover, because WP-CLI bootstraps
+`REWRITE_CONFIG` and after `LOAD_DUMP` (and a relocation's cutover), because WP-CLI bootstraps
 from the `wp-config.php` just written. It needs WP-CLI (`wp`) on `PATH`.
 
 `PREFLIGHT` checks that `wp` is at least 2.12.0, and the printed plan's
@@ -449,10 +509,19 @@ Root at a second path. Always name a Site by the same path.
 A Run killed part-way leaves its journal open. The next restore of the Site is
 refused (exit 3), naming the interrupted Run, its phase, how to undo it and the
 journal's path. `--resolve-interrupted-run RUN_ID` acknowledges it (completing
-an interrupted `wp-config.php` cutover first) and stops: resolving and
-restoring are never one command. A different ID is refused, naming the
+a relocation's interrupted `wp-config.php` cutover first) and stops: resolving
+and restoring are never one command. A Run that stopped while the live
+database was partly loaded (a kill during the load, or a failed automatic
+rollback) is only acknowledged: resolution logs WARNING
+`database_rollback_owed` with the Safety Snapshot and the command that
+restores it (`wpbackup2 restore --wp-dir <root> --archive <snapshot> --mode
+db`), which you then run. A different ID is refused, naming the
 journal's. `--archive` is still required alongside it, even though resolving
 reads nothing from the Archive when `wp-config.php` is present.
+
+The Run Journal's file format is unchanged by the direct load: a journal an
+earlier version left (with its staging steps) is still read, and its undo
+text is the one that version gave.
 
 Before completing a cutover, resolution surveys the database the interrupted
 Run was switching to. If it no longer exists or is not a WordPress database,
@@ -474,8 +543,8 @@ restoring again.
 `drive_restore` (in `cli/restore.py`) is the one driver both the CLI and the
 library call. Everything before the executor only reads; the executor
 (`execute_restore`, in `adapters/restore_runner.py`) runs the plan's phases in
-order, and the live database changes only at the `wp-config.php` cutover that
-ends `LOAD_DUMP`.
+order, and the live database changes only in `LOAD_DUMP`, after the Safety
+Snapshot, and is rolled back from it on a failure.
 
 ```mermaid
 flowchart TD
@@ -495,7 +564,7 @@ flowchart TD
         S --> CL[CLEAN: files-clean and all-clean only]
         CL --> EX[EXTRACT]
         EX --> RC[REWRITE_CONFIG: relocation constants other than DB_*]
-        RC --> L[LOAD_DUMP: load into a staging database, check it, then the atomic DB_* cutover]
+        RC --> L[LOAD_DUMP: drop the prefixed tables, load into the live database, check it; roll back from the snapshot on failure; a relocation's DB_* cutover]
         L --> SR[SEARCH_REPLACE: relocation only]
     end
     X --> O[outcome and report]
@@ -631,11 +700,11 @@ Not checked in advance (accepted limits, owner decision 2026-11-07):
   (BL-E003-048). A snapshot that runs out of space fails while it is written,
   before anything is destroyed, and the restore stops with `REFUSED`.
 - **The database server's disk** is not checked at all (BL-E003-116). The Dump
-  is loaded into a staging database on the server, beside the live one until
-  the cutover, so the server needs room for a second copy of the Site's
-  database; this tool cannot see that disk. A load that fills it fails in
-  `LOAD_DUMP` before the cutover, and the live database is left as it was.
-  Check the server's free space first for a large Site.
+  is loaded into the live database after its prefixed tables are dropped, so
+  the server needs room for the restored database; this tool cannot see that
+  disk. A load that fills it fails in `LOAD_DUMP`, and the automatic rollback
+  reloads the Safety Snapshot. Check the server's free space first for a
+  large Site.
 
 **Memory when reading an Archive (owner decision 2026-11-07, BL-E008-011).** The
 Manifest is read whole and parsed before anything is authenticated, taking
@@ -705,8 +774,8 @@ per-user state directory, is also under `~` in that layout; pass
 ## `wp-config.php`
 
 By default the target's `wp-config.php` is **kept**: the Archive's copy is
-never extracted over it, `--cleanfirst` does not remove it, and only the
-database cutover changes it. The Run logs `wp_config_kept`. When the target has
+never extracted over it, `--cleanfirst` does not remove it, and only a
+relocation's cutover (`--new-db-*`) changes it. The Run logs `wp_config_kept`. When the target has
 no `wp-config.php`, the Archive's copy arrives with the files.
 
 `--overwrite-wp-config` (file Modes only; with `--mode db` it exits 2
@@ -737,15 +806,16 @@ warning about it. Restore only Archives you trust, and keep the default
 **A target whose `DB_*` are read from the environment.** The official
 WordPress Docker image defines its settings as, for example,
 `define( 'DB_NAME', getenv_docker('WORDPRESS_DB_NAME', 'wordpress') );`.
-A Mode that restores the database would turn such a definition into a fixed
-string (its cutover rewrites `DB_NAME` to the staging database's name), and
-the site would stop following its environment, so it is **refused** before
-anything is changed, a Dry Run included, with exit 3 `REFUSED`
+Every restore resolves such a definition from the restore's own environment,
+as a backup does, so run it with the site's variables (a sidecar given the
+WordPress container's environment file). A database restore then loads
+straight into the database the environment names and writes no `DB_*`
+(owner decisions 47 and 49): the site keeps following its environment. Only a
+relocation flag that would rewrite such a constant (`--new-db-name` for an
+environment-driven `DB_NAME`, say) is **refused** before anything is
+changed, a Dry Run included, with exit 3 `REFUSED`
 (`EnvironmentDrivenTargetError`, naming the constants and the variables they
-read, never a value). The same applies when the target has no
-`wp-config.php` and the Archive's copy reads its `DB_*` from the environment.
-A files-only restore is not refused: it resolves the settings from the
-restore's own environment, as a backup does.
+read, never a value): change the container's environment instead.
 
 With `--overwrite-wp-config`, a files-only restore carries those definitions
 into the Archive's file as written (above). `getenv_docker()` is not a PHP
@@ -774,13 +844,10 @@ them:
   its use (the check is text order; PHP hoists a top-level function). Keep
   the target's file then.
 
-How a database restore should switch such a site to the restored data, by
-loading into the database name the environment names rather than by rewriting
-`wp-config.php`, is the subject of
-[ADR-0027](adr/0027-restore-into-an-environment-driven-database.md), which is
-**Proposed** and not implemented (owner decision 47). Until then, restore the
-database of such a site by defining its `DB_*` as literals first (for example
-with `wp config set DB_NAME <name>`), or with your database tools.
+How a database restore reaches such a site's data (loading into the database
+the environment names, after the Safety Snapshot, with an automatic rollback)
+is [ADR-0027](adr/0027-restore-into-an-environment-driven-database.md),
+**Accepted** (owner decisions 49 to 55).
 
 Any other PHP expression in `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or
 `$table_prefix` (anything but a literal, `getenv_docker('NAME', <literal>)` or
@@ -802,8 +869,8 @@ records `config_path: "../wp-config.php"`. When the target has **no** config,
 a Mode that restores files lays the Archive's copy down where the Manifest
 says, before any constant is rewritten: restoring into `<dir>/public` writes
 `<dir>/wp-config.php` and nothing at `<dir>/public/wp-config.php`. The journal
-names that file, so `--resolve-interrupted-run` completes an interrupted
-cutover in it. A Dry Run prints `lay down <path>` and writes nothing.
+names that file, so `--resolve-interrupted-run` completes a relocation's
+interrupted cutover in it. A Dry Run prints `lay down <path>` and writes nothing.
 
 A target config WordPress reads is otherwise used as it is. Refused before
 anything is changed (exit 3):

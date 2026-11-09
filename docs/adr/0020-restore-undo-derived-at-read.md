@@ -107,3 +107,15 @@ false.
   is stored.
 - E003-S02-005's undo table states the same.
 
+## Amendment — 2026-11-09: the direct load's steps (Shawn, owner decisions 49 and 50)
+
+With [ADR-0027](0027-restore-into-an-environment-driven-database.md) (Accepted) there is no
+staging database and no `DB_NAME` cutover. `LOAD_DUMP` journals `"database_created"`,
+`"load_started"`, `"loaded"`, and on a failure `"rollback_started"` then `"rolled_back"` or
+`"rollback_failed"`; a relocated database this Run created and dropped again is
+`"load_target_dropped"`. Each has its row in `core/restore_journal.py::undo_for`: from
+`"load_started"` on, a live database left partly loaded names the Safety Snapshot and the
+commands that restore it (`recovery_command`). The cutover's steps stay, for a relocation
+only. The staging design's steps (`"check_failed"`, `"staging_dropped"`, `"loser_*"`) are no
+longer written; their rows stay so a journal an earlier version wrote reads back unchanged
+(the on-disk format is unchanged).

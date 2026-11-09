@@ -1,8 +1,9 @@
 """FR-9, ADR-0022 — the database report says restored only when it was (E003-S02-004).
 
 ``core/restore.py::database_restored`` is a pure function of three facts — a
-performed ``LoadResult``, the post-load check passed, the cutover written —
-and ``adapters/staging.py::load_staged`` builds its report from it. A Dry Run
+performed ``LoadResult``, the post-load check passed, a relocation's cutover
+written (none without one; owner decision 49) —
+and ``adapters/database_load.py::load_live`` builds its report from it. A Dry Run
 (``dry_run_adapters``) completes its plan with a not-performed, not-restored
 report. ``ExecutionReport.database`` is ``None`` exactly for the Modes whose
 plan has no ``LOAD_DUMP``. ``cli/restore.py`` renders the report and holds
@@ -34,8 +35,8 @@ from l3io.wp.backup.core.restore import (
 from l3io.wp.backup.domain.database import EnsureOutcome, LoadResult
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase, restores_database
+from tests.load_fakes import LoadHarness
 from tests.restore_harness import write_v1
-from tests.staging_fakes import StagedHarness
 
 pytest.importorskip("l3io.wp.database")
 
@@ -46,19 +47,21 @@ NOT_PERFORMED = LoadResult(bytes=0, duration_ms=0.0, performed=False)
 def _report(**changes: object) -> DatabaseRestoreReport:
     base = DatabaseRestoreReport(
         live_database_before="wp_live",
-        live_database_after="wp_live_stage",
+        live_database_after="wp_live",
+        database="db:3306/wp_live",
         ensure=EnsureOutcome(True, True, True, True, (), performed=True),
+        administrator=True,
         loaded_bytes=2048,
         load_duration_ms=12.0,
-        previous_database="retained",
+        dropped_tables=("wp_options", "wp_plugin_extra"),
         restored=True,
         performed=True,
     )
     return dataclasses.replace(base, **changes)  # type: ignore[arg-type]
 
 
-def _harness(tmp_path: Path, mode: RestoreMode) -> StagedHarness:
-    return StagedHarness(work=tmp_path, archive_path=write_v1(tmp_path), mode=mode)
+def _harness(tmp_path: Path, mode: RestoreMode) -> LoadHarness:
+    return LoadHarness(work=tmp_path, archive_path=write_v1(tmp_path), mode=mode)
 
 
 # --------------------------------------------------------------------------
@@ -97,7 +100,7 @@ def test_a_dry_run_completes_with_a_not_performed_not_restored_report(
     tmp_path: Path,
 ) -> None:
     h = _harness(tmp_path, RestoreMode.DATABASE)
-    outcome = h.run_staged(adapters=dry_run_adapters(h.adapters()))
+    outcome = h.run_load(adapters=dry_run_adapters(h.adapters()))
     assert outcome.phases == h.plan().phases
     database = outcome.database
     assert database is not None
@@ -111,7 +114,7 @@ def test_a_dry_run_completes_with_a_not_performed_not_restored_report(
 
 def test_a_real_run_reports_restored_from_its_results(tmp_path: Path) -> None:
     h = _harness(tmp_path, RestoreMode.DATABASE)
-    outcome = h.run_staged()
+    outcome = h.run_load()
     assert outcome.database is not None
     assert (outcome.database.performed, outcome.database.restored) == (True, True)
     require_database_restored(outcome, dry_run=False)
@@ -124,7 +127,7 @@ def test_the_report_is_absent_exactly_when_the_plan_has_no_load(
     h = _harness(tmp_path, mode)
     loads = RestorePhase.LOAD_DUMP in h.plan().phases
     assert loads is restores_database(mode)
-    outcome = h.run_staged()
+    outcome = h.run_load()
     assert (outcome.database is None) is (not loads)
     require_database_restored(outcome, dry_run=False)
 
@@ -134,20 +137,41 @@ def test_the_report_is_absent_exactly_when_the_plan_has_no_load(
 # --------------------------------------------------------------------------
 
 
-def test_the_printed_report_names_what_ensure_did_and_says_restored() -> None:
+def test_the_printed_report_names_the_load_the_drops_and_says_restored() -> None:
     lines = database_report_lines(_report())
     text = "\n".join(lines)
-    assert "the site now runs on 'wp_live_stage' (was 'wp_live')" in text
-    assert "database: created 'wp_live_stage'" in text
+    assert "database: loaded into db:3306/wp_live" in text
+    assert "runs on" not in text
+    assert "dropped first 2 tables (wp_options, wp_plugin_extra)" in text
+    assert "administrator used: database created" in text
     assert "WordPress user created" in text
     assert "loaded 2048 bytes" in text
     assert lines[0] == "database restored"
 
 
+def test_a_relocation_names_the_database_the_site_now_runs_on() -> None:
+    text = "\n".join(
+        database_report_lines(
+            _report(live_database_after="moved", database="x:1/moved")
+        )
+    )
+    assert "the site now runs on 'moved', was 'wp_live'" in text
+
+
+def test_a_load_without_an_administrator_says_so() -> None:
+    from l3io.wp.backup.core.restore import NOT_ENSURED
+
+    text = "\n".join(
+        database_report_lines(_report(ensure=NOT_ENSURED, administrator=False))
+    )
+    assert "no administrator needed" in text
+    assert "created" not in text
+
+
 def test_an_account_that_existed_is_reported_as_existing() -> None:
     ensure = EnsureOutcome(True, False, False, True, (), performed=True)
     text = "\n".join(database_report_lines(_report(ensure=ensure)))
-    assert "database: created" in text
+    assert "database created" in text
     assert "WordPress user already existed" in text
     assert "password unchanged" in text
 
@@ -166,7 +190,9 @@ def test_a_dry_run_report_says_would_and_never_created_or_restored() -> None:
     report = _report(ensure=ensure, restored=False, performed=False, loaded_bytes=0)
     lines = database_report_lines(report)
     assert lines[0] == "database NOT restored: Dry Run"
-    assert all("would" in line for line in lines[1:4])
+    assert all("would" in line for line in lines[1:])
+    assert "would load the Dump into db:3306/wp_live, overwriting it" in lines[1]
+    assert "wp_options, wp_plugin_extra" in lines[2]
     assert not [
         line for line in lines if "created" in line or line.endswith("restored")
     ]
@@ -187,7 +213,7 @@ def test_a_real_run_with_a_load_never_exits_ok_unrestored(
     tmp_path: Path, report: DatabaseRestoreReport | None
 ) -> None:
     h = _harness(tmp_path, RestoreMode.DATABASE)
-    outcome = dataclasses.replace(h.run_staged(), database=report)
+    outcome = dataclasses.replace(h.run_load(), database=report)
     with pytest.raises(DatabaseNotRestoredError) as caught:
         require_database_restored(outcome, dry_run=False)
     assert exit_code_for(caught.value) is ExitCode.FAILED

@@ -48,7 +48,6 @@ from l3io.wp.backup.domain.restore import (
     RestoreMode,
     RestorePart,
     clears_site_root,
-    removes_database,
     restores_database,
     restores_files,
 )
@@ -56,7 +55,6 @@ from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import (
     CliSite,
     admin_account,  # noqa: F401 - a fixture
-    authorizing_flags,
     cli_site,  # noqa: F401 - a fixture
     manifest_origin,
     run_cli,
@@ -64,7 +62,13 @@ from tests.integration.live_cli import (
     tree,
     v0_archive,
 )
-from tests.integration.live_restore import INDEX, config_text, host, read_keys
+from tests.integration.live_restore import (
+    INDEX,
+    config_text,
+    host,
+    read_keys,
+    root_connection,
+)
 
 pytestmark = [
     pytest.mark.integration,
@@ -95,9 +99,14 @@ def _waives_all(mode: RestoreMode, overrides: OverrideSet) -> bool:
 AUTHORIZED = {
     entry[0]: key for key, entry in ENTRIES if _waives_all(entry[0], entry[1])
 }
-#: Every combination that leaves a part of a populated target unwaived.
+#: Every combination that leaves the database of a populated target unwaived.
+#: Owner decision 57: only a target that does not look like this WordPress
+#: site needs ``--force``; the fixture's Site Root holds ``wp-config.php``, so
+#: only its database can be made to look foreign (its tables renamed).
 REFUSING = [
-    (key, entry[0]) for key, entry in ENTRIES if not _waives_all(entry[0], entry[1])
+    (key, entry[0])
+    for key, entry in ENTRIES
+    if restores_database(entry[0]) and not entry[1].waives("database")
 ]
 
 
@@ -159,10 +168,11 @@ def test_each_mode_end_to_end(
     assert (index == INDEX) is restores_files(mode)
     assert (site.root / "old.php").exists() is not clears_site_root(mode)
     if restores_database(mode):
-        live = _live_database(site)
-        assert live != original
-        assert "wp_restored" in site.site.checksums(live)
-        assert (original in site.site.databases()) is not removes_database(mode)
+        # Owner decisions 49 and 53: the live database itself, its prefixed
+        # tables replaced by the Archive's.
+        assert _live_database(site) == original
+        assert set(site.site.checksums()) == {"wp_options", "wp_restored"}
+        assert site.site.databases() == [original]
     else:
         assert _live_database(site) == original
         assert site.site.checksums() == before
@@ -199,12 +209,14 @@ def test_each_refusing_combination_names_its_flag(
     mode: RestoreMode,
 ) -> None:
     site = cli_site
+    with root_connection(site.site.database).cursor() as cursor:
+        cursor.execute(
+            "RENAME TABLE wp_options TO app_options, wp_original TO app_data"
+        )
     before = (tree(site.root), site.site.checksums())
     ran = run_cli(site.argv(site.archive(), *_flags(key)), capsys)
     assert ran.code == int(ExitCode.REFUSED), ran.err[-3000:]
-    overrides = dict(ENTRIES)[key][1]
-    part = next(p for p in _parts(mode) if not overrides.waives(p))
-    assert render_flags(authorizing_combination(mode, part)) in ran.err
+    assert render_flags(authorizing_combination(mode, "database")) in ran.err
     (refused,) = ran.events("restore_refused")
     assert refused["reason"] == "non_empty_target"
     assert (tree(site.root), site.site.checksums()) == before
@@ -226,11 +238,10 @@ def test_an_empty_target_takes_its_descriptor_from_the_archive(
     assert site.site.database not in ran.err
     assert "USER@HOST[:PORT]/NAME" in ran.err
     assert not any(empty.iterdir())
-    # The Archive's database is the fixture's live one (non-empty), so FR-7
-    # needs the table's authorizing flags; the empty directory is the point.
+    # The Archive's database is the fixture's live one, a WordPress database:
+    # no --force (owner decision 57); the empty directory is the point.
     confirmed = (
         archive,
-        *authorizing_flags(RestoreMode.ALL),
         "--archive-database",
         site.identity(),
     )

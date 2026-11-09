@@ -39,18 +39,19 @@ from l3io.wp.backup.adapters.database import (
     DatabaseTlsHandshakeError,
     DatabaseTlsVerificationError,
 )
+from l3io.wp.backup.adapters.database_load import (
+    ConfigCutoverError,
+    CutoverTargetUnusableError,
+    InvalidLoadDatabaseNameError,
+    LoadCheckFailedError,
+    RollbackFailedError,
+)
 from l3io.wp.backup.adapters.journal import CorruptJournalError, JournalWriteError
 from l3io.wp.backup.adapters.preflight import ChildOutputLimitError
 from l3io.wp.backup.adapters.restore_runner import (
     ArchiveChangedError,
     ExtractionRefusedAfterCleanError,
     TargetConfigMissingError,
-)
-from l3io.wp.backup.adapters.staging import (
-    ConfigCutoverError,
-    CutoverTargetUnusableError,
-    InvalidLoadDatabaseNameError,
-    StagingCheckFailedError,
 )
 from l3io.wp.backup.adapters.workspace import WorkspaceNotRemovedError
 from l3io.wp.backup.cli.exit import RUN_ID_ATTR, render_failure
@@ -194,6 +195,7 @@ __all__: list[str] = [
     "InvalidRelocationValueError",
     "InvalidSiteDescriptorError",
     "JournalWriteError",
+    "LoadCheckFailedError",
     "LoadFailedError",
     "LoadReadinessError",
     "MalformedManifestError",
@@ -215,6 +217,7 @@ __all__: list[str] = [
     "ProvisioningFailedError",
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
+    "RollbackFailedError",
     "RootBackupRefusedError",
     "RootRestoreRefusedError",
     "RunContextActiveError",
@@ -225,7 +228,6 @@ __all__: list[str] = [
     "SiteLockedError",
     "SiteRootNotFoundError",
     "SnapshotFailedError",
-    "StagingCheckFailedError",
     "StoredUrlInvalidError",
     "StoredUrlMissingError",
     "TargetChangedError",

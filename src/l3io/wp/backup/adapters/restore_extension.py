@@ -214,11 +214,11 @@ class WpCliRestoreExtension:
                 else {
                     "host": load_location.host,
                     "port": load_location.port,
-                    # The database loaded: None when it is the Run's
-                    # staging database on that host (no --new-db-name).
+                    # The database loaded: None when it is the live
+                    # database's name on that host (no --new-db-name).
                     "name": request.new_db_name,
                 },
-                load_target=request.new_db_name or "a staging database",
+                load_target=request.new_db_name or site.db_name,
                 credential_source=RELOCATED_CREDENTIAL_SOURCE
                 if relocation.cutover_password
                 else site.credential_source,

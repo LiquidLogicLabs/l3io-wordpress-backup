@@ -38,7 +38,7 @@
 A Dry Run is the composition root binding no-op command halves (AD-4); this
 module has no branch on it. ``take_snapshot``, ``check_database`` and
 ``load_database`` are slots the root fills, so the executor imports neither
-the Run Context nor ``adapters/staging.py``.
+the Run Context nor ``adapters/database_load.py``.
 """
 
 from __future__ import annotations

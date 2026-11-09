@@ -185,7 +185,7 @@ def test_a_restore_check_after_parsing_shows_the_restore_usage(
     """BL-E003-101: not the top-level ``{backup,restore,...}`` usage."""
     argv = ["restore", "--wp-dir", str(tmp_path), "--archive", str(tmp_path / "a")]
     with pytest.raises(SystemExit) as caught:
-        main([*argv, "--drop-database"])
+        main([*argv, "--mode", "db", "--cleanfirst"])
     assert caught.value.code == int(ExitCode.USAGE)
     err = capsys.readouterr().err
     assert err.startswith("usage: wpbackup2 restore ")

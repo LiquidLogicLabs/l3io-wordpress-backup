@@ -27,7 +27,7 @@ real proof.
 
 **Scope, derived.** The walked package, asserted non-empty and to reach
 ``adapters/database.py`` (which catches ``AuthenticationFailedError`` today,
-only to raise ``CredentialsError``), ``adapters/staging.py`` and
+only to raise ``CredentialsError``), ``adapters/database_load.py`` and
 ``core/restore.py``. The planted cases attack the scope — a nested module, a
 tuple handler, an errno test — as well as the rule.
 """
@@ -136,7 +136,11 @@ def inferred_existence(root: Path) -> list[str]:
 def test_the_walk_reaches_the_modules_that_survey_and_catch() -> None:
     modules = set(PACKAGE.rglob("*.py"))
     assert len(modules) > 10, f"no Python source under {PACKAGE}"
-    for module in ("adapters/database.py", "adapters/staging.py", "core/restore.py"):
+    for module in (
+        "adapters/database.py",
+        "adapters/database_load.py",
+        "core/restore.py",
+    ):
         assert PACKAGE / module in modules, module
     database = ast.parse((PACKAGE / "adapters" / "database.py").read_text("utf-8"))
     assert _auth_blocks(database), "the adapter's AuthenticationFailedError handlers"

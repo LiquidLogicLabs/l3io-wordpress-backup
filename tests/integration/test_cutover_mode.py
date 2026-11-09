@@ -3,8 +3,10 @@
 E003-S02-005.
 
 A ``0640`` ``wp-config.php`` keeps mode ``0640`` (and its owner) across a
-restore through the real ``load_staged`` slot, without relocation (one write,
-``DB_NAME``) and with it (four writes). The journal files left behind are
+restore through the real ``load_live`` slot, without relocation (no write:
+the Dump loads into the live database, owner decision 49, so ``DB_NAME`` is
+unchanged) and with it (three writes: ``DB_HOST``, ``DB_USER``,
+``DB_PASSWORD``). The journal files left behind are
 handed to ``credential_sentinel``, which with every log and the error surfaces
 must hold neither the live sentinel password nor the relocated account's
 (``credential_sentinel.relocated_password``, the cutover's ``DB_PASSWORD``).
@@ -26,7 +28,6 @@ pytest.importorskip("l3io.wp.database")
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
-    staging_name,
 )
 from l3io.wp.backup.domain.restore import RestoreMode
 from tests.conftest import CredentialSentinel
@@ -60,6 +61,7 @@ def test_wp_config_keeps_its_mode_and_owner_across_the_cutover(
     site = live_site
     site.config.chmod(0o640)
     before = site.config.stat()
+    original = site.config.read_bytes()
     archive = build_archive(site.work, config=None)
     relocation = NO_RELOCATION
     new_user = new_password = None
@@ -87,13 +89,15 @@ def test_wp_config_keeps_its_mode_and_owner_across_the_cutover(
     assert stat.S_IMODE(after.st_mode) == 0o640
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
     keys = read_keys(site.config)
-    assert keys["DB_NAME"] == staging_name(site.database, spec.run_id)
+    assert keys["DB_NAME"] == site.database
     assert report.database is not None
-    assert report.database.previous_database == "retained"
+    assert report.database.live_database_after == site.database
+    assert report.database.restored is True
     if relocated:
         assert keys["DB_USER"] == new_user
         assert sha(keys["DB_PASSWORD"]) == sha(new_password)
     else:
+        assert site.config.read_bytes() == original
         assert sha(keys["DB_PASSWORD"]) == sha(site.password)
     surveyed = survey_named(site.config, user=site.user, password=site.password)
     assert surveyed.is_wordpress is True  # type: ignore[attr-defined]

@@ -290,6 +290,10 @@ CALLS = {
         "drop_database",
         lambda db: db.drop_database(WHERE, confirm="wptest"),
     ),
+    "drop_tables": (
+        "drop_tables",
+        lambda db: db.drop_tables(WHERE, prefix="wp_"),
+    ),
 }
 
 
@@ -330,8 +334,12 @@ def test_each_method_maps_database_errors(
     assert "never-shown" not in str(caught.value)
 
 
+#: The methods that answer as the WordPress account (owner decision 55).
+WORDPRESS_METHODS = frozenset({"load_dump", "check_load", "drop_tables"})
+
+
 @pytest.mark.parametrize(
-    "method", sorted(m for m in CALLS if m not in {"load_dump", "check_load"})
+    "method", sorted(m for m in CALLS if m not in WORDPRESS_METHODS)
 )
 def test_an_administrator_failure_is_a_provisioning_failure(
     admin_database: WpDatabase, monkeypatch: pytest.MonkeyPatch, method: str
@@ -374,23 +382,39 @@ def test_a_refused_load_is_a_database_refusal_by_code(
     assert caught.value.__cause__ is refused
 
 
-def test_load_is_never_handed_replace_or_a_decryption_argument(
-    admin_database: WpDatabase, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("replace", [False, True], ids=["empty", "direct"])
+def test_load_is_handed_replace_and_the_prefix_only_when_asked_never_a_key(
+    admin_database: WpDatabase, monkeypatch: pytest.MonkeyPatch, replace: bool
 ) -> None:
+    """Owner decisions 49 and 53: ``replace`` names the database it loads."""
     seen: dict[str, object] = {}
 
     def load(
         connection: object, credentials: object, source: object, **kw: object
     ) -> object:
         seen.update(kw, source=source, database=connection.database)  # type: ignore[attr-defined]
-        return wpdb.TransferResult(7, 1.5, "mysql", None, _verdict("load"))
+        return wpdb.TransferResult(
+            7, 1.5, "mysql", None, _verdict("load"), ("wp_old",) if replace else ()
+        )
 
     monkeypatch.setattr(wpdb, "load", load)
-    result = admin_database.load_dump(WHERE, Path("/dev/null"))
-    assert result == LoadResult(bytes=7, duration_ms=1.5, performed=True)
+    result = admin_database.load_dump(
+        WHERE,
+        Path("/dev/null"),
+        replace=replace,
+        prune_prefix="wp_" if replace else None,
+    )
+    assert result == LoadResult(
+        bytes=7,
+        duration_ms=1.5,
+        performed=True,
+        dropped=("wp_old",) if replace else (),
+    )
     assert seen == {
         "source": Path("/dev/null"),
         "database": "wptest",
+        "replace": "wptest" if replace else None,
+        "prune_prefix": "wp_" if replace else None,
         # RT-S02-001: the Dump is untrusted, so the client may not run its commands.
         "options": ("--binary-mode",),
     }
@@ -475,16 +499,21 @@ def test_ensure_copies_the_result_with_warning_codes(
     assert record["created_database"] is True
 
 
-def test_survey_is_answered_by_the_administrator(
-    admin_database: WpDatabase, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("visible", [True, False], ids=["wordpress", "administrator"])
+def test_survey_is_answered_by_the_account_that_sees_the_database(
+    admin_database: WpDatabase, monkeypatch: pytest.MonkeyPatch, visible: bool
 ) -> None:
+    """Owner decision 55, AD-29 as amended: the WordPress account first."""
     seen: dict[str, object] = {}
+    observers: list[str] = []
 
     def survey(connection: object, admin: object, **kw: object) -> object:
         seen.update(kw, admin=admin.source)  # type: ignore[attr-defined]
+        observers.append(admin.source)  # type: ignore[attr-defined]
+        exists = visible or len(observers) > 1
         return wpdb.Survey(
             server=None,
-            database_exists=True,
+            database_exists=exists,
             table_count=12,
             size_bytes=0,
             is_wordpress=True,
@@ -495,20 +524,39 @@ def test_survey_is_answered_by_the_administrator(
             event_count=2,
         )
 
+    def check_drop_tables(connection: object, who: object, **kw: object) -> object:
+        assert kw == {"prefix": "xy_"}
+        return wpdb.DropTablesResult(("xy_options",), _verdict("drop_tables"))
+
     monkeypatch.setattr(wpdb, "survey", survey)
+    monkeypatch.setattr(wpdb, "check_drop_tables", check_drop_tables)
     with capture_logs() as logs:
         state = admin_database.survey_target(
             WHERE, table_prefix="xy_", wordpress_user=None
         )
-    assert state == DatabaseTargetState(True, 12, True, "57155", None, 3, 2)
-    assert seen == {
-        "wordpress_user": None,
-        "user_host": "%",
-        "table_prefix": "xy_",
-        "admin": "explicit",
-    }
+    assert state == DatabaseTargetState(
+        True, 12, True, "57155", None, 3, 2, prefixed_tables=("xy_options",)
+    )
+    assert len(observers) == (1 if visible else 2)
+    assert seen["table_prefix"] == "xy_"
     (record,) = [e for e in logs if e["event"] == "database_surveyed"]
-    assert record["observed_by"] == "administrator"
+    assert record["observed_by"] == ("wordpress" if visible else "administrator")
+
+
+def test_without_an_administrator_an_unseen_database_names_what_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def survey(*_: object, **__: object) -> object:
+        msg = "never-shown-text"
+        raise wpdb.AuthenticationFailedError(msg)
+
+    monkeypatch.setattr(wpdb, "survey", survey)
+    bare = WpDatabase(wpdb.Explicit("wordpress", "x" * 12), secrets=SecretRegistry())
+    with pytest.raises(AdminCredentialsRequiredError) as caught:
+        bare.survey_target(WHERE, table_prefix="wp_", wordpress_user=None)
+    assert caught.value.missing == ("authentication_failed",)
+    assert caught.value.database == "wptest"
+    assert "never-shown-text" not in str(caught.value)
 
 
 def test_drop_of_a_live_site_logs_the_warning_and_returns_changed(
@@ -545,7 +593,9 @@ def test_revoke_returns_changed_and_records_it(
     assert record["changed"] is True
 
 
-@pytest.mark.parametrize("method", sorted(set(CALLS) - {"load_dump", "check_load"}))
+@pytest.mark.parametrize(
+    "method", sorted(set(CALLS) - WORDPRESS_METHODS - {"survey_target"})
+)
 def test_without_an_administrator_nothing_is_called(
     monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:

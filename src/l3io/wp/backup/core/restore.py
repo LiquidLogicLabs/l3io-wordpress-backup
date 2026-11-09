@@ -24,11 +24,11 @@ FR-7's guard is :func:`check_target`, which :func:`build_restore_plan` calls
 before any phase is planned: a part the Mode restores whose target is not
 empty refuses (:class:`NonEmptyTargetError`) unless the Run's
 :class:`~l3io.wp.backup.domain.restore.OverrideSet` waives that part. Owner
-decision 57 narrows the files part: a non-empty Site Root that looks like a
-WordPress site (any of :data:`WORDPRESS_MARKERS`) needs no ``--force``; the
-Safety Snapshot covers the overwrite. The database part's narrowing (tables,
-but none with the site's prefix) arrives with the direct load (part 2):
-:func:`_database_needs_waiver` is its seam. The
+decision 57 narrows both parts to targets that do not look like WordPress: a
+non-empty Site Root holding any of :data:`WORDPRESS_MARKERS`, or a database
+holding a table with the site's prefix, needs no ``--force``; the Safety
+Snapshot and the automatic rollback cover the overwrite
+(:func:`_database_needs_waiver`). The
 authorizing flags come from AD-25's table
 (:func:`~l3io.wp.backup.domain.flag_map.authorizing_combination`) and are
 rendered here in the domain spelling (:func:`render_flags`); the CLI's own
@@ -44,7 +44,7 @@ import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import PurePath, PurePosixPath
-from typing import Final, Literal, assert_never
+from typing import Final, Literal, TypeAlias, assert_never
 
 from l3io.wp.backup.core.backup import DUMP_REQUIREMENT
 from l3io.wp.backup.domain.archive_format import (
@@ -79,7 +79,6 @@ from l3io.wp.backup.domain.restore import (
     SnapshotPolicy,
     clears_site_root,
     is_subsequence,
-    removes_database,
     restores_database,
     restores_files,
 )
@@ -90,9 +89,8 @@ from l3io.wp.backup.domain.storage_target import StorageTarget
 __all__ = [
     "CONFIG_FILE_NAME",
     "CUTOVER_KEYS",
-    "MAX_DATABASE_NAME",
+    "NOT_ENSURED",
     "NO_RELOCATION",
-    "STAGING_INFIX",
     "WORDPRESS_MARKERS",
     "ArchiveHasNoConfigError",
     "DatabaseRestoreReport",
@@ -103,6 +101,7 @@ __all__ = [
     "RestoreInputs",
     "RestorePlan",
     "RestoreRelocation",
+    "RollbackKind",
     "SnapshotFailedError",
     "SnapshotResult",
     "TargetChangedError",
@@ -112,7 +111,8 @@ __all__ = [
     "check_target",
     "database_report_fields",
     "database_restored",
-    "load_names",
+    "database_rollback",
+    "load_database_name",
     "planned_cutover_keys",
     "planned_cutover_targets",
     "planned_skipped_links",
@@ -120,7 +120,6 @@ __all__ = [
     "render_flags",
     "snapshot_location",
     "snapshot_scope",
-    "staging_name",
 ]
 
 #: The name WordPress gives its configuration file (``WP_CONFIG_NAME``).
@@ -131,8 +130,14 @@ WORDPRESS_MARKERS: Final = (WP_CONFIG_NAME, "wp-includes", "wp-content")
 
 #: The ``wp-config.php`` keys only ``LOAD_DUMP``'s cutover writes (AD-17 as
 #: amended 2026-10-27); :class:`RestoreRelocation` refuses them in
-#: ``rewrite_values``.
+#: ``rewrite_values``. Since the direct load (owner decisions 49 and 55) the
+#: cutover exists only for a relocation (``--new-db-*``): a restore without
+#: one loads into the live database and writes no key.
 CUTOVER_KEYS: Final = ("DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME")
+
+#: What undoes a failed load of the live database (owner decision 50):
+#: :func:`database_rollback`.
+RollbackKind: TypeAlias = Literal["snapshot", "empty", "none", "not-live"]
 
 
 # --------------------------------------------------------------------------
@@ -206,7 +211,7 @@ class ArchiveHasNoConfigError(RefusedError):
 
 
 class NoConfigForCutoverError(RefusedError):
-    """A database Mode, and no ``wp-config.php`` will exist for the cutover.
+    """A relocation's cutover, and no ``wp-config.php`` will exist to write it.
 
     Refused at plan time, before ``SNAPSHOT``: the cutover's ``set()`` never
     creates a file, so it would otherwise be found only after the load.
@@ -219,8 +224,8 @@ class NoConfigForCutoverError(RefusedError):
         self.searched = searched or (path,)
         where = ", ".join(repr(place) for place in self.searched)
         super().__init__(
-            f"the restore loads the database but no wp-config.php will exist at "
-            f"{path!r} for the cutover (searched {where}: the target has none and "
+            f"the restore relocates the database but no wp-config.php will exist "
+            f"at {path!r} for the cutover (searched {where}: the target has none and "
             "nothing lays one down); nothing was changed"
         )
 
@@ -281,12 +286,13 @@ class TargetState:
     """What the restore root learned about the target, from query ports only.
 
     ``database`` is the survey of the **live** database; ``load_target`` the
-    same survey of the operator-named load database (``--new-db-name``), else
-    ``None``. ``site_root``, ``site_root_entries`` and the two locations are
-    the facts an FR-7 refusal names, so :func:`check_target` reads nothing
-    else. ``site_root_wordpress`` says the Site Root holds one of
-    :data:`WORDPRESS_MARKERS` (owner decision 57); ``False``, the default,
-    keeps FR-7's refusal for a non-empty Site Root.
+    same survey of the relocated load database (``--new-db-name`` or
+    ``--new-db-host``), else ``None``. ``site_root``, ``site_root_entries``
+    and the two locations are the facts an FR-7 refusal names, so
+    :func:`check_target` reads nothing else. ``site_root_wordpress`` says
+    the Site Root holds one of :data:`WORDPRESS_MARKERS` (owner decision
+    57); ``False``, the default, keeps FR-7's refusal for a non-empty Site
+    Root.
     """
 
     site_root_empty: bool
@@ -413,6 +419,18 @@ class SnapshotResult:
     performed: bool
 
 
+#: The ``EnsureOutcome`` of a load that needed no administrator (owner
+#: decision 55): nothing was created, set or granted.
+NOT_ENSURED: Final = EnsureOutcome(
+    created_database=False,
+    created_user=False,
+    password_set=False,
+    granted=False,
+    warnings=(),
+    performed=False,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DatabaseRestoreReport:
     """What ``LOAD_DUMP`` did. ``restored`` only when load, check and cutover held.
@@ -421,18 +439,22 @@ class DatabaseRestoreReport:
     existing database is never a restored one. ``performed`` is ``False`` for
     a Dry Run, whose report says "would load" and never ``restored``.
 
-    ``previous_database`` is what became of the database the cutover left:
-    ``"dropped"`` (or, in a Dry Run, would be), ``"retained"``, ``"none"``
-    when the administrator's survey found no live database, and
-    ``"absent"`` when the Dump loaded in place (no cutover target to leave).
+    ``database`` is where the Dump was loaded, ``host:port/name``: the live
+    database (owner decision 49), or a relocation's. ``ensure`` is what the
+    administrator did, :data:`NOT_ENSURED` when none was needed
+    (``administrator`` false, owner decision 55). ``dropped_tables`` are the
+    tables carrying the site's prefix the load removed first (owner decision
+    53); in a Dry Run, the ones it would remove.
     """
 
     live_database_before: str
     live_database_after: str
+    database: str
     ensure: EnsureOutcome
+    administrator: bool
     loaded_bytes: int
     load_duration_ms: float
-    previous_database: Literal["dropped", "retained", "none", "absent"]
+    dropped_tables: tuple[str, ...]
     restored: bool
     performed: bool
 
@@ -456,6 +478,8 @@ def database_report_fields(report: DatabaseRestoreReport) -> dict[str, object]:
     return {
         "live_database_before": report.live_database_before,
         "live_database_after": report.live_database_after,
+        "database": report.database,
+        "administrator": report.administrator,
         "created_database": ensure.created_database,
         "created_user": ensure.created_user,
         "password_set": ensure.password_set,
@@ -463,7 +487,7 @@ def database_report_fields(report: DatabaseRestoreReport) -> dict[str, object]:
         "warnings": list(ensure.warnings),
         "loaded_bytes": report.loaded_bytes,
         "load_duration_ms": report.load_duration_ms,
-        "previous_database": report.previous_database,
+        "dropped_tables": list(report.dropped_tables),
         "restored": report.restored,
         "performed": report.performed,
     }
@@ -483,13 +507,19 @@ class RestoreInputs:
     config_path: PurePath
     payload: PurePath | None
     workspace: PurePath
-    #: The administrator's survey of the live database (AD-29): whether it
-    #: existed. ``False`` makes the report's ``previous_database`` ``"none"``.
+    #: The survey of the live database (AD-29 as amended by owner decision
+    #: 55): whether it existed before the Run.
     live_database_exists: bool
     #: The Archive as the operator named it, for error text: ``archive`` is
     #: the workspace copy, deleted with the Run (BL-E003-068). ``None`` names
     #: ``archive`` itself.
     archive_name: str | None = None
+    #: What puts the live database back if the load fails (owner decision
+    #: 50, :func:`database_rollback`): the root derives it from the plan.
+    rollback: RollbackKind = "none"
+    #: The load database's tables carrying the site's prefix, as the plan's
+    #: survey listed them: what a Dry Run reports it would drop (decision 53).
+    prefixed_tables: tuple[str, ...] = ()
 
     @property
     def archive_label(self) -> str:
@@ -611,15 +641,19 @@ def _contents(db: DatabaseTargetState) -> str:
 
 
 def _database_needs_waiver(db: DatabaseTargetState | None) -> bool:
-    """Whether restoring over ``db`` needs ``--force``: today, any content.
+    """Whether restoring over ``db`` needs ``--force`` (owner decision 57).
 
-    SEAM (owner decision 57, database side; part 2, with the direct load):
-    a database with tables but none carrying the site's table prefix needs
-    ``--force``, and a recognisable WordPress database
-    (``DatabaseTargetState.is_wordpress``, surveyed with the site's prefix)
-    does not. Until then every non-empty database does, as before.
+    Only a database with content (tables, views, routines or events) none
+    of whose tables carries the site's table prefix: it does not look like
+    this WordPress site, so it may be another application's. An empty
+    database, or one holding a table with the prefix
+    (``DatabaseTargetState.prefixed_tables``, or ``is_wordpress`` when the
+    tables could not be listed), needs nothing: the Safety Snapshot and the
+    automatic rollback cover the overwrite.
     """
-    return db is not None and not _survey_empty(db)
+    if db is None or _survey_empty(db):
+        return False
+    return not (db.prefixed_tables or db.is_wordpress)
 
 
 def check_target(
@@ -630,9 +664,10 @@ def check_target(
     Each part ``mode`` restores is checked against its own ``overrides``
     member, so waiving ``files`` never waives ``database``. The ``files``
     part needs the waiver only when the Site Root is not empty and does not
-    look like WordPress (owner decision 57). The ``database`` part is
-    non-empty when the live database or the operator-named load database
-    exists with a table (:func:`_database_needs_waiver`). Every unauthorized
+    look like WordPress (owner decision 57). The ``database`` part needs it
+    when the live database or the relocated load database holds content but
+    no table with the site's prefix (:func:`_database_needs_waiver`). Every
+    unauthorized
     part is named in one :class:`NonEmptyTargetError`; nothing is read
     beyond ``target``.
     """
@@ -706,49 +741,31 @@ def recheck_target(plan: RestorePlan, target: TargetState) -> None:
 
 
 # --------------------------------------------------------------------------
-# The staging database and the cutover set (AD-18.3, E003-S02-005)
+# The load database and the cutover set (owner decisions 49 and 55)
 # --------------------------------------------------------------------------
 
-#: database's ``MAX_DATABASE_NAME``: :func:`staging_name` stays within it.
-MAX_DATABASE_NAME: Final = 64
-#: Between the live name and the Run ID in a staging database's name.
-STAGING_INFIX: Final = "_l3s_"
-_STAGING_LIVE_CHARS: Final = MAX_DATABASE_NAME - len(STAGING_INFIX) - 8
-_STAGING_RUN_CHARS: Final = 8
 
+def load_database_name(live: str, relocation: RestoreRelocation) -> str:
+    """The database the Dump loads into: ``--new-db-name``, else the live one.
 
-def staging_name(live: str, run_id: str) -> str:
-    """The staging database a Run loads into: ``<live[:51]>_l3s_<run id[:8]>``.
-
-    Applies the length rule only (at most :data:`MAX_DATABASE_NAME`
-    characters); the name is validated by ``adapters/staging.py`` with
-    database's ``validate_database_name`` before its first use (AD-1).
+    Owner decision 49: without a relocation the Dump loads straight into the
+    live database, after the Safety Snapshot; there is no staging database.
     """
-    run = run_id.replace("-", "")[:_STAGING_RUN_CHARS]
-    return f"{live[:_STAGING_LIVE_CHARS]}{STAGING_INFIX}{run}"
-
-
-def load_names(
-    live: str, run_id: str, relocation: RestoreRelocation
-) -> tuple[str, str | None]:
-    """``(load database, staging database)``; the staging one ``None`` when named.
-
-    ``--new-db-name`` (``relocation.load_database``) loads straight into the
-    operator's database; otherwise the Run's :func:`staging_name`.
-    """
-    if relocation.load_database:
-        return relocation.load_database, None
-    staging = staging_name(live, run_id)
-    return staging, staging
+    return relocation.load_database or live
 
 
 def planned_cutover_keys(relocation: RestoreRelocation) -> tuple[str, ...]:
     """The :data:`CUTOVER_KEYS` this Run's cutover writes, in that order.
 
-    ``DB_NAME`` always; ``DB_HOST``/``DB_USER`` when the relocation names
-    them; ``DB_PASSWORD`` when ``relocation.cutover_password``.
+    Only a relocation's (owner decision 55: no ``DB_NAME`` cutover):
+    ``DB_NAME`` when it names a load database (``--new-db-name``),
+    ``DB_HOST``/``DB_USER`` when it names them, ``DB_PASSWORD`` when
+    ``relocation.cutover_password``. ``()`` for a restore that relocates
+    nothing.
     """
-    wanted = {"DB_NAME"}
+    wanted: set[str] = set()
+    if relocation.load_database is not None:
+        wanted.add("DB_NAME")
     if relocation.cutover_host is not None:
         wanted.add("DB_HOST")
     if relocation.cutover_user is not None:
@@ -763,9 +780,12 @@ def planned_cutover_targets(
 ) -> dict[str, str]:
     """The cutover's non-secret targets (``DB_NAME``/``DB_HOST``/``DB_USER``).
 
-    ``DB_PASSWORD`` is never here: it is resolved at its write (AD-18.1).
+    Those :func:`planned_cutover_keys` names. ``DB_PASSWORD`` is never here:
+    it is resolved at its write (AD-18.1).
     """
-    targets = {"DB_NAME": load_database}
+    targets: dict[str, str] = {}
+    if relocation.load_database is not None:
+        targets["DB_NAME"] = load_database
     if relocation.cutover_host is not None:
         targets["DB_HOST"] = relocation.cutover_host
     if relocation.cutover_user is not None:
@@ -917,26 +937,117 @@ def _line(facts: _Facts, phase: RestorePhase) -> tuple[str, dict[str, object]]:
                 "keys": keys,
             }
         case RestorePhase.LOAD_DUMP:
-            location = facts.relocation.load_location
-            host = site.db_host if location is None else location.host
-            port = site.db_port if location is None else location.port
-            name = (
-                facts.relocation.load_database
-                or f"a staging database for {site.db_name}"
-            )
-            drop = removes_database(facts.mode)
-            tail = f" and drop the previous {site.db_name}" if drop else ""
-            return f"load the Dump into {name} on {host}:{port}, then cut over{tail}", {
-                "host": host,
-                "port": port,
-                "database": facts.relocation.load_database or site.db_name,
-                "live_database": site.db_name,
-                "drop_previous": drop,
-            }
+            return _load_line(facts)
         case RestorePhase.SEARCH_REPLACE:
             return "replace the stored site URLs across the content", {}
         case _:
             assert_never(phase)
+
+
+def _load_line(facts: _Facts) -> tuple[str, dict[str, object]]:
+    """``LOAD_DUMP``'s line: the database overwritten, the tables dropped first.
+
+    Owner decisions 49, 50, 51 and 53: the Dump loads straight into the live
+    database (or a relocation's), named with its host; every table carrying
+    the site's prefix is dropped first, listed when the survey could list
+    them; and a failure reloads the Safety Snapshot, or empties what was
+    loaded when the database was empty before.
+    """
+    site, relocation = facts.site, facts.relocation
+    location = relocation.load_location
+    host = site.db_host if location is None else location.host
+    port = site.db_port if location is None else location.port
+    name = load_database_name(site.db_name, relocation)
+    live = _loads_live(site, relocation)
+    surveyed = facts.target.database if live else facts.target.load_target
+    tables = None if surveyed is None else surveyed.prefixed_tables
+    prefix = site.table_prefix
+    if tables is None:
+        drop = f"every table and view whose name starts with {prefix!r}"
+    elif tables:
+        counted = _count(len(tables), "table", "tables")
+        drop = f"its {counted} with prefix {prefix!r} ({', '.join(tables)})"
+    else:
+        drop = f"no table (none has prefix {prefix!r})"
+    which = "the live database" if live else "the relocated database"
+    rollback = _rollback_kind(facts, surveyed, live=live)
+    text = (
+        f"load the Dump into {which} {name} on {host}:{port}, overwriting it; "
+        f"first drop {drop}; {_ROLLBACK_TEXT[rollback]}"
+    )
+    cutover = planned_cutover_keys(relocation)
+    if cutover:
+        text += f"; then cut over {', '.join(cutover)}"
+    return text, {
+        "host": host,
+        "port": port,
+        "database": name,
+        "live_database": site.db_name,
+        "table_prefix": prefix,
+        "drop_tables": None if tables is None else list(tables),
+        "rollback": rollback,
+    }
+
+
+#: What a failed load is undone with (owner decision 50), as the plan says it.
+_ROLLBACK_TEXT: Final[Mapping[RollbackKind, str]] = {
+    "snapshot": "on failure, reload the Safety Snapshot into it",
+    "empty": "on failure, drop the tables it loaded (it held none before)",
+    "none": "on failure, nothing can roll it back (no Safety Snapshot)",
+    "not-live": "on failure, the live database is untouched",
+}
+
+
+def _rollback_kind(
+    facts: _Facts, surveyed: DatabaseTargetState | None, *, live: bool
+) -> RollbackKind:
+    if not live:
+        return "not-live"
+    if _survey_empty(surveyed):
+        return "empty"
+    database = facts.scope in {BackupScope.DATABASE, BackupScope.ALL}
+    if facts.snapshot is SnapshotPolicy.TAKE and database:
+        return "snapshot"
+    return "none"
+
+
+def _loads_live(site: SiteDescriptor, relocation: RestoreRelocation) -> bool:
+    location = relocation.load_location
+    name = load_database_name(site.db_name, relocation)
+    if location is None:
+        return name == site.db_name
+    return (location.host, location.port, name) == (
+        site.db_host,
+        site.db_port,
+        site.db_name,
+    )
+
+
+def database_rollback(
+    site: SiteDescriptor,
+    relocation: RestoreRelocation,
+    target: TargetState,
+    plan: RestorePlan,
+) -> RollbackKind:
+    """What puts the live database back when ``plan``'s load fails (decision 50).
+
+    ``"snapshot"``: reload the Safety Snapshot, which holds the database;
+    ``"empty"``: the database held nothing, so the tables loaded are dropped
+    (or a database this Run created); ``"none"``: it held content and no
+    snapshot was taken (``--no-safety-snapshot``), so nothing can; and
+    ``"not-live"``: a relocation loads another database, and the live one is
+    never touched.
+    """
+    live = _loads_live(site, relocation)
+    surveyed = target.database if live else target.load_target
+    if not live:
+        return "not-live"
+    if _survey_empty(surveyed):
+        return "empty"
+    database = plan.snapshot_scope in {BackupScope.DATABASE, BackupScope.ALL}
+    if RestorePhase.SNAPSHOT in plan.phases and database:
+        return "snapshot"
+    return "none"
 
 
 def _require_relocation_text(
@@ -1000,8 +1111,8 @@ def build_restore_plan(
     Refuses, before any effect: :class:`ArchiveHasNoDumpError` when ``mode``
     names the database and the Archive has no Dump;
     :class:`ArchiveHasNoConfigError` under ``OVERWRITE`` with no config in the
-    Archive; :class:`NoConfigForCutoverError` when ``mode`` loads the
-    database and no ``wp-config.php`` will exist for the cutover;
+    Archive; :class:`NoConfigForCutoverError` when a relocation's cutover
+    (:func:`planned_cutover_keys`) has no ``wp-config.php`` to write;
     :class:`UnsafeSnapshotLocationError` when ``snapshot`` is
     ``TAKE``, or ``config_policy`` is ``OVERWRITE`` (the replaced
     ``wp-config.php`` is saved there), and ``snapshot_dir`` may be
@@ -1020,7 +1131,8 @@ def build_restore_plan(
     if config_policy is ConfigPolicy.OVERWRITE and view.config_path is None:
         raise ArchiveHasNoConfigError(str(archive.path))
     config_file = relocation.config_file or PurePosixPath(config_dir) / CONFIG_FILE_NAME
-    if restores_database(mode) and not _config_at_cutover(
+    cutover = restores_database(mode) and bool(planned_cutover_keys(relocation))
+    if cutover and not _config_at_cutover(
         site, mode, view, target, relocation, config_file
     ):
         # Without --wp-config the target's config is looked for in the Site

@@ -87,8 +87,11 @@ class JournalHeader:
     """What a restore records before its first effect (AD-18.1).
 
     ``live_database_before`` is the Site Descriptor's ``DB_NAME`` and
-    ``load_database``/``staging_database`` are the names the plan would load
-    into, in every Mode. A files-only Mode loads nothing: it records them all
+    ``load_database`` the name the plan would load into, in every Mode: the
+    live database itself, or a relocation's (owner decision 49).
+    ``staging_database`` is always ``None`` since the direct load; it stays
+    in the record so a journal an earlier version wrote, which named one,
+    is read back unchanged. A files-only Mode loads nothing: it records them all
     the same, and the undo text never reads them, since it has no
     ``LOAD_DUMP`` phase.
     """

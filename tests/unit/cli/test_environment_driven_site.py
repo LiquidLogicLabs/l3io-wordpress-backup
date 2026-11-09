@@ -1,9 +1,10 @@
 """Owner decision 47 — the official image's ``getenv_docker()`` site, end to end.
 
 Backup and doctor resolve the Site's ``DB_*`` from the Run's environment, and
-log the **resolved** host (owner decision 54). A database
-restore, whose cutover would rewrite those definitions, refuses early, a Dry
-Run included (ADR-0027, Proposed); a files-only restore proceeds, and with
+log the **resolved** host (owner decision 54). A database restore loads the
+database the environment names and writes no ``DB_*`` (owner decision 49,
+ADR-0027, Accepted); only a relocation that would rewrite one refuses early,
+a Dry Run included. A files-only restore proceeds, and with
 ``--overwrite-wp-config`` carries the definitions into the Archive's file as
 written, refusing early an Archive's file that does not define
 ``getenv_docker()`` (owner decision 48).
@@ -112,13 +113,30 @@ FILE_MODES = [m for m in RestoreMode if not restores_database(m)]
 
 @pytest.mark.parametrize("dry_run", [False, True])
 @pytest.mark.parametrize("mode", DATABASE_MODES)
-def test_a_database_restore_of_an_environment_driven_target_is_refused(
-    rig: Rig, mode: RestoreMode, dry_run: bool
+def test_a_database_restore_of_an_environment_driven_target_proceeds(
+    rig: Rig, mode: RestoreMode, dry_run: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Owner decision 49: no ``DB_NAME`` cutover, so nothing to refuse."""
+    before = rig.config.read_text(encoding="utf-8")
+    rig.drive(mode=mode, dry_run=dry_run)
+    assert rig.executions
+    assert rig.inputs.header.cutover_keys == ()
+    assert rig.config.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_relocation_of_an_environment_driven_key_is_refused(
+    rig: Rig, dry_run: bool
+) -> None:
+    import dataclasses
+
+    from l3io.wp.backup.cli.restore_request import RelocationFlags
+
+    flags = dataclasses.replace(RelocationFlags.none(), new_db_name="other_db")
     with pytest.raises(EnvironmentDrivenTargetError) as caught:
-        rig.drive(mode=mode, dry_run=dry_run)
-    assert caught.value.operation == "a database restore"
-    assert "DB_NAME" in caught.value.keys
+        rig.drive(mode=RestoreMode.DATABASE, dry_run=dry_run, relocation=flags)
+    assert caught.value.keys == ("DB_NAME",)
+    assert "--new-db-*" in caught.value.operation
     assert type(caught.value).exit_code is ExitCode.REFUSED
     assert "real_adapters" not in rig.events
     assert rig.executions == []
@@ -214,7 +232,7 @@ def test_a_files_restore_keeping_the_target_config_proceeds(
     assert rig.inputs.site.db_name == "wordpress"  # the default: nothing set
 
 
-def test_the_cli_exits_refused_for_a_database_restore(
+def test_the_cli_exits_refused_for_a_relocation_of_an_environment_key(
     rig: Rig, capsys: pytest.CaptureFixture[str]
 ) -> None:
     argv = ["restore", "--wp-dir", str(rig.site_root), "--archive"]
@@ -225,7 +243,8 @@ def test_the_cli_exits_refused_for_a_database_restore(
             str(rig.archive_path),
             "--mode",
             "all",
-            "--force",
+            "--new-db-name",
+            "other_db",
         ]
     )
     err = capsys.readouterr().err

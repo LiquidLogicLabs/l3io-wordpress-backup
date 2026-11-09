@@ -11,6 +11,9 @@
 #   SKIP_BUILD=1                  reuse an existing sidecar image
 #   KEEP_STACK=1                  leave the stack and scratch dir up (debugging;
 #                                 tear down with the `docker compose ... down -v` it prints)
+#   L3IO_LOCAL_WHEELS=DIR         install the wheels in DIR over the published ones
+#                                 (a family release not yet on TestPyPI, built from
+#                                 its checkout; local runs only)
 #
 # Everything it creates -- containers, volumes, the network, the bind-mounted
 # Site Root, generated credentials -- is removed on exit. Only the log
@@ -102,9 +105,10 @@ WORDPRESS_DB_NAME=$DB_NAME
 WORDPRESS_DB_USER=$DB_USER
 WORDPRESS_DB_PASSWORD=$DB_PW
 EOF
+# No administrator: a restore loads the site's own database with the site's
+# own account (owner decision 55). The file stays, for settings a step adds.
 cat >"$L3IO_SCRATCH/backup.env" <<EOF
-L3IO_WP_BACKUP_ADMIN_USER=root
-L3IO_WP_BACKUP_ADMIN_PASSWORD=$DB_ROOT_PW
+# no administrator (owner decision 55)
 EOF
 
 # Test CA and a server certificate for `db`, for the TLS opt-in steps
@@ -194,11 +198,17 @@ CA=/run/l3io-tls/ca.pem
 log "engine=$ENGINE client=$L3IO_DB_CLIENT project=$PROJECT scratch=$L3IO_SCRATCH"
 log "repo HEAD $(git -C "$REPO" rev-parse --short HEAD); modified tracked files: $(git -C "$REPO" status --porcelain --untracked-files=no | wc -l)"
 if [[ ${SKIP_BUILD:-0} != 1 ]]; then
-    mkdir -p "$L3IO_SCRATCH/ctx"
+    mkdir -p "$L3IO_SCRATCH/ctx/local-deps"
     step build-wheel 0 bash -c "cd '$REPO' && uv build --no-sources --wheel -o '$L3IO_SCRATCH/ctx'"
     cp "$REPO/pyproject.toml" "$L3IO_SCRATCH/ctx/"
+    LOCAL_DEPS=0
+    if [[ -n ${L3IO_LOCAL_WHEELS:-} ]]; then
+        cp "$L3IO_LOCAL_WHEELS"/*.whl "$L3IO_SCRATCH/ctx/local-deps/"
+        LOCAL_DEPS=1
+        log "local wheels: $(cd "$L3IO_SCRATCH/ctx/local-deps" && echo ./*.whl)"
+    fi
     step build-image 0 docker build -f "$HERE/Dockerfile" --build-arg "DB_CLIENT=$L3IO_DB_CLIENT" \
-        -t "$IMAGE" "$L3IO_SCRATCH/ctx"
+        --build-arg "LOCAL_DEPS=$LOCAL_DEPS" -t "$IMAGE" "$L3IO_SCRATCH/ctx"
     [[ $FAILED == 0 ]] || { printf '%s\n' "${RESULTS[@]}"; exit 1; }
 fi
 
@@ -285,22 +295,33 @@ step B-alter-delete-upload 0 wp post delete "$ATTACH_ID" --force
 check altered:upload-gone absent_in_site "wp-content/uploads/$UPLOAD_REL"
 check altered:page-404 code_is "/?p=$POST_ID" 404
 
-# The administrator: backup.env sets both L3IO_WP_BACKUP_ADMIN_USER and _PASSWORD,
-# the environment pair README's credential table documents. No TLS is required
-# (owner decision 56); the database's own certificate is exercised by the
-# opt-in steps. --force: the database half of owner decision 57 (no flag over
-# a WordPress database) arrives with the direct load; the files half needs none.
-RESTORE=(restore --archive latest --force)
+# No administrator and no --force: the site's own account loads its own
+# database (owner decision 55), and neither a WordPress Site Root nor a
+# WordPress database needs --force (decision 57). No TLS is required (decision
+# 56); the database's own certificate is exercised by the opt-in steps.
+RESTORE=(restore --archive latest)
 db_sql() {
     local client=mysql
     [[ $ENGINE == mariadb ]] && client=mariadb
     dc exec -T "db-$ENGINE" sh -c "MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" $client -uroot" <<<"$1"
 }
+# A plugin's table added after the backup (the site's prefix: the restore
+# drops it, owner decision 53) and another application's table in the same
+# database (no prefix: never touched).
+PLUGIN_TABLE="wp_l3io_plugin_$TAG"
+OTHER_TABLE="other_app_$TAG"
+table_present() { [[ $(db_sql "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$1';" | tail -1) == 1 ]]; }
+table_absent() { ! table_present "$1"; }
+step B-plant-tables 0 db_sql "CREATE TABLE \`$DB_NAME\`.\`$PLUGIN_TABLE\` (id INT PRIMARY KEY); CREATE TABLE \`$DB_NAME\`.\`$OTHER_TABLE\` (id INT PRIMARY KEY); INSERT INTO \`$DB_NAME\`.\`$OTHER_TABLE\` VALUES (7);"
+check B:plugin-table-planted table_present "$PLUGIN_TABLE"
 db_sql "SHOW GRANTS FOR '$DB_USER'@'%';" >"$LOGS/B-wordpress-account-grants.txt" 2>&1 || true
 step B-restore-dryrun 0 wb_pp --whatIf "${RESTORE[@]}"
 check B:dryrun-names-latest printed B-restore-dryrun "archive latest: /backups/enc.tar.gz"
 check B:latest-logged logged B-restore-dryrun archive_latest_selected
 check B:dryrun-changed-nothing absent_in_site "wp-content/uploads/$UPLOAD_REL"
+check B:dryrun-names-the-live-database printed B-restore-dryrun "into the live database $DB_NAME on db:3306"
+check B:dryrun-names-the-plugin-table printed B-restore-dryrun "$PLUGIN_TABLE"
+check B:dryrun-kept-the-plugin-table table_present "$PLUGIN_TABLE"
 step B-restore-dryrun-tls-verified 0 wb_pp --whatIf "${RESTORE[@]}" --db-tls verify-identity --db-tls-ca "$CA"
 step B-restore-dryrun-tls-untrusted-ca 3 wb_pp --whatIf "${RESTORE[@]}" --db-tls verify-identity
 step B-restore-dryrun-tls-required 0 wb_pp --whatIf "${RESTORE[@]}" --db-tls required
@@ -325,15 +346,19 @@ check restored:post-back post_has_sentinel
 check restored:page-200-with-sentinel page_serves_sentinel
 check restored:home-200 code_is / 200
 check restored:files-owned-by-33 no_foreign_owner
+check restored:plugin-table-gone table_absent "$PLUGIN_TABLE"
+check restored:other-table-kept table_present "$OTHER_TABLE"
+check restored:dropped-tables-logged logged B-restore database_tables_dropped
+check restored:db-name-unchanged in_backup grep -qE "define\\( *'DB_NAME', *'$DB_NAME'" "$SITE/wp-config.php"
+check restored:no-administrator-used printed B-restore "\"administrator\": false"
 
 # A restore started as root, with no flag but --archive (the Mode from the
 # environment): it reads the passphrase and the Archive, then runs as the Site
 # Root's owner, www-data (owner decision 58). A WordPress Site Root needs no
-# --force (decision 57). The Archive is named: B-restore's staging cutover
-# rewrote DB_NAME, so this site's database no longer matches what its
-# Archives record and --archive latest rightly finds none (exit 2,
-# NoArchiveForSiteError) until the direct load (part 2) removes the cutover.
-step B-latest-after-cutover 2 wb_pp --whatIf restore --archive latest --mode files
+# --force (decision 57). DB_NAME did not change (owner decision 49), so
+# --archive latest still finds this site's Archives after a database restore.
+step B-latest-after-restore 0 wb_pp --whatIf restore --archive latest --mode files
+check B:latest-after-restore-found printed B-latest-after-restore "archive latest: /backups/"
 step B-restore-files-as-root 0 wb_root_pp restore --archive /backups/enc.tar.gz
 check root:switched-to-the-owner logged B-restore-files-as-root restore_runs_as_site_owner
 check root:files-owned-by-33 no_foreign_owner
@@ -352,9 +377,10 @@ step B-verify-root-backup 0 wb verify --archive /backups/root.tar.gz
 db_sql "SHOW DATABASES;" >"$LOGS/databases-after-restore.txt" 2>&1 || true
 
 # ---- Phase C: a restore onto the getenv_docker() config --------------------------
-# A database restore would rewrite the getenv_docker() DB_NAME, so it is refused
-# (exit 3, EnvironmentDrivenTargetError) until the direct load (part 2), a Dry
-# Run included. --overwrite-wp-config in a files-only Mode carries the target's
+# A database restore loads straight into the database the environment names
+# and leaves the getenv_docker() wp-config.php as it is (owner decisions 47,
+# 49): the post deleted again is back, and the page serves 200, with no flag
+# but the Archive. --overwrite-wp-config in a files-only Mode carries the target's
 # getenv_docker() DB_* into the Archive's wp-config.php as written (owner
 # decision 48): enc.tar.gz holds Phase B's file, which still defines the
 # image's getenv_docker() helper, so it proceeds and the site keeps following
@@ -387,8 +413,14 @@ php_db_name_is_env() {
 refused_with() { grep -qF "$2" "$LOGS/$1.err"; }
 put_docker_config
 ENC=(restore --archive /backups/enc.tar.gz --require-encrypted)
-step C-restore-dryrun-docker-config 3 wb_pp --whatIf "${ENC[@]}" --force
-step C-restore-docker-config 3 wb_pp "${ENC[@]}" --force
+step C-alter-delete-post 0 wp post delete "$POST_ID" --force
+check C:altered-page-404 code_is "/?p=$POST_ID" 404
+step C-restore-dryrun-docker-config 0 wb_pp --whatIf "${ENC[@]}"
+check C:dryrun-left-config site_config_is_docker
+step C-restore-docker-config 0 wb_pp "${ENC[@]}"
+check C:restore-kept-getenv-docker-config site_config_is_docker
+check C:restored-post-back post_has_sentinel
+check C:restored-page-200-with-sentinel page_serves_sentinel
 OVERWRITE=("${ENC[@]}" --mode files --overwrite-wp-config)
 step C-overwrite-dryrun-docker-config 0 wb_pp --whatIf "${OVERWRITE[@]}"
 check C:overwrite-dryrun-changed-nothing site_config_is_docker
@@ -397,11 +429,10 @@ db_lines >"$LOGS/C-wp-config-after-overwrite.txt" || true
 check C:overwrite-kept-getenv-docker-db db_all_getenv_docker
 check C:overwrite-landed-archives-file in_backup grep -qF "\$table_prefix = 'wp_';" "$SITE/wp-config.php"
 # PHP itself loads the file (so getenv_docker() is defined) and resolves DB_NAME
-# from the environment. Not the sentinel page: Phase B's restore moved the
-# restored data to the staging database, and the environment still names the
-# original one, where the post was deleted.
+# from the environment, where the restored data is (owner decision 49).
 check C:overwrite-php-resolves-env-db-name php_db_name_is_env
 check C:overwrite-home-200 code_is / 200
+check C:overwrite-page-200-with-sentinel page_serves_sentinel
 put_docker_config
 step C-restore-files-docker-config 0 wb_pp "${ENC[@]}" --mode files
 check C:wp-config-still-getenv-docker in_backup grep -qF "getenv_docker('WORDPRESS_DB_NAME'" "$SITE/wp-config.php"

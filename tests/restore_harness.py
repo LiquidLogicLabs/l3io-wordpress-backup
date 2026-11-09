@@ -37,6 +37,7 @@ from l3io.wp.backup.cli.context import RunContext
 from l3io.wp.backup.core.restore import (
     CUTOVER_KEYS,
     NO_RELOCATION,
+    NOT_ENSURED,
     DatabaseRestoreReport,
     ExecutionReport,
     RestoreInputs,
@@ -45,14 +46,18 @@ from l3io.wp.backup.core.restore import (
     SnapshotResult,
     TargetState,
     build_restore_plan,
+    load_database_name,
+    planned_cutover_keys,
+    planned_cutover_targets,
 )
 from l3io.wp.backup.core.restore_journal import (
-    STEP_CHECK_FAILED,
     STEP_CUTOVER,
     STEP_CUTOVER_STARTED,
-    STEP_LOSER_DROP_STARTED,
-    STEP_LOSER_DROPPED,
-    STEP_STAGING_DROPPED,
+    STEP_LOAD_STARTED,
+    STEP_LOADED,
+    STEP_ROLLBACK_FAILED,
+    STEP_ROLLBACK_STARTED,
+    STEP_ROLLED_BACK,
 )
 from l3io.wp.backup.domain.archive_format import (
     DUMP_RELATIVE,
@@ -71,7 +76,7 @@ from l3io.wp.backup.domain.archive_format import (
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.config import ConfigWriteResult
-from l3io.wp.backup.domain.database import DatabaseTargetState, EnsureOutcome
+from l3io.wp.backup.domain.database import DatabaseTargetState
 from l3io.wp.backup.domain.exclusion import INCLUDE_EVERYTHING
 from l3io.wp.backup.domain.journal import JournalHeader
 from l3io.wp.backup.domain.restore import (
@@ -81,7 +86,6 @@ from l3io.wp.backup.domain.restore import (
     RestoreMode,
     RestorePhase,
     SnapshotPolicy,
-    removes_database,
 )
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport
 from l3io.wp.backup.domain.site import SiteDescriptor
@@ -533,11 +537,13 @@ class Harness:
             archive=str(self.archive_path),
             snapshot_path=str(self.snapshot_file),
             live_database_before="target_db",
-            staging_database="target_db_staging",
+            staging_database=None,
             wp_config_path=str(self.config_path),
-            load_database="target_db_staging",
-            cutover_keys=("DB_NAME",),
-            cutover_targets={"DB_NAME": "target_db_staging"},
+            load_database=load_database_name("target_db", self.relocation),
+            cutover_keys=planned_cutover_keys(self.relocation),
+            cutover_targets=planned_cutover_targets(
+                load_database_name("target_db", self.relocation), self.relocation
+            ),
             prior_constants={"DB_NAME": "target_db"},
             phase_undo={},
             saved_config=str(self.work / "saved-wp-config.php"),
@@ -588,7 +594,11 @@ class Harness:
     def load_database(
         self, inputs: RestoreInputs, journal: RunJournalCommand
     ) -> DatabaseRestoreReport:
-        """The fake slot: the real slot's step names, the cutover through config."""
+        """The fake slot: the real slot's step names; a relocation's cutover.
+
+        Owner decision 49: the Dump loads into the live database, so only a
+        relocation's keys are written, through config.
+        """
         self.slot_calls += 1
         self.log.add("slot", "load", inputs.header.restore_mode)
         if self.slot_failure is not None:
@@ -596,27 +606,29 @@ class Harness:
                 journal.step_completed(RestorePhase.LOAD_DUMP, step)
             msg = "the fake slot failed"
             raise RuntimeError(msg)
-        journal.step_completed(RestorePhase.LOAD_DUMP, STEP_CUTOVER_STARTED + "DB_NAME")
-        cutover: dict[str, str | int | bool] = {"DB_NAME": "target_db_staging"}
+        journal.step_completed(RestorePhase.LOAD_DUMP, STEP_LOAD_STARTED)
+        self.log.add("restore_database", "load_dump", "target_db")
+        journal.step_completed(RestorePhase.LOAD_DUMP, STEP_LOADED)
         rel = inputs.relocation
-        if rel.cutover_host is not None:
-            cutover["DB_HOST"] = rel.cutover_host
-        if rel.cutover_user is not None:
-            cutover["DB_USER"] = rel.cutover_user
-        self.config_ports.set_constants(Path(inputs.config_path), cutover)
-        journal.step_completed(RestorePhase.LOAD_DUMP, STEP_CUTOVER + "DB_NAME")
-        dropped = removes_database(inputs.header.restore_mode)
-        if dropped:
-            journal.step_completed(RestorePhase.LOAD_DUMP, STEP_LOSER_DROP_STARTED)
-            self.log.add("restore_database", "drop_database", "target_db")
-            journal.step_completed(RestorePhase.LOAD_DUMP, STEP_LOSER_DROPPED)
+        load = load_database_name("target_db", rel)
+        cutover: dict[str, str | int | bool] = dict(planned_cutover_targets(load, rel))
+        if cutover:
+            for key in cutover:
+                journal.step_completed(
+                    RestorePhase.LOAD_DUMP, STEP_CUTOVER_STARTED + key
+                )
+            self.config_ports.set_constants(Path(inputs.config_path), cutover)
+            for key in cutover:
+                journal.step_completed(RestorePhase.LOAD_DUMP, STEP_CUTOVER + key)
         return DatabaseRestoreReport(
             live_database_before="target_db",
-            live_database_after="target_db_staging",
-            ensure=EnsureOutcome(False, False, False, False, (), True),
+            live_database_after=load,
+            database=f"db.target:3306/{load}",
+            ensure=NOT_ENSURED,
+            administrator=False,
             loaded_bytes=len(DUMP),
             load_duration_ms=1.0,
-            previous_database="dropped" if dropped else "retained",
+            dropped_tables=("wp_options", "wp_users"),
             restored=True,
             performed=True,
         )
@@ -642,8 +654,10 @@ class Harness:
         )
 
 
-ORDERLY_CHECK_FAILURE = (STEP_CHECK_FAILED, STEP_STAGING_DROPPED)
-NON_ORDERLY_FAILURE = (STEP_CUTOVER_STARTED + "DB_NAME", STEP_CUTOVER + "DB_NAME")
+#: A load that failed and was rolled back from the Safety Snapshot (decision 50).
+ORDERLY_CHECK_FAILURE = (STEP_LOAD_STARTED, STEP_ROLLBACK_STARTED, STEP_ROLLED_BACK)
+#: A load whose rollback failed: the Run stays recorded as interrupted.
+NON_ORDERLY_FAILURE = (STEP_LOAD_STARTED, STEP_ROLLBACK_STARTED, STEP_ROLLBACK_FAILED)
 
 __all__ = [
     "ARCHIVE_DB",

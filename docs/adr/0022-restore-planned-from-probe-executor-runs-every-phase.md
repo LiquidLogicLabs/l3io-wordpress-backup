@@ -139,3 +139,25 @@ unless `--no-safety-snapshot` says otherwise. `docs/restore.md` tells the operat
 
 **Revisit when:** a clean restore removes a directory that was not a Site in practice, or the
 Site Root gains a marker this package writes itself (then check that marker instead).
+
+## Amendment — 2026-11-09: the staging database is superseded by the direct load (Shawn, owner decisions 49 to 55)
+
+[ADR-0027](0027-restore-into-an-environment-driven-database.md) (Accepted) replaces the
+staging-database cutover this ADR's checks were written around. `LOAD_DUMP` now loads the
+Dump straight into the live database, as the WordPress account, after the Safety Snapshot,
+dropping every table that carries the site's prefix first, and reloads the snapshot
+automatically on a failure. So the guarantee "the live site stays intact if the load or its
+check fails" is relaxed to "the live database is put back from the Safety Snapshot before
+the Run exits" (decision 49); with `--no-safety-snapshot` there is no rollback, and the error
+says so.
+
+What this ADR decided still holds: the probe, the plan, every phase run by the executor in a
+Dry Run too, and option D. The post-load check now takes the load's `LoadResult` and surveys
+the live (or relocated) database instead of a staging one; a not-performed result reports
+"would check". `DatabaseRestoreReport` no longer carries `previous_database` (there is no
+database that loses a cutover); it carries `database`, `administrator` and `dropped_tables`,
+and a Dry Run reports the tables the plan's survey says would be dropped.
+
+The 2026-11-06 amendment (the Dump runs with the WordPress account's rights) applies
+unchanged, now to the live database: it is covered by the Safety Snapshot and the rollback;
+other databases the account can reach are not.

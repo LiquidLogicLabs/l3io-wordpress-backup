@@ -109,7 +109,7 @@ def _phase_of(span: ReadableSpan) -> str:
 
 def _recorded_phases(logs: list[dict[str, Any]]) -> Counter[str]:
     """The ``phase()`` records. A record with a ``step`` is a sub-step logged
-    inside the open phase (``adapters/staging.py``'s cutover, inside
+    inside the open phase (``adapters/database_load.py``'s cutover, inside
     ``load-dump``), not a phase of its own; its time is in that phase's span."""
     return Counter(
         str(e["phase"])

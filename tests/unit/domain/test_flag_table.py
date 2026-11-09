@@ -32,7 +32,6 @@ from l3io.wp.backup.domain.restore import (
     RestoreMode,
     RestorePart,
     clears_site_root,
-    removes_database,
     restores_database,
     restores_files,
 )
@@ -61,35 +60,71 @@ def test_the_table_has_all_24_combinations() -> None:
     assert len(FLAG_MAP) == 24
 
 
-@pytest.mark.parametrize("mode", list(RestoreMode), ids=str)
-def test_every_mode_is_reached_by_exactly_one_unforced_combination(
+@pytest.mark.parametrize(
+    "mode", [m for m in RestoreMode if m is not RestoreMode.DATABASE_CLEAN], ids=str
+)
+def test_every_mode_is_reached_by_exactly_one_plain_combination(
     mode: RestoreMode,
 ) -> None:
+    """Without ``--force`` or the no-op ``--drop-database`` (owner decision 63)."""
     reaching = [
         key
         for key, (entry_mode, _) in _resolved().items()
-        if entry_mode is mode and not _flags(key)["force"]
+        if entry_mode is mode
+        and not _flags(key)["force"]
+        and not _flags(key)["drop_database"]
     ]
     assert len(reaching) == 1, reaching
 
 
-def test_all_clean_needs_both_cleanfirst_and_drop_database() -> None:
-    for key, (mode, _) in _resolved().items():
-        if mode is RestoreMode.ALL_CLEAN:
-            assert _flags(key)["cleanfirst"] is True
-            assert _flags(key)["drop_database"] is True
+def test_database_clean_is_reached_only_with_drop_database() -> None:
+    reaching = [
+        key
+        for key, (mode, _) in _resolved().items()
+        if mode is RestoreMode.DATABASE_CLEAN
+    ]
+    assert reaching
+    assert all(_flags(key)["drop_database"] is True for key in reaching)
 
 
-@pytest.mark.parametrize("flag", ["cleanfirst", "drop_database", "force"])
-def test_no_single_flag_makes_a_mode_destroy_both_parts(flag: str) -> None:
-    """Turning one flag on never turns a Mode into clear-and-drop."""
+def test_all_clean_needs_only_cleanfirst() -> None:
+    """Owner decision 63: ``--mode all --cleanfirst`` alone selects ``all-clean``."""
+    key = combination(
+        mode=BackupScope.ALL, cleanfirst=True, drop_database=False, force=False
+    )
+    assert resolve_flags(key) == (RestoreMode.ALL_CLEAN, OverrideSet.none())
     for key, (mode, _) in _resolved().items():
-        if _flags(key)[flag] or (clears_site_root(mode) and removes_database(mode)):
+        assert (mode is RestoreMode.ALL_CLEAN) is (
+            _flags(key)["cleanfirst"] is True and _flags(key)["mode"] is BackupScope.ALL
+        ), key
+
+
+def test_drop_database_changes_nothing_else() -> None:
+    """Owner decision 63: the flag is a no-op; ``--mode db`` keeps its Mode name."""
+    for key, entry in FLAG_MAP.items():
+        if _flags(key)["drop_database"]:
             continue
-        after = FLAG_MAP[_with(key, **{flag: True})]
+        dropped = FLAG_MAP[_with(key, drop_database=True)]
+        if isinstance(entry, FlagRejection):
+            assert isinstance(dropped, FlagRejection), key
+            continue
+        assert not isinstance(dropped, FlagRejection), key
+        expected = (
+            RestoreMode.DATABASE_CLEAN if entry[0] is RestoreMode.DATABASE else entry[0]
+        )
+        assert dropped == (expected, entry[1]), key
+
+
+def test_cleanfirst_only_ever_adds_clearing_the_site_root() -> None:
+    for key, (mode, _) in _resolved().items():
+        if _flags(key)["cleanfirst"]:
+            continue
+        after = FLAG_MAP[_with(key, cleanfirst=True)]
         if isinstance(after, FlagRejection):
             continue
-        assert not (clears_site_root(after[0]) and removes_database(after[0])), key
+        assert clears_site_root(after[0]), key
+        assert restores_database(after[0]) is restores_database(mode), key
+        assert restores_files(after[0]) is restores_files(mode), key
 
 
 def test_force_never_changes_a_rows_mode() -> None:
@@ -153,7 +188,7 @@ def test_a_rejection_raises_a_usage_error_with_the_tables_text() -> None:
     assert isinstance(raised.value, UsageError)
     assert raised.value.exit_code is ExitCode.USAGE
     assert entry.reason in str(raised.value)
-    assert "--drop-database" in str(raised.value)
+    assert "--cleanfirst" in str(raised.value)
 
 
 def test_a_key_outside_the_table_has_no_default() -> None:
@@ -172,6 +207,8 @@ def test_authorizing_combination_is_the_tables_forced_row(
         return
     key = authorizing_combination(mode, part)
     assert _flags(key)["force"] is True
+    # Owner decision 63: the no-op flag is named only where it selects the Mode.
+    assert _flags(key)["drop_database"] is (mode is RestoreMode.DATABASE_CLEAN)
     resolved_mode, overrides = resolve_flags(key)
     assert resolved_mode is mode
     assert overrides.waives(part)

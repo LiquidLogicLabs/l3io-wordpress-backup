@@ -361,7 +361,7 @@ def test_the_factory_refuses_a_bad_value_before_any_resolve() -> None:
 
 
 def test_a_host_only_relocation_logs_no_database_name() -> None:
-    """The Dump goes to a staging database on the new host, not the Site's name."""
+    """The Dump goes to the Site's database name on the new host (decision 49)."""
     with capture_logs() as logs:
         _resolve(_flags(new_db_host="db.e007.example:3311"), RestoreMode.ALL)
     (record,) = [e for e in logs if e["event"] == "relocation_planned"]
@@ -370,7 +370,7 @@ def test_a_host_only_relocation_logs_no_database_name() -> None:
         "port": 3311,
         "name": None,
     }
-    assert record["load_target"] == "a staging database"
+    assert record["load_target"] == SITE.db_name
 
 
 # --------------------------------------------------------------------------

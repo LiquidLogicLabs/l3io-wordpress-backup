@@ -8,6 +8,11 @@
 # One image per client family (DB_CLIENT=mysql|mariadb): Ubuntu's mysql-client
 # and mariadb-client declare Conflicts with each other, so a single image cannot
 # carry both from the distribution's packages.
+#
+# LOCAL_DEPS=1 (run.sh, L3IO_LOCAL_WHEELS set): the wheels in the context's
+# local-deps/ replace the published ones they name, after the index install.
+# For a run that needs a family release not yet on TestPyPI (for example
+# l3io-wordpress-database built from its checkout); never for a release.
 
 ARG UBUNTU_IMAGE=ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.6@sha256:b1e699368d24c57cda93c338a57a8c5a119009ba809305cc8e86986d4a006754
@@ -21,8 +26,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /ctx
+ARG LOCAL_DEPS=0
 COPY pyproject.toml ./
 COPY *.whl ./
+COPY local-deps/ ./local-deps/
 # The repository's own clean-install recipe (ci.yml "every optional extra
 # installs, wheels only"): the dependencies are read from pyproject.toml, so
 # [tool.uv.sources] takes the family from the explicit TestPyPI index and
@@ -30,8 +37,12 @@ COPY *.whl ./
 ENV UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never
 RUN uv venv -q --python /usr/bin/python3 /opt/wpbackup \
  && uv pip install --python /opt/wpbackup --no-build -r pyproject.toml --extra database \
+ && if [ "$LOCAL_DEPS" = 1 ]; then \
+      uv pip install --python /opt/wpbackup --no-deps --reinstall ./local-deps/*.whl; \
+    fi \
  && uv pip install --python /opt/wpbackup --no-deps ./*.whl \
- && /opt/wpbackup/bin/wpbackup2 --version
+ && /opt/wpbackup/bin/wpbackup2 --version \
+ && /opt/wpbackup/bin/python -c "import importlib.metadata as m; print('l3io-wordpress-database', m.version('l3io-wordpress-database'))"
 
 # age 1.3.2 and age-plugin-batchpass, pinned and checksummed as ci.yml pins them.
 ADD --checksum=sha256:cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10 \

@@ -215,7 +215,7 @@ def test_a_parent_config_is_restored_one_level_up(
     credential_sentinel.assert_clean()
 
 
-def test_an_existing_parent_config_changes_only_by_the_cutover(
+def test_an_existing_parent_config_is_left_as_it_is(
     hardened: Hardened, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = hardened.target()
@@ -230,14 +230,8 @@ def test_an_existing_parent_config_changes_only_by_the_cutover(
         capsys,
     )
     assert ran.code == int(ExitCode.OK), ran.err[-3000:]
-    after = existing.read_text(encoding="utf-8")
-    changed = [
-        (old, new)
-        for old, new in zip(before.splitlines(), after.splitlines(), strict=True)
-        if old != new
-    ]
-    assert len(changed) == 1
-    assert "DB_NAME" in changed[0][0]
+    # Owner decision 49: no DB_NAME cutover; the target's file is kept as is.
+    assert existing.read_text(encoding="utf-8") == before
     assert not (root / "wp-config.php").exists()
 
 
@@ -277,20 +271,21 @@ def test_a_foreign_manifest_location_is_refused(
     assert not (hardened.work / "x").exists()
 
 
-def test_a_database_mode_with_no_config_is_refused(
+def test_a_database_mode_with_no_config_loads_and_lays_nothing_down(
     hardened: Hardened, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Owner decision 49: no cutover, so no config is needed to write one."""
     root = hardened.target()
-    checksums = hardened.site.site.checksums()
     databases = hardened.site.site.databases()
+    checksums = hardened.site.site.checksums()
     ran = run_cli(
         hardened.site.argv(hardened.archive, *hardened.flags(DATABASE_ONLY), root=root),
         capsys,
     )
-    assert ran.code == int(ExitCode.REFUSED), ran.err[-3000:]
-    assert "NoConfigForCutoverError" in ran.err
-    assert str(root.resolve() / "wp-config.php") in ran.err
-    assert str(root.resolve().parent / "wp-config.php") in ran.err
+    assert ran.code == int(ExitCode.OK), ran.err[-3000:]
+    # The Archive is a backup of this very database: loaded back, the same.
+    (report,) = [r for r in ran.events("database_restore_report") if r["restored"]]
+    assert report["live_database_after"] == hardened.site.site.database
     assert hardened.site.site.checksums() == checksums
     assert hardened.site.site.databases() == databases
     assert tree(root.parent) == {"public": None}

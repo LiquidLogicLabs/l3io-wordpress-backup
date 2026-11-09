@@ -29,7 +29,7 @@ from l3io.wp.backup.core.restore import NO_RELOCATION
 from l3io.wp.backup.domain.errors import SiteLockLocationError
 from l3io.wp.backup.domain.lock import LockHolder
 from l3io.wp.backup.domain.restore import RestoreMode
-from tests.staging_fakes import staged_header
+from tests.load_fakes import load_header
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid"), reason="POSIX ownership")
 
@@ -169,7 +169,7 @@ def test_the_journal_refuses_a_symlinked_state_directory(
     elsewhere.mkdir(mode=0o700)
     (root / "snapshots").symlink_to(elsewhere, target_is_directory=True)
     journal = FileRunJournal(root / "snapshots" / "abc")
-    header = staged_header(
+    header = load_header(
         run_id="run-1",
         site_root=PurePosixPath("/srv/www"),
         live="wp",

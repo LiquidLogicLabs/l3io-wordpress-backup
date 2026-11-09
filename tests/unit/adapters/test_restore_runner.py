@@ -2,7 +2,7 @@
 
 Driven over :mod:`tests.restore_harness`: every command half records into one
 log tagged with the journal phase active at the time; the ``load_database``
-slot and ``take_snapshot`` are fakes (``adapters/staging.py`` is
+slot and ``take_snapshot`` are fakes (``adapters/database_load.py`` is
 E003-S02-005's).
 """
 
@@ -74,6 +74,7 @@ from l3io.wp.backup.domain.restore import (
 )
 from l3io.wp.backup.domain.search_replace import SearchReplaceReport
 from tests.conftest import InnerMembers, forge_archive, reseal
+from tests.load_fakes import LoadHarness
 from tests.restore_builders import RELOCATIONS
 from tests.restore_harness import (
     ARCHIVE_DB,
@@ -85,7 +86,6 @@ from tests.restore_harness import (
     write_v0,
     write_v1,
 )
-from tests.staging_fakes import StagedHarness
 
 P = RestorePhase
 #: Which command calls belong to which part of the Site.
@@ -1092,7 +1092,7 @@ def test_a_not_performed_snapshot_passes_only_when_nothing_can_be_destroyed(
     tmp_path: Path, archive: Path
 ) -> None:
     """The Dry Run's no-op halves: SNAPSHOT completes and reports "would verify"."""
-    h = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL_CLEAN)
+    h = LoadHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL_CLEAN)
     h.take_snapshot = _snapshot_of(  # type: ignore[method-assign]
         h, performed=False, integrity=None, bytes=0
     )
@@ -1125,7 +1125,7 @@ def test_a_relocating_dry_run_changes_nothing_and_plans_keys_only(
         new_db_user="e007_user",
         new_db_password=secret,
     )
-    probe = StagedHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL)
+    probe = LoadHarness(work=tmp_path, archive_path=archive, mode=RestoreMode.ALL)
     relocation = restore_extension(flags, secrets=SecretRegistry()).resolve(
         site_root=probe.site_root,
         site=probe.site,
@@ -1133,7 +1133,7 @@ def test_a_relocating_dry_run_changes_nothing_and_plans_keys_only(
         files=LocalSiteFiles(),
         mode=RestoreMode.ALL,
     )
-    h = StagedHarness(
+    h = LoadHarness(
         work=tmp_path,
         archive_path=archive,
         mode=RestoreMode.ALL,
@@ -1145,7 +1145,7 @@ def test_a_relocating_dry_run_changes_nothing_and_plans_keys_only(
     )
     before = h.config_path.read_bytes()
     plan = h.plan()
-    h.run_staged(adapters=dry_run_adapters(h.adapters()))
+    h.run_load(adapters=dry_run_adapters(h.adapters()))
     assert h.config_path.read_bytes() == before
     effects = {"set_constants", "save_copy", "replace_file", "ensure", "load"}
     assert [c for c in h.log.calls if c[2] in effects] == []

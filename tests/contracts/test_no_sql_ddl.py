@@ -86,7 +86,7 @@ def test_the_walk_reaches_the_database_adapter() -> None:
     modules = list(PACKAGE.rglob("*.py"))
     assert len(modules) > 10, f"no Python source under {PACKAGE}"
     assert PACKAGE / "adapters" / "database.py" in modules
-    assert PACKAGE / "adapters" / "staging.py" in modules
+    assert PACKAGE / "adapters" / "database_load.py" in modules
 
 
 def test_no_string_literal_in_the_package_is_ddl() -> None:

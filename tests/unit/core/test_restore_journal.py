@@ -2,10 +2,12 @@
 
 ``interrupted_phase``, ``last_step`` and ``undo_for`` are checked over every
 prefix of entry sequences **recorded** from ``execute_restore`` with the real
-``load_staged`` slot (``tests/staging_fakes.py``): an ``all-clean`` restore,
-one with a four-key relocated cutover, and one laying down a config. The
-scope is the recording, asserted to reach the cutover and the loser drop, so a
-step added later is covered without editing a list here.
+``load_live`` slot (``tests/load_fakes.py``): an ``all-clean`` restore, one
+with a three-key relocated cutover, and one laying down a config. The scope is
+the recording, asserted to reach the load, its check and (relocated) the
+cutover, so a step added later is covered without editing a list here. A
+journal of the earlier staging design is read with its own rows
+(:data:`_HEADER`): the on-disk format is unchanged.
 ``is_orderly_failure``'s own tests are ``test_orderly_failure.py``'s.
 """
 
@@ -16,9 +18,9 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from l3io.wp.backup.adapters.staging import StagingCheckFailedError
+from l3io.wp.backup.adapters.database_load import LoadCheckFailedError
 from l3io.wp.backup.core import restore_journal as core_restore
-from l3io.wp.backup.core.restore import MAX_DATABASE_NAME, NO_RELOCATION, staging_name
+from l3io.wp.backup.core.restore import NO_RELOCATION
 from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CONFIG_SAVED,
@@ -26,8 +28,13 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
     STEP_CUTOVER_STARTED,
-    STEP_LOSER_DROP_STARTED,
-    STEP_LOSER_DROPPED,
+    STEP_DATABASE_CREATED,
+    STEP_LOAD_STARTED,
+    STEP_LOAD_TARGET_DROPPED,
+    STEP_LOADED,
+    STEP_ROLLBACK_FAILED,
+    STEP_ROLLBACK_STARTED,
+    STEP_ROLLED_BACK,
     STEP_STAGING_DROPPED,
     cutover_progress,
     incomplete_run_error,
@@ -39,14 +46,14 @@ from l3io.wp.backup.core.restore_journal import (
 from l3io.wp.backup.domain.journal import JournalEntry, JournalHeader, JournalRecord
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
 from tests.conftest import CredentialSentinel
-from tests.restore_harness import write_v1
-from tests.staging_fakes import (
+from tests.load_fakes import (
     FILE_PHASES,
     NOT_WORDPRESS,
     EntryJournal,
-    StagedHarness,
+    LoadHarness,
     assert_one_row,
 )
+from tests.restore_harness import write_v1
 
 pytest.importorskip("l3io.wp.database")
 
@@ -77,7 +84,7 @@ def _record(
     *,
     check_fails: bool = False,
 ) -> tuple[JournalHeader, tuple[JournalEntry, ...]]:
-    h = StagedHarness(
+    h = LoadHarness(
         work=tmp_path,
         archive_path=write_v1(tmp_path),
         mode=mode,
@@ -87,10 +94,10 @@ def _record(
     journal = EntryJournal()
     if check_fails:
         h.database.survey = NOT_WORDPRESS
-        with pytest.raises(StagingCheckFailedError):
-            h.run_staged(journal)
+        with pytest.raises(LoadCheckFailedError):
+            h.run_load(journal)
     else:
-        h.run_staged(journal)
+        h.run_load(journal)
     assert journal.header is not None
     return journal.header, tuple(journal.entries)
 
@@ -105,8 +112,9 @@ def recorded(
         tmp_path, request.param, credential_sentinel.relocated_password
     )
     steps = {e.step for e in entries if e.step}
-    assert any(s.startswith(STEP_CUTOVER_STARTED) for s in steps)
-    assert {STEP_LOSER_DROP_STARTED, STEP_LOSER_DROPPED} <= steps
+    assert {STEP_LOAD_STARTED, STEP_LOADED} <= steps
+    if request.param == "relocated":
+        assert any(s.startswith(STEP_CUTOVER_STARTED) for s in steps)
     if request.param == "lay-down":
         assert STEP_CONFIG_STARTED in steps
     return request.param, header, entries
@@ -219,31 +227,21 @@ def test_a_failed_check_after_the_file_phases_names_the_files_undo(
         mode,
         check_fails=True,
     )
-    assert [e.step for e in entries if e.step] == [
-        STEP_CHECK_FAILED,
-        STEP_STAGING_DROPPED,
+    assert [e.step for e in entries if e.step and "config" not in e.step] == [
+        STEP_LOAD_STARTED,
+        STEP_ROLLBACK_STARTED,
+        STEP_ROLLED_BACK,
     ]
     error = incomplete_run_error(JournalRecord(header, entries), "/j/current.json")
     assert error.interrupted_phase is RestorePhase.LOAD_DUMP
-    assert ("live site untouched" in error.undo) is not files
-    assert ("files were replaced by this Run" in error.undo) is files
+    assert "was put back from Safety Snapshot" in error.undo
+    assert ("restore files from Safety Snapshot" in error.undo) is files
     for n in range(len(entries) + 1):
         prefix = entries[:n]
         phase = interrupted_phase(prefix)
         step = last_step(prefix, phase)
         undo = incomplete_run_error(JournalRecord(header, prefix), "/j").undo
         assert_one_row(undo, phase, step, header, files_changed=_files_oracle(prefix))
-
-
-def test_staging_name_fits_and_is_distinct_per_run() -> None:
-    wpdb = pytest.importorskip("l3io.wp.database")
-    live = "w" * MAX_DATABASE_NAME
-    names = {staging_name(live, run) for run in ("0a1b2c3d-x", "9f8e7d6c-y", "run-1")}
-    assert len(names) == 3
-    for name in names:
-        assert len(name) <= MAX_DATABASE_NAME
-        assert wpdb.validate_database_name(name) == name
-    assert staging_name("wp", "1234-5678-90") == "wp_l3s_12345678"
 
 
 # --------------------------------------------------------------------------
@@ -270,6 +268,28 @@ _HEADER = JournalHeader(
 #: The operator named the load database: no staging database was created.
 _OPERATOR_NAMED = dataclasses.replace(
     _HEADER, staging_database=None, load_database="named_db"
+)
+#: Owner decision 49: the direct load into the live database, no cutover.
+_DIRECT = dataclasses.replace(
+    _HEADER,
+    staging_database=None,
+    load_database="live_db",
+    cutover_keys=(),
+    cutover_targets={},
+)
+_DIRECT_NO_SNAPSHOT = dataclasses.replace(_DIRECT, snapshot_path=None)
+#: A relocation to another server: the live database is never loaded.
+_MOVED = dataclasses.replace(
+    _HEADER,
+    staging_database=None,
+    load_database="moved_db",
+    cutover_keys=("DB_HOST", "DB_NAME"),
+    cutover_targets={"DB_HOST": "db.new", "DB_NAME": "moved_db"},
+)
+_RECOVERY = (
+    "`wpbackup2 restore --wp-dir /srv/site --resolve-interrupted-run run-undo`, "
+    "then `wpbackup2 restore --wp-dir /srv/site --archive /snapshots/s.tar.gz "
+    "--mode db`"
 )
 _WITH_PHASE_UNDO = dataclasses.replace(
     _HEADER,
@@ -301,11 +321,39 @@ P_LOAD, P_REWRITE, P_SR = (
         (P_LOAD, STEP_STAGING_DROPPED, _HEADER, False,
          ("live site untouched", "already dropped"), ("drop staging database",)),
         (P_LOAD, STEP_CHECK_FAILED, _OPERATOR_NAMED, False,
-         ("named_db existed and was empty before this Run",),
+         ("named_db was loaded by this Run; empty or drop it",),
          ("drop staging database",)),
         (P_LOAD, STEP_CUTOVER_READBACK_FAILED, _OPERATOR_NAMED, True,
-         ("files were replaced by this Run", "named_db existed"),
+         ("files were replaced by this Run", "named_db was loaded"),
          ("drop staging database",)),
+        # The direct load (owner decisions 49 and 50).
+        (P_LOAD, None, _DIRECT, False,
+         ("live site untouched", "nothing was loaded yet"), ("drop",)),
+        (P_LOAD, STEP_DATABASE_CREATED, _DIRECT, False,
+         ("this Run created database live_db",), ()),
+        (P_LOAD, STEP_LOAD_STARTED, _DIRECT, False,
+         ("the live database live_db is partly loaded",
+          "restore it from Safety Snapshot /snapshots/s.tar.gz", _RECOVERY),
+         ("untouched",)),
+        (P_LOAD, STEP_ROLLBACK_STARTED, _DIRECT, False,
+         ("automatic rollback was interrupted", _RECOVERY), ()),
+        (P_LOAD, STEP_ROLLBACK_FAILED, _DIRECT, True,
+         ("automatic rollback failed", _RECOVERY), ()),
+        (P_LOAD, STEP_ROLLBACK_FAILED, _DIRECT_NO_SNAPSHOT, False,
+         ("no Safety Snapshot was taken",), ("wpbackup2 restore",)),
+        (P_LOAD, STEP_ROLLED_BACK, _DIRECT, False,
+         ("was put back from Safety Snapshot /snapshots/s.tar.gz",), ("partly",)),
+        (P_LOAD, STEP_ROLLED_BACK, _DIRECT, True,
+         ("was put back", "restore files from Safety Snapshot"), ()),
+        (P_LOAD, STEP_LOADED, _DIRECT, False,
+         ("the database is restored", "--resolve-interrupted-run run-undo"), ()),
+        (P_LOAD, STEP_LOAD_STARTED, _MOVED, False,
+         ("live site untouched", "relocated database moved_db is partly loaded"),
+         ("Safety Snapshot",)),
+        (P_LOAD, STEP_LOADED, _MOVED, False,
+         ("live site untouched", "the cutover had not started"), ()),
+        (P_LOAD, STEP_LOAD_TARGET_DROPPED, _MOVED, False,
+         ("relocated database moved_db this Run created was dropped",), ()),
         (P_LOAD, "no-such-step", _HEADER, False,
          ("unrecognised step 'no-such-step'", "/srv/site/wp-config.php"),
          ("drop",)),

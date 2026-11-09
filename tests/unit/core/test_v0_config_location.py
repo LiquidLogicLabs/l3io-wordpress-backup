@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from l3io.wp.backup.core.config_location import recorded_location
-from l3io.wp.backup.core.restore import ArchiveHasNoConfigError, NoConfigForCutoverError
+from l3io.wp.backup.core.restore import ArchiveHasNoConfigError
 from l3io.wp.backup.domain.archive_format import (
     V0_DUMP_MEMBER,
     V0_SITE_ROOT,
@@ -30,8 +30,6 @@ from l3io.wp.backup.domain.archive_format import (
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
     RestoreMode,
-    restores_database,
-    restores_files,
 )
 from tests.restore_builders import EMPTY, POPULATED, plan, view
 
@@ -83,12 +81,12 @@ def test_neither_records_a_location_without_a_config_role_member() -> None:
 
 @pytest.mark.parametrize("mode", list(RestoreMode))
 def test_onto_a_target_with_no_config_v0_plans_as_v1_does(mode: RestoreMode) -> None:
-    """Decision 46: a files Mode cuts over into the tree's copy; else refused."""
-    if restores_database(mode) and not restores_files(mode):
-        for archive in (_v0(), view()):
-            with pytest.raises(NoConfigForCutoverError):
-                plan(mode, target=EMPTY, archive_view=archive)
-        return
+    """Decision 46: a v0 Archive plans as a v1 one, every Mode.
+
+    Owner decision 49: without relocation no Mode cuts over, so none refuses
+    for want of a config to write (``NoConfigForCutoverError`` is a
+    relocation's only).
+    """
     built = plan(mode, target=EMPTY, archive_view=_v0())
     assert built.phases == plan(mode, target=EMPTY, archive_view=view()).phases
 

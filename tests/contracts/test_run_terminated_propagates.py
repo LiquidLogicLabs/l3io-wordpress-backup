@@ -80,7 +80,7 @@ def _modules() -> list[pathlib.Path]:
 
 def test_the_walk_finds_the_package() -> None:
     names = {p.relative_to(PACKAGE).as_posix() for p in _modules()}
-    assert {"adapters/noop.py", "adapters/tar.py", "adapters/staging.py"} <= names
+    assert {"adapters/noop.py", "adapters/tar.py", "adapters/database_load.py"} <= names
     assert "adapters/restore_runner.py" in names
 
 
