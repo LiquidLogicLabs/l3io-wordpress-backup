@@ -8,8 +8,9 @@ imports ``l3io.wp.config``; :func:`read_defined` is the reader
 
 ``set_constants`` and ``replace_file`` write no config bytes themselves: each
 key is one ``WpConfigFile.set``, and the ``--overwrite-wp-config`` replacement
-(the Archive copy's text, handed over in memory, with ``keep`` applied through
-``WpConfigString.set``) is one ``WpConfigFile.replace_content`` — the library's
+(the Archive copy's text, handed over in memory, with the target's ``keep``
+definitions carried in as source through ``WpConfigString.set_source``, see
+:func:`carry_sources`) is one ``WpConfigFile.replace_content`` — the library's
 atomic, read-back-verified write that keeps the file's mode and owner and
 fsyncs the file and its directory (0.1.4, BL-E002-091). The module's one own
 write is ``save_copy`` (a ``0600`` fsynced copy of the target's config), which
@@ -30,17 +31,26 @@ and ``read_constants`` read a key through ``get_value``/``get_variable_value``
 an ``Expression`` and is refused (``UnsupportedConfigValueError``) without
 quoting it. Nothing here parses PHP or reimplements a fallback, and no adapter
 reads ``os.environ`` (BL-E005-007): the composition roots hand ``environ`` in.
-:func:`refuse_environment_lookups` is the restore's early refusal of an
+:func:`refuse_environment_lookups` is a database restore's early refusal of an
 environment-driven target (ADR-0027, Proposed).
+
+**Definitions carried as source (owner decision 48, BL-E008-032).**
+``--overwrite-wp-config`` carries the target's ``DB_*`` into the Archive's
+text as the source the target wrote (``get_source``/``set_source``, 0.1.6), so
+``getenv_docker('WORDPRESS_DB_HOST', 'mysql')`` stays a lookup. A carried
+``getenv_docker()`` call needs the Archive's text to define that function
+first; :func:`defines_getenv_docker` is a **heuristic** for that (the library
+has no function-definition query), documented there with its failure modes.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
@@ -57,21 +67,24 @@ from l3io.wp.backup.domain.errors import (
     EnvironmentDrivenTargetError,
     InvalidSiteDescriptorError,
     MissingExtraError,
+    UndefinedConfigFunctionError,
     UnsupportedConfigValueError,
 )
 from l3io.wp.backup.ports.config import WHOLE_FILE
 
 if TYPE_CHECKING:
-    from l3io.wp.config import EnvLookup
+    from l3io.wp.config import EnvLookup, WpConfigFile
 
 __all__ = [
     "TABLE_PREFIX",
     "WpConfigWriter",
+    "carry_sources",
+    "defines_getenv_docker",
     "read_defined",
     "read_secret_file",
     "read_settings",
     "refuse_environment_lookups",
-    "refuse_unkeepable",
+    "refuse_uncarriable",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -88,6 +101,19 @@ _OWNER_REASON: Final = (
 )
 _READ_BACK_REASON: Final = "read-back verification failed; the file was not changed"
 _ABSENT_REASON: Final = "wp-config.php does not exist, and is never created here"
+_UNDEFINED_REASON: Final = "the target does not define it, so it cannot be kept"
+#: A carried source ``set_source`` refused. Fixed: the source is never quoted.
+_UNCARRIABLE_REASON: Final = (
+    "its definition cannot be carried into the Archive's wp-config.php as "
+    "written; the file was not changed"
+)
+#: The official image's helper, the one lookup function PHP does not define.
+_DOCKER_FUNCTION: Final = "getenv_docker"
+#: A line declaring ``getenv_docker`` (PHP names are case-insensitive). A
+#: heuristic, not a parse: see :func:`defines_getenv_docker`.
+_DOCKER_FUNCTION_DECLARED: Final = re.compile(
+    r"^[ \t]*function[ \t]+getenv_docker[ \t]*\(", re.IGNORECASE | re.MULTILINE
+)
 #: ``$table_prefix``, named without its ``$`` as the library names a variable.
 TABLE_PREFIX: Final = "table_prefix"
 #: The keys whose lookup failure is a credentials failure, not a site one.
@@ -354,21 +380,157 @@ def _sync_directory_after_commit(directory: Path) -> None:
         )
 
 
-def refuse_unkeepable(
-    config_file: Path, keep: Mapping[str, ConstantValue]
-) -> dict[str, str | int | bool]:
-    """``keep`` without ``None``s; a ``None`` (not defined) is refused.
+def defines_getenv_docker(content: str, *, before: int) -> bool:
+    """Whether ``content`` declares ``getenv_docker`` before offset ``before``.
 
-    ``ConfigWriteFailedError`` names the key. Pure: the Dry Run's
-    ``NoopConfigWriter.replace_file`` calls it too (AD-4; BL-E002-093).
+    **A heuristic, not a PHP parse** (``l3io-wordpress-config`` 0.1.6 has no
+    function-definition query; a textual check was accepted for owner decision
+    48 on this condition). It looks for a line that starts, after blanks, with
+    ``function getenv_docker(`` (any case), as the official image's
+    ``wp-config-docker.php`` writes it inside ``if (!function_exists(...))``,
+    and requires it to start before ``before``, the first carried use: a
+    function declared inside a condition exists only once PHP has run that
+    condition. Failure modes:
+
+    - **false yes** (PHP would still stop with "Call to undefined function"):
+      such a line inside a ``/* */`` comment, a heredoc or a string, or inside
+      a branch PHP never takes; or a declaration of that name that is not the
+      image's helper;
+    - **false no** (refused, though PHP would run): the function defined in a
+      file the config includes, declared unconditionally after its use (PHP
+      hoists that), or written with ``&`` or a line break after ``function``.
+
+    A false no only refuses; the operator keeps the target's config.
     """
-    kept: dict[str, str | int | bool] = {}
-    for key, value in keep.items():
-        if value is None:
-            absent = "the target does not define it, so it cannot be kept"
-            raise ConfigWriteFailedError(config_file, key, absent)
-        kept[key] = value
-    return kept
+    found = _DOCKER_FUNCTION_DECLARED.search(content)
+    return found is not None and found.start() < before
+
+
+def _carriable(
+    config_file: Path, target: WpConfigFile, keep: Sequence[str]
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """``keep``'s sources in ``target``, and the keys calling ``getenv_docker``.
+
+    Refused: a key the target does not define (``ConfigWriteFailedError``,
+    as before 0.1.6) and an ``Expression`` (``UnsupportedConfigValueError``,
+    owner decision 47). The library tells a lookup from a literal; nothing
+    here reads the source text.
+    """
+    from l3io.wp.config import MISSING, EnvLookup, Expression
+
+    sources: dict[str, str] = {}
+    docker: list[str] = []
+    for key in keep:
+        value = target.get_value(key)
+        source = target.get_source(key)
+        if value is MISSING or source is MISSING:
+            raise ConfigWriteFailedError(config_file, key, _UNDEFINED_REASON)
+        if isinstance(value, Expression):
+            raise UnsupportedConfigValueError(_shown(key), path=config_file)
+        if isinstance(value, EnvLookup) and value.function == _DOCKER_FUNCTION:
+            docker.append(key)
+        sources[key] = str(source)
+    return sources, tuple(docker)
+
+
+def _open_target(config_file: Path) -> WpConfigFile:
+    from l3io.wp.config import ConfigReadError, WpConfigFile
+
+    try:
+        return WpConfigFile(config_file)
+    except ConfigReadError as exc:
+        unread = _ABSENT_REASON if not config_file.exists() else exc.reason
+        raise ConfigWriteFailedError(config_file, WHOLE_FILE, unread) from exc
+
+
+def _carry(
+    config_file: Path, target: WpConfigFile, content: str, keep: Sequence[str]
+) -> tuple[str, tuple[str, ...]]:
+    """:func:`carry_sources` over an opened target."""
+    from l3io.wp.config import ConfigValueError, WpConfigError, WpConfigString
+
+    sources, docker = _carriable(config_file, target, keep)
+    try:
+        working = WpConfigString(content)
+    except ValueError as exc:
+        unread = f"the replacement could not be read: {type(exc).__name__}"
+        raise ConfigWriteFailedError(config_file, WHOLE_FILE, unread) from exc
+    changed: list[str] = []
+    for key, source in sources.items():
+        try:
+            if working.set_source(key, source):
+                changed.append(key)
+        except ConfigValueError:
+            # A fixed reason, not the library's: the source is the target's
+            # and is never quoted (it may hold a credential).
+            raise ConfigWriteFailedError(
+                config_file, key, _UNCARRIABLE_REASON
+            ) from None
+        except WpConfigError as exc:
+            raise ConfigWriteFailedError(config_file, key, _set_failure(exc)) from exc
+    text = working.content
+    if docker:
+        # The first carried use; ``find`` returning an earlier copy of the
+        # text (a comment) only makes the check stricter.
+        uses = [text.find(sources[key]) for key in docker]
+        if min(uses) < 0 or not defines_getenv_docker(text, before=min(uses)):
+            raise UndefinedConfigFunctionError(
+                function=_DOCKER_FUNCTION,
+                keys=tuple(_shown(k) for k in docker),
+                path=config_file,
+            )
+    return text, tuple(changed)
+
+
+def carry_sources(
+    config_file: Path, content: str, keep: Sequence[str]
+) -> tuple[str, tuple[str, ...]]:
+    """``content`` with ``config_file``'s ``keep`` definitions carried in as source.
+
+    Owner decision 48 (BL-E008-032): each key's value in the Archive's text
+    ``content`` is replaced, in memory, by the target's source exactly as
+    written (``get_source``/``set_source``), a literal or an ``EnvLookup``
+    alike, so a ``getenv_docker()`` definition stays a lookup. Returns the new
+    text and the keys whose text changed; writes nothing, so the Dry Run's
+    twin calls it too. Refused, before any write: a key the target does not
+    define, and a source ``set_source`` will not write verbatim
+    (``ConfigWriteFailedError``, fixed reasons, never the source); an
+    ``Expression`` (``UnsupportedConfigValueError``); a carried
+    ``getenv_docker()`` the new text does not define before it is used
+    (``UndefinedConfigFunctionError``; :func:`defines_getenv_docker`).
+    """
+    _require_extra()
+    return _carry(config_file, _open_target(config_file), content, keep)
+
+
+def refuse_uncarriable(
+    config_file: Path, keep: Sequence[str], *, archive_content: Callable[[], str]
+) -> None:
+    """``--overwrite-wp-config``'s early refusal, before anything is changed.
+
+    An ``Expression`` among ``keep`` is ``UnsupportedConfigValueError``. When
+    the target reads one of ``keep`` through ``getenv_docker()``, the
+    Archive's text (``archive_content``, called only then) is carried into
+    in memory as :func:`carry_sources` would, so a missing definition is
+    refused here, a Dry Run included, and not at ``REWRITE_CONFIG``.
+    """
+    _require_extra()
+    from l3io.wp.config import EnvLookup, Expression, WpConfigError, WpConfigFile
+
+    label = f"wp-config:{config_file}"
+    try:
+        target = WpConfigFile(config_file)
+        values = {key: target.get_value(key) for key in keep}
+    except WpConfigError as exc:
+        raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
+    for key, value in values.items():
+        if isinstance(value, Expression):
+            raise UnsupportedConfigValueError(_shown(key), path=config_file)
+    if any(
+        isinstance(v, EnvLookup) and v.function == _DOCKER_FUNCTION
+        for v in values.values()
+    ):
+        _carry(config_file, target, archive_content(), keep)
 
 
 class WpConfigWriter:
@@ -517,15 +679,18 @@ class WpConfigWriter:
         config_file: Path,
         content: str,
         *,
-        keep: Mapping[str, ConstantValue],
+        keep: Sequence[str],
     ) -> ConfigWriteResult:
-        """Replace ``config_file`` with the text ``content``, ``keep`` applied first.
+        """Replace ``config_file`` with the text ``content``, ``keep`` carried in first.
 
         ``content`` arrives in memory, so no intermediate copy of the Archive's
-        config is ever written (BL-E003-057). ``keep`` is set into the text in
-        memory, so the replacement's values for
-        those keys are never written anywhere. A ``keep`` value of ``None`` (a
-        constant the target does not define) cannot be kept and is refused.
+        config is ever written (BL-E003-057). Each ``keep`` key's definition
+        is carried from ``config_file`` into the text in memory, as the source
+        the target wrote (:func:`carry_sources`, owner decision 48), so the
+        replacement's values for those keys are never written anywhere and a
+        ``getenv_docker()`` definition stays a lookup. A key the target does
+        not define cannot be kept and is refused, as is a ``getenv_docker()``
+        the replacement does not define.
         The write is ``l3io-wordpress-config``'s ``WpConfigFile.replace_content``
         (0.1.4, BL-E002-091): a temp file beside the config takes the
         original's owner and mode before any content — refusing rather than
@@ -535,40 +700,21 @@ class WpConfigWriter:
         original is byte-identical and no temp file is left behind.
         """
         _require_extra()
-        from l3io.wp.config import (
-            ConfigReadError,
-            WpConfigError,
-            WpConfigFile,
-            WpConfigString,
-        )
+        from l3io.wp.config import WpConfigError, WpConfigString
 
-        self._register(keep, source="replace_file")
         started = time.monotonic_ns()
-        kept = refuse_unkeepable(config_file, keep)
-        try:
-            target = WpConfigFile(config_file)
-        except ConfigReadError as exc:
-            unread = _ABSENT_REASON if not config_file.exists() else exc.reason
-            raise ConfigWriteFailedError(config_file, WHOLE_FILE, unread) from exc
-        try:
-            working = WpConfigString(content)
-        except ValueError as exc:
-            unread = f"the replacement could not be read: {type(exc).__name__}"
-            raise ConfigWriteFailedError(config_file, WHOLE_FILE, unread) from exc
+        target = _open_target(config_file)
         self._register(
-            {_PASSWORD_KEY: working.get(_PASSWORD_KEY)}, source="replace_file"
+            {_PASSWORD_KEY: target.get_value(_PASSWORD_KEY)}, source="replace_file"
         )
-        changed: list[str] = []
-        for key, value in kept.items():
-            try:
-                if working.set(key, value):
-                    changed.append(key)
-            except WpConfigError as exc:
-                raise ConfigWriteFailedError(
-                    config_file, key, _set_failure(exc)
-                ) from exc
         try:
-            target.replace_content(working.content)
+            archived = WpConfigString(content).get_value(_PASSWORD_KEY)
+        except ValueError:
+            archived = None  # _carry refuses an unreadable replacement
+        self._register({_PASSWORD_KEY: archived}, source="replace_file")
+        text, changed = _carry(config_file, target, content, keep)
+        try:
+            target.replace_content(text)
         except WpConfigError as exc:
             raise ConfigWriteFailedError(
                 config_file, WHOLE_FILE, _set_failure(exc)
@@ -579,6 +725,6 @@ class WpConfigWriter:
             method="replace_file",
             duration_ms=(time.monotonic_ns() - started) / _NS_PER_MS,
             keys=list(keep),
-            changed=changed,
+            changed=list(changed),
         )
-        return ConfigWriteResult(changed=tuple(changed), performed=True)
+        return ConfigWriteResult(changed=changed, performed=True)

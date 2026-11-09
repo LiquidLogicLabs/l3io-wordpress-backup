@@ -319,19 +319,76 @@ db_sql "SHOW DATABASES;" >"$LOGS/databases-after-restore.txt" 2>&1 || true
 
 # ---- Phase C: a restore onto the getenv_docker() config --------------------------
 # A database restore would rewrite the getenv_docker() DB_NAME, so it is refused
-# (exit 3, EnvironmentDrivenTargetError) until ADR-0026 is accepted, a Dry Run
-# included; so is --overwrite-wp-config. A files-only restore keeping the
-# target's wp-config.php resolves it and proceeds.
-docker run --rm --user 0 -v "$L3IO_SCRATCH:/s" --entrypoint sh "$IMAGE" -c \
-    'cp /s/wp-config.docker.php /s/html/wp-config.php && chown 33:33 /s/html/wp-config.php'
+# (exit 3, EnvironmentDrivenTargetError) until ADR-0027 is accepted, a Dry Run
+# included. --overwrite-wp-config in a files-only Mode carries the target's
+# getenv_docker() DB_* into the Archive's wp-config.php as written (owner
+# decision 48): enc.tar.gz holds Phase B's file, which still defines the
+# image's getenv_docker() helper, so it proceeds and the site keeps following
+# its environment. A files-only restore keeping the target's file resolves the
+# lookups and proceeds. An Archive taken from a plain (non-Docker) config does
+# not define getenv_docker(): --overwrite-wp-config from it is refused (exit 3,
+# UndefinedConfigFunctionError), the target's file untouched.
+put_docker_config() {
+    docker run --rm --user 0 -v "$L3IO_SCRATCH:/s" --entrypoint sh "$IMAGE" -c \
+        'cp /s/wp-config.docker.php /s/html/wp-config.php && chown 33:33 /s/html/wp-config.php'
+}
+site_config_is_docker() {
+    docker run --rm --user 0 -v "$L3IO_SCRATCH:/s" --entrypoint sh "$IMAGE" -c \
+        '[ "$(sha256sum </s/wp-config.docker.php)" = "$(sha256sum </s/html/wp-config.php)" ]'
+}
+db_all_getenv_docker() {
+    local n
+    n=$(in_backup grep -cE "define\\( *'DB_(NAME|HOST|USER|PASSWORD)', *getenv_docker\\('WORDPRESS_DB_(NAME|HOST|USER|PASSWORD)'" \
+        "$SITE/wp-config.php") || return 1
+    echo "getenv_docker DB_* defines: $n"
+    [[ $n == 4 ]]
+}
+php_db_name_is_env() {
+    local n
+    n=$(wp eval 'echo DB_NAME;') || return 1
+    echo "PHP DB_NAME is the environment's: $([[ $n == "$DB_NAME" ]] && echo yes || echo no)"
+    [[ $n == "$DB_NAME" ]]
+}
+refused_with() { grep -qF "$2" "$LOGS/$1.err"; }
+put_docker_config
 step C-restore-dryrun-docker-config 3 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
 step C-restore-docker-config 3 wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA"
-step C-restore-overwrite-docker-config 3 wb_pp --whatIf restore --wp-dir "$SITE" --archive /backups/enc.tar.gz \
-    --mode files --force --require-encrypted --overwrite-wp-config
+OVERWRITE=(restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode files --force --require-encrypted
+    --overwrite-wp-config)
+step C-overwrite-dryrun-docker-config 0 wb_pp --whatIf "${OVERWRITE[@]}"
+check C:overwrite-dryrun-changed-nothing site_config_is_docker
+step C-overwrite-docker-config 0 wb_pp "${OVERWRITE[@]}"
+db_lines >"$LOGS/C-wp-config-after-overwrite.txt" || true
+check C:overwrite-kept-getenv-docker-db db_all_getenv_docker
+check C:overwrite-landed-archives-file in_backup grep -qF "\$table_prefix = 'wp_';" "$SITE/wp-config.php"
+# PHP itself loads the file (so getenv_docker() is defined) and resolves DB_NAME
+# from the environment. Not the sentinel page: Phase B's restore moved the
+# restored data to the staging database, and the environment still names the
+# original one, where the post was deleted.
+check C:overwrite-php-resolves-env-db-name php_db_name_is_env
+check C:overwrite-home-200 code_is / 200
+put_docker_config
 step C-restore-files-docker-config 0 wb_pp restore --wp-dir "$SITE" --archive /backups/enc.tar.gz \
     --mode files --force --require-encrypted
 check C:wp-config-still-getenv-docker in_backup grep -qF "getenv_docker('WORDPRESS_DB_NAME'" "$SITE/wp-config.php"
 check C:page-200-after-files code_is / 200
+
+# A plain config (wp config create: literal DB_*, no getenv_docker() helper),
+# backed up, then that Archive's file offered over the Docker config.
+step C-plain-config 0 dc run --rm -T wpcli sh -c '
+    set -eu
+    wp --path=/var/www/html config create --dbname="$WORDPRESS_DB_NAME" --dbuser="$WORDPRESS_DB_USER" \
+        --dbpass="$WORDPRESS_DB_PASSWORD" --dbhost="$WORDPRESS_DB_HOST" --skip-check --skip-salts --force --quiet
+    ! grep -q getenv_docker /var/www/html/wp-config.php'
+step C-backup-plain-config 0 wb backup --wp-dir "$SITE" --archive /backups/plain-config.tar.gz --confirm-db-host db
+put_docker_config
+step C-overwrite-dryrun-plain-archive 3 wb --whatIf restore --wp-dir "$SITE" --archive /backups/plain-config.tar.gz \
+    --mode files --force --overwrite-wp-config
+step C-overwrite-plain-archive 3 wb restore --wp-dir "$SITE" --archive /backups/plain-config.tar.gz \
+    --mode files --force --overwrite-wp-config
+check C:plain-refused-undefined-function refused_with C-overwrite-plain-archive UndefinedConfigFunctionError
+check C:plain-refusal-left-config site_config_is_docker
+check C:page-200-after-plain-refusal code_is / 200
 step C-backup-after 0 wb backup --wp-dir "$SITE" --archive /backups/c.tar.gz --confirm-db-host db
 
 # ---- report -----------------------------------------------------------------------

@@ -95,7 +95,12 @@ dependencies = [
 # EnvLookup (getenv_docker()/getenv(), resolved with PHP's semantics including
 # NAME_FILE Docker secrets) or an Expression, and get_source(). Backup reads the
 # official image's getenv_docker() DB_* and $table_prefix through them (owner
-# decision 47). Nothing below 0.1.5 may be resolved.
+# decision 47). 0.1.6 adds set_source()/set_variable_source(), which write a
+# value's PHP source verbatim (refusing source that could end the statement,
+# open a comment or unbalance a bracket): --overwrite-wp-config carries the
+# target's DB_* into the Archive's config as source, so getenv_docker() stays a
+# lookup instead of becoming a string (owner decision 48, BL-E008-032). Nothing
+# below 0.1.6 may be resolved.
 # database 0.3.4 is the floor: its client option file carries only the TLS
 # lines each client family accepts (MySQL: ssl-mode; MariaDB: ssl and
 # ssl-verify-server-cert), without which every restore over verified TLS to a
@@ -108,7 +113,7 @@ dependencies = [
 # absolute-path `age` -- so no parent secret reaches them (BL-E004-055).
 database = [
   "l3io-wordpress-database[encryption]>=0.3.4,<0.4",
-  "l3io-wordpress-config>=0.1.5,<0.2",
+  "l3io-wordpress-config>=0.1.6,<0.2",
   # Dependency inventory (FR-26, BL-E004-024), the two the `encryption` extra
   # brings:
   # - pyrage 1.4.0 (transitive, via database[encryption]): MIT. Present for age
@@ -158,7 +163,7 @@ wpbackup2 = "l3io.wp.backup.cli:run_from_cli"
 [tool.uv.sources]
 # v0.2.1 (2026-11-03): src identical to v0.2.0 (48a7da9).
 l3io-wordpress-database = { index = "testpypi" }
-# v0.1.5 (2026-11-08): get_value(), EnvLookup, get_source() (d5d4bd5).
+# v0.1.6 (2026-11-08): set_source()/set_variable_source() (85c268a).
 l3io-wordpress-config = { index = "testpypi" }
 # The passphrase binder, required by database's `encryption` extra. uv applies
 # [tool.uv.sources] to direct dependencies only, so the `database` extra names

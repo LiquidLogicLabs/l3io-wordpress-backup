@@ -90,6 +90,7 @@ __all__ = [
     "StoredUrlMissingError",
     "TargetInsideSiteRootError",
     "UnboundAdapterError",
+    "UndefinedConfigFunctionError",
     "UnknownInterruptedRunError",
     "UnreadableSiteRootError",
     "UnrecognisedArchiveError",
@@ -1204,13 +1205,13 @@ class EnvironmentDrivenTargetError(RefusedError):
     are read from the environment.
 
     A database restore switches the site to the loaded database by rewriting
-    ``wp-config.php``'s ``DB_NAME``, and ``--overwrite-wp-config`` carries the
-    target's ``DB_*`` into the Archive's file as values; neither can keep a
+    ``wp-config.php``'s ``DB_NAME``, which cannot keep a
     ``getenv_docker()``/``getenv()`` definition. Refused before any change, a
     Dry Run included. ``keys`` are the constants, ``variables`` the
     environment variables they read (names only, never values), ``path`` the
     ``wp-config.php`` and ``operation`` what was refused (``"a database
-    restore"`` or ``"--overwrite-wp-config"``).
+    restore"``). ``--overwrite-wp-config`` in a files-only Mode carries the
+    definitions as source instead (owner decision 48).
     """
 
     def __init__(
@@ -1231,8 +1232,36 @@ class EnvironmentDrivenTargetError(RefusedError):
             f"{operation} cannot yet be done on such a site: it would rewrite "
             "those definitions as fixed values (docs/adr/0027-restore-into-an-"
             "environment-driven-database.md, Proposed); restore the files alone "
-            "(--mode files, without --overwrite-wp-config), or define the DB_* "
-            "constants as literals; nothing was changed"
+            "(--mode files), or define the DB_* constants as literals; nothing "
+            "was changed"
+        )
+
+
+class UndefinedConfigFunctionError(RefusedError):
+    """Owner decision 48: ``--overwrite-wp-config`` would carry a call to a
+    function the Archive's ``wp-config.php`` does not define.
+
+    The target reads ``keys`` through ``function`` (``getenv_docker``, the
+    official ``wordpress`` image's helper, which PHP does not define), and
+    the Archive's config, which replaces the target's, does not define it
+    before that use, so PHP would stop with "Call to undefined function".
+    Refused before any change, a Dry Run included. ``path`` is the target's
+    ``wp-config.php``. Whether the Archive's config defines it is read by a
+    documented textual heuristic, not a PHP parse
+    (``config_writer.defines_getenv_docker``).
+    """
+
+    def __init__(self, *, function: str, keys: tuple[str, ...], path: PurePath) -> None:
+        self.function = function
+        self.keys = keys
+        self.path = path
+        super().__init__(
+            f"refused: {str(path)!r} reads {', '.join(keys)} through {function}(), "
+            f"and the Archive's wp-config.php, which --overwrite-wp-config would "
+            f"put in its place, does not define {function}() before that use, so "
+            f'PHP would stop with "Call to undefined function {function}()"; omit '
+            "--overwrite-wp-config to keep the target's wp-config.php; nothing "
+            "was changed"
         )
 
 

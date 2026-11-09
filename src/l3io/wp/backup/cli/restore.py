@@ -66,6 +66,7 @@ from typing import Final
 
 import structlog
 
+from l3io.wp.backup.adapters.config_writer import refuse_uncarriable
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
@@ -141,6 +142,8 @@ from l3io.wp.backup.cli.restore_request import (
     snapshot_policy_from_cli,
 )
 from l3io.wp.backup.core.restore import (
+    CUTOVER_KEYS,
+    ArchiveHasNoConfigError,
     NonEmptyTargetError,
     RestoreInputs,
     RestorePlan,
@@ -175,6 +178,7 @@ from l3io.wp.backup.domain.errors import (
     ArchiveNotFoundError,
     ArchiveWriteError,
     BackupError,
+    ConfigWriteFailedError,
     InvalidSiteDescriptorError,
     PassphraseRequiredError,
     RootRestoreRefusedError,
@@ -199,6 +203,7 @@ from l3io.wp.backup.domain.restore import (
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
+from l3io.wp.backup.ports.config import WHOLE_FILE
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.database import AdminTls
 from l3io.wp.backup.ports.journal import RunJournalCommand, RunJournalQuery
@@ -364,16 +369,15 @@ def _require_cipher(view: ArchiveView, cipher: PayloadCipher | None) -> None:
         raise PassphraseRequiredError(operation)
 
 
-def _archive_config(
+def _archive_config_bytes(
     archive: _Archive, *, workspace: Path, cipher: PayloadCipher | None
-) -> Path:
-    """The Archive's config member, read bounded into a ``0600`` workspace file."""
+) -> bytes | None:
+    """The Archive's config member, read bounded into memory; ``None`` if none."""
     view = archive.view()
     _require_cipher(view, cipher)
     member = config_member(view)
     if member is None:
-        msg = "neither the target nor the archive has a wp-config.php"
-        raise InvalidSiteDescriptorError(msg, paths=(str(archive.copy.path),))
+        return None
     payload: Path | None = None
     if view.encrypted and cipher is not None:
         # Decrypted here so a wrong passphrase stops the Run before anything
@@ -382,34 +386,79 @@ def _archive_config(
             archive.copy, view, cipher=cipher, destination=workspace / _CONFIG_PAYLOAD
         )
     try:
-        body = TarArchiveProbe().read_member(
+        return TarArchiveProbe().read_member(
             archive.copy, view, member.path, max_bytes=CONFIG_MAX_BYTES, payload=payload
         )
     finally:
         if payload is not None:
             payload.unlink(missing_ok=True)
+
+
+def _archive_config(
+    archive: _Archive, *, workspace: Path, cipher: PayloadCipher | None
+) -> Path:
+    """The Archive's config member, read bounded into a ``0600`` workspace file."""
+    body = _archive_config_bytes(archive, workspace=workspace, cipher=cipher)
+    if body is None:
+        msg = "neither the target nor the archive has a wp-config.php"
+        raise InvalidSiteDescriptorError(msg, paths=(str(archive.copy.path),))
     directory = _private_dir(workspace / _DESCRIPTOR_DIR)
     return _write_private(directory / _CONFIG_NAME, body)
 
 
-def _refused_on_environment(
-    request: RestoreRequest, *, archive_copy: bool
-) -> str | None:
+def _archive_config_text(
+    archive: _Archive, *, workspace: Path, cipher: PayloadCipher | None, target: Path
+) -> str:
+    """The Archive's config text, in memory only, as ``REWRITE_CONFIG`` reads it.
+
+    No copy is written (BL-E003-057). An Archive without one is
+    ``ArchiveHasNoConfigError``, as the plan refuses it; text that is not
+    UTF-8 is ``ConfigWriteFailedError``, as the executor refuses it.
+    """
+    body = _archive_config_bytes(archive, workspace=workspace, cipher=cipher)
+    if body is None:
+        raise ArchiveHasNoConfigError(str(archive.copy.path))
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        reason = "the replacement could not be read: UnicodeDecodeError"
+        raise ConfigWriteFailedError(target, WHOLE_FILE, reason) from exc
+
+
+def _refused_on_environment(request: RestoreRequest) -> str | None:
     """What this restore would do that an environment-driven ``DB_*`` refuses.
 
     Owner decision 47, ADR-0027 (Proposed): a Mode that restores the database
-    cuts over by rewriting ``DB_NAME``, and ``--overwrite-wp-config`` carries
-    the target's ``DB_*`` into the Archive's file as values (BL-E008-032);
-    neither keeps a ``getenv_docker()`` definition. ``None`` (a files-only
-    restore that keeps the target's file) resolves the lookups instead.
-    ``archive_copy`` is a target with no ``wp-config.php``, whose descriptor
-    is the Archive's copy: nothing of the target's is carried over then.
+    cuts over by rewriting ``DB_NAME``, which does not keep a
+    ``getenv_docker()`` definition. ``None`` (a files-only restore) resolves
+    the lookups instead; ``--overwrite-wp-config`` then carries them into the
+    Archive's file as source (owner decision 48, :func:`_refuse_uncarriable`).
+    A target with no ``wp-config.php``, whose descriptor is the Archive's
+    copy, is refused alike.
     """
     if restores_database(request.mode):
         return "a database restore"
-    if request.config_policy is ConfigPolicy.OVERWRITE and not archive_copy:
-        return "--overwrite-wp-config"
     return None
+
+
+def _refuse_uncarriable(
+    archive: _Archive, workspace: Path, request: RestoreRequest, config_file: Path
+) -> None:
+    """``--overwrite-wp-config``: refuse before any effect what cannot be carried.
+
+    Owner decision 48: the target's ``DB_*`` are carried into the Archive's
+    file as source. A ``getenv_docker()`` among them needs the Archive's file
+    to define that function; ``refuse_uncarriable`` reads the Archive's
+    config (into memory, only then) and refuses here, a Dry Run included,
+    rather than at ``REWRITE_CONFIG`` after ``CLEAN``.
+    """
+    refuse_uncarriable(
+        config_file,
+        CUTOVER_KEYS,
+        archive_content=lambda: _archive_config_text(
+            archive, workspace=workspace, cipher=request.cipher, target=config_file
+        ),
+    )
 
 
 def _db_user(run: RunContext, config_file: Path) -> str:
@@ -678,10 +727,12 @@ def drive_restore(
                 config_file=located.path,
                 environ=environ,
                 secrets=run.secrets,
-                refuse_environment=_refused_on_environment(request, archive_copy=False),
+                refuse_environment=_refused_on_environment(request),
             )
             target_config, config_dir = located.path, located.path.parent
             descriptor_file = located.path
+            if request.config_policy is ConfigPolicy.OVERWRITE and resolving is None:
+                _refuse_uncarriable(archive, run.workspace, request, located.path)
         else:
             descriptor_file = _archive_config(
                 archive, workspace=run.workspace, cipher=request.cipher
@@ -691,7 +742,7 @@ def drive_restore(
                 config_file=descriptor_file,
                 environ=environ,
                 secrets=run.secrets,
-                refuse_environment=_refused_on_environment(request, archive_copy=True),
+                refuse_environment=_refused_on_environment(request),
             )
             located = LocatedConfig(path=descriptor_file, location=None)
             target_config, config_dir = site_root / _CONFIG_NAME, site_root

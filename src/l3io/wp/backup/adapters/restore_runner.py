@@ -928,9 +928,10 @@ def _rewrite_config(run: _Run) -> None:
             raise ValueError(msg)
         adapters.config_command.save_copy(config_file, Path(saved))
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_SAVED)
-        prior = adapters.config_query.read_constants(config_file, CUTOVER_KEYS)
         content = _archive_config(run)
-        adapters.config_command.replace_file(config_file, content, keep=dict(prior))
+        # The target's definitions are carried as source (owner decision 48),
+        # so nothing is resolved here: a getenv_docker() stays a lookup.
+        adapters.config_command.replace_file(config_file, content, keep=CUTOVER_KEYS)
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_REPLACED)
         _log.warning("wp_config_overwritten", path=str(config_file), saved=saved)
     rewrite = inputs.relocation.rewrite_values

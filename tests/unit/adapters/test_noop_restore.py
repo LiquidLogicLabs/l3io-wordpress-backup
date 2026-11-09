@@ -63,7 +63,7 @@ def site(tmp_path: Path) -> Path:
     root = tmp_path / "www"
     (root / "wp-content").mkdir(parents=True)
     (root / "index.php").write_text("<?php\n", encoding="utf-8")
-    (root / "wp-config.php").write_text("<?php define('DB_NAME','wp');\n")
+    (root / "wp-config.php").write_text("<?php\ndefine('DB_NAME','wp');\n")
     (tmp_path / "journal").mkdir()
     return root
 
@@ -134,7 +134,7 @@ CASES: dict[type, list[tuple[Call, type | None]]] = {
         ),
         (
             lambda a, s: a.replace_file(
-                s / "wp-config.php", "<?php\n", keep={"DB_HOST": "db"}
+                s / "wp-config.php", "<?php\n", keep=("DB_NAME",)
             ),
             ConfigWriteResult,
         ),
@@ -345,7 +345,7 @@ def test_the_config_twin_refuses_an_unkeepable_constant_like_the_real_one(
         WpConfigWriter(SecretRegistry()),
     ):
         with pytest.raises(ConfigWriteFailedError) as caught:
-            adapter.replace_file(config, "<?php\n", keep={"DB_HOST": None})
+            adapter.replace_file(config, "<?php\n", keep=("DB_HOST",))
         assert caught.value.key == "DB_HOST"
     assert config.read_bytes() == before
 

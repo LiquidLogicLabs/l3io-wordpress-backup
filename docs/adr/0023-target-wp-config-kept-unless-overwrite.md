@@ -165,3 +165,29 @@ which resolves this ADR's revisit note:
 - `pyproject.toml` raises the floor to `l3io-wordpress-config>=0.1.4,<0.2`.
   `tests/adapters/test_config_writer.py` asserts the delegation, the duplicate-key refusal and the
   unchanged-text case beside the existing mode, owner, line-ending and failure tests.
+
+## Amendment — 2026-11-08: `keep` is carried as source (Shawn, owner decision 48)
+
+BL-E008-032: steps 3 and 4 read the target's four `DB_*` as values and wrote them with
+`WpConfigString.set`, which renders a `str` as a quoted literal, so the official Docker image's
+`getenv_docker('WORDPRESS_DB_HOST', 'mysql')` would have landed as that text in quotes. Until this
+amendment such a target was refused. `l3io-wordpress-config` 0.1.6 adds `set_source(key, source)`:
+
+- Step 3 is gone. `ConfigCommand.replace_file(config_file, content, keep=CUTOVER_KEYS)` takes the
+  key **names**; `adapters/config_writer.py::carry_sources` reads each one's source from the
+  target (`get_source`) and writes it into the Archive's text in memory with `set_source`, a
+  literal or a lookup alike. Nothing is resolved, so no environment value is read there. Step 4's
+  single `replace_content` write, the saved copy and the journaled steps are unchanged.
+- A literal lands byte for byte as before when the target wrote it as `set` renders it (`'value'`);
+  otherwise the target's spelling is kept, with the same PHP value.
+- Refused before any write: a key the target does not define (as before); a source `set_source`
+  will not write verbatim (`ConfigWriteFailedError` with a fixed reason, never the source); an
+  `Expression` (`UnsupportedConfigValueError`, owner decision 47); and a carried `getenv_docker()`
+  call the Archive's text does not define before its use (`UndefinedConfigFunctionError`).
+- That last check is a **textual heuristic** (`config_writer.defines_getenv_docker`), because the
+  library has no function-definition query; its failure modes are in its docstring and
+  `docs/restore.md`. `cli/restore.py` runs it before any effect, a Dry Run included, reading the
+  Archive's config into memory only when the target uses `getenv_docker()`; the Dry Run's
+  `NoopConfigWriter.replace_file` runs `carry_sources` too.
+- Revisit when `l3io-wordpress-config` can say whether a config defines a function: the heuristic
+  is then replaced by that query.

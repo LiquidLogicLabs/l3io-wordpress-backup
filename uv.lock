@@ -624,7 +624,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "l3io-age-passphrase", marker = "extra == 'database'", specifier = ">=0.1.1,<0.2", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.5,<0.2", index = "https://test.pypi.org/simple/" },
+    { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.6,<0.2", index = "https://test.pypi.org/simple/" },
     { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.4,<0.4", index = "https://test.pypi.org/simple/" },
     { name = "l3io-wordpress-database", extras = ["encryption"], marker = "extra == 'database'", specifier = ">=0.3.4,<0.4", index = "https://test.pypi.org/simple/" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
@@ -662,11 +662,11 @@ test = [
 
 [[package]]
 name = "l3io-wordpress-config"
-version = "0.1.5"
+version = "0.1.6"
 source = { registry = "https://test.pypi.org/simple/" }
-sdist = { url = "https://test-files.pythonhosted.org/packages/73/39/b3d3bea7b91b8e1b1f502445e4d58ae4b99abfc44a43050778b5cbf546f5/l3io_wordpress_config-0.1.5.tar.gz", hash = "sha256:8aaf6938aa038225a42ae395ad7ea349d976ce8e044eb44bf8f18619e6bd852d", size = 149503, upload-time = "2026-11-08T22:24:33.819Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/07/e6/69c71bc6990afd654cffa36b5dbc02a0044fdc0c1f15dfd7746c02fb246e/l3io_wordpress_config-0.1.6.tar.gz", hash = "sha256:0cd1d7670bd98e2f03ccc88c406b8869c8c31b9b836596fd38d2a9aa87fc1768", size = 154186, upload-time = "2026-11-09T00:23:58.194Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/94/6a/4a28ee696fd38681d589ae763769feb1d0fb35cb88862e8c2347c866d23d/l3io_wordpress_config-0.1.5-py3-none-any.whl", hash = "sha256:81ec4bb4291c65b8635ab967c7e1b9d3aa2e5af4b13fc47430ca11b01a6bb87c", size = 26385, upload-time = "2026-11-08T22:24:32.354Z" },
+    { url = "https://test-files.pythonhosted.org/packages/d1/97/0a7193af05941d73e8029b43ec569af10b189e46c852a2d6f288bf54e3c7/l3io_wordpress_config-0.1.6-py3-none-any.whl", hash = "sha256:941e7b20475eac1dabe21a292e5b72c6d1a4173500b24c28afc1a283f94c2af8", size = 27974, upload-time = "2026-11-09T00:23:56.633Z" },
 ]
 
 [[package]]

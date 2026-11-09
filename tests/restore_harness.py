@@ -147,12 +147,14 @@ def write_v1(
     cipher: IdentityCipher | None = None,
     config_role: bool = False,
     links: Mapping[str, str] | None = None,
+    config_text: str | None = None,
 ) -> Path:
     """A small v1 Archive by the real writer: index, config, Dump.
 
     ``config_role`` stores the config as a ``config``-role member (a config
     one level up, FR-29) instead of in the Site Root tree. ``links`` adds a
     symlink per ``{name: target}`` to the Site Root, target verbatim.
+    ``config_text`` replaces the config's text (``ARCHIVE_DB`` as literals).
     """
     source = work / "source-site"
     source.mkdir()
@@ -161,7 +163,8 @@ def write_v1(
         (source / name).symlink_to(target)
     config_file = (work if config_role else source) / "wp-config.php"
     if config:
-        config_file.write_text(wp_config(ARCHIVE_DB), encoding="utf-8")
+        text = wp_config(ARCHIVE_DB) if config_text is None else config_text
+        config_file.write_text(text, encoding="utf-8")
     members = list(collect_site_root(source, INCLUDE_EVERYTHING).members)
     if config and config_role:
         members.append(file_member(MemberRole.CONFIG, "wp-config.php", config_file))
@@ -315,10 +318,11 @@ class FakeConfig:
         return ConfigWriteResult(changed=(), performed=True)
 
     def replace_file(
-        self, config_file: Path, content: str, *, keep: Mapping[str, Any]
+        self, config_file: Path, content: str, *, keep: Sequence[str]
     ) -> ConfigWriteResult:
-        self.log.add("config", "replace_file", dict(keep))
-        self.values = {**ARCHIVE_DB, **keep}
+        kept = {k: self.values.get(k) for k in keep}
+        self.log.add("config", "replace_file", kept)
+        self.values = {**ARCHIVE_DB, **kept}
         return ConfigWriteResult(changed=tuple(keep), performed=True)
 
 

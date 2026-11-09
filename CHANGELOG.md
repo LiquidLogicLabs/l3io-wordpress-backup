@@ -16,20 +16,31 @@ owner asked for, which a commit subject cannot hold.
   was `getenv_docker('WORDPRESS_DB_HOST', 'mysql')`. `backup`, `doctor` and a
   files-only `restore` now resolve them as PHP does, from the tool's own
   environment: the variable, a Docker secret named by `<NAME>_FILE`, else
-  the default (through `l3io-wordpress-config` 0.1.5, now the floor). Run the
+  the default (through `l3io-wordpress-config` 0.1.5 or later). Run the
   tool with the site's `WORDPRESS_DB_*`; `--confirm-db-host` names the
   resolved host. A resolved password is redacted like any other, and the log
   names the variable (`config_value_from_environment`), never its value.
 - **Any other PHP expression in those settings is refused**, exit 3
   (`REFUSED`, `UnsupportedConfigValueError`), naming the setting, never its
   text. v0.2.21 used the text as the value.
-- **A database restore, or `--overwrite-wp-config`, onto such a site is
-  refused**, exit 3 (`REFUSED`, `EnvironmentDrivenTargetError`), before any
-  change, a Dry Run included. v0.2.21 tried to reach the database at the
-  expression's text (exit 5), or with `--overwrite-wp-config` would have written
-  the expressions back as fixed strings (BL-E008-032). How a database restore
-  should switch such a site is proposed in ADR-0027 and not yet decided; see
-  docs/restore.md.
+- **A database restore onto such a site is refused**, exit 3 (`REFUSED`,
+  `EnvironmentDrivenTargetError`), before any change, a Dry Run included.
+  v0.2.21 tried to reach the database at the expression's text (exit 5). How a
+  database restore should switch such a site is proposed in ADR-0027 and not
+  yet decided; see docs/restore.md.
+- **`--overwrite-wp-config` keeps the target's `DB_*` definitions as written**
+  (owner decision 48, BL-E008-032). v0.2.21 carried their values into the
+  Archive's `wp-config.php`, so a `getenv_docker()` definition would have been
+  written back as a fixed string. They are now carried as their PHP source
+  (`l3io-wordpress-config` 0.1.6, now the floor): a lookup stays a lookup, and
+  a literal lands as before unless the target spelled it other than
+  `'value'`, when its own spelling is kept. When the target uses
+  `getenv_docker()` and the Archive's `wp-config.php` does not define that
+  function before those definitions, the restore is **refused**, exit 3
+  (`REFUSED`, `UndefinedConfigFunctionError`), before any change, a Dry Run
+  included: PHP would otherwise stop with "Call to undefined function". That
+  check is textual, not a PHP parse; docs/restore.md lists what it can get
+  wrong.
 
 ### Fixed
 

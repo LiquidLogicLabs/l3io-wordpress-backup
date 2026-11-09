@@ -57,13 +57,15 @@ class ConfigCommand(Protocol):
         config_file: Path,
         content: str,
         *,
-        keep: Mapping[str, ConstantValue],
+        keep: Sequence[str],
     ) -> ConfigWriteResult:
-        """Replace ``config_file`` with ``content``, ``keep`` applied first.
+        """Replace ``config_file`` with ``content``, ``keep`` carried in first.
 
         ``content`` is the Archive's ``wp-config.php`` text, decoded without
-        newline translation. ``keep`` is applied to it in memory before anything is
-        written; the new file is written beside ``config_file``, fsynced and
-        moved over it with ``os.replace``, keeping mode and owner.
+        newline translation. ``keep`` names the target's constants whose
+        definitions are carried into it in memory, as the source the target
+        wrote (owner decision 48), before anything is written; the new file is
+        written beside ``config_file``, fsynced and moved over it with
+        ``os.replace``, keeping mode and owner.
         """
         ...

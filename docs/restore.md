@@ -110,7 +110,7 @@ live part is cut to 51 characters, so a name never exceeds MySQL's 64.
 | 0    | `OK`                  | it completed (a Dry Run: its plan completed without a refusal)                              |
 | 1    | `FAILED`              | something failed, including a database load the report does not call restored               |
 | 2    | `USAGE`               | the flags express no Restore Mode, `--archive` is missing, or `--overwrite-wp-config` is given with a Mode that restores no files |
-| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a target whose `DB_*` are read from the environment (database Modes and `--overwrite-wp-config`) or are another PHP expression |
+| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a target whose `DB_*` are read from the environment (database Modes) or are another PHP expression, an `--overwrite-wp-config` whose Archive's file does not define `getenv_docker()` for the target's definitions |
 | 4    | `CREDENTIALS`         | a Mode that touches the database has no administrator credentials                           |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
 | 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
@@ -683,7 +683,13 @@ no `wp-config.php`, the Archive's copy arrives with the files.
 `--overwrite-wp-config` (file Modes only; with `--mode db` it exits 2
 `USAGE`) replaces the target's file with the
 Archive's, keeping the target's own `DB_HOST`, `DB_USER`, `DB_PASSWORD` and
-`DB_NAME`, so the Site never points at the source's database. A copy of the
+`DB_NAME`, so the Site never points at the source's database. Each of the four
+is carried into the Archive's file **as the target wrote it**, not as a value:
+`define( 'DB_HOST', getenv_docker('WORDPRESS_DB_HOST', 'mysql') );` stays a
+lookup that follows the container's environment, and a literal stays that
+literal (owner decision 48). A literal lands exactly as before unless the
+target spelled it differently from `'value'` (double quotes, say): the
+target's spelling is kept, with the same PHP value. A copy of the
 original is saved first (mode `0600`) beside the Run Journal, and the Run logs
 the WARNING `wp_config_overwritten`. An Archive without a `wp-config.php` is
 refused with this flag (exit 3; omit it to keep the target's), as is one whose
@@ -702,28 +708,49 @@ warning about it. Restore only Archives you trust, and keep the default
 **A target whose `DB_*` are read from the environment.** The official
 WordPress Docker image defines its settings as, for example,
 `define( 'DB_NAME', getenv_docker('WORDPRESS_DB_NAME', 'wordpress') );`.
-Two restores would turn such a definition into a fixed string, and the site
-would stop following its environment: a Mode that restores the database (its
-cutover rewrites `DB_NAME` to the staging database's name), and
-`--overwrite-wp-config` (which carries the target's `DB_*` into the Archive's
-file as their values). Both are **refused** before anything is changed, a Dry
-Run included, with exit 3 `REFUSED` (`EnvironmentDrivenTargetError`, naming
-the constants and the variables they read, never a value). The same applies
-when the target has no `wp-config.php` and the Archive's copy reads its `DB_*`
-from the environment. A files-only restore that keeps the target's file is not
-refused: it resolves the settings from the restore's own environment, as a
-backup does.
+A Mode that restores the database would turn such a definition into a fixed
+string (its cutover rewrites `DB_NAME` to the staging database's name), and
+the site would stop following its environment, so it is **refused** before
+anything is changed, a Dry Run included, with exit 3 `REFUSED`
+(`EnvironmentDrivenTargetError`, naming the constants and the variables they
+read, never a value). The same applies when the target has no
+`wp-config.php` and the Archive's copy reads its `DB_*` from the environment.
+A files-only restore is not refused: it resolves the settings from the
+restore's own environment, as a backup does.
+
+With `--overwrite-wp-config`, a files-only restore carries those definitions
+into the Archive's file as written (above). `getenv_docker()` is not a PHP
+function: the image's `wp-config.php` defines it. So when the target reads
+any of its `DB_*` through `getenv_docker()`, the Archive's file must define
+it before those definitions, or PHP would stop every request with "Call to
+undefined function getenv_docker()". An Archive's file that does not is
+**refused** before anything is changed, a Dry Run included, with exit 3
+`REFUSED` (`UndefinedConfigFunctionError`, naming the constants); keep the
+target's `wp-config.php` (omit `--overwrite-wp-config`), or restore from an
+Archive taken from a Docker site. `getenv('NAME')` needs nothing: PHP defines
+it.
+
+That check is **a textual heuristic, not a PHP parse**: it looks for a line
+beginning, after blanks, with `function getenv_docker(` (in any case), as the
+image writes it, before the first carried use. It can be wrong both ways:
+
+- **It can accept a file PHP would still reject:** such a line inside a
+  `/* */` comment, a heredoc or a string, or in a branch PHP never runs, or a
+  function of that name that is not the image's helper. The restored site
+  then fails with that error; the saved copy of the original (above) is the
+  way back.
+- **It can refuse a file PHP would run:** the function defined in a file
+  the config includes, declared without a condition after its use (PHP
+  hoists that), or written as `function &getenv_docker(` or across lines.
+  Keep the target's file then.
 
 How a database restore should switch such a site to the restored data, by
 loading into the database name the environment names rather than by rewriting
 `wp-config.php`, is the subject of
 [ADR-0027](adr/0027-restore-into-an-environment-driven-database.md), which is
-**Proposed** and not implemented (owner decision 47). Carrying a definition's
-source text into the Archive's file under `--overwrite-wp-config` (owner
-decision 48) needs `l3io-wordpress-config` to write a value's source text
-verbatim, which it does not offer yet. Until then, restore the database of
-such a site by defining its `DB_*` as literals first (for example with
-`wp config set DB_NAME <name>`), or with your database tools.
+**Proposed** and not implemented (owner decision 47). Until then, restore the
+database of such a site by defining its `DB_*` as literals first (for example
+with `wp config set DB_NAME <name>`), or with your database tools.
 
 Any other PHP expression in `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or
 `$table_prefix` (anything but a literal, `getenv_docker('NAME', <literal>)` or

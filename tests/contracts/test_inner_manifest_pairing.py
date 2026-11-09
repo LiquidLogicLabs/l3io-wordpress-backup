@@ -36,11 +36,14 @@ ALLOWED: dict[str, str] = {
         "restore executor passes it only the payload VERIFY decrypted and "
         "checked with read_inner_manifest"
     ),
-    "cli/restore.py::_archive_config": (
-        "reads the Archive's wp-config.php before VERIFY so a wrong passphrase "
-        "stops the Run before any effect; age authenticates every chunk, the "
-        "file is discarded, and VERIFY decrypts again and checks the inner "
-        "Manifest (ADR-0024; BL-E004-059 closed wontfix)"
+    "cli/restore.py::_archive_config_bytes": (
+        "reads the Archive's wp-config.php before VERIFY (a target with none, "
+        "or --overwrite-wp-config's getenv_docker() check, owner decision 48) "
+        "so a wrong passphrase or an uncarriable config stops the Run before "
+        "any effect; age authenticates every chunk, the file is discarded, and "
+        "VERIFY decrypts again and checks the inner Manifest (ADR-0024; "
+        "BL-E004-059 closed wontfix); REWRITE_CONFIG checks the text it writes "
+        "again"
     ),
 }
 

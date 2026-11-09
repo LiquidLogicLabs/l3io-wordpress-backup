@@ -1,6 +1,6 @@
 """AD-18.2/AD-18.4 — ``WpConfigWriter``, the one writer of ``wp-config.php``.
 
-Ordinary assertions against the pinned ``l3io-wordpress-config`` v0.1.4: mode
+Ordinary assertions against the pinned ``l3io-wordpress-config`` (0.1.6): mode
 and owner kept, file and directory fsynced, read-back failures leave the
 original byte-identical, one atomic write per key, and the ADR-0023 file
 effects (``save_copy``, ``replace_file``) keep line endings byte for byte and
@@ -61,6 +61,8 @@ TARGET_KEEP = {
     "DB_PASSWORD": TARGET_PASSWORD,
     "DB_HOST": "target-host",
 }
+#: What ``replace_file`` is told to keep: the names; the values are the target's.
+KEEP = tuple(TARGET_KEEP)
 SOURCE_VALUES = {
     "name": "source_db",
     "user": "source_user",
@@ -400,7 +402,7 @@ def test_replace_file_keeps_line_endings_and_writes_only_the_kept_values(
 ) -> None:
     seen = written
     source = _source(tmp_path, eol)
-    result = writer.replace_file(config, source, keep=TARGET_KEEP)
+    result = writer.replace_file(config, source, keep=KEEP)
     assert result.performed
     assert set(result.changed) == set(TARGET_KEEP)
     expected = source.encode()
@@ -419,7 +421,7 @@ def test_replace_file_keeps_a_0640_mode_and_the_owner(
     writer: WpConfigWriter, config: Path, tmp_path: Path
 ) -> None:
     owner = (config.stat().st_uid, config.stat().st_gid)
-    writer.replace_file(config, _source(tmp_path, "\r\n"), keep=TARGET_KEEP)
+    writer.replace_file(config, _source(tmp_path, "\r\n"), keep=KEEP)
     assert stat.S_IMODE(config.stat().st_mode) == 0o640
     assert (config.stat().st_uid, config.stat().st_gid) == owner
     assert _temps(config.parent) == []
@@ -438,7 +440,7 @@ def test_a_failed_replace_leaves_the_original_byte_identical(
 
     monkeypatch.setattr(Path, "replace", refuse)
     with pytest.raises(ConfigWriteFailedError) as caught:
-        writer.replace_file(config, _source(tmp_path, "\r\n"), keep=TARGET_KEEP)
+        writer.replace_file(config, _source(tmp_path, "\r\n"), keep=KEEP)
     assert caught.value.key == WHOLE_FILE
     assert config.read_bytes() == before
     assert _temps(config.parent) == []
@@ -454,7 +456,7 @@ def test_replace_file_refuses_when_the_owner_cannot_be_kept(
     source = _source(tmp_path, "\r\n")
     _no_owner(monkeypatch)
     with pytest.raises(ConfigWriteFailedError) as caught:
-        writer.replace_file(config, source, keep=TARGET_KEEP)
+        writer.replace_file(config, source, keep=KEEP)
     assert "owner cannot be kept" in caught.value.reason
     assert config.read_bytes() == before
     assert _temps(config.parent) == []
@@ -463,12 +465,15 @@ def test_replace_file_refuses_when_the_owner_cannot_be_kept(
 def test_replace_file_refuses_a_keep_the_target_does_not_define(
     writer: WpConfigWriter, config: Path, tmp_path: Path
 ) -> None:
+    text = config.read_bytes().decode()
+    config.write_bytes(
+        text.replace("define( 'DB_HOST', 'target-host' );\r\n", "").encode()
+    )
     before = config.read_bytes()
     with pytest.raises(ConfigWriteFailedError) as caught:
-        writer.replace_file(
-            config, _source(tmp_path, "\n"), keep={**TARGET_KEEP, "DB_HOST": None}
-        )
+        writer.replace_file(config, _source(tmp_path, "\n"), keep=KEEP)
     assert caught.value.key == "DB_HOST"
+    assert "does not define it" in caught.value.reason
     assert config.read_bytes() == before
 
 
@@ -478,14 +483,14 @@ def test_replace_file_refuses_an_absent_config(
     missing = tmp_path / "site" / "wp-config.php"
     missing.parent.mkdir()
     with pytest.raises(ConfigWriteFailedError, match="does not exist"):
-        writer.replace_file(missing, _source(tmp_path, "\n"), keep=TARGET_KEEP)
+        writer.replace_file(missing, _source(tmp_path, "\n"), keep=KEEP)
     assert not missing.exists()
 
 
 def test_replace_file_registers_both_passwords(
     writer: WpConfigWriter, config: Path, tmp_path: Path, secrets: SecretRegistry
 ) -> None:
-    writer.replace_file(config, _source(tmp_path, "\n"), keep=TARGET_KEEP)
+    writer.replace_file(config, _source(tmp_path, "\n"), keep=KEEP)
     redacted = secrets.redact(f"{TARGET_PASSWORD} {SOURCE_PASSWORD}")
     assert TARGET_PASSWORD not in redacted
     assert SOURCE_PASSWORD not in redacted
@@ -511,7 +516,7 @@ def test_replace_file_writes_through_the_library_replace_content(
         return bool(real(self, content))
 
     monkeypatch.setattr(library_file.WpConfigFile, "replace_content", spy)
-    writer.replace_file(config, _source(tmp_path, "\n"), keep=TARGET_KEEP)
+    writer.replace_file(config, _source(tmp_path, "\n"), keep=KEEP)
     assert [path for path, _ in calls] == [config]
     assert calls[0][1].encode() == config.read_bytes()
     assert not hasattr(writer_module.WpConfigWriter, "_write_over")
@@ -523,7 +528,7 @@ def test_replace_file_refuses_a_replacement_defining_a_key_twice(
     before = config.read_bytes()
     twice = _source(tmp_path, "\n") + "define( 'WP_DEBUG', true );\n"
     with pytest.raises(ConfigWriteFailedError) as caught:
-        writer.replace_file(config, twice, keep=TARGET_KEEP)
+        writer.replace_file(config, twice, keep=KEEP)
     assert caught.value.key == WHOLE_FILE
     assert "read-back" in caught.value.reason
     assert config.read_bytes() == before
@@ -535,7 +540,7 @@ def test_replace_file_with_the_same_text_changes_nothing(
 ) -> None:
     before = config.read_bytes()
     mtime = config.stat().st_mtime_ns
-    result = writer.replace_file(config, before.decode(), keep=TARGET_KEEP)
+    result = writer.replace_file(config, before.decode(), keep=KEEP)
     assert result.performed
     assert result.changed == ()
     assert config.read_bytes() == before

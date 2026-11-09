@@ -469,9 +469,9 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         help=(
             "Replace the target's existing wp-config.php with the archive's "
             "(only with a mode that restores files), keeping the target's DB_* "
-            "values. Refused (exit 3) when the target reads its DB_* from the "
-            "environment (the WordPress Docker image's getenv_docker(...)): they "
-            "would be written back as fixed values"
+            "definitions as written, getenv_docker(...) included. Refused "
+            "(exit 3) when the target uses getenv_docker(...) and the archive's "
+            "wp-config.php does not define it"
         ),
     )
     options.add_argument(

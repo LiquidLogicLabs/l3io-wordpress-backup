@@ -42,7 +42,7 @@ from typing import IO, Final, TypeVar
 
 import structlog
 
-from l3io.wp.backup.adapters.config_writer import refuse_unkeepable
+from l3io.wp.backup.adapters.config_writer import carry_sources
 from l3io.wp.backup.adapters.database import ADMIN_FLAGS, ADMIN_SOURCE
 from l3io.wp.backup.adapters.phase import SKIPPED_OUTCOME, join_open_phase, phase
 from l3io.wp.backup.adapters.site_files import refuse_unsafe_clean_target
@@ -53,7 +53,7 @@ from l3io.wp.backup.domain.archive_format import (
     Manifest,
     MemberRole,
 )
-from l3io.wp.backup.domain.config import ConfigWriteResult, ConstantValue
+from l3io.wp.backup.domain.config import ConfigWriteResult
 from l3io.wp.backup.domain.database import (
     DatabaseLocation,
     DumpResult,
@@ -563,17 +563,18 @@ class NoopConfigWriter:
         config_file: Path,
         content: str,
         *,
-        keep: Mapping[str, ConstantValue],
+        keep: Sequence[str],
     ) -> ConfigWriteResult:
-        """Nothing replaced and nothing written; the keys of ``keep`` are recorded.
+        """Nothing replaced and nothing written; the ``keep`` keys are recorded.
 
-        A ``None`` in ``keep`` is refused as the real writer refuses it. That
-        ``config_file`` exists is not checked: in a Dry Run EXTRACT wrote
-        nothing, so its absence here says nothing about the real Run.
+        ``keep`` is carried into ``content`` in memory as the real writer
+        carries it (``carry_sources``, a read of ``config_file``), so what it
+        refuses -- a key the target does not define, a source that cannot be
+        carried, a ``getenv_docker()`` the Archive's text does not define --
+        the Dry Run refuses too.
         """
-        del content
-        refuse_unkeepable(config_file, keep)
-        self._skipped("replace_file", config_file, keep.keys())
+        carry_sources(config_file, content, keep)
+        self._skipped("replace_file", config_file, keep)
         return ConfigWriteResult(changed=(), performed=False)
 
 
