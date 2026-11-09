@@ -34,7 +34,7 @@ which carries the invariants (`AD-n`). An ADR here records a *mechanism*; an `AD
 | [0024](0024-one-encrypted-payload-passphrase-only.md) | One encrypted payload per Archive, passphrase only for v1 | **Accepted** | AD-6, AD-11, AD-21, AD-26 |
 | [0025](0025-api-composes-through-the-cli-drivers.md) | `api/` composes through the `cli/` drivers, not a second sequence | **Accepted** | AD-1, AD-16, AD-22 |
 | [0027](0027-restore-into-an-environment-driven-database.md) | A site whose `DB_NAME` comes from the environment is restored by staging, then one atomic `RENAME TABLE` into the live name (until accepted, such a restore is refused) | Proposed | AD-4, AD-18, AD-28 |
-| [0028](0028-layered-configuration-pydantic-settings.md) | Every Run setting as a flag, an `L3IO_WP_BACKUP_*` variable and a TOML key, layered by pydantic-settings over argparse | Proposed | AD-22, AD-26 |
+| [0028](0028-layered-configuration-pydantic-settings.md) | Every Run setting as a flag, an `L3IO_WP_BACKUP_*` variable and a TOML key, layered by pydantic-settings over argparse | Accepted | AD-22, AD-26 |
 
 The spine carries 30 invariants (AD-1..AD-30). AD-16..AD-21 came from the reviewer gate: Run Context, phase ordering, recoverability, Site Lock, atomic publication, streaming. AD-22..AD-24 came from the rewrite mandate: the CLI as a frozen contract, archive-format detection with permanent v0 reads, and API-only tracing. AD-25..AD-27 close the flag-to-mode map, the passphrase chain, and the PEP 420 namespace discipline. AD-28 and AD-29 came from the database work (GRANT escaping, administrator-answered existence); AD-30 records the git tag as the only version.
 

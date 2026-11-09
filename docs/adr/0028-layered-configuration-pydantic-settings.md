@@ -1,8 +1,8 @@
 # ADR-0028: Layered configuration (flag, variable, TOML file) through pydantic-settings
 
-- **Status:** Proposed
+- **Status:** Accepted (Shawn Anderson, 2026-11-08; owner decision 70)
 - **Date:** 2026-11-08
-- **Deciders:** Shawn Anderson (review pending)
+- **Deciders:** Shawn Anderson
 - **Epic:** close-out (automation-first change set, step 1)
 - **Resolves:** owner decision 60, "One setting, three spellings" and "Config file"
 - **Principle(s) in tension:** global rule 1 (never hand-roll layered configuration or schema
