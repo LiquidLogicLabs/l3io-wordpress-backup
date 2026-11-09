@@ -109,3 +109,6 @@ Each is implemented after all are collected, then the item is resolved with the 
 68. **The library run as root: (a) refuse.** `api.restore()` and `api.backup()` refuse when the process runs as root, telling the caller to drop privileges first or use the CLI. A library never changes its host process's identity.
 69. **Short passphrases for decryption: (b) allow, with a WARNING.** A passphrase under the 4-character redaction floor is accepted for decrypting (verify and restore), with a WARNING (`credential_below_redaction_floor`) that it cannot be masked in logs, consistent with decision 61. New encryption still needs at least 12 characters.
 70. **ADR-0028, layered configuration through pydantic-settings over argparse (TOML files): accepted.**
+71. **The AWS Secrets Manager credential provider (PRD FR-14): (c) keep it as an optional extra for v1; (b) after the release, generalise it into a provider-neutral secret-command setting, with AWS as one use of it** (post-v1 backlog item).
+    - **v1 constraint:** nothing may require AWS. The base install pulls no AWS libraries, and env, `*_FILE` and the config file remain the documented, provider-neutral way to supply secrets.
+    - **Restore fix (carried into part 2):** an administrator's AWS secret is resolved before the root-to-owner switch.
