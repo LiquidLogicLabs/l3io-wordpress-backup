@@ -46,3 +46,7 @@ The decisions are recorded in [owner-decisions.md](owner-decisions.md). The ADRs
 - The 256 MiB Manifest cap, with streaming after the release (decision 66).
 - Files keep the `--cleanfirst` choice (decision 62).
 - The 12-character encryption floor (decision 61).
+
+## Carried into part 2
+- When an administrator is needed (decision 55), restore must resolve the administrator's credentials before it switches to the Site Root owner, as backup does (commit 515cd92, `ResolvedCredentialSpec`). Today restore resolves the administrator's AWS secret after the switch, so an AWS profile in root's home is missed.
+- The database half of `--force` (decision 57; `core/restore.py::_database_needs_waiver`), `EnvironmentDrivenTargetError` for database Modes, `--drop-database` (decision 63) and ADR-0027's text (still mentions `--confirm-db-host` and the swap).
