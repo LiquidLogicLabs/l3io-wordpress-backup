@@ -131,7 +131,9 @@ def _tree(root: Path) -> dict[str, tuple[int, bytes | None]]:
 def _target(s: CredentialSentinel, account: str) -> tuple[SiteDescriptor, TargetState]:
     """The target as the restore root reads it, as the sentinel account."""
     secrets = SecretRegistry()
-    descriptor, wordpress = site_descriptor_from_wp_config(s.site, config_file=s.config)
+    descriptor, wordpress = site_descriptor_from_wp_config(
+        s.site, config_file=s.config, environ={}, secrets=secrets
+    )
     admin = admin_source(
         ExplicitCredentialSpec(account, s.password), environ={}, secrets=secrets
     )

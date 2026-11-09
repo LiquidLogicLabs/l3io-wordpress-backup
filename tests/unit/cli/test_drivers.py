@@ -223,9 +223,9 @@ def test_a_driver_that_opened_the_run_binds_once_after_the_descriptor(
         order.append("bind_adapters")
         real_bind(self, adapter_set)
 
-    def descriptor(site_root: Path, *, config_file: Path) -> object:
+    def descriptor(site_root: Path, *, config_file: Path, **kwargs: object) -> object:
         order.append("site_descriptor")
-        return real_descriptor(site_root, config_file=config_file)
+        return real_descriptor(site_root, config_file=config_file, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(RunContext, "bind_adapters", bind)
     monkeypatch.setattr(backup_cli, "site_descriptor_from_wp_config", descriptor)

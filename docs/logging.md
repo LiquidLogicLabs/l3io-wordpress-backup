@@ -128,6 +128,7 @@ never appear in any of them.
 | `config_laid_down` | INFO | A restore wrote `wp-config.php` from the Archive into a target that had none (`config_path`, `mode`) |
 | `config_located` | INFO | A relocating restore chose where WP-CLI reads `wp-config.php` (`config_path`, `location`, `action`, `source`, `manifest_config_path`) |
 | `config_mode_restricted` | WARNING | A laid-down `wp-config.php` was world-accessible in the Archive; its other-user bits were removed (`config_path`, `archive_mode`, `mode`) |
+| `config_value_from_environment` | INFO | A `wp-config.php` setting defined with `getenv_docker()` or `getenv()` was resolved from the Run's environment, or the file a `NAME_FILE` variable names (`path`, `key`, `variable`, `function`; never the value) |
 | `config_written` | INFO | `wp-config.php` was changed: `method` `set_constants`, `save_copy` or `replace_file` (`path`, `keys`, `changed`, never values) |
 | `credential_chain_built` | DEBUG | The credential sources for a `role` were ordered (`sources`; `none_configured` when there are none) |
 | `credential_source_empty` | WARNING | A credential source was set but empty and was skipped (`source`, a name, never a value) |

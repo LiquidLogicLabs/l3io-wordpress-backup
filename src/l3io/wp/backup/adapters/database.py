@@ -40,7 +40,12 @@ from typing import IO, TYPE_CHECKING, Final
 
 import structlog
 
-from l3io.wp.backup.adapters.config_writer import read_defined
+from l3io.wp.backup.adapters.config_writer import (
+    TABLE_PREFIX,
+    read_defined,
+    read_settings,
+    refuse_environment_lookups,
+)
 from l3io.wp.backup.adapters.credential_providers import (
     ADMIN_PASSWORD_VAR,
     ADMIN_USER_VAR,
@@ -105,6 +110,7 @@ __all__ = [
     "DatabaseTlsHandshakeError",
     "DatabaseTlsVerificationError",
     "LocatedConfig",
+    "WpConfigCredentials",
     "WpDatabase",
     "admin_source",
     "blocked_dump_error",
@@ -418,24 +424,57 @@ def _location_of(path: Path, in_root: Path, in_parent: Path) -> ConfigLocation |
 # --------------------------------------------------------------------------
 
 
+#: The ``DB_*`` a restore rewrites at its cutover, and ``--overwrite-wp-config``
+#: carries over; ADR-0027 (Proposed) refuses a target that reads one of them
+#: from the environment.
+_TARGET_KEYS: Final = ("DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME")
+
+
 def site_descriptor_from_wp_config(
-    site_root: Path, *, config_file: Path
+    site_root: Path,
+    *,
+    config_file: Path,
+    environ: Mapping[str, str],
+    secrets: SecretRegistry,
+    refuse_environment: str | None = None,
 ) -> tuple[SiteDescriptor, CredentialSource]:
-    """The descriptor for a live Site, and its ``wp-config.php`` credential source."""
+    """The descriptor for a live Site, and its ``wp-config.php`` credential source.
+
+    ``environ`` is the Run's environment mapping: a ``DB_*`` or
+    ``$table_prefix`` defined with ``getenv_docker()``/``getenv()`` is
+    resolved against it (owner decision 47); this adapter never reads
+    ``os.environ`` (BL-E005-007). ``refuse_environment`` names an operation
+    that cannot keep such a definition (a restore's): when given, a ``DB_*``
+    read from the environment is ``EnvironmentDrivenTargetError`` before
+    anything is resolved (ADR-0027).
+    """
     root = _site_root(site_root)
     if not config_file.is_file():
         msg = "wp-config.php is not a readable regular file"
         raise InvalidSiteDescriptorError(msg, paths=(str(config_file),))
-    return _parse(PurePosixPath(root), config_file)
+    return _parse(
+        PurePosixPath(root),
+        config_file,
+        environ=environ,
+        secrets=secrets,
+        refuse_environment=refuse_environment,
+    )
 
 
 def site_descriptor_from_archive_config(
-    site_root: Path, *, config_file: Path | None
+    site_root: Path,
+    *,
+    config_file: Path | None,
+    environ: Mapping[str, str],
+    secrets: SecretRegistry,
+    refuse_environment: str | None = None,
 ) -> tuple[SiteDescriptor, CredentialSource]:
     """The descriptor for a restore target with no ``wp-config.php`` (AD-3).
 
     ``config_file`` is the Archive's config member, already extracted into the
     Run workspace; ``site_root`` is the target's canonical Site Root.
+    ``environ``, ``secrets`` and ``refuse_environment`` are as for
+    :func:`site_descriptor_from_wp_config`.
     """
     if config_file is None or not config_file.is_file():
         msg = "archive has no wp-config.php"
@@ -445,51 +484,128 @@ def site_descriptor_from_archive_config(
     if not site_root.is_absolute():
         msg = "site root must be absolute"
         raise InvalidSiteDescriptorError(msg, paths=(str(site_root),))
-    return _parse(PurePosixPath(site_root), config_file)
+    return _parse(
+        PurePosixPath(site_root),
+        config_file,
+        environ=environ,
+        secrets=secrets,
+        refuse_environment=refuse_environment,
+    )
 
 
 def _parse(
-    site_root: PurePosixPath, config_file: Path
+    site_root: PurePosixPath,
+    config_file: Path,
+    *,
+    environ: Mapping[str, str],
+    secrets: SecretRegistry,
+    refuse_environment: str | None,
 ) -> tuple[SiteDescriptor, CredentialSource]:
     """The one parsing path both descriptor constructors share.
 
     Credential-free: connection, table prefix and URLs only. The descriptor
     carries no credential, so a config whose credentials come from elsewhere
     (an explicit spec, the environment, AWS) still yields one; resolving the
-    pair is ``require_wp_config_credentials``'s job.
+    pair is ``require_wp_config_credentials``'s job. ``DB_HOST``, ``DB_NAME``
+    and ``$table_prefix`` are read through ``config_writer.read_settings``
+    (owner decision 47); the location is database's ``Connection``.
     """
     _require_extra()
     from l3io.wp import database as wpdb
 
     label = f"wp-config:{config_file}"
+    if refuse_environment is not None:
+        refuse_environment_lookups(
+            config_file, _TARGET_KEYS, operation=refuse_environment, label=label
+        )
+    values = read_settings(
+        config_file,
+        ("DB_HOST", "DB_NAME", TABLE_PREFIX),
+        environ=environ,
+        label=label,
+        secrets=secrets,
+    )
+    for key in ("DB_HOST", "DB_NAME"):
+        if values[key] is None:
+            msg = f"{key} is not defined"
+            raise InvalidSiteDescriptorError(msg, paths=(str(config_file),))
     try:
-        config = wpdb.WpConfigFile(config_file)
-        label = config.source
-        connection = config.connection()
-        table_prefix = config.table_prefix
-    except wpdb.MissingDependencyError as exc:
-        raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
-    except wpdb.ConfigUnreadableError as exc:
-        raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
-    except wpdb.MissingConfigValueError as exc:
-        msg = f"{exc.key} is not defined"
-        raise InvalidSiteDescriptorError(msg, paths=(str(config_file),)) from exc
+        connection = wpdb.Connection.from_db_host(
+            str(values["DB_HOST"]), str(values["DB_NAME"])
+        )
     except (wpdb.InvalidArgumentsError, wpdb.InvalidIdentifierError) as exc:
         raise InvalidSiteDescriptorError(
             _unusable_connection(exc), paths=(str(config_file),)
         ) from exc
+    prefix = values[TABLE_PREFIX]
     site_url, home_url = _url_constants(config_file, label)
     descriptor = SiteDescriptor(
         site_root=site_root,
         db_host=connection.host,
         db_port=connection.port,
         db_name=connection.database,
-        table_prefix=table_prefix,
+        table_prefix=wpdb.DEFAULT_TABLE_PREFIX if prefix is None else prefix,
         site_url=site_url,
         home_url=home_url,
         credential_source=label,
     )
-    return descriptor, config
+    source = WpConfigCredentials(config_file, environ=environ, secrets=secrets)
+    return descriptor, source
+
+
+class WpConfigCredentials:
+    """``wp-config.php``'s ``DB_USER``/``DB_PASSWORD`` as a credential source.
+
+    Owner decision 47: read through ``config_writer.read_settings``, so a
+    pair defined with ``getenv_docker()``/``getenv()`` resolves against the
+    Run's ``environ`` (a ``NAME_FILE`` Docker secret included) and the
+    password is registered with ``secrets`` as it is read. Database's
+    ``WpConfigFile`` read them with ``get()``, which hands an expression back
+    as its source text. Absence and half a pair keep database's semantics, so
+    a ``CredentialChain`` treats this source as it treated that one: neither
+    defined is ``CredentialsAbsentError``; one alone is
+    ``CredentialsUnobtainableError`` caused by ``MissingConfigValueError``
+    naming the other.
+    """
+
+    __slots__ = ("_environ", "_path", "_secrets")
+
+    def __init__(
+        self, path: Path, *, environ: Mapping[str, str], secrets: SecretRegistry
+    ) -> None:
+        self._path = path
+        self._environ = environ
+        self._secrets = secrets
+
+    def __repr__(self) -> str:
+        return f"WpConfigCredentials({str(self._path)!r})"
+
+    @property
+    def source(self) -> str:
+        return f"wp-config:{self._path}"
+
+    def resolve(self) -> ResolvedCredentials:
+        from l3io.wp import database as wpdb
+
+        values = read_settings(
+            self._path,
+            ("DB_USER", "DB_PASSWORD"),
+            environ=self._environ,
+            label=self.source,
+            secrets=self._secrets,
+        )
+        user, password = values["DB_USER"], values["DB_PASSWORD"]
+        if user is None and password is None:
+            msg = f"{self._path} defines neither DB_USER nor DB_PASSWORD"
+            raise wpdb.CredentialsAbsentError(msg, sources=(self.source,))
+        if user is None or password is None:
+            missing = wpdb.MissingConfigValueError(
+                "DB_USER" if user is None else "DB_PASSWORD", str(self._path)
+            )
+            # Half a pair is a failure, not an absence: a chain must not fall
+            # through to another credential after it.
+            raise wpdb.CredentialsUnobtainableError(str(missing)) from missing
+        return wpdb.ResolvedCredentials(user, password, self.source)
 
 
 def _unusable_connection(exc: Exception) -> str:

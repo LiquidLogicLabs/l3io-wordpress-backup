@@ -736,7 +736,7 @@ def drive_backup(
         run = handle.ctx
         config = locate_wp_config(site_root, stated=request.wp_config)
         site, wp_config = site_descriptor_from_wp_config(
-            site_root, config_file=config.path
+            site_root, config_file=config.path, environ=environ, secrets=run.secrets
         )
         run.run_span.set_attributes(db_name=site.db_name)
         target = request.target or storage_target_from_cli(

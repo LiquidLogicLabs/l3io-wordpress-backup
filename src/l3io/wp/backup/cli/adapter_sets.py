@@ -20,6 +20,7 @@ bound, and a Dry Run takes it for real, so there is no Dry Run variant.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final, NoReturn
 
@@ -135,6 +136,7 @@ def real_adapters(
     journal: tuple[RunJournalQuery, RunJournalCommand] | None = None,
     admin_tls: AdminTls | None = None,
     create_archive_directory: bool = False,
+    environ: Mapping[str, str] | None = None,
 ) -> AdapterSet:
     """The real set; a port not yet implemented is bound to its placeholder.
 
@@ -149,6 +151,9 @@ def real_adapters(
     ``create_archive_directory`` (the restore root's only) has the store
     create a missing Archive directory ``0700`` when it stages, so the Safety
     Snapshot's directory is made by the command a Dry Run replaces (AD-4).
+    ``environ`` (the restore root's) is the Run's environment mapping the
+    config reader resolves a ``getenv_docker()``/``getenv()`` constant
+    against (owner decision 47); ``None`` resolves none from the environment.
     """
     store = LocalArchiveStore(
         verify=verify_or_raise, create_directory=create_archive_directory
@@ -167,7 +172,11 @@ def real_adapters(
         )
     )
     site_files = LocalSiteFiles()
-    config = WpConfigWriter(secrets)
+    config = (
+        WpConfigWriter(secrets)
+        if environ is None
+        else WpConfigWriter(secrets, environ=environ)
+    )
     journal_query, journal_command = (
         (UnboundRunJournal(), UnboundRunJournal()) if journal is None else journal
     )

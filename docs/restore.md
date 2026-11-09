@@ -110,7 +110,7 @@ live part is cut to 51 characters, so a name never exceeds MySQL's 64.
 | 0    | `OK`                  | it completed (a Dry Run: its plan completed without a refusal)                              |
 | 1    | `FAILED`              | something failed, including a database load the report does not call restored               |
 | 2    | `USAGE`               | the flags express no Restore Mode, `--archive` is missing, or `--overwrite-wp-config` is given with a Mode that restores no files |
-| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made |
+| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a target whose `DB_*` are read from the environment (database Modes and `--overwrite-wp-config`) or are another PHP expression |
 | 4    | `CREDENTIALS`         | a Mode that touches the database has no administrator credentials                           |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
 | 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
@@ -193,6 +193,14 @@ live database of the site being restored is covered by the Safety Snapshot;
 rights on its own database only, and restore only Archives from a source you
 trust, or encrypted ones, whose payload `age` authenticates (ADR-0022
 amendment, 2026-11-06).
+
+Such an account (the official `mysql` and `mariadb` images create
+`MYSQL_USER` with rights on `MYSQL_DATABASE` only) needs no grant on the
+staging database beforehand: the administrator creates it and grants the
+account `ALL` on it before the load, so the preflight does not refuse the
+privileges that grant will give. A load check that still refuses names the
+database and the account it ran as (`DatabaseRefusedError`, its `database`
+and `account`), never a password.
 
 ## Relocation: a new URL, database host, name or account
 
@@ -691,17 +699,36 @@ themes and core files the same Archive restores. The Run gives no separate
 warning about it. Restore only Archives you trust, and keep the default
 (the target's `wp-config.php`) when you are unsure of the Archive's copy.
 
-**Not for a target whose `DB_*` are PHP expressions.** The target's four
-`DB_*` constants are carried into the Archive's file as their current
-**values**, not as the source text that defines them. A target that computes
-them, such as the official WordPress Docker image's
-`define( 'DB_NAME', getenv_docker('WORDPRESS_DB_NAME', 'wordpress') );`, would
-have each expression replaced by a fixed string, and stop following its
-environment. Restore such a target with the default (keep the target's
-`wp-config.php`) and do not pass `--overwrite-wp-config`. The default path
-never rewrites an expression it does not need to. Copying a define's source
-text verbatim needs an API in `l3io-wordpress-config`; it is planned after v1
-(owner decision 2026-11-07).
+**A target whose `DB_*` are read from the environment.** The official
+WordPress Docker image defines its settings as, for example,
+`define( 'DB_NAME', getenv_docker('WORDPRESS_DB_NAME', 'wordpress') );`.
+Two restores would turn such a definition into a fixed string, and the site
+would stop following its environment: a Mode that restores the database (its
+cutover rewrites `DB_NAME` to the staging database's name), and
+`--overwrite-wp-config` (which carries the target's `DB_*` into the Archive's
+file as their values). Both are **refused** before anything is changed, a Dry
+Run included, with exit 3 `REFUSED` (`EnvironmentDrivenTargetError`, naming
+the constants and the variables they read, never a value). The same applies
+when the target has no `wp-config.php` and the Archive's copy reads its `DB_*`
+from the environment. A files-only restore that keeps the target's file is not
+refused: it resolves the settings from the restore's own environment, as a
+backup does.
+
+How a database restore should switch such a site to the restored data, by
+loading into the database name the environment names rather than by rewriting
+`wp-config.php`, is the subject of
+[ADR-0027](adr/0027-restore-into-an-environment-driven-database.md), which is
+**Proposed** and not implemented (owner decision 47). Carrying a definition's
+source text into the Archive's file under `--overwrite-wp-config` (owner
+decision 48) needs `l3io-wordpress-config` to write a value's source text
+verbatim, which it does not offer yet. Until then, restore the database of
+such a site by defining its `DB_*` as literals first (for example with
+`wp config set DB_NAME <name>`), or with your database tools.
+
+Any other PHP expression in `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or
+`$table_prefix` (anything but a literal, `getenv_docker('NAME', <literal>)` or
+`getenv('NAME')`) is refused, exit 3 `REFUSED` (`UnsupportedConfigValueError`),
+by every command that reads it: this tool does not evaluate PHP.
 
 ### Where the config is, and where it is laid down
 

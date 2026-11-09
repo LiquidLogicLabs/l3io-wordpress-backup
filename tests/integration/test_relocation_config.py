@@ -210,7 +210,7 @@ def _resolve(
     site: LiveSite, flags: RelocationFlags, mode: RestoreMode, archive: Path
 ) -> RestoreRelocation:
     descriptor, _ = site_descriptor_from_wp_config(
-        site.site_root, config_file=site.config
+        site.site_root, config_file=site.config, environ={}, secrets=SecretRegistry()
     )
     view, _ = verify_archive_view(archive)
     assert view is not None

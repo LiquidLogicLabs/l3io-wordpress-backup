@@ -65,7 +65,9 @@ def _site(tmp_path: Path, *, password: str) -> tuple[Path, Path]:
 
 def _adapter(tmp_path: Path, *, password: str) -> tuple[WpDatabase, DatabaseLocation]:
     site, config = _site(tmp_path, password=password)
-    descriptor, credentials = site_descriptor_from_wp_config(site, config_file=config)
+    descriptor, credentials = site_descriptor_from_wp_config(
+        site, config_file=config, environ={}, secrets=SecretRegistry()
+    )
     require_wp_config_credentials(credentials, environ=os.environ)  # wp-config.php
     return (
         WpDatabase(credentials, secrets=SecretRegistry()),

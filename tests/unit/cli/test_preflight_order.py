@@ -21,6 +21,7 @@ from l3io.wp.backup.adapters.database import (
     locate_wp_config,
     site_descriptor_from_wp_config,
 )
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import backup as backup_cli
 from l3io.wp.backup.cli.adapter_sets import dry_run_adapters, real_adapters
 from l3io.wp.backup.cli.context import RunContext, open_run
@@ -98,7 +99,9 @@ SELECTIONS: dict[str, Callable[[AdapterSet], AdapterSet]] = {
 
 def _backup(ctx: RunContext, site: Path, final: Path, preflight: object) -> object:
     config = locate_wp_config(site, stated=None)
-    descriptor, _ = site_descriptor_from_wp_config(site, config_file=config.path)
+    descriptor, _ = site_descriptor_from_wp_config(
+        site, config_file=config.path, environ={}, secrets=SecretRegistry()
+    )
     with capture_logs():
         return backup_cli.backup(
             descriptor,
@@ -185,7 +188,9 @@ def test_a_bound_root_preflight_completes_before_the_first_command(
     )
     age = ToolRequirement("age", (1, 3), "the encrypted payload")
     config = locate_wp_config(site, stated=None)
-    descriptor, _ = site_descriptor_from_wp_config(site, config_file=config.path)
+    descriptor, _ = site_descriptor_from_wp_config(
+        site, config_file=config.path, environ={}, secrets=SecretRegistry()
+    )
     with capture_logs():
         backup_cli.backup(
             descriptor,

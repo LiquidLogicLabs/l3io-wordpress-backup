@@ -229,12 +229,18 @@ check before:post-present post_has_sentinel
 check before:page-200-with-sentinel page_serves_sentinel
 
 # ---- Phase A: the official image's getenv_docker() wp-config.php, as deployed ----
+# The sidecar carries the site's WORDPRESS_DB_* (compose: wp.env), so the
+# getenv_docker() DB_* and $table_prefix resolve as PHP resolves them (owner
+# decision 47), and --confirm-db-host names the resolved host.
 db_lines >"$LOGS/A-wp-config-db-lines.txt" || true
 cp "$L3IO_SCRATCH/html/wp-config.php" "$L3IO_SCRATCH/wp-config.docker.php"
-step A-doctor '*' wb doctor --wp-dir "$SITE" --archive /backups/a.tar.gz
-step A-backup-dryrun '*' wb --whatIf backup --wp-dir "$SITE" --archive /backups/a.tar.gz --confirm-db-host db
-step A-backup '*' wb backup --wp-dir "$SITE" --archive /backups/a.tar.gz --confirm-db-host db
-step A-backup-dbenv '*' wb_dbenv backup --wp-dir "$SITE" --archive /backups/a2.tar.gz --confirm-db-host db
+step A-doctor 0 wb doctor --wp-dir "$SITE" --archive /backups/a.tar.gz
+step A-backup-dryrun 0 wb --whatIf backup --wp-dir "$SITE" --archive /backups/a.tar.gz --confirm-db-host db
+check A:dryrun-wrote-nothing absent_in_backups a.tar.gz
+step A-backup 0 wb backup --wp-dir "$SITE" --archive /backups/a.tar.gz --confirm-db-host db
+step A-verify 0 wb verify --archive /backups/a.tar.gz
+step A-backup-dbenv 0 wb_dbenv backup --wp-dir "$SITE" --archive /backups/a2.tar.gz --confirm-db-host db
+step A-verify-dbenv 0 wb verify --archive /backups/a2.tar.gz
 
 # ---- Phase B: DB_* written as literals (wp config set), then the full cycle ------
 step B-literal-config 0 dc run --rm -T wpcli sh -c '
@@ -267,23 +273,21 @@ check altered:upload-gone absent_in_site "wp-content/uploads/$UPLOAD_REL"
 check altered:page-404 code_is "/?p=$POST_ID" 404
 
 # The administrator: backup.env sets both L3IO_WP_BACKUP_ADMIN_USER and _PASSWORD,
-# the environment pair README's credential table documents. The first probe runs
-# with that pair alone; the rest name the user with --admin-username (the
-# password still comes from the environment).
+# the environment pair README's credential table documents; every restore below
+# takes the administrator from that pair alone, with no --admin-username.
 RESTORE=(restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode all --force --require-encrypted)
-step B-restore-dryrun-env-admin-only '*' wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
-RESTORE+=(--admin-username root)
+step B-restore-dryrun-env-admin-only 0 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
 step B-restore-dryrun-no-ca '*' wb_pp --whatIf "${RESTORE[@]}"
-step B-restore-dryrun-scoped-grant '*' wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
-# The official db images grant MYSQL_USER on MYSQL_DATABASE only. A restore loads
-# into a new staging database `<name>_l3s_<run id>` as the WordPress account, so
-# that account is also granted the staging names (a wildcard grant, by the admin).
 db_sql() {
     local client=mysql
     [[ $ENGINE == mariadb ]] && client=mariadb
     dc exec -T "db-$ENGINE" sh -c "MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" $client -uroot" <<<"$1"
 }
-step B-grant-staging-names 0 db_sql "GRANT ALL PRIVILEGES ON \`${DB_NAME//_/\\_}\\_l3s\\_%\`.* TO '$DB_USER'@'%'; SHOW GRANTS FOR '$DB_USER'@'%';"
+# The official db images grant MYSQL_USER on MYSQL_DATABASE only, and nothing
+# more is granted here: the restore's administrator creates the staging
+# database `<name>_l3s_<run id>` and grants the account on it before the load.
+db_sql "SHOW GRANTS FOR '$DB_USER'@'%';" >"$LOGS/B-wordpress-account-grants.txt" 2>&1 || true
+step B-restore-dryrun-scoped-grant 0 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
 step B-restore-dryrun 0 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
 check B:dryrun-changed-nothing absent_in_site "wp-content/uploads/$UPLOAD_REL"
 step B-restore 0 wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA"
@@ -298,11 +302,9 @@ if [[ $LAST_RC != 0 ]]; then
         --require-encrypted --force --no-safety-snapshot --admin-username root --admin-tls-ca "$CA"
     check after-failed-db-load:home-200 code_is / 200
     step B-resolve-2 '*' wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA" --resolve-interrupted-run "$(run_id_of B-restore-db-no-snapshot)"
-    # --admin-username although --mode files needs no administrator: with
-    # L3IO_WP_BACKUP_ADMIN_PASSWORD in the sidecar's environment, omitting it is a
-    # usage error (see B-restore-dryrun-env-admin-only).
+    # --mode files needs no administrator, and takes none from the environment.
     step B-restore-files 0 wb_pp restore --wp-dir "$SITE" --archive /backups/enc.tar.gz --mode files --force \
-        --require-encrypted --admin-username root
+        --require-encrypted
 fi
 db_lines >"$LOGS/B-wp-config-after-restore.txt" || true
 in_backup sh -c 'find "$XDG_STATE_HOME" -maxdepth 4 -printf "%M %u %p\n"' >"$LOGS/B-state-tree.txt" 2>&1 || true
@@ -316,9 +318,21 @@ step B-backup-after-restore 0 wb backup --wp-dir "$SITE" --archive /backups/afte
 db_sql "SHOW DATABASES;" >"$LOGS/databases-after-restore.txt" 2>&1 || true
 
 # ---- Phase C: a restore onto the getenv_docker() config --------------------------
+# A database restore would rewrite the getenv_docker() DB_NAME, so it is refused
+# (exit 3, EnvironmentDrivenTargetError) until ADR-0026 is accepted, a Dry Run
+# included; so is --overwrite-wp-config. A files-only restore keeping the
+# target's wp-config.php resolves it and proceeds.
 docker run --rm --user 0 -v "$L3IO_SCRATCH:/s" --entrypoint sh "$IMAGE" -c \
     'cp /s/wp-config.docker.php /s/html/wp-config.php && chown 33:33 /s/html/wp-config.php'
-step C-restore-dryrun-docker-config '*' wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
+step C-restore-dryrun-docker-config 3 wb_pp --whatIf "${RESTORE[@]}" --admin-tls-ca "$CA"
+step C-restore-docker-config 3 wb_pp "${RESTORE[@]}" --admin-tls-ca "$CA"
+step C-restore-overwrite-docker-config 3 wb_pp --whatIf restore --wp-dir "$SITE" --archive /backups/enc.tar.gz \
+    --mode files --force --require-encrypted --overwrite-wp-config
+step C-restore-files-docker-config 0 wb_pp restore --wp-dir "$SITE" --archive /backups/enc.tar.gz \
+    --mode files --force --require-encrypted
+check C:wp-config-still-getenv-docker in_backup grep -qF "getenv_docker('WORDPRESS_DB_NAME'" "$SITE/wp-config.php"
+check C:page-200-after-files code_is / 200
+step C-backup-after 0 wb backup --wp-dir "$SITE" --archive /backups/c.tar.gz --confirm-db-host db
 
 # ---- report -----------------------------------------------------------------------
 {

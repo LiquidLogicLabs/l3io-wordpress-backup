@@ -574,8 +574,10 @@ def test_a_files_backup_resolves_no_credential_and_binds_no_database(
     root, _ = cli_site
     real = backup_cli.site_descriptor_from_wp_config
 
-    def descriptor(site_root: Path, *, config_file: Path) -> tuple[Any, Any]:
-        site, _ = real(site_root, config_file=config_file)
+    def descriptor(
+        site_root: Path, *, config_file: Path, **kwargs: object
+    ) -> tuple[Any, Any]:
+        site, _ = real(site_root, config_file=config_file, **kwargs)  # type: ignore[arg-type]
         return site, RefusingCredentials()
 
     monkeypatch.setattr(backup_cli, "site_descriptor_from_wp_config", descriptor)

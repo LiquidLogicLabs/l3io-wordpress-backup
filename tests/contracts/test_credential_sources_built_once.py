@@ -38,7 +38,15 @@ import l3io.wp.backup as package
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = PROJECT_ROOT / "src" / "l3io" / "wp" / "backup"
 CONSTRUCTORS = frozenset(
-    {"Explicit", "Environment", "AwsSecretsManager", "WpConfigFile", "CredentialChain"}
+    {
+        "Explicit",
+        "Environment",
+        "AwsSecretsManager",
+        "WpConfigFile",
+        "CredentialChain",
+        # Owner decision 47: backup's wp-config.php source, built in the builder.
+        "WpConfigCredentials",
+    }
 )
 BUILDER = PACKAGE / "adapters" / "database.py"
 PROVIDERS = PACKAGE / "adapters" / "credential_providers.py"

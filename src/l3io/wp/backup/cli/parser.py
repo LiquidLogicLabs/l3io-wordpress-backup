@@ -371,7 +371,8 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Confirm a database host that is not local (anything but localhost, "
-            "127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, or "
+            "127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, as "
+            "resolved from the environment for a getenv_docker(...) one, or "
             "the backup is refused before any connection"
         ),
     )
@@ -467,10 +468,10 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Replace the target's existing wp-config.php with the archive's "
-            "(only with a mode that restores files). Do not use it when the "
-            "target's DB_* constants are PHP expressions (such as the WordPress "
-            "Docker image's getenv_docker(...)): they are written back as their "
-            "current values, not as the expressions; keep the default instead"
+            "(only with a mode that restores files), keeping the target's DB_* "
+            "values. Refused (exit 3) when the target reads its DB_* from the "
+            "environment (the WordPress Docker image's getenv_docker(...)): they "
+            "would be written back as fixed values"
         ),
     )
     options.add_argument(

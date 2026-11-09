@@ -205,3 +205,54 @@ def test_the_admin_flag_wins_over_the_variable() -> None:
         environ={"L3IO_WP_BACKUP_ADMIN_PASSWORD": "not-" + PASSWORD},
     )
     assert spec == ExplicitCredentialSpec(username="admin", password=PASSWORD)
+
+
+# Defect 3 (sidecar test, 2026-11-08): the environment pair README documents.
+ENV_PAIR = {
+    "L3IO_WP_BACKUP_ADMIN_USER": "root",
+    "L3IO_WP_BACKUP_ADMIN_PASSWORD": PASSWORD,
+}
+
+
+def test_the_environment_pair_alone_needs_no_admin_flag() -> None:
+    """Both variables and no flag: no spec, and no ``--admin-username`` demand."""
+    spec = admin_spec(
+        username=None,
+        password=None,
+        aws_secret_id=None,
+        aws_region=None,
+        environ=ENV_PAIR,
+    )
+    assert spec is None
+
+
+def test_the_environment_pair_alone_is_the_administrator_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in ENV_PAIR.items():
+        monkeypatch.setenv(name, value)
+    spec = admin_spec(
+        username=None,
+        password=None,
+        aws_secret_id=None,
+        aws_region=None,
+        environ=ENV_PAIR,
+    )
+    source = admin_source(spec, environ=ENV_PAIR, secrets=SecretRegistry())
+    assert source is not None
+    resolved = source.resolve()
+    assert (resolved.username, resolved.password) == ("root", PASSWORD)
+
+
+def test_the_password_variable_alone_needs_no_admin_flag() -> None:
+    """A Mode that needs no administrator is never refused for the variable."""
+    assert (
+        admin_spec(
+            username=None,
+            password=None,
+            aws_secret_id=None,
+            aws_region=None,
+            environ={"L3IO_WP_BACKUP_ADMIN_PASSWORD": PASSWORD},
+        )
+        is None
+    )

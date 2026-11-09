@@ -9,11 +9,16 @@ database's classes (E005-S01-001). This guard fails when the package grows
   ``ResolvedCredentials``.
 
 Scope: every ``*.py`` under ``src/l3io/wp/backup/``, walked, asserted
-non-empty. One exemption, by qualified name: ``adapters/database.py``'s
+non-empty. Two exemptions, by qualified name, both in ``adapters/database.py``:
 ``_RegisteringSource``, the registering wrapper around database's sources
-(ADR-0018), which provides nothing of its own. The exemption is itself
-checked: an entry that no longer exists or no longer matches fails, so a
-renamed wrapper cannot silently widen the guard.
+(ADR-0018), which provides nothing of its own; and ``WpConfigCredentials``
+(owner decision 47), ``wp-config.php``'s ``DB_USER``/``DB_PASSWORD`` read
+through ``l3io-wordpress-config``'s ``get_value``, so a ``getenv_docker()``
+pair resolves against the Run's ``environ``. Database 0.3.4's ``WpConfigFile``
+reads them with ``get()``, which returns such a definition's source text as
+the value; the exemption goes when database's own source resolves lookups.
+The exemptions are themselves checked: an entry that no longer exists or no
+longer matches fails, so a renamed class cannot silently widen the guard.
 
 **What this cannot see**, and review covers: a chain built with
 ``contextlib.suppress(CredentialsAbsentError)`` or by recursion rather than a
@@ -34,7 +39,12 @@ SRC = PROJECT_ROOT / "src"
 PACKAGE = SRC / "l3io" / "wp" / "backup"
 ABSENT: Final = "CredentialsAbsentError"
 RESOLVED: Final = "ResolvedCredentials"
-EXEMPT: Final = frozenset({"l3io.wp.backup.adapters.database._RegisteringSource"})
+EXEMPT: Final = frozenset(
+    {
+        "l3io.wp.backup.adapters.database._RegisteringSource",
+        "l3io.wp.backup.adapters.database.WpConfigCredentials",
+    }
+)
 
 _LOOPS = (ast.For, ast.AsyncFor, ast.While)
 

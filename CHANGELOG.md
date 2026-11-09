@@ -7,6 +7,44 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Added: the official Docker image's `getenv_docker()` settings (owner decisions 47, 48)
+
+- **A site defining `DB_*` with `getenv_docker()` or `getenv()` is backed up.**
+  The official `wordpress` image's `wp-config.php` reads `DB_HOST`, `DB_NAME`,
+  `DB_USER`, `DB_PASSWORD` and `$table_prefix` from the container's
+  environment. v0.2.21 used the expression's text as the value, so the host
+  was `getenv_docker('WORDPRESS_DB_HOST', 'mysql')`. `backup`, `doctor` and a
+  files-only `restore` now resolve them as PHP does, from the tool's own
+  environment: the variable, a Docker secret named by `<NAME>_FILE`, else
+  the default (through `l3io-wordpress-config` 0.1.5, now the floor). Run the
+  tool with the site's `WORDPRESS_DB_*`; `--confirm-db-host` names the
+  resolved host. A resolved password is redacted like any other, and the log
+  names the variable (`config_value_from_environment`), never its value.
+- **Any other PHP expression in those settings is refused**, exit 3
+  (`REFUSED`, `UnsupportedConfigValueError`), naming the setting, never its
+  text. v0.2.21 used the text as the value.
+- **A database restore, or `--overwrite-wp-config`, onto such a site is
+  refused**, exit 3 (`REFUSED`, `EnvironmentDrivenTargetError`), before any
+  change, a Dry Run included. v0.2.21 tried to reach the database at the
+  expression's text (exit 5), or with `--overwrite-wp-config` would have written
+  the expressions back as fixed strings (BL-E008-032). How a database restore
+  should switch such a site is proposed in ADR-0027 and not yet decided; see
+  docs/restore.md.
+
+### Fixed
+
+- **`L3IO_WP_BACKUP_ADMIN_USER` and `L3IO_WP_BACKUP_ADMIN_PASSWORD` alone
+  supply the restore administrator**, as README documents. The password
+  variable without `--admin-username` was a usage error (exit 2), also for
+  `--mode files`, which needs no administrator. The variable fills in a
+  missing `--admin-password` only when `--admin-username` is given.
+- **A WordPress account with rights on its own database only is no longer
+  refused** by the restore preflight (`missing_privilege`, exit 3). This is how
+  the official `mysql` and `mariadb` images create `MYSQL_USER`. The
+  administrator grants that account the staging database before the load, so
+  those privileges are no reason to refuse. A load-check refusal now names the
+  database and the account (`DatabaseRefusedError.database`, `.account`).
+
 ### Changed (AD-22 behaviour changes; owner decisions 2026-11-07)
 
 - **A backup target inside the Site Root is refused** (BL-E002-064). v0.2.21

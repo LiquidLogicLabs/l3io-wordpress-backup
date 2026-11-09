@@ -16,6 +16,7 @@ from l3io.wp.backup.adapters.database import (
     site_descriptor_from_archive_config,
     site_descriptor_from_wp_config,
 )
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.archive_format import (
     ENCRYPTED_PAYLOAD_MEMBER,
     FORMAT_VERSION,
@@ -50,7 +51,7 @@ def _config(tmp_path: Path, body: str, name: str = "wp-config.php") -> Path:
 
 def test_the_live_constructor_reads_the_fixture(tmp_path: Path) -> None:
     descriptor, credentials = site_descriptor_from_wp_config(
-        tmp_path, config_file=FIXTURE
+        tmp_path, config_file=FIXTURE, environ={}, secrets=SecretRegistry()
     )
     assert descriptor.site_root == PurePosixPath(tmp_path.resolve())
     assert (descriptor.db_host, descriptor.db_port) == ("wordpressdb", 3306)
@@ -70,10 +71,14 @@ def test_the_archive_constructor_points_at_the_target(tmp_path: Path) -> None:
     extracted = workspace / "wp-config.php"
     shutil.copyfile(FIXTURE, extracted)
     target = tmp_path / "target-site"  # need not exist yet
-    descriptor, _ = site_descriptor_from_archive_config(target, config_file=extracted)
+    descriptor, _ = site_descriptor_from_archive_config(
+        target, config_file=extracted, environ={}, secrets=SecretRegistry()
+    )
     assert descriptor.site_root == PurePosixPath(target)
     assert descriptor.db_name == "wordpress"
-    live, _ = site_descriptor_from_wp_config(tmp_path, config_file=FIXTURE)
+    live, _ = site_descriptor_from_wp_config(
+        tmp_path, config_file=FIXTURE, environ={}, secrets=SecretRegistry()
+    )
     assert descriptor.db_host == live.db_host
     assert descriptor.table_prefix == live.table_prefix
 
@@ -87,7 +92,9 @@ def test_host_port_prefix_and_urls_are_read(tmp_path: Path) -> None:
         "define('WP_HOME', 'https://example.test');\n"
         "$table_prefix = 'xy_';\n",
     )
-    descriptor, _ = site_descriptor_from_wp_config(tmp_path, config_file=config)
+    descriptor, _ = site_descriptor_from_wp_config(
+        tmp_path, config_file=config, environ={}, secrets=SecretRegistry()
+    )
     assert (descriptor.db_host, descriptor.db_port) == ("db.internal", 3307)
     assert descriptor.table_prefix == "xy_"
     assert descriptor.site_url == "https://example.test/wp"
@@ -96,17 +103,34 @@ def test_host_port_prefix_and_urls_are_read(tmp_path: Path) -> None:
 
 def test_a_missing_file_is_an_invalid_site(tmp_path: Path) -> None:
     with pytest.raises(InvalidSiteDescriptorError):
-        site_descriptor_from_wp_config(tmp_path, config_file=tmp_path / "nope.php")
+        site_descriptor_from_wp_config(
+            tmp_path,
+            config_file=tmp_path / "nope.php",
+            environ={},
+            secrets=SecretRegistry(),
+        )
     with pytest.raises(InvalidSiteDescriptorError) as caught:
-        site_descriptor_from_archive_config(tmp_path, config_file=None)
+        site_descriptor_from_archive_config(
+            tmp_path, config_file=None, environ={}, secrets=SecretRegistry()
+        )
     assert caught.value.reason == "archive has no wp-config.php"
     with pytest.raises(InvalidSiteDescriptorError):
-        site_descriptor_from_archive_config(tmp_path, config_file=tmp_path / "nope.php")
+        site_descriptor_from_archive_config(
+            tmp_path,
+            config_file=tmp_path / "nope.php",
+            environ={},
+            secrets=SecretRegistry(),
+        )
 
 
 def test_a_missing_site_root_is_an_invalid_site(tmp_path: Path) -> None:
     with pytest.raises(InvalidSiteDescriptorError):
-        site_descriptor_from_wp_config(tmp_path / "absent", config_file=FIXTURE)
+        site_descriptor_from_wp_config(
+            tmp_path / "absent",
+            config_file=FIXTURE,
+            environ={},
+            secrets=SecretRegistry(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -122,7 +146,9 @@ def test_half_a_credential_pair_names_the_key_not_the_value(
     config = _config(
         tmp_path, "define('DB_NAME', 'site');\ndefine('DB_HOST', 'db');\n" + defines
     )
-    _, credentials = site_descriptor_from_wp_config(tmp_path, config_file=config)
+    _, credentials = site_descriptor_from_wp_config(
+        tmp_path, config_file=config, environ={}, secrets=SecretRegistry()
+    )
     with pytest.raises(CredentialsError) as caught:
         require_wp_config_credentials(credentials, environ=os.environ)
     assert caught.value.missing_key == missing
@@ -136,11 +162,11 @@ def test_a_config_with_no_credentials_still_yields_a_descriptor(
     """Credentials may come from another provider; the descriptor needs none."""
     config = _config(tmp_path, "define('DB_NAME', 'site');\ndefine('DB_HOST', 'db');\n")
     descriptor, credentials = site_descriptor_from_wp_config(
-        tmp_path, config_file=config
+        tmp_path, config_file=config, environ={}, secrets=SecretRegistry()
     )
     assert descriptor.db_name == "site"
     archived, _ = site_descriptor_from_archive_config(
-        tmp_path / "target", config_file=config
+        tmp_path / "target", config_file=config, environ={}, secrets=SecretRegistry()
     )
     assert archived.db_name == "site"
     with pytest.raises(CredentialsError) as caught:
@@ -149,7 +175,9 @@ def test_a_config_with_no_credentials_still_yields_a_descriptor(
 
 
 def test_a_full_credential_pair_is_required_without_error(tmp_path: Path) -> None:
-    _, credentials = site_descriptor_from_wp_config(tmp_path, config_file=FIXTURE)
+    _, credentials = site_descriptor_from_wp_config(
+        tmp_path, config_file=FIXTURE, environ={}, secrets=SecretRegistry()
+    )
     require_wp_config_credentials(credentials, environ=os.environ)
 
 
@@ -161,7 +189,9 @@ def test_an_unreadable_config_names_the_path(tmp_path: Path) -> None:
         pytest.skip("permission bits are not enforced for this user")
     try:
         with pytest.raises(CredentialsError) as caught:
-            site_descriptor_from_wp_config(tmp_path, config_file=config)
+            site_descriptor_from_wp_config(
+                tmp_path, config_file=config, environ={}, secrets=SecretRegistry()
+            )
     finally:
         config.chmod(0o600)
     assert str(config) in caught.value.source
@@ -174,7 +204,9 @@ def test_a_missing_db_name_is_an_invalid_site(tmp_path: Path) -> None:
         "define('DB_PASSWORD', 'p');\n",
     )
     with pytest.raises(InvalidSiteDescriptorError, match="DB_NAME"):
-        site_descriptor_from_wp_config(tmp_path, config_file=config)
+        site_descriptor_from_wp_config(
+            tmp_path, config_file=config, environ={}, secrets=SecretRegistry()
+        )
 
 
 def test_the_missing_extra_is_reported(
@@ -182,7 +214,9 @@ def test_the_missing_extra_is_reported(
 ) -> None:
     monkeypatch.setitem(sys.modules, "l3io.wp.database", None)
     with pytest.raises(MissingExtraError) as caught:
-        site_descriptor_from_wp_config(tmp_path, config_file=FIXTURE)
+        site_descriptor_from_wp_config(
+            tmp_path, config_file=FIXTURE, environ={}, secrets=SecretRegistry()
+        )
     assert caught.value.extra == "database"
 
 
@@ -190,7 +224,9 @@ def test_a_planted_password_never_reaches_the_manifest(tmp_path: Path) -> None:
     """Every optional key set, the projection taken from the planted fixture."""
     # The fixture really holds the planted password, or this checks nothing.
     assert PLANTED_PASSWORD in FIXTURE.read_text(encoding="utf-8")
-    descriptor, _ = site_descriptor_from_wp_config(tmp_path, config_file=FIXTURE)
+    descriptor, _ = site_descriptor_from_wp_config(
+        tmp_path, config_file=FIXTURE, environ={}, secrets=SecretRegistry()
+    )
     manifest = Manifest(
         format_version=FORMAT_VERSION,
         created_at="2026-10-27T09:15:00Z",

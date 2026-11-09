@@ -22,6 +22,7 @@ from l3io.wp.backup.adapters.database import (
     site_descriptor_from_wp_config,
 )
 from l3io.wp.backup.adapters.lock import FcntlSiteLock
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import backup as backup_cli
 from l3io.wp.backup.cli.adapter_sets import real_adapters
 from l3io.wp.backup.cli.context import RunContext, join_or_open, open_run
@@ -104,7 +105,7 @@ def test_backup_inside_the_run_acquires_nothing(
     before = list(recorder.events)
     config = locate_wp_config(site.resolve(), stated=None)
     descriptor, _ = site_descriptor_from_wp_config(
-        site.resolve(), config_file=config.path
+        site.resolve(), config_file=config.path, environ={}, secrets=SecretRegistry()
     )
     with capture_logs():
         backup_cli.backup(

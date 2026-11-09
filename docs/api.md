@@ -66,14 +66,15 @@ the `context` parameter is gone from `backup`, `restore` and `verify`; passwords
 passphrases accept a `Secret`; `on_warning` and `doctor` are new.
 
 **The environment.** A library call may read these variables from the host's
-environment. The first three rows are the package's own; the rest are
-standard process variables it uses.
+environment. The first three rows are the package's own, the fourth the
+Site's; the rest are standard process variables it uses.
 
 | Variable | Read when |
 |---|---|
 | `L3IO_WP_BACKUP_PASSPHRASE` | the call resolves a passphrase: `backup(encrypt=True)`, `verify(authenticate=True)`, every `restore`. The `passphrase` argument is tried first and `prompt` last. A backup without `encrypt=True` only notes that it is set. |
 | `L3IO_WP_BACKUP_DB_USER`, `L3IO_WP_BACKUP_DB_PASSWORD` | the WordPress database account is resolved and no `credentials=` spec was given. |
 | `L3IO_WP_BACKUP_ADMIN_USER`, `L3IO_WP_BACKUP_ADMIN_PASSWORD` | a restore resolves the database administrator account and no `admin=` spec was given. |
+| the variables the Site's `wp-config.php` names | its `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or `$table_prefix` is `getenv_docker('NAME', <default>)` or `getenv('NAME')`, as the official `wordpress` image writes them: `NAME`, and for `getenv_docker` the file `NAME_FILE` names (a Docker secret), resolved as PHP would (owner decision 47). `backup`, `doctor` and a files-only `restore` resolve them; a database `restore`, or one with `config_policy=ConfigPolicy.OVERWRITE`, refuses such a target (`EnvironmentDrivenTargetError`). |
 | `PATH` | the package locates an external tool (`wp` and the readiness probes). Only absolute entries are searched. `PATH` is also passed to the WP-CLI and probe child processes. |
 | `HOME` | passed to the WP-CLI and probe child processes, which use it for their own cache and configuration. No other variable of yours reaches them. |
 | `TMPDIR`, `TEMP`, `TMP` | the Run's private workspace is created, through `tempfile`. The workspace holds the database dump (and a decrypted payload) while a Run is in progress. A Run killed outright (`SIGKILL`, power loss) leaves it behind; each later Run of the same OS user removes `l3io-wp-backup-*` workspaces untouched for 24 hours, logging each path (`stale_residue_removed`). Pointing `TMPDIR` at a memory-backed filesystem (tmpfs) keeps that plaintext off disk altogether. |
@@ -1001,15 +1002,15 @@ Fields: `database`, each holding the argument of the same name.
 
 ### `DatabaseRefusedError`
 
-A database check found blockers; `findings` are codes only.
+A database check found blockers; `findings` are codes only. `database` names the database the check was about and `account` the account it answered for (a user name, or `administrator`); either is `None` where not known. Neither is ever a secret.
 
 ```python
-DatabaseRefusedError(findings: tuple[str, ...])
+DatabaseRefusedError(findings: tuple[str, ...], *, database: str | None = None, account: str | None = None)
 ```
 
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
-Fields: `findings`, each holding the argument of the same name.
+Fields: `findings`, `database`, `account`, each holding the argument of the same name.
 
 ### `DatabaseTlsHandshakeError`
 
@@ -1070,6 +1071,18 @@ EncryptionConfigError(*, relative_path: bool = False)
 Base: `UsageError`. Exit code: `USAGE` (2).
 
 Fields: `relative_path`, each holding the argument of the same name.
+
+### `EnvironmentDrivenTargetError`
+
+A restore target's `wp-config.php` reads one of `DB_HOST`, `DB_USER`, `DB_PASSWORD` or `DB_NAME` from the environment (`getenv_docker()` or `getenv()`, as the official `wordpress` image writes them), and the restore would rewrite it as a fixed value: a Mode that restores the database (its cutover rewrites `DB_NAME`), or `--overwrite-wp-config` (`config_policy=ConfigPolicy.OVERWRITE`). Refused before any change, a Dry Run included (owner decision 47; [ADR-0027](adr/0027-restore-into-an-environment-driven-database.md), Proposed). `keys` are the constants, `variables` the environment variables they read (names only), `path` the file and `operation` what was refused. A files-only restore that keeps the target's file resolves the lookups instead.
+
+```python
+EnvironmentDrivenTargetError(*, keys: tuple[str, ...], variables: tuple[str, ...], path: PurePath, operation: str)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `keys`, `variables`, `path`, `operation`, each holding the argument of the same name.
 
 ### `ExistingDatabaseUserError`
 
@@ -1740,6 +1753,18 @@ UnsupportedConfigLocationError(value: str, *, allowed: tuple[str, ...])
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `value`, `allowed`, each holding the argument of the same name.
+
+### `UnsupportedConfigValueError`
+
+A `wp-config.php` setting the Run reads (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` or `$table_prefix`) is a PHP expression other than a literal, `getenv_docker('NAME', <literal>)` or `getenv('NAME')`. This package does not evaluate PHP, so it is refused before any connection, never guessed at (owner decision 47). `key` names the setting and `path` the file; the expression's text is never carried, since it may compute a credential.
+
+```python
+UnsupportedConfigValueError(key: str, *, path: PurePath)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `key`, `path`, each holding the argument of the same name.
 
 ### `UnsupportedFormatVersionError`
 

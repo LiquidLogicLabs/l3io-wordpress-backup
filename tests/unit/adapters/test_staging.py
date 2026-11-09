@@ -392,8 +392,9 @@ def test_check_staged_refuses_alike_in_the_real_and_dry_run_sets(
 ) -> None:
     h, _ = _harness(tmp_path, mode=mode)
     if blocked is not None:
+        # Not one ``ENSURE_RESOLVES`` lifts, so it refuses from every check.
         h.database.readiness[blocked] = Readiness(
-            ready=False, blockers=("missing_privilege",)
+            ready=False, blockers=("database_not_empty",)
         )
     real_error, real_calls = _check_calls(h, dry=False)
     dry_error, dry_calls = _check_calls(h, dry=True)
@@ -448,6 +449,43 @@ def test_a_blocker_outside_ensure_resolves_refuses_even_when_ensure_is_ready(
     )
     error, _ = _check_calls(h, dry=False)
     assert error is DatabaseRefusedError
+
+
+def test_an_account_scoped_to_its_own_database_is_not_refused(
+    tmp_path: Path,
+) -> None:
+    """Defect 4 (sidecar test, 2026-11-08): the official db images' account.
+
+    ``MYSQL_USER`` holds rights on ``MYSQL_DATABASE`` only, so ``check_load``
+    of the staging database finds it absent and every load privilege missing.
+    ``ensure`` creates that database and grants the account ALL on it, so when
+    ``check_ensure`` is ready none of that refuses, in a Dry Run too.
+    """
+    h, _ = _harness(tmp_path, mode=RestoreMode.ALL)
+    h.database.readiness["check_ensure"] = Readiness(ready=True)
+    h.database.readiness["check_load"] = Readiness(
+        ready=False, blockers=("database_absent", *["missing_privilege"] * 7)
+    )
+    assert _check_calls(h, dry=False)[0] is None
+    assert _check_calls(h, dry=True)[0] is None
+
+
+def test_a_load_refusal_names_the_database_and_the_account(tmp_path: Path) -> None:
+    h, _ = _harness(tmp_path, mode=RestoreMode.DATABASE)
+    h.database.readiness["check_ensure"] = Readiness(ready=False)
+    h.database.readiness["check_load"] = Readiness(
+        ready=False, blockers=("missing_privilege",)
+    )
+    inputs = h.inputs()
+    with pytest.raises(DatabaseRefusedError) as caught:
+        check_staged(inputs, ports=h.ports(h.adapters()))
+    load = staging_name(inputs.site.db_name, inputs.run_id)
+    user = inputs.header.prior_constants["DB_USER"]
+    assert user
+    assert caught.value.database == load
+    assert caught.value.account == user
+    assert f"database {load!r}" in str(caught.value)
+    assert f"account {user!r}" in str(caught.value)
 
 
 def test_staging_imports_without_the_database_extra() -> None:

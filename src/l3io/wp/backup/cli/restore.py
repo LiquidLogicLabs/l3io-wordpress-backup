@@ -392,6 +392,26 @@ def _archive_config(
     return _write_private(directory / _CONFIG_NAME, body)
 
 
+def _refused_on_environment(
+    request: RestoreRequest, *, archive_copy: bool
+) -> str | None:
+    """What this restore would do that an environment-driven ``DB_*`` refuses.
+
+    Owner decision 47, ADR-0027 (Proposed): a Mode that restores the database
+    cuts over by rewriting ``DB_NAME``, and ``--overwrite-wp-config`` carries
+    the target's ``DB_*`` into the Archive's file as values (BL-E008-032);
+    neither keeps a ``getenv_docker()`` definition. ``None`` (a files-only
+    restore that keeps the target's file) resolves the lookups instead.
+    ``archive_copy`` is a target with no ``wp-config.php``, whose descriptor
+    is the Archive's copy: nothing of the target's is carried over then.
+    """
+    if restores_database(request.mode):
+        return "a database restore"
+    if request.config_policy is ConfigPolicy.OVERWRITE and not archive_copy:
+        return "--overwrite-wp-config"
+    return None
+
+
 def _db_user(run: RunContext, config_file: Path) -> str:
     values = run.adapters.config_query.read_constants(config_file, ("DB_USER",))
     value = values.get("DB_USER")
@@ -654,7 +674,11 @@ def drive_restore(
         config_from_archive = located is None
         if located is not None:
             site, wp_config = site_descriptor_from_wp_config(
-                site_root, config_file=located.path
+                site_root,
+                config_file=located.path,
+                environ=environ,
+                secrets=run.secrets,
+                refuse_environment=_refused_on_environment(request, archive_copy=False),
             )
             target_config, config_dir = located.path, located.path.parent
             descriptor_file = located.path
@@ -663,7 +687,11 @@ def drive_restore(
                 archive, workspace=run.workspace, cipher=request.cipher
             )
             site, wp_config = site_descriptor_from_archive_config(
-                site_root, config_file=descriptor_file
+                site_root,
+                config_file=descriptor_file,
+                environ=environ,
+                secrets=run.secrets,
+                refuse_environment=_refused_on_environment(request, archive_copy=True),
             )
             located = LocatedConfig(path=descriptor_file, location=None)
             target_config, config_dir = site_root / _CONFIG_NAME, site_root
@@ -704,6 +732,7 @@ def drive_restore(
                 journal=pair,
                 admin_tls=request.admin_tls,
                 create_archive_directory=True,
+                environ=environ,
             )
             run.bind_adapters(dry_run_adapters(real) if request.dry_run else real)
         db_user = _db_user(run, descriptor_file)

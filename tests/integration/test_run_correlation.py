@@ -55,10 +55,10 @@ def test_every_line_of_a_backup_carries_one_run_id(
     real = backup_cli.site_descriptor_from_wp_config
     scratch = tmp_path / "scratch-wp-config.php"
 
-    def descriptor(site_root: Path, *, config_file: Path) -> object:
+    def descriptor(site_root: Path, *, config_file: Path, **kwargs: object) -> object:
         shutil.copyfile(config_file, scratch)
         wpconfig.WpConfigFile(scratch).set("DB_NAME", DB_NAME)
-        return real(site_root, config_file=config_file)
+        return real(site_root, config_file=config_file, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(backup_cli, "site_descriptor_from_wp_config", descriptor)
     final = tmp_path / "site.tar.gz"

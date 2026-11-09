@@ -95,11 +95,16 @@ def admin_spec(
     """The administrator's spec, or ``None`` when none was given.
 
     Both halves of an explicit pair or neither; an explicit pair or an AWS
-    secret, not both. ``--admin-password`` wins; without it the password comes
-    from ``L3IO_WP_BACKUP_ADMIN_PASSWORD`` in ``environ`` (RT-S02-002), which
-    keeps it out of the process list.
+    secret, not both. ``--admin-password`` wins; with ``--admin-username``
+    and without it, the password comes from ``L3IO_WP_BACKUP_ADMIN_PASSWORD``
+    in ``environ`` (RT-S02-002), which keeps it out of the process list.
+    With neither flag, nothing here reads the environment: the
+    ``L3IO_WP_BACKUP_ADMIN_USER``/``_PASSWORD`` pair is the administrator
+    chain's environment step (``adapters/credential_providers``), resolved
+    only by a Run that needs an administrator, so a Mode that needs none
+    never requires one.
     """
-    if password is None and environ:
+    if password is None and username is not None and environ:
         password = environ.get(ADMIN_PASSWORD_VAR) or None
     if (username is None) != (password is None):
         missing = "--admin-password" if password is None else "--admin-username"

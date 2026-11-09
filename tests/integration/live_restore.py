@@ -412,7 +412,9 @@ def restore(
     workspace = root.parent / f"workspace-{spec.run_id}"
     workspace.mkdir(mode=0o700)
     if located is not None:
-        site, _ = site_descriptor_from_wp_config(root, config_file=located.path)
+        site, _ = site_descriptor_from_wp_config(
+            root, config_file=located.path, environ={}, secrets=secrets
+        )
     else:
         laid = workspace / "archive-wp-config.php"
         member = config_member(view)
@@ -421,7 +423,9 @@ def restore(
             archive, view, member.path, max_bytes=1 << 20, payload=None
         )
         laid.write_bytes(body)
-        site, _ = site_descriptor_from_archive_config(root.resolve(), config_file=laid)
+        site, _ = site_descriptor_from_archive_config(
+            root.resolve(), config_file=laid, environ={}, secrets=secrets
+        )
     adapters, _journal = adapters_for(spec, secrets, wrap)
     if select is not None:
         adapters = select(adapters)
@@ -573,9 +577,9 @@ def survey_named(config: Path, *, user: str, password: str) -> object:
     )
     keys = read_keys(config)
     database = WpDatabase(wpdb.Explicit(user, password), secrets=secrets, admin=admin)
-    location = site_descriptor_from_wp_config(config.parent, config_file=config)[
-        0
-    ].database_location()
+    location = site_descriptor_from_wp_config(
+        config.parent, config_file=config, environ={}, secrets=SecretRegistry()
+    )[0].database_location()
     assert location.name == keys["DB_NAME"]
     return database.survey_target(location, table_prefix=PREFIX, wordpress_user=None)
 

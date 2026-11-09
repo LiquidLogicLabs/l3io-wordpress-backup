@@ -22,6 +22,7 @@ from l3io.wp.backup.adapters.database import (
     site_descriptor_from_wp_config,
 )
 from l3io.wp.backup.adapters.noop import NoopTracer
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.restore_runner import execute_restore, snapshot_result
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import (
@@ -661,7 +662,9 @@ def joined_snapshot(
     """``take_snapshot`` as the root binds it: join ``backup``, then check it."""
     root = harness.site_root.resolve()
     config = locate_wp_config(root, stated=None)
-    site, _ = site_descriptor_from_wp_config(root, config_file=config.path)
+    site, _ = site_descriptor_from_wp_config(
+        root, config_file=config.path, environ={}, secrets=SecretRegistry()
+    )
 
     def take(scope: BackupScope) -> SnapshotResult:
         result = backup_cli.backup(

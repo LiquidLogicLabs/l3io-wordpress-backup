@@ -25,6 +25,7 @@ from l3io.wp.backup.adapters.database import (
     site_descriptor_from_wp_config,
 )
 from l3io.wp.backup.adapters.preflight import BinaryPreflight
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.workspace import WORKSPACE_PREFIX
 from l3io.wp.backup.cli import backup as backup_cli
 from l3io.wp.backup.cli.adapter_sets import real_adapters
@@ -90,7 +91,9 @@ def _fake_age(directory: Path, version: str) -> None:
 def _run(site: Path, final: Path) -> tuple[list[str], PreflightFailedError | None]:
     events: list[str] = []
     config = locate_wp_config(site, stated=None)
-    descriptor, _ = site_descriptor_from_wp_config(site, config_file=config.path)
+    descriptor, _ = site_descriptor_from_wp_config(
+        site, config_file=config.path, environ={}, secrets=SecretRegistry()
+    )
     try:
         with capture_logs(), open_run(operation="backup") as ctx:
             ctx.bind_adapters(

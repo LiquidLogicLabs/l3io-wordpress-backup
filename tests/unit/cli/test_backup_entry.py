@@ -16,6 +16,7 @@ from l3io.wp.backup.adapters.database import (
     locate_wp_config,
     site_descriptor_from_wp_config,
 )
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import backup as backup_cli
 from l3io.wp.backup.cli import main
 from l3io.wp.backup.cli.adapter_sets import real_adapters
@@ -50,7 +51,9 @@ def _snapshot(
     ctx: RunContext, site: Path, final: Path, origin: ManifestOrigin | None
 ) -> backup_cli.BackupResult:
     config = locate_wp_config(site, stated=None)
-    descriptor, _ = site_descriptor_from_wp_config(site, config_file=config.path)
+    descriptor, _ = site_descriptor_from_wp_config(
+        site, config_file=config.path, environ={}, secrets=SecretRegistry()
+    )
     return backup_cli.backup(
         descriptor,
         BackupScope.ALL,

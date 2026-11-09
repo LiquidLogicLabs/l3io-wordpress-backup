@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from l3io.wp.backup.cli.restore_request import (
@@ -79,3 +81,55 @@ def test_an_incomplete_credential_pair_is_a_usage_error(
 
 def test_whole_arguments_pass() -> None:
     check_restore_arguments(mode="all", **DEFAULT_FLAGS, **NO_CREDENTIALS)
+
+
+# Defect 3 (sidecar test, 2026-11-08): README's environment pair, no flag.
+ADMIN_ENV = {
+    "L3IO_WP_BACKUP_ADMIN_USER": "root",
+    "L3IO_WP_BACKUP_ADMIN_PASSWORD": "admin-password-value",
+}
+
+
+@pytest.mark.parametrize("mode", ["files", "db", "all"])
+@pytest.mark.parametrize(
+    "environ",
+    [ADMIN_ENV, {"L3IO_WP_BACKUP_ADMIN_PASSWORD": "admin-password-value"}],
+    ids=["pair", "password-only"],
+)
+def test_the_administrator_variables_alone_are_no_usage_error(
+    mode: str, environ: dict[str, str]
+) -> None:
+    check_restore_arguments(
+        mode=mode, **DEFAULT_FLAGS, **NO_CREDENTIALS, environ=environ
+    )
+
+
+def test_the_cli_takes_the_environment_pair_without_admin_username(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``main`` gets past the argument check: the Run answers (no Archive)."""
+    from l3io.wp.backup.cli import main
+    from l3io.wp.backup.domain.exit_codes import ExitCode
+
+    for name, value in ADMIN_ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    site = tmp_path / "site"
+    site.mkdir()
+    code = main(
+        [
+            "restore",
+            "--wp-dir",
+            str(site),
+            "--archive",
+            str(tmp_path / "absent.tar.gz"),
+            "--mode",
+            "files",
+        ]
+    )
+    err = capsys.readouterr().err
+    assert "--admin-username" not in err
+    assert "ArchiveNotFoundError" in err
+    assert code == ExitCode.USAGE  # the absent Archive's own code

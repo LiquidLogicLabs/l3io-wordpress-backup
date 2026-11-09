@@ -55,6 +55,7 @@ __all__ = [
     "DatabaseRefusedError",
     "DatabaseUnreachableError",
     "DumpFailedError",
+    "EnvironmentDrivenTargetError",
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
     "IncompleteRelocationCredentialsError",
@@ -95,6 +96,7 @@ __all__ = [
     "UnsafeCleanTargetError",
     "UnsafeMemberPathError",
     "UnsupportedConfigLocationError",
+    "UnsupportedConfigValueError",
     "UnsupportedFormatVersionError",
     "UnsupportedStorageSchemeError",
     "UsageError",
@@ -478,11 +480,28 @@ class MissingExtraError(BackupError):
 
 
 class DatabaseRefusedError(RefusedError):
-    """A database check found blockers; ``findings`` are codes only."""
+    """A database check found blockers; ``findings`` are codes only.
 
-    def __init__(self, findings: tuple[str, ...]) -> None:
+    ``database`` is the database the check was about and ``account`` the
+    account it answered for (a user name or a credential source's label),
+    each ``None`` where the caller does not know it; never a secret.
+    """
+
+    def __init__(
+        self,
+        findings: tuple[str, ...],
+        *,
+        database: str | None = None,
+        account: str | None = None,
+    ) -> None:
         self.findings = findings
-        super().__init__(f"database operation refused: {', '.join(findings)}")
+        self.database = database
+        self.account = account
+        on = "" if database is None else f" on database {database!r}"
+        acting = "" if account is None else f" for account {account!r}"
+        super().__init__(
+            f"database operation refused{on}{acting}: {', '.join(findings)}"
+        )
 
 
 class PassphraseRequiredError(RefusedError):
@@ -1157,6 +1176,63 @@ class ConfigLocationConflictError(RefusedError):
         super().__init__(
             f"refused to lay down wp-config.php: {str(path)!r} {reason}; "
             "nothing was changed"
+        )
+
+
+class UnsupportedConfigValueError(RefusedError):
+    """Owner decision 47: a ``wp-config.php`` setting this tool will not evaluate.
+
+    ``key`` is the constant (``DB_HOST``) or variable (``$table_prefix``)
+    whose value is a PHP expression other than a literal,
+    ``getenv_docker('NAME', <literal>)`` or ``getenv('NAME')``; ``path`` is
+    the file. Neither the expression's source text nor any value is carried:
+    it may compute a credential. Raised before any connection.
+    """
+
+    def __init__(self, key: str, *, path: PurePath) -> None:
+        self.key = key
+        self.path = path
+        super().__init__(
+            f"refused: {key} in {str(path)!r} is a PHP expression this tool does "
+            "not evaluate; define it as a literal, or as getenv_docker('NAME', "
+            "'default') or getenv('NAME'); nothing was changed"
+        )
+
+
+class EnvironmentDrivenTargetError(RefusedError):
+    """Owner decision 47, ADR-0027 (Proposed): a restore target whose ``DB_*``
+    are read from the environment.
+
+    A database restore switches the site to the loaded database by rewriting
+    ``wp-config.php``'s ``DB_NAME``, and ``--overwrite-wp-config`` carries the
+    target's ``DB_*`` into the Archive's file as values; neither can keep a
+    ``getenv_docker()``/``getenv()`` definition. Refused before any change, a
+    Dry Run included. ``keys`` are the constants, ``variables`` the
+    environment variables they read (names only, never values), ``path`` the
+    ``wp-config.php`` and ``operation`` what was refused (``"a database
+    restore"`` or ``"--overwrite-wp-config"``).
+    """
+
+    def __init__(
+        self,
+        *,
+        keys: tuple[str, ...],
+        variables: tuple[str, ...],
+        path: PurePath,
+        operation: str,
+    ) -> None:
+        self.keys = keys
+        self.variables = variables
+        self.path = path
+        self.operation = operation
+        read = ", ".join(f"{k} from {v}" for k, v in zip(keys, variables, strict=True))
+        super().__init__(
+            f"refused: {str(path)!r} reads {read} from the environment, and "
+            f"{operation} cannot yet be done on such a site: it would rewrite "
+            "those definitions as fixed values (docs/adr/0027-restore-into-an-"
+            "environment-driven-database.md, Proposed); restore the files alone "
+            "(--mode files, without --overwrite-wp-config), or define the DB_* "
+            "constants as literals; nothing was changed"
         )
 
 

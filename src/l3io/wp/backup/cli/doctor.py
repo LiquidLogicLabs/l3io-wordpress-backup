@@ -70,7 +70,9 @@ def _site_readiness(
                 msg, paths=(str(Path(site_root).absolute()),)
             ) from exc
         config = locate_wp_config(root, stated=None)
-        site, wp_config = site_descriptor_from_wp_config(root, config_file=config.path)
+        site, wp_config = site_descriptor_from_wp_config(
+            root, config_file=config.path, environ=environ, secrets=run.secrets
+        )
         source = wordpress_source(
             None, wp_config=wp_config, environ=environ, secrets=run.secrets
         )

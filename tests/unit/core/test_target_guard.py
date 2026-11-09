@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.exit import exit_code_for
 from l3io.wp.backup.core.restore import (
     NonEmptyTargetError,
@@ -271,7 +272,9 @@ def test_the_refusal_names_no_credential(
     from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 
     s = credential_sentinel
-    descriptor, _ = site_descriptor_from_wp_config(s.site, config_file=s.config)
+    descriptor, _ = site_descriptor_from_wp_config(
+        s.site, config_file=s.config, environ={}, secrets=SecretRegistry()
+    )
     files, root = LocalSiteFiles(), Path(descriptor.site_root)
     target = TargetState(
         site_root_empty=files.is_empty(root),

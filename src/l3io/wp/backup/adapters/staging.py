@@ -118,9 +118,15 @@ SYSTEM_CLOCK: Final = SystemClock()
 #: ``check_load``'s blockers for the state ``ensure_database`` is about to
 #: create (database's ``Code`` values). Allowed only when ``check_ensure`` is
 #: ready, because ``PREFLIGHT`` runs before ``ensure_database``.
+#: ``missing_privilege`` is among them: ``ensure`` grants the WordPress account
+#: ALL on the load database, so an account the official db images create with
+#: rights on its own database only is not refused for the staging database it
+#: has not been granted yet (sidecar test, 2026-11-08).
 ENSURE_RESOLVES: Final[frozenset[str]] = frozenset(
-    {"database_absent", "user_absent", "authentication_failed"}
+    {"database_absent", "user_absent", "authentication_failed", "missing_privilege"}
 )
+#: The account a load check answers for when no ``DB_USER`` is known.
+WORDPRESS_ACCOUNT: Final = "the WordPress account"
 #: The label a missing relocated ``DB_PASSWORD`` source is named by.
 CUTOVER_PASSWORD_SOURCE: Final = "relocated WordPress account"  # noqa: S105 - a label
 _PASSWORD: Final = "DB_PASSWORD"  # noqa: S105 - a key name
@@ -225,11 +231,18 @@ def _require_password_source(inputs: RestoreInputs, ports: RestorePorts) -> None
 # --------------------------------------------------------------------------
 
 
-def _refuse(location: DatabaseLocation, blockers: tuple[str, ...]) -> None:
+def _refuse(
+    location: DatabaseLocation, blockers: tuple[str, ...], *, account: str
+) -> None:
+    """Refuse on ``blockers``, naming the database and ``account`` (never a secret)."""
     if not blockers:
         return
     error = blocked_dump_error(location, blockers, credential_source=ADMIN_SOURCE)
-    raise DatabaseRefusedError(findings=blockers) if error is None else error
+    if error is not None:
+        raise error
+    raise DatabaseRefusedError(
+        findings=blockers, database=location.name, account=account
+    )
 
 
 def check_staged(inputs: RestoreInputs, *, ports: RestorePorts) -> None:
@@ -261,13 +274,13 @@ def check_staged(inputs: RestoreInputs, *, ports: RestorePorts) -> None:
             loser.append((target.live, revoke))
         drop = query.check_drop_database(target.live, confirm=target.live.name)
         loser.append((target.live, drop))
-    _refuse(target.load, ensure.blockers)
+    _refuse(target.load, ensure.blockers, account=ADMIN_SOURCE)
     blockers = load.blockers
     if ensure.ready:
         blockers = tuple(b for b in blockers if b not in ENSURE_RESOLVES)
-    _refuse(target.load, blockers)
+    _refuse(target.load, blockers, account=target.load_user or WORDPRESS_ACCOUNT)
     for location, readiness in loser:
-        _refuse(location, readiness.blockers)
+        _refuse(location, readiness.blockers, account=ADMIN_SOURCE)
 
 
 # --------------------------------------------------------------------------

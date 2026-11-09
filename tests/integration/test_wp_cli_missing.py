@@ -136,7 +136,10 @@ class Rig:
         relocation = RestoreRelocation.none()
         if flags != RelocationFlags.none():
             descriptor, _ = site_descriptor_from_wp_config(
-                site.site_root, config_file=site.config
+                site.site_root,
+                config_file=site.config,
+                environ={},
+                secrets=SecretRegistry(),
             )
             view, _ = verify_archive_view(self.archive)
             assert view is not None

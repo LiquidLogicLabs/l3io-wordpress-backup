@@ -723,7 +723,9 @@ def test_a_missing_database_dependency_names_this_packages_extra(
     monkeypatch.setitem(sys.modules, "l3io.wp.config", None)
     config = Path(wp_config.source.removeprefix("wp-config:"))
     with pytest.raises(MissingExtraError) as caught:
-        site_descriptor_from_wp_config(config.parent, config_file=config)
+        site_descriptor_from_wp_config(
+            config.parent, config_file=config, environ={}, secrets=SecretRegistry()
+        )
     assert caught.value.extra == "database"
 
 

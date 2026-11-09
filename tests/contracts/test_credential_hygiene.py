@@ -313,7 +313,10 @@ def test_a_source_failing_with_the_secret_in_its_text_is_not_chained(
         msg = f"cannot use {password}"
         raise ValueError(msg)
 
-    monkeypatch.setattr(wpdb.WpConfigFile, "resolve", leaky)
+    # The Site's wp-config.php source (owner decision 47).
+    from l3io.wp.backup.adapters.database import WpConfigCredentials
+
+    monkeypatch.setattr(WpConfigCredentials, "resolve", leaky)
     with pytest.raises(CredentialsError) as caught:
         _drive(credential_sentinel, BackupScope.DATABASE)
     assert caught.value.reason == "ValueError"
@@ -895,7 +898,9 @@ def test_the_database_admin_and_load_paths_emit_no_credential(
 
     s = credential_sentinel
     secrets = SecretRegistry()
-    descriptor, wordpress = site_descriptor_from_wp_config(s.site, config_file=s.config)
+    descriptor, wordpress = site_descriptor_from_wp_config(
+        s.site, config_file=s.config, environ={}, secrets=secrets
+    )
     admin = admin_source(
         ExplicitCredentialSpec("root", s.password), environ={}, secrets=secrets
     )

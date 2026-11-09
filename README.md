@@ -88,9 +88,10 @@ No credential has to be on the command line, so a cron line needs none. Each acc
 | WordPress database (restore) | none | none | `DB_USER`/`DB_PASSWORD`, the account the restored site will use |
 | Administrator (restore) | `--admin-username`/`--admin-password`, or library `RestoreRequest.admin` | `L3IO_WP_BACKUP_ADMIN_USER` and `L3IO_WP_BACKUP_ADMIN_PASSWORD` | never |
 
-- **Both variables of a pair, or neither.** Setting one without its partner is an error (exit 4), not a fall-through to `wp-config.php`. A variable set to an empty value counts as set. The one exception is `--admin-username` without `--admin-password`: the password then comes from `L3IO_WP_BACKUP_ADMIN_PASSWORD`, and an empty value there counts as unset.
+- **Both variables of a pair, or neither.** Setting one without its partner is an error (exit 4), not a fall-through to `wp-config.php`. A variable set to an empty value counts as set. The one exception is `--admin-username` without `--admin-password`: the password then comes from `L3IO_WP_BACKUP_ADMIN_PASSWORD`, and an empty value there counts as unset. The administrator pair is read only by a restore that needs an administrator, so `--mode files` never asks for one.
 - **A source that fails stops the search.** An unreadable AWS secret, for example, never becomes the next source's account. The administrator is never taken from `wp-config.php` or from the WordPress account. A restore that needs one and has none is refused (exit 4).
 - **AWS Secrets Manager.** A secret holding the JSON `{"username": ..., "password": ...}` can supply either account as its explicit source. Install the `aws` extra: `pip install 'l3io-wordpress-backup[aws]'`. Without it, exit 7 names the extra. Without a region from the request or the AWS session, exit 4 names the region flag. In this release only the library selects it: `AwsSecretCredentialSpec(secret_id, region)` as `BackupRequest.credentials` or `RestoreRequest.admin`. The `--db-credentials-aws-*` and `--admin-credentials-aws-*` flags are accepted but not implemented yet.
+- **`getenv_docker()` and `getenv()` in `wp-config.php`.** The official `wordpress` Docker image defines `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `$table_prefix` as `getenv_docker('WORDPRESS_DB_HOST', 'mysql')` and so on. Backup, `doctor` and a files-only restore resolve them as PHP would, from their own environment: the variable, a Docker secret named by `<NAME>_FILE`, else the default. Run the tool with the site's `WORDPRESS_DB_*` (a sidecar container can share the WordPress container's environment file); `--confirm-db-host` names the resolved host. Any other PHP expression in those settings is refused (exit 3) without being evaluated. A database restore, or `--overwrite-wp-config`, onto such a site is refused for now (exit 3): see [docs/restore.md](docs/restore.md#wp-configphp).
 - **The log names the source, never the value.** Each resolution logs `credential_source_selected` with the source's label, for example `environment:L3IO_WP_BACKUP_DB_USER,L3IO_WP_BACKUP_DB_PASSWORD`.
 
 The environment of a process can be read by the same user and by root (`/proc/<pid>/environ`), and `--admin-password` is visible to every user in `ps`. On a shared host, prefer `wp-config.php` or AWS Secrets Manager.
@@ -171,8 +172,9 @@ options:
                         --wp-dir; takes no other backup flag)
   --confirm-db-host HOST
                         Confirm a database host that is not local (anything but localhost,
-                        127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, or the
-                        backup is refused before any connection
+                        127.0.0.1, ::1 or a socket): name wp-config.php's DB_HOST host, as
+                        resolved from the environment for a getenv_docker(...) one, or the backup
+                        is refused before any connection
   --allow-target-in-site-root
                         Write the archive inside the Site Root (refused by default: the web server
                         may serve it); prefer a target outside the Site Root
@@ -241,10 +243,10 @@ restore options:
   --wp-config PATH      Use this wp-config.php instead of searching for it
   --overwrite-wp-config
                         Replace the target's existing wp-config.php with the archive's (only with
-                        a mode that restores files). Do not use it when the target's DB_*
-                        constants are PHP expressions (such as the WordPress Docker image's
-                        getenv_docker(...)): they are written back as their current values, not as
-                        the expressions; keep the default instead
+                        a mode that restores files), keeping the target's DB_* values. Refused
+                        (exit 3) when the target reads its DB_* from the environment (the
+                        WordPress Docker image's getenv_docker(...)): they would be written back
+                        as fixed values
   --reset-existing-db-user
                         When the target has no wp-config.php and the archive's database account
                         already exists: reset its password to the archive's (refused otherwise)

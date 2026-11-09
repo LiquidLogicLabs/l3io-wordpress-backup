@@ -19,6 +19,19 @@ byte for byte.
 Every ``DB_PASSWORD`` value this module is handed or reads is registered with
 the Run's ``SecretRegistry`` before anything else happens to it; records name
 constant **keys**, never values.
+
+**Values from the environment (owner decision 47).** :func:`read_settings`
+and ``read_constants`` read a key through ``get_value``/``get_variable_value``
+(0.1.5): a literal is used as written; an ``EnvLookup``
+(``getenv_docker('NAME', <literal>)`` or ``getenv('NAME')``, as the official
+``wordpress`` image writes them) is resolved by the library's
+``EnvLookup.resolve`` against the Run's ``environ`` mapping, with
+:func:`read_secret_file` for a ``NAME_FILE`` Docker secret; anything else is
+an ``Expression`` and is refused (``UnsupportedConfigValueError``) without
+quoting it. Nothing here parses PHP or reimplements a fallback, and no adapter
+reads ``os.environ`` (BL-E005-007): the composition roots hand ``environ`` in.
+:func:`refuse_environment_lookups` is the restore's early refusal of an
+environment-driven target (ADR-0027, Proposed).
 """
 
 from __future__ import annotations
@@ -29,7 +42,8 @@ import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Final
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
@@ -37,13 +51,28 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.adapters.workspace import private_directories
 from l3io.wp.backup.domain.config import ConfigWriteResult, ConstantValue
 from l3io.wp.backup.domain.errors import (
+    BackupError,
     ConfigWriteFailedError,
     CredentialsError,
+    EnvironmentDrivenTargetError,
+    InvalidSiteDescriptorError,
     MissingExtraError,
+    UnsupportedConfigValueError,
 )
 from l3io.wp.backup.ports.config import WHOLE_FILE
 
-__all__ = ["WpConfigWriter", "read_defined", "refuse_unkeepable"]
+if TYPE_CHECKING:
+    from l3io.wp.config import EnvLookup
+
+__all__ = [
+    "TABLE_PREFIX",
+    "WpConfigWriter",
+    "read_defined",
+    "read_secret_file",
+    "read_settings",
+    "refuse_environment_lookups",
+    "refuse_unkeepable",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -59,6 +88,14 @@ _OWNER_REASON: Final = (
 )
 _READ_BACK_REASON: Final = "read-back verification failed; the file was not changed"
 _ABSENT_REASON: Final = "wp-config.php does not exist, and is never created here"
+#: ``$table_prefix``, named without its ``$`` as the library names a variable.
+TABLE_PREFIX: Final = "table_prefix"
+#: The keys whose lookup failure is a credentials failure, not a site one.
+_CREDENTIAL_KEYS: Final = frozenset({"DB_USER", _PASSWORD_KEY})
+#: The longest ``NAME_FILE`` this reads, in characters: a Docker secret is one
+#: short value, and a larger file is refused rather than read whole.
+SECRET_FILE_LIMIT: Final = 64 * 1024
+_NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 
 
 def _require_extra() -> None:
@@ -92,6 +129,185 @@ def read_defined(
     except WpConfigError as exc:
         raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
     return {key: None if v is MISSING else _constant(v) for key, v in raw.items()}
+
+
+def _shown(key: str) -> str:
+    """``key`` as an operator reads it: ``$table_prefix`` for the variable."""
+    return f"${key}" if key == TABLE_PREFIX else key
+
+
+def read_secret_file(path: str) -> str:
+    """The text of the file a ``NAME_FILE`` variable names (a Docker secret).
+
+    ``EnvLookup.resolve``'s ``read_file``: it strips the trailing newline
+    itself. A file over :data:`SECRET_FILE_LIMIT` characters is a
+    ``ValueError`` carrying no text; the library names the failure by class.
+    """
+    with Path(path).open(encoding="utf-8") as handle:
+        text = handle.read(SECRET_FILE_LIMIT + 1)
+    if len(text) > SECRET_FILE_LIMIT:
+        raise ValueError
+    return text
+
+
+def _lookup_failed(
+    key: str, variable: str, reason: str, *, config_file: Path, label: str
+) -> BackupError:
+    """A lookup that gave no value: credentials for ``DB_USER``/``DB_PASSWORD``."""
+    why = f"{_shown(key)} reads the environment variable {variable}: {reason}"
+    if key in _CREDENTIAL_KEYS:
+        return CredentialsError(label, reason=why)
+    return InvalidSiteDescriptorError(why, paths=(str(config_file),))
+
+
+def _resolve(
+    key: str,
+    lookup: EnvLookup,
+    *,
+    environ: Mapping[str, str],
+    config_file: Path,
+    label: str,
+) -> str:
+    """``lookup``'s value as PHP would define it, as text; never logged.
+
+    The library's ``ConfigLookupError`` names the variable only; it is turned
+    into this package's error outside its handler, so neither it nor what the
+    file reader raised (a ``UnicodeDecodeError`` holds the file's bytes) is
+    chained. A lookup PHP resolves to ``false`` (a bare ``getenv('NAME')``
+    of an unset variable) defines no usable setting and is refused as unset.
+    """
+    from l3io.wp.config import ConfigLookupError
+
+    failure: str | None = None
+    value: object = None
+    try:
+        value = lookup.resolve(environ, read_file=read_secret_file)
+    except ConfigLookupError as exc:
+        failure = exc.reason
+    if failure is not None:
+        raise _lookup_failed(
+            key, lookup.name, failure, config_file=config_file, label=label
+        )
+    if value is False:
+        raise _lookup_failed(
+            key, lookup.name, "it is not set", config_file=config_file, label=label
+        )
+    _log.info(
+        "config_value_from_environment",
+        path=str(config_file),
+        key=_shown(key),
+        variable=lookup.name,
+        function=lookup.function,
+    )
+    return value if isinstance(value, str) else str(value)
+
+
+def _read_values(
+    config_file: Path,
+    keys: Sequence[str],
+    *,
+    environ: Mapping[str, str],
+    label: str,
+    secrets: SecretRegistry | None,
+) -> dict[str, ConstantValue]:
+    """``keys``' values, an ``EnvLookup`` resolved; ``None`` for an undefined one.
+
+    :data:`TABLE_PREFIX` is read as the variable. A literal keeps its PHP
+    type; a resolved lookup is text. A resolved ``DB_PASSWORD`` is registered
+    with ``secrets`` before anything else happens to it.
+    """
+    _require_extra()
+    from l3io.wp.config import (
+        MISSING,
+        EnvLookup,
+        Expression,
+        WpConfigError,
+        WpConfigFile,
+    )
+
+    try:
+        config = WpConfigFile(config_file)
+        raw = {
+            key: config.get_variable_value(key)
+            if key == TABLE_PREFIX
+            else config.get_value(key)
+            for key in keys
+        }
+    except WpConfigError as exc:
+        raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
+    for key, value in raw.items():
+        if isinstance(value, Expression):
+            raise UnsupportedConfigValueError(_shown(key), path=config_file)
+    values: dict[str, ConstantValue] = {}
+    for key, value in raw.items():
+        if value is MISSING:
+            values[key] = None
+        elif isinstance(value, EnvLookup):
+            text = _resolve(
+                key, value, environ=environ, config_file=config_file, label=label
+            )
+            if key == _PASSWORD_KEY and secrets is not None:
+                secrets.register(text, source=f"{label}:{value.name}")
+            values[key] = text
+        else:
+            values[key] = _constant(value)
+    return values
+
+
+def read_settings(
+    config_file: Path,
+    keys: Sequence[str],
+    *,
+    environ: Mapping[str, str],
+    label: str,
+    secrets: SecretRegistry | None = None,
+) -> dict[str, str | None]:
+    """``keys``' values as text, each ``EnvLookup`` resolved against ``environ``.
+
+    The reader of the Site's ``DB_*`` and ``$table_prefix`` (owner decision
+    47); :data:`TABLE_PREFIX` names the variable. ``None`` is an undefined
+    key. A literal that is not a string becomes its text, as database's
+    reader did. Refused: an ``Expression`` (``UnsupportedConfigValueError``,
+    ``REFUSED``); a lookup that cannot be resolved -- a ``NAME_FILE`` that
+    cannot be read, a bare ``getenv`` of an unset variable -- is
+    ``CredentialsError`` for ``DB_USER``/``DB_PASSWORD`` and
+    ``InvalidSiteDescriptorError`` otherwise, naming the constant and the
+    variable, never a value. An unreadable file is ``CredentialsError(label)``.
+    """
+    values = _read_values(
+        config_file, keys, environ=environ, label=label, secrets=secrets
+    )
+    return {key: None if v is None else str(v) for key, v in values.items()}
+
+
+def refuse_environment_lookups(
+    config_file: Path, keys: Sequence[str], *, operation: str, label: str
+) -> None:
+    """Refuse when any of ``keys`` is read from the environment (ADR-0027).
+
+    Nothing is resolved, so no value is read. ``EnvironmentDrivenTargetError``
+    names every such key and its variable, and ``operation``; an
+    ``Expression`` among ``keys`` is ``UnsupportedConfigValueError``.
+    """
+    _require_extra()
+    from l3io.wp.config import EnvLookup, Expression, WpConfigError, WpConfigFile
+
+    try:
+        config = WpConfigFile(config_file)
+        raw = {key: config.get_value(key) for key in keys}
+    except WpConfigError as exc:
+        raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
+    for key, value in raw.items():
+        if isinstance(value, Expression):
+            raise UnsupportedConfigValueError(_shown(key), path=config_file)
+    lookups = [(k, v.name) for k, v in raw.items() if isinstance(v, EnvLookup)]
+    if lookups:
+        raise EnvironmentDrivenTargetError(
+            keys=tuple(_shown(k) for k, _ in lookups),
+            variables=tuple(name for _, name in lookups),
+            path=config_file,
+            operation=operation,
+        )
 
 
 def _set_failure(exc: Exception) -> str:
@@ -156,12 +372,20 @@ def refuse_unkeepable(
 
 
 class WpConfigWriter:
-    """``ConfigQuery`` and ``ConfigCommand`` over ``l3io-wordpress-config``."""
+    """``ConfigQuery`` and ``ConfigCommand`` over ``l3io-wordpress-config``.
 
-    __slots__ = ("_secrets",)
+    ``environ`` is the Run's environment mapping, which ``read_constants``
+    resolves an ``EnvLookup`` against (owner decision 47); empty by default,
+    so a lookup then takes its default, as PHP would with nothing set.
+    """
 
-    def __init__(self, secrets: SecretRegistry) -> None:
+    __slots__ = ("_environ", "_secrets")
+
+    def __init__(
+        self, secrets: SecretRegistry, *, environ: Mapping[str, str] = _NO_ENVIRONMENT
+    ) -> None:
         self._secrets = secrets
+        self._environ = environ
 
     def __repr__(self) -> str:
         return "WpConfigWriter()"
@@ -178,9 +402,21 @@ class WpConfigWriter:
     def read_constants(
         self, config_file: Path, keys: Sequence[str]
     ) -> Mapping[str, ConstantValue]:
-        """The restore target's ``keys``; ``None`` for an undefined one."""
+        """The restore target's ``keys``; ``None`` for an undefined one.
+
+        A literal keeps its PHP type, an ``EnvLookup`` is resolved against the
+        writer's ``environ`` and an ``Expression`` is refused
+        (``UnsupportedConfigValueError``): its source text is never handed on
+        as if it were a value (BL-E008-032).
+        """
         label = f"wp-config:{config_file}"
-        values = read_defined(config_file, keys, label=label)
+        values = _read_values(
+            config_file,
+            keys,
+            environ=self._environ,
+            label=label,
+            secrets=self._secrets,
+        )
         self._register(values, source=label)
         return values
 

@@ -171,7 +171,10 @@ def _bind_real(ctx: RunContext, site: Path) -> None:
     from l3io.wp.backup.cli.credentials import wordpress_source
 
     _, config = site_descriptor_from_wp_config(
-        site.resolve(), config_file=site.resolve() / "wp-config.php"
+        site.resolve(),
+        config_file=site.resolve() / "wp-config.php",
+        environ={},
+        secrets=SecretRegistry(),
     )
     source = wordpress_source(None, wp_config=config, environ={}, secrets=ctx.secrets)
     ctx.bind_adapters(

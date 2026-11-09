@@ -64,8 +64,13 @@ services:
   backup:
     image: l3io-wordpress-backup:sidecar-test-${L3IO_DB_CLIENT:?}
     init: true
-    # The administrator account a database restore needs (L3IO_WP_BACKUP_ADMIN_*).
-    env_file: ${L3IO_SCRATCH:?}/backup.env
+    # The site's WORDPRESS_DB_* (the WordPress container's own file), from which
+    # the image's getenv_docker() wp-config.php is resolved (owner decision 47),
+    # and the administrator account a database restore needs
+    # (L3IO_WP_BACKUP_ADMIN_*).
+    env_file:
+      - ${L3IO_SCRATCH:?}/wp.env
+      - ${L3IO_SCRATCH:?}/backup.env
     volumes:
       - ${L3IO_SCRATCH:?}/html:/var/www/html
       - backups:/backups
