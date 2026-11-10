@@ -538,3 +538,137 @@ def test_a_narrowed_matrix_is_reported() -> None:
     )
     _collapse(doc["jobs"]["test"])
     assert _narrowed_matrices(doc) == ["test"]
+
+
+# ---- the suite is split by tier, exactly (2026-11-09) ------------------------
+#
+# The database legs run `-m integration`, `unit` runs `-m "not integration"`, so
+# the twelve database legs no longer repeat the whole suite. The split is only
+# safe while it is exact; scripts/check-cicd-alignment.py's check_test_tiers
+# states what that means, and these tests apply it here. That a test which needs
+# a database carries the marker is tests/contracts/test_integration_marker_reach.py.
+
+CI_YML = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+
+
+def _tier_findings(doc: dict) -> list[str]:
+    """The family rule, plus this repo's decision that the split exists."""
+    findings: list[str] = []
+    module = _alignment()
+    module.check_test_tiers(doc, lambda _area, msg: findings.append(msg))
+    if not module.tier_runs(doc):
+        findings.append("ci.yml does not split its suite by the integration marker")
+    return findings
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
+def test_every_tier_split_is_exact(wf: pathlib.Path) -> None:
+    findings: list[str] = []
+    _alignment().check_test_tiers(_load(wf), lambda _a, msg: findings.append(msg))
+    assert findings == []
+
+
+def test_ci_splits_its_suite_into_two_complementary_tiers() -> None:
+    doc = _load(CI_YML)
+    assert _tier_findings(doc) == []
+    tiers = _alignment().tier_runs(doc)
+    service_jobs = {n for n, j in doc["jobs"].items() if j.get("services")}
+    assert set(tiers) & service_jobs, "no database job runs a tier"
+    assert set(tiers) - service_jobs, "no no-database job runs a tier"
+
+
+def _tier_step(job: dict) -> dict:
+    """The job's one whole-suite pytest step, found by the rule's own parser."""
+    module = _alignment()
+    steps = [
+        st for st in job["steps"] if module.tier_runs({"jobs": {"j": {"steps": [st]}}})
+    ]
+    assert len(steps) == 1, steps
+    return steps[0]
+
+
+def _rewrite(job_name: str, old: str, new: str) -> Callable[[dict], None]:
+    def plant(doc: dict) -> None:
+        step = _tier_step(doc["jobs"][job_name])
+        assert old in step["run"], (old, step["run"])
+        step["run"] = step["run"].replace(old, new)
+
+    return plant
+
+
+def _narrow_python(job_name: str) -> Callable[[dict], None]:
+    def plant(doc: dict) -> None:
+        doc["jobs"][job_name]["strategy"]["matrix"]["python"].pop()
+
+    return plant
+
+
+def _db_job(doc: dict) -> str:
+    return next(n for n, j in doc["jobs"].items() if j.get("services"))
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        # A database leg running the whole suite again.
+        lambda d: _rewrite(_db_job(d), "-m integration ", "")(d),
+        # The no-database tier dropping the complement: it runs integration tests
+        # with no database, which skip.
+        _rewrite("unit", '-m "not integration" ', ""),
+        # Both dropped: the old layout, every database leg the whole suite.
+        lambda d: (
+            _rewrite(_db_job(d), "-m integration ", "")(d),
+            _rewrite("unit", '-m "not integration" ', "")(d),
+        ),
+        # A marker expression that is no longer the complement.
+        _rewrite("unit", '"not integration"', '"not integration and not slow"'),
+        lambda d: _rewrite(_db_job(d), "-m integration", '-m "integration or slow"')(d),
+        # A tier narrowed further.
+        _rewrite("unit", '-m "not integration"', '-m "not integration" -k "not tar"'),
+        lambda d: _rewrite(_db_job(d), "-m integration", "-m integration --lf")(d),
+        # A tier narrowed to a path: still a tier run, so still checked.
+        _rewrite("unit", '-m "not integration"', '-m "not integration" tests/unit'),
+        # The tiers on different interpreters.
+        _narrow_python("unit"),
+        lambda d: _narrow_python(_db_job(d))(d),
+        # A tier run moved into a script the rule cannot read is NOT caught by the
+        # family rule; this repo's existence check catches the missing split.
+        lambda d: (
+            _tier_step(d["jobs"][_db_job(d)]).update(run="make test-db"),
+            _tier_step(d["jobs"]["unit"]).update(run="make test-unit"),
+        ),
+    ],
+    ids=[
+        "db-full-suite",
+        "unit-no-complement",
+        "both-full-suite",
+        "unit-not-complement",
+        "db-not-complement",
+        "unit-narrowed",
+        "db-narrowed",
+        "unit-narrowed-to-path",
+        "unit-fewer-pythons",
+        "db-fewer-pythons",
+        "moved-to-make",
+    ],
+)
+def test_the_tier_rule_rejects_a_planted_violation(
+    plant: Callable[[dict], object],
+) -> None:
+    doc = _load(CI_YML)
+    plant(doc)
+    assert _tier_findings(doc), "planted violation not reported"
+
+
+def test_passing_tests_leave_no_temporary_files() -> None:
+    """act gives a job container one minute to be removed (act v0.2.89,
+    pkg/runner/job_executor.go), and the removal time grows with what the job
+    wrote. Every passing test's tmp_path kept was several GB per leg, and four
+    legs ending together aborted `make ci` with "context deadline exceeded"
+    (2026-11-09). pytest's own setting deletes them; this keeps it set."""
+    import tomllib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    ini = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    options = ini["tool"]["pytest"]["ini_options"]
+    assert options.get("tmp_path_retention_policy") == "failed"

@@ -106,6 +106,27 @@ make preflight            # the pre-release run; records the commit it passed fo
 The Makefile header lists exactly what `make ci` runs and what stays
 GitHub-only, with the reason for each.
 
+**Two test tiers (2026-11-09).** `ci.yml`'s database legs (every Python × every
+engine) run only `pytest -m integration`; the `unit+contracts` legs (every
+Python) run `-m "not integration"`. The two selections are complements on the
+same Pythons, so the whole suite still runs on every interpreter and every
+integration test on every engine. Three checks keep the split exact:
+
+- `tests/contracts/test_integration_marker_reach.py` fails if a test that needs
+  the database is not marked `integration` (it would run in no leg). "Needs the
+  database" is derived from DB fixtures, `DB_HOST`/`DB_PASSWORD` reads and
+  skips that depend on `DB_HOST`. It is not a hand-kept list.
+- `tests/conftest.py`: with `CI` set, an `integration` test that skips fails.
+  The exceptions are a skip raised as `EngineUnsupported` (for example MariaDB
+  has no runtime TLS reload) and a `root` test on a runner that is not root.
+- `tests/contracts/test_workflow_invariants.py` (with
+  `scripts/check-cicd-alignment.py`'s `check_test_tiers`): each tier selects
+  exactly its marker expression with no further narrowing, on equal Pythons.
+
+Coverage is measured in both tiers and reported once per leg. There is no
+combined percentage, because that would need the two jobs' data files in one
+place, and act cannot run `upload-artifact@v7`. No threshold is set.
+
 Secrets come from Infisical: `make ci` runs act under `infisical run`, which exports
 them as environment variables — which is how act resolves the bare `-s NAME`
 declarations in `~/.actrc`. Nothing secret is written to disk in this repository.

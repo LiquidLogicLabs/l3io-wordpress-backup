@@ -133,11 +133,13 @@ def test_the_write_sequence_is_temp_fsync_replace_fsync(
         calls.append(f"replace:{self.name}->{Path(target).name}")
         return real_replace(self, target)
 
-    def opened(path: object, flags: int, mode: int = 0o777) -> int:
+    # Keywords pass through: the patch outlives the test body (monkeypatch is
+    # undone after tmp_path's teardown, whose rmtree calls os.open(dir_fd=...)).
+    def opened(path: object, flags: int, mode: int = 0o777, **kw: object) -> int:
         if flags & os.O_CREAT:
             assert flags & os.O_TRUNC
             calls.append(f"open:{Path(str(path)).name}:{mode:o}")
-        return real_open(path, flags, mode)  # type: ignore[arg-type]
+        return real_open(path, flags, mode, **kw)  # type: ignore[arg-type]
 
     monkeypatch.setattr(os, "fsync", fsync)
     monkeypatch.setattr(Path, "replace", replace)

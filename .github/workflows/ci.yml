@@ -196,6 +196,12 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
+      # act runs 4 legs of a matrix at a time unless told otherwise, so the 12
+      # database legs went in three waves and set the floor of `make ci` once
+      # the tier split made each leg short. Six under act is two waves (see the
+      # Makefile's ACT_CONCURRENT_JOBS note for the measurement); every leg at
+      # once on GitHub, which is its default.
+      max-parallel: ${{ vars.LOCAL_ACT && 6 || 12 }}
       matrix:
         # No `include:` here, deliberately. An include entry whose keys do not match
         # an existing combination ADDS a leg rather than extending one. Carrying
@@ -307,29 +313,34 @@ jobs:
           sudo install -m 0755 /tmp/age/age /tmp/age/age-plugin-batchpass /tmp/age/age-inspect /usr/local/bin/
           age --version
       - run: uv sync --locked --all-extras --dev
-      - name: pytest
+      # THE DATABASE TIER ONLY (2026-11-09). Each leg used to run the whole suite,
+      # ~6,000 tests, to exercise the ~160 that need a database, so the twelve
+      # legs repeated the `unit` job's work twelve times over and `make ci` took
+      # ~90 minutes. The two tiers are complements -- `-m integration` here,
+      # `-m "not integration"` in `unit`, on the same Pythons -- so every test
+      # still runs on every interpreter, and every integration test on every
+      # engine. What keeps the split honest:
+      #   - tests/contracts/test_integration_marker_reach.py: a test that needs
+      #     the database (derived from the DB fixtures, DB_HOST reads and skips)
+      #     and is not marked `integration` would run in NO leg; it fails there;
+      #   - tests/conftest.py: with CI set an `integration` test that skips
+      #     FAILS, so a leg that lost its database cannot pass by skipping;
+      #   - tests/contracts/test_workflow_invariants.py: this job selects exactly
+      #     `-m integration`, `unit` exactly the complement, on equal Pythons.
+      # Coverage is measured in both tiers; see `unit`.
+      - name: pytest (database tier)
         run: |
           mkdir -p "$(dirname "$COVERAGE_FILE")"
-          uv run pytest -q --cov=l3io.wp.backup \
+          uv run pytest -q -m integration --cov=l3io.wp.backup \
             --cov-report=term-missing --cov-report=xml:"$COVERAGE_XML"
 
-      # AD-11 — an archive is untrusted input. filter='data' is guarded by
-      # hasattr because 3.11 only has it patch-level-dependently via backport.
-      - name: AD-11 extraction containment
-        run: uv run pytest tests/contracts/test_extraction.py -q
-
-      # AD-21 — peak RSS bounded by a constant independent of archive size.
-      - name: AD-21 streaming bound
-        run: uv run pytest tests/contracts/test_streaming.py -q
-
   unit:
-    # Every supported interpreter, no database. Added while the `test` job's
-    # matrix still shrank to one leg under act, after a regression on a newer
-    # CPython passed `make ci` locally: tarfile in 3.13/3.14 stopped calling
-    # TarInfo.frombuf, so the E004 header bound was bypassed there (E004 closure
-    # follow-up, 2026-11-06). `test` now runs its full grid under act too; this
-    # job stays as the no-database tier (`make ci-quick` runs it in full).
-    # Integration tests skip without DB_HOST.
+    # Every supported interpreter, no database: everything not marked
+    # `integration`, the complement of the `test` job's selection. Added while
+    # the `test` job's matrix still shrank to one leg under act, after a
+    # regression on a newer CPython passed `make ci` locally: tarfile in
+    # 3.13/3.14 stopped calling TarInfo.frombuf, so the E004 header bound was
+    # bypassed there (E004 closure follow-up, 2026-11-06).
     name: unit+contracts · py${{ matrix.python }}
     runs-on: ubuntu-latest
     strategy:
@@ -340,6 +351,9 @@ jobs:
       UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-unit-py${{ matrix.python }}
       # Readable by the Site's owner a root test's child switches to: see `test`.
       UV_PYTHON_INSTALL_DIR: /tmp/l3io-python
+      # Out of the bound workspace under act, as in `test`.
+      COVERAGE_FILE: ${{ vars.LOCAL_ACT && '/tmp/l3io-coverage/.coverage' || '.coverage' }}
+      COVERAGE_XML: ${{ vars.LOCAL_ACT && '/tmp/l3io-coverage/coverage.xml' || 'coverage.xml' }}
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -362,8 +376,37 @@ jobs:
           sudo install -m 0755 /tmp/age/age /tmp/age/age-plugin-batchpass /tmp/age/age-inspect /usr/local/bin/
           age --version
       - run: uv sync --locked --all-extras --dev
+      # Coverage moved here with the tests it measures (2026-11-09). It was
+      # measured over the whole suite in each database leg; now each leg
+      # measures the tier it runs, so per Python the two reports together cover
+      # what the one did. There is no threshold (pyproject.toml: no
+      # `fail_under`) and nothing consumes the XML, so no gate changed; what is
+      # lost is a single combined percentage, which would need the two jobs'
+      # data files in one place -- upload-artifact@v7 does not run under act.
+      #
+      # Spread over the cores with pytest-xdist (2026-11-09). Serial, this tier
+      # was the long pole of `make ci`: ~10 CPU-minutes per leg, stretched to
+      # 15-26 minutes when four legs and the database legs shared the host.
+      # `-n auto` uses every core a GitHub runner has; --maxprocesses caps it
+      # under act, where each of the four legs sees all of the host's cores.
+      # The database tier stays serial: its tests share one server.
       - name: pytest (no database)
-        run: uv run pytest -q -m "not integration"
+        run: |
+          mkdir -p "$(dirname "$COVERAGE_FILE")"
+          uv run pytest -q -n auto --maxprocesses=4 -m "not integration" \
+            --cov=l3io.wp.backup \
+            --cov-report=term-missing --cov-report=xml:"$COVERAGE_XML"
+
+      # AD-11 — an archive is untrusted input. filter='data' is guarded by
+      # hasattr because 3.11 only has it patch-level-dependently via backport.
+      # Named gates, run here because they need every Python and no database:
+      # they used to follow the full suite in the database legs.
+      - name: AD-11 extraction containment
+        run: uv run pytest tests/contracts/test_extraction.py -q
+
+      # AD-21 — peak RSS bounded by a constant independent of archive size.
+      - name: AD-21 streaming bound
+        run: uv run pytest tests/contracts/test_streaming.py -q
 
   build:
     name: build

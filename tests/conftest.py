@@ -30,7 +30,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 import structlog
@@ -220,6 +220,68 @@ def _root_guard(
     from tests.root_mode import guard_root
 
     guard_root(request, monkeypatch)
+
+
+class EngineUnsupported(pytest.skip.Exception):  # type: ignore[misc,name-defined]
+    """A skip because the CI leg's database engine lacks the feature under test.
+
+    A fact about the leg's engine (MariaDB has no ``ALTER INSTANCE RELOAD
+    TLS``), not a missing prerequisite. Raise it with
+    :func:`skip_unsupported_engine`, from a test marked ``mysql_only``: in CI
+    the skip stands only on a test that declares the engine it needs.
+    """
+
+
+def skip_unsupported_engine(reason: str) -> NoReturn:
+    """Skip: the leg's engine cannot exercise the test (:class:`EngineUnsupported`)."""
+    raise EngineUnsupported(reason)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Iterator[pytest.TestReport]:
+    """In CI (``CI`` set), an ``integration`` test that skips FAILS.
+
+    ``ci.yml``'s database legs run only ``-m integration``, so a skip there is
+    a test that ran nowhere -- the no-database legs deselect it. That covers
+    every way a test skips (a ``skipif`` on ``DB_HOST``, ``pytest.skip`` in a
+    fixture, a missing tool), so no file has to remember a ``CI`` check of its
+    own. Two skips stay skips, each declared at the test rather than listed
+    here: :class:`EngineUnsupported` raised in a test marked ``mysql_only``
+    (the marker says which engine it needs), and a test marked ``root``
+    (``tests/root_mode.py``) on a runner that is not root -- GitHub's; act's
+    containers are root and run them. Enforced by
+    ``tests/contracts/test_integration_marker_reach.py``.
+    """
+    report: pytest.TestReport = yield
+    if (
+        report.skipped
+        and not hasattr(report, "wasxfail")
+        and os.environ.get("CI")
+        and item.get_closest_marker("integration") is not None
+        and not _ci_skip_allowed(item, call)
+    ):
+        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else ""
+        report.outcome = "failed"
+        report.longrepr = (
+            f"integration test skipped with CI set ({reason!s}): in CI the "
+            "database legs run only `-m integration`, so this test would run "
+            "nowhere. Fix the leg, or raise EngineUnsupported for an engine gap."
+        )
+    return report
+
+
+def _ci_skip_allowed(item: pytest.Item, call: pytest.CallInfo[None]) -> bool:
+    from tests.root_mode import ROOT_MARK, running_as_root
+
+    if (
+        call.excinfo is not None
+        and call.excinfo.errisinstance(EngineUnsupported)
+        and item.get_closest_marker("mysql_only") is not None
+    ):
+        return True
+    return item.get_closest_marker(ROOT_MARK) is not None and not running_as_root()
 
 
 def _environ() -> dict[str, str]:

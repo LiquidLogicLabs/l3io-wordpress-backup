@@ -213,6 +213,9 @@ required-version = "==0.11.6"
 test = [
   "pytest>=9.1.1,<10",
   "pytest-cov>=7.1,<8",
+  # ci.yml's no-database legs spread the suite over the runner's cores
+  # (`-n auto`); see the `unit` job for the measurement behind it.
+  "pytest-xdist>=3.8,<4",
   # The AD-27 namespace test builds a wheel and an sdist with the project's own
   # backend, in process, so it needs no network and no build-env resolution.
   # hatch-vcs must be here too, not only in build-system.requires: an in-process
@@ -367,9 +370,16 @@ testpaths = ["tests"]
 # legacy tree becomes. test_legacy_test_exclusion guards that nothing else is
 # hidden by this.
 addopts = "-ra --strict-markers --strict-config --ignore=tests/classes"
+# A passing test's tmp_path is deleted at its teardown; a failing one is kept to
+# debug. Keeping every one left GBs behind (test_streaming alone writes ~1.9 GB),
+# and under act that is the job container's writable layer: removing four such
+# containers at once outran act's fixed one-minute teardown, and the run aborted
+# with "Error occurred running finally: context deadline exceeded" (2026-11-09).
+tmp_path_retention_policy = "failed"
 markers = [
   "integration: needs a live database, WordPress or WP-CLI (spine: a small integration tier, marked and separable)",
   "root: runs only as root and drives the restore's real switch to the Site Root's owner in a child process (owner decision 58; tests/root_mode.py)",
+  "mysql_only: exercises a MySQL-only server feature; on another engine it skips with tests.conftest.EngineUnsupported, the one skip an integration test may take in CI",
 ]
 
 # --------------------------------------------------------------------------

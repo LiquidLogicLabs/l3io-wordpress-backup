@@ -805,6 +805,145 @@ def check_act_matrix(ci_doc: dict, R: Reporter) -> None:
                 )
 
 
+#: The marker that splits a suite into a database tier and a no-database tier.
+TIER_MARKER = "integration"
+#: Options that run less than the selected tier. A tier run carrying one is not
+#: the complement of the other tier any more.
+_NARROWING = (
+    "-k",
+    "--deselect",
+    "--ignore",
+    "--lf",
+    "--last-failed",
+    "--sw",
+    "--stepwise",
+    "--co",
+    "--collect-only",
+)
+
+
+def pytest_runs(job: dict) -> list[list[str]]:
+    """The argument lists of every `pytest` command in the job's `run:` steps.
+
+    Shell comments dropped, backslash continuations joined, words split with
+    `shlex` (a quoted `-m "not integration"` is one argument).
+    """
+    import shlex
+
+    runs: list[list[str]] = []
+    for st in job.get("steps") or []:
+        script = re.sub(r"\\\n", " ", str(st.get("run", "")))
+        for line in script.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            try:
+                words = shlex.split(line, comments=True)
+            except ValueError:
+                words = line.split()
+            if "pytest" in words:
+                runs.append(words[words.index("pytest") + 1 :])
+    return runs
+
+
+def _pytest_selection(args: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """(marker expressions, narrowing options, positional arguments)."""
+    marks: list[str] = []
+    narrowing: list[str] = []
+    positional: list[str] = []
+    it = iter(args)
+    for word in it:
+        if word == "-m":
+            marks.append(next(it, ""))
+        elif word.startswith("-m") and not word.startswith("--"):
+            marks.append(word[2:].lstrip("="))
+        elif any(word == n or word.startswith(n + "=") for n in _NARROWING) or (
+            word.startswith("-k") and not word.startswith("--")
+        ):
+            narrowing.append(word)
+        elif word in ("-p", "-c", "-o", "-W", "-n", "--maxprocesses", "--dist"):
+            next(it, None)
+        elif not word.startswith("-"):
+            positional.append(word)
+    return marks, narrowing, positional
+
+
+def tier_runs(ci_doc: dict) -> dict[str, list[tuple[str, str]]]:
+    """pytest runs that select by TIER_MARKER, per job: {job: [(expr, raw)]}."""
+    tiers: dict[str, list[tuple[str, str]]] = {}
+    for name, job in (ci_doc.get("jobs") or {}).items():
+        for args in pytest_runs(job):
+            marks, _, _ = _pytest_selection(args)
+            if any(TIER_MARKER in m for m in marks):
+                tiers.setdefault(name, []).extend((m, " ".join(args)) for m in marks)
+    return tiers
+
+
+def check_test_tiers(ci_doc: dict, R: Reporter) -> None:
+    """Where ci.yml splits the suite by the `integration` marker, the split is exact.
+
+    The jobs with `services:` (the database legs) run `-m integration`; every
+    other whole-suite run, `-m "not integration"`. The two expressions are
+    complements, so together they run the whole suite -- only if no tier run
+    narrows itself further (`-k`, `--deselect`, ...), only if both tiers exist,
+    and only if they run on the same Pythons. A repo that does not split (no
+    whole-suite run selects by the marker) is not checked: its legs run
+    everything. Whether the split EXISTS is this repo's own decision, asserted in
+    tests/contracts/test_workflow_invariants.py rather than across the family.
+
+    Coverage, stated: only `pytest` written in a step's `run:` is seen -- one
+    reached through `make` or a script is not. Option values are recognised for
+    -p -c -o -W -n --maxprocesses --dist; any other option's separate value
+    (`--tb short`) reads as a test path, which in a tier run is reported as
+    narrowing (fails closed): write long options `--opt=x`.
+    """
+    jobs = ci_doc.get("jobs") or {}
+    if not tier_runs(ci_doc):
+        return
+    want = {True: TIER_MARKER, False: f"not {TIER_MARKER}"}
+    pythons: dict[str, set[str]] = {}
+    seen: set[bool] = set()
+    for name, job in jobs.items():
+        db = bool(job.get("services"))
+        for args in pytest_runs(job):
+            marks, narrowing, positional = _pytest_selection(args)
+            # A run naming test paths and no marker is a targeted gate
+            # (`pytest tests/contracts/test_flag_map.py`); anything else is a
+            # tier run -- including a marker run narrowed to paths.
+            if positional and not any(TIER_MARKER in m for m in marks):
+                continue
+            raw = " ".join(args)
+            if marks != [want[db]]:
+                R(
+                    "tiers",
+                    f"ci.yml job `{name}` runs `pytest {raw}`; a "
+                    f"{'database' if db else 'no-database'} leg must select exactly "
+                    f'`-m "{want[db]}"` so the two tiers are complements',
+                )
+                continue
+            if narrowing or positional:
+                R(
+                    "tiers",
+                    f"ci.yml job `{name}` narrows its tier with "
+                    f"{narrowing + positional}: the tests it drops run in no leg",
+                )
+            seen.add(db)
+            axis = ((job.get("strategy") or {}).get("matrix") or {}).get("python")
+            pythons[name] = set(map(str, axis)) if isinstance(axis, list) else set()
+    for db in (True, False):
+        if db not in seen:
+            R(
+                "tiers",
+                f"ci.yml has no {'database' if db else 'no-database'} tier run "
+                f'(`-m "{want[db]}"`): the other tier\'s complement runs nowhere',
+            )
+    if len({frozenset(v) for v in pythons.values()}) > 1:
+        R(
+            "tiers",
+            f"ci.yml's tier jobs run on different Pythons {pythons}: a test runs "
+            "on an interpreter only if its tier does",
+        )
+
+
 def check_security_audit(repo: pathlib.Path, R: Reporter) -> None:
     """security-audit.yml audits the lock on push, PR, a weekly schedule and by hand.
 
@@ -952,6 +1091,7 @@ def main() -> int:
         check_security_audit(repo, R)
         for path, check in (
             (ci_p, check_act_matrix),
+            (ci_p, check_test_tiers),
             (pub_p, check_publish_shape),
             (wf / "release.yml", check_floating_tags),
         ):

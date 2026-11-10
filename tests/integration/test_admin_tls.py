@@ -39,7 +39,7 @@ from l3io.wp.backup.domain.credentials import ExplicitCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.ports.database import DbTls
-from tests.conftest import CredentialSentinel
+from tests.conftest import CredentialSentinel, skip_unsupported_engine
 from tests.integration.live_cli import admin_account  # noqa: F401 - a fixture
 from tests.integration.live_restore import host, port, root_connection
 
@@ -97,7 +97,7 @@ def tls_disabled() -> Iterator[None]:
         with connection.cursor() as cursor:
             reason = _runtime_tls_reload_supported(cursor)
             if reason is not None:
-                pytest.skip(reason)
+                skip_unsupported_engine(reason)
             cursor.execute("SELECT @@ssl_cert, @@ssl_key, @@ssl_ca")
             originals = dict(zip(_TLS_FILES, cursor.fetchone(), strict=True))
             before = _tls_enabled(cursor)
@@ -143,6 +143,10 @@ def _database(
     return database, DatabaseLocation(host=host(), port=port(), name="mysql")
 
 
+# MySQL-only: MariaDB has no ``ALTER INSTANCE RELOAD TLS``, so on the mariadb
+# legs ``tls_disabled`` skips this with EngineUnsupported -- by design, and the
+# only skip tests/conftest.py lets an integration test take in CI.
+@pytest.mark.mysql_only
 def test_a_server_refusing_tls_is_unreachable(
     tls_disabled: None,
     credential_sentinel: CredentialSentinel,

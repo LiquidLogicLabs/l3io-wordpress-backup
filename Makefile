@@ -28,8 +28,18 @@
 #
 # WHAT `make ci` RUNS (2026-11-08):
 #   ci.yml, every job and every leg -- lint/types, contracts, test (py3.11-3.14
-#     x mysql80, mysql84, mariadb), unit (py3.11-3.14), clean install
-#     (py3.11-3.14, which builds and installs its own wheel), build;
+#     x mysql80, mysql84, mariadb; the `integration` tests only), unit
+#     (py3.11-3.14; everything else), clean install (py3.11-3.14, which builds
+#     and installs its own wheel), build;
+#
+# THE TWO TEST TIERS (2026-11-09). `test` runs `-m integration`, `unit` runs
+#   `-m "not integration"`: complements, on the same Pythons, so every test runs
+#   on every interpreter and every integration test on every engine, and no
+#   database leg repeats the ~5,900 tests that need no database. Kept exact by
+#   tests/contracts/test_integration_marker_reach.py (a test that needs the
+#   database is marked), tests/conftest.py (with CI set an integration test that
+#   skips fails) and tests/contracts/test_workflow_invariants.py (the two
+#   selections). Coverage is measured in both tiers, one report each.
 #   security-audit.yml for real (uv audit over uv.lock);
 #   ci-dryrun: publish.yml, release.yml and security-audit.yml as act dry runs,
 #     one leg per trigger and choice option, so every `uses:` ref resolves.
