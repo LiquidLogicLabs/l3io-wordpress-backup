@@ -40,6 +40,8 @@ from l3io.wp.backup.cli.exit import exit_code_for
 from l3io.wp.backup.core import restore as core_restore
 from l3io.wp.backup.core.restore import CUTOVER_KEYS, NO_RELOCATION
 from l3io.wp.backup.core.restore_journal import (
+    STEP_CONFIG_RESTORED,
+    STEP_CONFIG_SAVED,
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
     STEP_CUTOVER_STARTED,
@@ -47,6 +49,7 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_LOAD_STARTED,
     STEP_LOAD_TARGET_DROPPED,
     STEP_LOADED,
+    STEP_RELOCATION_ROLLED_BACK,
     STEP_ROLLBACK_FAILED,
     STEP_ROLLBACK_STARTED,
     STEP_ROLLED_BACK,
@@ -84,6 +87,7 @@ from tests.load_fakes import (
     EntryJournal,
     LoadHarness,
 )
+from tests.restore_builders import URL_ONLY
 from tests.restore_harness import TARGET_DB, CommandLog, FakeConfig, write_v1
 
 pytest.importorskip("l3io.wp.database")
@@ -996,3 +1000,146 @@ def test_the_cutover_is_timed_by_the_runs_clock(
 def test_needs_admin_is_a_load_readiness_blocker() -> None:
     """The fake's provisioning answer is one only an administrator resolves."""
     assert set(NEEDS_ADMIN.blockers) <= ADMINISTRATOR_RESOLVES
+
+
+# --------------------------------------------------------------------------
+# Owner decision 72: a failed SEARCH_REPLACE rolls the relocation back
+# --------------------------------------------------------------------------
+
+#: The content rewrite's failure (WP-CLI ``search-replace`` exited non-zero).
+REWRITE_FAILED = RuntimeError("wp search-replace exited 1")
+
+
+def _relocating(
+    tmp_path: Path, relocation: object = URL_ONLY, **kwargs: object
+) -> tuple[LoadHarness, EntryJournal]:
+    return _harness(
+        tmp_path,
+        relocation=relocation,
+        search_replace_failure=REWRITE_FAILED,
+        **kwargs,
+    )
+
+
+def _rollback_steps(journal: EntryJournal) -> list[str]:
+    return [
+        e.step
+        for e in journal.entries
+        if e.event == "step_completed"
+        and e.step
+        and e.step not in (STEP_LOAD_STARTED, STEP_LOADED)
+    ]
+
+
+def test_a_failed_url_rewrite_reloads_the_snapshot_and_puts_the_config_back(
+    tmp_path: Path,
+) -> None:
+    h, journal = _relocating(tmp_path)
+    original = h.config_path.read_bytes()
+    with capture_logs() as logs, pytest.raises(RuntimeError) as caught:
+        h.run_load(journal)
+    assert caught.value is REWRITE_FAILED
+    assert _loads(h) == [LIVE, LIVE], "the Safety Snapshot was not reloaded"
+    assert _rollback_steps(journal) == [
+        STEP_CONFIG_SAVED,
+        STEP_ROLLBACK_STARTED,
+        STEP_ROLLED_BACK,
+        STEP_CONFIG_RESTORED,
+        STEP_RELOCATION_ROLLED_BACK,
+    ]
+    saved = h.inputs().header.saved_config
+    assert saved is not None
+    assert Path(saved).read_bytes() == original
+    timeline = _timeline(h)
+    rewrite = timeline.index(
+        "search_replace.relocate_content:" + str(URL_ONLY.search_replace)
+    )
+    put_back = [
+        i for i, t in enumerate(timeline) if t.startswith("config.replace_file:")
+    ]
+    assert put_back
+    assert put_back[-1] > rewrite
+    assert timeline[put_back[-1]] == "config.replace_file:{}", "nothing is carried"
+    assert is_orderly_failure(tuple(journal.entries))
+    assert journal.finished
+    (rolled,) = [e for e in logs if e["event"] == "relocation_rolled_back"]
+    assert rolled["saved_config"] == saved
+    assert rolled["cause"] == "RuntimeError"
+
+
+def test_a_failed_url_rewrite_whose_rollback_fails_stays_interrupted(
+    tmp_path: Path,
+) -> None:
+    h, journal = _relocating(tmp_path)
+    h.database.failures["load_dump"] = LoadFailedError(
+        "the load exited 1", database=LIVE, exit_status=1
+    )
+    h.database.fail_loads = frozenset({2})
+    with pytest.raises(RollbackFailedError) as caught:
+        h.run_load(journal)
+    assert caught.value.cause is REWRITE_FAILED
+    assert isinstance(caught.value.rollback, LoadFailedError)
+    assert exit_code_for(caught.value) is ExitCode.FAILED
+    assert STEP_ROLLBACK_FAILED in _rollback_steps(journal)
+    assert STEP_RELOCATION_ROLLED_BACK not in _rollback_steps(journal)
+    assert not is_orderly_failure(tuple(journal.entries))
+    assert not journal.finished
+
+
+def test_a_config_that_cannot_be_put_back_fails_the_rollback(tmp_path: Path) -> None:
+    h, journal = _relocating(tmp_path)
+    saved = h.inputs().header.saved_config
+    assert saved is not None
+
+    def lost(*_: object, **__: object) -> ConfigWriteResult:
+        return ConfigWriteResult(changed=(), performed=True)  # nothing written
+
+    h.config.save_copy = lost  # type: ignore[method-assign]
+    with pytest.raises(RollbackFailedError) as caught:
+        h.run_load(journal)
+    assert caught.value.cause is REWRITE_FAILED
+    assert isinstance(caught.value.rollback, OSError)
+    steps = _rollback_steps(journal)
+    assert STEP_ROLLED_BACK in steps, "the database went back first"
+    assert steps[-1] == STEP_ROLLBACK_FAILED
+    assert not journal.finished
+
+
+@pytest.mark.parametrize("created", [True, False], ids=["created", "existing"])
+def test_a_failed_url_rewrite_after_a_move_empties_the_relocated_database(
+    tmp_path: Path, credential_sentinel: CredentialSentinel, created: bool
+) -> None:
+    """Owner decisions 72 and 73: the live database was never loaded; the
+    relocated one is dropped when this Run made it, else emptied again."""
+    moved = dataclasses.replace(
+        MOVED,
+        rewrite_values=URL_ONLY.rewrite_values,
+        search_replace=URL_ONLY.search_replace,
+        undo=(*URL_ONLY.undo, *MOVED.undo),
+    )
+    h, journal = _relocating(
+        tmp_path, moved, password=credential_sentinel.relocated_password
+    )
+    if created:
+        h.database.ensure_needed()
+    with pytest.raises(RuntimeError):
+        h.run_load(journal)
+    assert not [c for c in h.database.calls if c[2] == LIVE]
+    expected = "drop_database" if created else "drop_tables"
+    assert ("command", expected, ELSEWHERE.name) in h.database.calls
+    steps = _rollback_steps(journal)
+    assert steps[-2:] == [STEP_CONFIG_RESTORED, STEP_RELOCATION_ROLLED_BACK]
+    assert is_orderly_failure(tuple(journal.entries))
+
+
+def test_an_interrupted_url_rewrite_is_not_rolled_back(tmp_path: Path) -> None:
+    h, journal = _harness(
+        tmp_path,
+        relocation=URL_ONLY,
+        search_replace_failure=RunTerminated("SIGTERM"),
+    )
+    with pytest.raises(RunTerminated):
+        h.run_load(journal)
+    assert _loads(h) == [LIVE]
+    assert STEP_RELOCATION_ROLLED_BACK not in _rollback_steps(journal)
+    assert not journal.finished

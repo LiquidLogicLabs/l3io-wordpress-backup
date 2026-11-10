@@ -9,6 +9,10 @@ so through a ready file, while it holds the Site Lock.
   no stale warning.
 - SIGKILL: nothing runs, but the kernel freed the ``flock``; the next acquire
   succeeds and logs ``stale_lock_reclaimed`` naming the dead Run.
+
+As root (CI), the child switches to the Site's owner, so the Site and the
+Run's directories are given to it, and the next acquire, in this process, is
+made as that owner, whose state directory it is (``tests/root_mode.py``).
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from l3io.wp.backup.cli import _sigterm_raises
 from l3io.wp.backup.domain.errors import RunTerminated
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.lock import LockHolder
+from tests.root_mode import as_site_owner, give_to_site_owner
 
 _CHILD = """
 import os, sys, time
@@ -79,6 +84,7 @@ def _start(site: Path, tmp_path: Path) -> tuple[subprocess.Popen[bytes], Path]:
     work = tmp_path / "work"
     work.mkdir()
     ready = tmp_path / "ready"
+    give_to_site_owner(tmp_path)
     child = subprocess.Popen(  # noqa: S603 - a fixed script under this interpreter
         [
             sys.executable,
@@ -124,7 +130,11 @@ def test_sigterm_releases_the_lock_and_exits_failed(site: Path, tmp_path: Path) 
     assert b"terminated by SIGTERM" in err
     assert list(work.iterdir()) == [], "the workspace survived"
     assert _records() == [], "the holder record survived"
-    with capture_logs() as logs, FcntlSiteLock().acquire(site, _holder()):
+    with (
+        as_site_owner(),
+        capture_logs() as logs,
+        FcntlSiteLock().acquire(site, _holder()),
+    ):
         pass
     assert "stale_lock_reclaimed" not in [e["event"] for e in logs]
 
@@ -139,7 +149,11 @@ def test_sigkill_leaves_a_lock_the_next_run_reclaims(
     child.communicate(timeout=_TIMEOUT)
     assert child.returncode == -signal.SIGKILL
     assert _records() == [record], "SIGKILL ran a finally"
-    with capture_logs() as logs, FcntlSiteLock().acquire(site, _holder()):
+    with (
+        as_site_owner(),
+        capture_logs() as logs,
+        FcntlSiteLock().acquire(site, _holder()),
+    ):
         pass
     stale = [e for e in logs if e["event"] == "stale_lock_reclaimed"]
     assert len(stale) == 1

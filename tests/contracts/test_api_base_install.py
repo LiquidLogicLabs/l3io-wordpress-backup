@@ -17,6 +17,9 @@ same probe without the block and must see the extra present.
 
 The site's ``DB_PASSWORD`` is a unique sentinel per probe, and the child's
 stdout and stderr are checked not to contain it (BL-E006-003).
+
+As root (CI), the child is a library host, so it drops to the Site's owner
+before the backups (owner decision 68; ``tests/root_mode.py``).
 """
 
 from __future__ import annotations
@@ -29,11 +32,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from tests.root_mode import give_to_site_owner
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 PROBE = r"""
 import json, sys
 if sys.argv[1] == "blocked":
     sys.modules["l3io.wp.database"] = None
     sys.modules["opentelemetry.sdk"] = None
+from tests.root_mode import become_site_owner
+become_site_owner()
 from structlog.testing import capture_logs
 import l3io.wp.backup.api as api
 from l3io.wp.backup.domain.errors import MissingExtraError
@@ -74,8 +83,10 @@ def _probe(mode: str, tmp_path: Path) -> dict[str, Any]:
     password = f"base-pw-{uuid.uuid4().hex}"
     site = _site(tmp_path / f"site-{mode}", password)
     env = os.environ | {"TMPDIR": str(tmp_path)}
+    give_to_site_owner(tmp_path, environ=env)
     ran = subprocess.run(  # noqa: S603 - this interpreter, a fixed script
         [sys.executable, "-c", PROBE, mode, str(site), str(tmp_path / "out-")],
+        cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,
         env=env,

@@ -387,7 +387,7 @@ restore options:
   --resolve-interrupted-run RUN_ID
                         Resolve the journal left by the interrupted Run with this ID, then stop:
                         nothing is restored (run the restore again afterwards)
-  --admin-user USER, --admin-username USER
+  --admin-user, --admin-username USER
                         Database administrator username (give --admin-password with it, or set
                         L3IO_WP_BACKUP_ADMIN_PASSWORD)
   --admin-password SECRET
@@ -403,7 +403,8 @@ restore options:
   --new-site-home-url URL
                         Relocate the Site's home URL
   --new-db-host HOST    Relocate to this database host
-  --new-db-name NAME    Relocate to this database name
+  --new-db-name NAME    Relocate to this database name; it must be missing (created, and dropped
+                        again if the restore fails) or empty, --force or not
   --new-db-user USER    Relocate to this database user
   --new-db-password SECRET
                         Password of --new-db-user. The value is visible in the process list;

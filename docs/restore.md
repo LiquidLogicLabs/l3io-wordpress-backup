@@ -234,6 +234,14 @@ Archive's, and it may belong to another application. Pass
 account is created as before, as `USER@'%'`, so WordPress can reach it from
 another host, such as a separate web server or container (RT-S02-004).
 
+A database-only restore (`--mode db`) onto such a folder loads the database
+and **writes no `wp-config.php`** (owner decision 74): the files are not
+restored, so neither is their config. The result says so
+(`wp_config_absent: true`, and the line "wp-config.php: none at the target,
+and none written"), and the Run logs INFO `wp_config_not_written` naming the
+path. A relocation (`--new-db-*`) needs a `wp-config.php` to write its keys
+into, so with none it is still refused (`NoConfigForCutoverError`).
+
 ## What the Dump can reach
 
 The Dump is loaded into the live database as the site's WordPress database
@@ -305,11 +313,13 @@ constant's prior value.
   path is not accepted. With `--new-db-name` alone, the Site's own host is used; with
   `--new-db-host` alone, the Dump is loaded into the Site's database name on
   the new host.
-- **`--new-db-name`** loads the Dump into that database, which is provisioned
-  when absent (an administrator is then needed); `DB_NAME` ends as that name.
+- **`--new-db-name`** loads the Dump into that database, which must be
+  missing or empty (owner decision 73). A missing one is provisioned (an
+  administrator is then needed) and dropped again if the Run fails; `DB_NAME`
+  ends as that name.
 - **The live database is untouched** by a relocation that loads another
-  database: the Safety Snapshot does not cover the relocated one, so a failed
-  load leaves it partly loaded (one this Run created is dropped again).
+  database, and the Safety Snapshot does not cover the relocated one: that is
+  why the relocated database must hold no table.
 - **`--new-db-user` and `--new-db-password`** go together: one without the
   other exits 2 `USAGE`, since keeping half from the Archive would mix two
   accounts. The account is provisioned with rights on the load database, and
@@ -335,12 +345,12 @@ constant's prior value.
 `files-clean` any of them exits 2 `USAGE` before anything is changed: such a
 Mode has no cutover, so the value would be accepted and silently discarded.
 
-**A load database that does not look like this site** (the `--new-db-name`
-database, or the Site's name on the `--new-db-host` server, holding tables
-none of which has the site's prefix) is refused like any such target: exit 3
-`REFUSED`, before anything is changed. With `--force` the Dump is loaded over
-it; as always, only the tables with the site's prefix are dropped first, so
-its other tables stay.
+**A load database holding tables** (the `--new-db-name` database, or the
+Site's name on the `--new-db-host` server) is refused before anything is
+changed, naming it: exit 3 `REFUSED`, `RelocationTargetNotEmptyError` (owner
+decision 73). `--force` does not waive this, whatever the tables are: nothing
+is overwritten without a Safety Snapshot. Name a missing or empty database,
+or empty it yourself after taking your own backup of it.
 
 **An environment-driven `DB_*` is not rewritten.** A relocation flag whose
 constant the target reads from the environment (`getenv_docker()`/`getenv()`)
@@ -404,9 +414,22 @@ if a `wp-cli.yml` sits in it or above it.
   same and the WP-CLI version. A Dry Run prints the planned pairs (the old URL
   is read only after the Dump is loaded, so it shows as `<unresolved>`) and
   says the counts are determined after `LOAD_DUMP`; it changes nothing.
-- **Interrupted or failed.** A failure after the first replacement leaves
-  earlier ones made. The journal names `SEARCH_REPLACE` and the `wp
-  search-replace` commands still owed. Check each first with `--dry-run`
+- **A failure rolls the relocation back** (owner decision 72). When the
+  rewrite fails, before the Run exits the database is put back as a failed
+  load's is (the Safety Snapshot reloaded into the live database, or, for a
+  `--new-db-name` database, that database dropped again when this Run made it
+  and emptied again otherwise) and the original `wp-config.php` is copied
+  back from the copy saved before `REWRITE_CONFIG` wrote it (beside the Safety
+  Snapshots, `<stamp>-<run id>-wp-config.php`), undoing the URL constants and
+  any cutover at once. The Run logs WARNING `relocation_rolled_back` and exits
+  with the rewrite's own error; the site is as it was before the restore,
+  except files a file Mode extracted, so `--mode db` leaves no interrupted Run
+  and `all` does. A rollback that fails is `RollbackFailedError` (exit 1),
+  as for a failed load: the Run stays interrupted.
+- **Interrupted.** A SIGTERM or Ctrl-C during the rewrite is not rolled back,
+  and a failure after the first replacement leaves earlier ones made. The
+  journal names `SEARCH_REPLACE` and the `wp search-replace` commands still
+  owed. Check each first with `--dry-run`
   added, and re-run only those that still find their old URL. Never re-run
   one whose new URL contains its own old URL or the other command's old URL:
   it would rewrite its own results. When the stored `siteurl` and `home` were
@@ -957,7 +980,8 @@ With `--log-format json`, stdout is exactly one JSON object and nothing else:
  "restore_mode": "files", "archive": "...", "site_root": "...",
  "resolved_run_id": null, "actions": [], "skipped_links": [],
  "database_report": null, "search_replace": null, "snapshot_path": null,
- "snapshot_encrypted": false, "wp_config_kept": true}}
+ "snapshot_encrypted": false, "wp_config_kept": true,
+ "wp_config_absent": false}}
 ```
 
 (shown wrapped; it is one line). `status` is `completed`, `planned` (a Dry
@@ -1060,6 +1084,18 @@ library (`api.restore`, `api.backup`) never changes its host's user, so it
 refuses a Run as root (owner decision 68); drop privileges to the site's
 owner first, or use the `wpbackup2` command. `verify` touches no Site, so it
 neither switches nor refuses.
+
+The installation must be readable by the owner too. Python imports a module
+on first use, so after the switch the owner loads the rest of `wpbackup2`,
+its extras and the standard library itself; an interpreter or virtual
+environment under root's home directory (mode `0700`, as `uv tool install`
+or `pipx install` run as root leave it) cannot be read. Right after the
+switch, each directory of `sys.path` after the first (the standard library,
+`site-packages`, an editable install's source tree) is checked, and one the
+owner cannot read refuses the Run before it opens, a Dry Run too (exit 3,
+`InstallationNotReadableError`, naming the directory). Install `wpbackup2`
+where the site's user can read it (a system-wide or `/opt` install), or run
+it as that user.
 
 ## `--archive latest`
 

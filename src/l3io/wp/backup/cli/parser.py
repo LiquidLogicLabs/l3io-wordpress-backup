@@ -73,6 +73,7 @@ __all__ = [
     "VERIFY_COMMAND",
     "WP_DIR_REQUIRED",
     "CliParser",
+    "HelpFormatter",
     "build_parser",
     "exit_code_epilog",
     "not_yet_implemented",
@@ -182,6 +183,27 @@ class CliParser(argparse.ArgumentParser):
         self.exit(int(code), f"{self.prog}: error: {message} {suffix}\n")
 
 
+class HelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Every parser's formatter: one rendering on every supported Python.
+
+    CPython 3.13 changed how an option with several spellings is shown:
+    ``--admin-user, --admin-username USER`` instead of repeating the metavar
+    after each spelling. Before 3.13 this applies 3.13's rendering, so
+    ``--help`` and the README block ``tools/gen_cli_docs.py`` generates (and
+    checks on every interpreter CI runs) are the same everywhere. From 3.13
+    argparse's own method runs unchanged, colour included.
+    """
+
+    if sys.version_info < (3, 13):
+
+        def _format_action_invocation(self, action: argparse.Action) -> str:
+            if not action.option_strings or action.nargs == 0:
+                return super()._format_action_invocation(action)
+            default = self._get_default_metavar_for_optional(action)
+            args_string = self._format_args(action, default)
+            return ", ".join(action.option_strings) + " " + args_string
+
+
 def build_parser() -> CliParser:
     """Build the CLI parser with both frozen subcommands registered."""
     parser = CliParser(
@@ -190,7 +212,7 @@ def build_parser() -> CliParser:
             "Backup/restore your WordPress content and database.\n\n" + _SETTINGS_NOTE
         ),
         epilog=exit_code_epilog(),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=HelpFormatter,
     )
     parser.add_argument(
         "--version",
@@ -257,7 +279,7 @@ def _command(
         help=_noted(name, text),
         description=f"{_noted(name, text)}\n\n{_SETTINGS_NOTE}",
         epilog=exit_code_epilog(),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=HelpFormatter,
     )
     _add_config(command, top=False)
     return command
@@ -714,7 +736,10 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
         "--new-db-name",
         metavar="NAME",
         default=None,
-        help="Relocate to this database name",
+        help=(
+            "Relocate to this database name; it must be missing (created, and "
+            "dropped again if the restore fails) or empty, --force or not"
+        ),
     )
     options.add_argument(
         "--new-db-user",

@@ -404,7 +404,7 @@ def test_no_wp_database_restore_method_is_unbound_and_each_checks_the_admin() ->
     assert not bare.administrator_bound
     assert admin.administrator_bound
     restore = _restore_members()
-    assert len(restore) == 10
+    assert len(restore) == 7
     for name in restore:
         method = getattr(admin, name)
         keywords = {

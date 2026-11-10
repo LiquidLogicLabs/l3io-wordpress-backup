@@ -15,6 +15,9 @@ measurable cost"). The same backup under an SDK logs the same
 ``phase_completed`` records, differing only by ``trace_id`` and ``span_id``.
 A provider installed only after the package was imported is honoured: the
 tracer is resolved per call.
+
+As root (CI), the child is a library host, so it drops to the Site's owner
+before the backup (owner decision 68; ``tests/root_mode.py``).
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ from typing import Any
 
 import pytest
 
+from tests.root_mode import give_to_site_owner
+
 pytest.importorskip("opentelemetry.sdk")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -35,6 +40,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHILD = r"""
 import json, sys, tempfile
 from pathlib import Path
+
+from tests.root_mode import become_site_owner
+become_site_owner()
 
 with_sdk = sys.argv[1] == "sdk"
 out = Path(sys.argv[2])
@@ -125,6 +133,12 @@ def _run(tmp_path: Path, mode: str) -> tuple[dict[str, Any], str, str]:
         for k, v in os.environ.items()
         if not k.startswith("OTEL_") and k != "L3IO_WP_BACKUP_PASSPHRASE"
     }
+    # The fixtures are module-scoped, so conftest's per-test state directories
+    # are not set yet: the child's are its own, never the user's.
+    for name in ("XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+        env[name] = str(work / name.lower())
+        Path(env[name]).mkdir()
+    give_to_site_owner(work, environ=env)
     done = subprocess.run(  # noqa: S603 - the test's own interpreter and script
         [sys.executable, "-c", CHILD, mode, str(out), str(work)],
         cwd=PROJECT_ROOT,

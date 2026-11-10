@@ -12,6 +12,11 @@ create ``<tmp>/b/public/wp-config.php`` (the O2 edit to ``cli/restore.py``:
 before it, the header named the Site Root's file).
 
 Needs the CI ``db`` service (``DB_HOST``/``DB_PASSWORD``); skips without it.
+
+As root (CI), the spawned restore switches to the Site's owner, so the Site
+and the Run's directories are given to it before the child starts, and what
+this process does with the journal afterwards it does as that owner, whose
+state directory it is (``tests/root_mode.py``).
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ from tests.integration.live_cli import (
     run_cli,
 )
 from tests.integration.live_restore import live_site, read_keys
+from tests.root_mode import as_site_owner, give_to_site_owner
 
 __all__ = ["admin_account", "cli_site", "live_site"]
 
@@ -98,6 +104,7 @@ def test_a_parent_lay_down_killed_at_the_cutover_resolves_into_the_parent(
         f"{site.site.database}_moved",
         root=root,
     )
+    give_to_site_owner(work)
     context = multiprocessing.get_context("spawn")
     child = context.Process(
         target=killed_at_the_cutover, args=(argv, dict(os.environ)), daemon=True
@@ -110,24 +117,27 @@ def test_a_parent_lay_down_killed_at_the_cutover_resolves_into_the_parent(
     assert parent.is_file(), "the lay-down ran before the cutover"
     assert not (root / "wp-config.php").exists()
     canonical = root.resolve()
-    record = FileRunJournal(journal_directory(canonical)).incomplete(
-        PurePosixPath(canonical)
-    )
-    assert record is not None
-    assert record.header.wp_config_path == str(parent)
-    load = record.header.load_database
-    assert load is not None
-    assert read_keys(parent)["DB_NAME"] != load
-
-    ran = run_cli([*argv, "--resolve-interrupted-run", record.header.run_id], capsys)
-    assert ran.code == int(ExitCode.OK), ran.err[-3000:]
-    assert read_keys(parent)["DB_NAME"] == load
-    assert not (root / "wp-config.php").exists()
-    assert (
-        FileRunJournal(journal_directory(canonical)).incomplete(
+    with as_site_owner():
+        record = FileRunJournal(journal_directory(canonical)).incomplete(
             PurePosixPath(canonical)
         )
-        is None
-    )
+        assert record is not None
+        assert record.header.wp_config_path == str(parent)
+        load = record.header.load_database
+        assert load is not None
+        assert read_keys(parent)["DB_NAME"] != load
+
+        ran = run_cli(
+            [*argv, "--resolve-interrupted-run", record.header.run_id], capsys
+        )
+        assert ran.code == int(ExitCode.OK), ran.err[-3000:]
+        assert read_keys(parent)["DB_NAME"] == load
+        assert not (root / "wp-config.php").exists()
+        assert (
+            FileRunJournal(journal_directory(canonical)).incomplete(
+                PurePosixPath(canonical)
+            )
+            is None
+        )
     credential_sentinel.add("resolution output", ran.out + ran.err)
     credential_sentinel.assert_clean()

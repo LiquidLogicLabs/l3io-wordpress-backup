@@ -338,11 +338,11 @@ def _names(paths: Iterable[PurePosixPath]) -> list[str]:
 
 
 class NoopDatabase:
-    """``DatabaseCommand``: dumps, creates, loads, revokes and drops nothing.
+    """``DatabaseCommand``: dumps, creates, loads and drops nothing.
 
     ``administrator`` is whether the real adapter it stands in for has an
     administrator bound: the provisioning methods (``ensure_database``,
-    ``revoke_grants``, ``drop_database``) refuse without one, as the real
+    ``drop_database``) refuse without one, as the real
     ones do (AD-29); ``load_dump`` and ``drop_tables`` are the WordPress
     account's.
     """
@@ -405,16 +405,6 @@ class NoopDatabase:
         _skip(RestorePhase.LOAD_DUMP.name, method="drop_tables", prefix=prefix)
         self._log.record("NoopDatabase", "drop_tables", location.name)
         return ()
-
-    def revoke_grants(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> bool:
-        """``False``: nothing revoked."""
-        del confirm
-        self._require_admin()
-        _skip(RestorePhase.CLEAN.name, method="revoke_grants", user=user)
-        self._log.record("NoopDatabase", "revoke_grants", location.name)
-        return False
 
     def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
         """``False``: nothing dropped."""

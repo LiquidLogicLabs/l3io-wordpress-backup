@@ -58,6 +58,7 @@ __all__ = [
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
     "IncompleteRelocationCredentialsError",
+    "InstallationNotReadableError",
     "InterferingReplacementsError",
     "InvalidRelocationValueError",
     "InvalidSiteDescriptorError",
@@ -1347,6 +1348,33 @@ class PrivilegeDropError(RefusedError):
         super().__init__(
             f"could not switch to the Site Root's owner (uid {uid}, gid {gid}): "
             f"{step}; nothing was changed"
+        )
+
+
+class InstallationNotReadableError(RefusedError):
+    """The Site Root's owner cannot read the installation a root Run runs from.
+
+    Owner decisions 58 and 67: a Run started as root switches to the Site
+    Root's owner, and Python loads modules on first use, so a part of the
+    installation the owner cannot read (an interpreter or virtual environment
+    under root's home directory, as ``uv tool install`` or ``pipx install``
+    run as root leave it) would fail a later import mid-Run. Refused right
+    after the switch, before the Run opens. ``path`` is the first directory
+    the owner cannot read, ``uid`` and ``user`` the owner (``user`` ``None``
+    when the uid has no password entry).
+    """
+
+    def __init__(self, *, path: str, uid: int, user: str | None) -> None:
+        self.path = path
+        self.uid = uid
+        self.user = user
+        who = f"uid {uid}" if user is None else f"{user} (uid {uid})"
+        super().__init__(
+            f"the installation directory {path!r} is not readable by the Site "
+            f"Root's owner, {who}, whom a Run started as root runs as; install "
+            "wpbackup2 and its Python where that user can read them (not under "
+            "root's home directory), or run wpbackup2 as that user; nothing was "
+            "changed"
         )
 
 

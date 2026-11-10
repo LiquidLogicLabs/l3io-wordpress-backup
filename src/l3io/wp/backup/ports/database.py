@@ -13,11 +13,11 @@ table and view carrying the site's prefix, so the database holds exactly the
 Dump's tables afterwards; tables without the prefix are never touched.
 :meth:`DatabaseQuery.survey_target` observes as the WordPress account and
 turns to the administrator only when that account cannot see the database
-(AD-29 as amended). ``ensure_database``, ``check_ensure``, ``revoke_grants``,
-``check_revoke``, ``drop_database`` and ``check_drop_database`` answer through
-the bound administrator and raise ``AdminCredentialsRequiredError`` before
-any connection when none is bound. ``load_dump`` takes no credential or
-decryption parameter (ADR-0015 amendment, ADR-0024).
+(AD-29 as amended). ``ensure_database``, ``check_ensure`` and
+``drop_database`` answer through the bound administrator and raise
+``AdminCredentialsRequiredError`` before any connection when none is bound.
+``load_dump`` takes no credential or decryption parameter (ADR-0015
+amendment, ADR-0024).
 """
 
 from __future__ import annotations
@@ -70,18 +70,6 @@ class DatabaseQuery(Protocol):
         """Whether ``load_dump`` into ``location`` with the same options would run."""
         ...
 
-    def check_revoke(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> Readiness:
-        """Whether ``revoke_grants(location, user=user, ...)`` would run."""
-        ...
-
-    def check_drop_database(
-        self, location: DatabaseLocation, *, confirm: str
-    ) -> Readiness:
-        """Whether ``drop_database(location, ...)`` would run."""
-        ...
-
 
 @runtime_checkable
 class DatabaseCommand(Protocol):
@@ -116,12 +104,6 @@ class DatabaseCommand(Protocol):
         self, location: DatabaseLocation, *, prefix: str
     ) -> tuple[str, ...]:
         """Drop every table and view of ``location`` starting with ``prefix``."""
-        ...
-
-    def revoke_grants(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> bool:
-        """Revoke ``user``'s grants on ``location``; whether it was performed."""
         ...
 
     def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:

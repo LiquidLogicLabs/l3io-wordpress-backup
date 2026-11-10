@@ -21,7 +21,11 @@ from pathlib import Path, PurePosixPath
 from typing import IO
 
 from l3io.wp.backup.adapters.database import ADMIN_FLAGS, ADMIN_SOURCE
-from l3io.wp.backup.adapters.database_load import check_live, load_live
+from l3io.wp.backup.adapters.database_load import (
+    check_live,
+    load_live,
+    roll_back_relocation,
+)
 from l3io.wp.backup.adapters.restore_runner import execute_restore
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.core import restore_journal as core_restore
@@ -170,17 +174,6 @@ class FakeDatabase:
         assert prune_prefix == "wp_", prune_prefix
         return self._ready("check_load", location)
 
-    def check_revoke(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> Readiness:
-        return self._ready("check_revoke", location)
-
-    def check_drop_database(
-        self, location: DatabaseLocation, *, confirm: str
-    ) -> Readiness:
-        assert confirm == location.name
-        return self._ready("check_drop_database", location)
-
     # DatabaseCommand
     def dump_to(self, location: DatabaseLocation, destination: Path) -> DumpResult:
         self._call("command", "dump_to", location)
@@ -216,12 +209,6 @@ class FakeDatabase:
         assert prefix == "wp_"
         self._call("command", "drop_tables", location)
         return self.dropped
-
-    def revoke_grants(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> bool:
-        self._call("command", "revoke_grants", location)
-        return True
 
     def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
         assert confirm == location.name
@@ -382,6 +369,7 @@ class LoadHarness(Harness):
             archive=str(self.archive_path),
             config_path=str(self.relocation.config_file or self.config_path),
             snapshot_path=str(self.snapshot_file),
+            saved_config=super().header().saved_config,
         )
 
     def inputs(self) -> RestoreInputs:
@@ -433,6 +421,12 @@ class LoadHarness(Harness):
             self.cipher,
             survey_target=self.target,
             opted_out_by=self.opted_out_by,
+            undo_relocation=functools.partial(
+                roll_back_relocation,
+                ports=ports,
+                workspace=self.workspace,
+                cipher=self.cipher,
+            ),
         )
 
 
@@ -447,6 +441,7 @@ def load_header(
     config_path: str,
     snapshot_path: str | None = None,
     prior: Mapping[str, str | None] | None = None,
+    saved_config: str | None = None,
 ) -> JournalHeader:
     """The header the restore root builds before ``SNAPSHOT`` (ADR-0021)."""
     load = load_database_name(live, relocation)
@@ -468,7 +463,7 @@ def load_header(
             k: v for k, v in prior_values.items() if k in JOURNALED_CONSTANTS
         },
         phase_undo={},
-        saved_config=None,
+        saved_config=saved_config,
     )
 
 

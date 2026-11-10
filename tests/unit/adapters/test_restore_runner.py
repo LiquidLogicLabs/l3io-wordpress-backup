@@ -60,6 +60,7 @@ from l3io.wp.backup.domain.errors import (
     ExtractionRefusedError,
     PassphraseRejectedError,
     PayloadDamagedError,
+    RunTerminated,
     VerificationFailedError,
 )
 from l3io.wp.backup.domain.restore import (
@@ -199,6 +200,34 @@ def test_a_target_without_config_takes_the_archives_with_the_tree(
     extract = next(c for c in h.log.calls if c[2] == "extract")
     assert extract[3][2] == []
     assert not report.wp_config_kept
+    assert not report.wp_config_absent, "the tree laid the Archive's config down"
+
+
+def test_a_database_restore_onto_a_folder_without_config_writes_none(
+    tmp_path: Path, archive: Path
+) -> None:
+    """Owner decision 74: the database loads; no config is written, and the
+    report and the log say so."""
+    h = _harness(tmp_path, archive, mode=RestoreMode.DATABASE)
+    h.config_path.unlink()
+    with capture_logs() as logs:
+        report = h.run()
+    assert P.LOAD_DUMP in report.phases
+    assert not h.config_path.exists()
+    assert report.wp_config_absent
+    assert not report.wp_config_kept
+    (record,) = [e for e in logs if e["event"] == "wp_config_not_written"]
+    assert record["path"] == str(h.config_path)
+
+
+def test_a_database_restore_beside_a_config_does_not_report_it_absent(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(tmp_path, archive, mode=RestoreMode.DATABASE)
+    with capture_logs() as logs:
+        report = h.run()
+    assert not report.wp_config_absent
+    assert "wp_config_not_written" not in [e["event"] for e in logs]
 
 
 # --------------------------------------------------------------------------
@@ -1555,3 +1584,65 @@ def test_an_extraction_refusal_without_clean_stays_refused(
     with pytest.raises(ExtractionRefusedError) as caught:
         h.run()
     assert caught.value.exit_code is ExitCode.REFUSED
+
+
+# --------------------------------------------------------------------------
+# Owner decision 72: a failed SEARCH_REPLACE calls the undo slot
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("mode", "orderly"),
+    [(RestoreMode.DATABASE, True), (RestoreMode.ALL, False)],
+    ids=["database", "all"],
+)
+def test_a_failed_url_rewrite_is_undone_before_its_error_propagates(
+    tmp_path: Path, archive: Path, mode: RestoreMode, orderly: bool
+) -> None:
+    """The config was saved before ``REWRITE_CONFIG`` wrote it; the slot gets
+    it to put back. Extracted files are not undone, so ``all`` stays
+    interrupted."""
+    failure = RuntimeError("wp search-replace exited 1")
+    h = _harness(
+        tmp_path,
+        archive,
+        mode=mode,
+        relocation=RELOCATIONS["url-only"],
+        search_replace_failure=failure,
+    )
+    with pytest.raises(RuntimeError) as caught:
+        h.run()
+    assert caught.value is failure
+    assert h.undone == [("RuntimeError", False, h.config_path)]
+    calls = [c[2] for c in h.log.calls]
+    assert calls.index("save_copy") < calls.index("set_constants")
+    assert calls.index("relocate_content") < calls.index("undo_relocation")
+    assert ("finish_run" in h.journal.names()) is orderly
+
+
+def test_an_interrupted_url_rewrite_calls_no_undo(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(
+        tmp_path,
+        archive,
+        mode=RestoreMode.DATABASE,
+        relocation=RELOCATIONS["url-only"],
+        search_replace_failure=RunTerminated("SIGTERM"),
+    )
+    with pytest.raises(RunTerminated):
+        h.run()
+    assert h.undone == []
+
+
+def test_a_relocation_without_urls_saves_no_config_copy(
+    tmp_path: Path, archive: Path
+) -> None:
+    h = _harness(
+        tmp_path,
+        archive,
+        mode=RestoreMode.DATABASE,
+        relocation=RELOCATIONS["database-only"],
+    )
+    h.run()
+    assert "save_copy" not in [c[2] for c in h.log.calls]

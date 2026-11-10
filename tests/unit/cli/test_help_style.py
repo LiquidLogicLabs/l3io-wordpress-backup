@@ -91,3 +91,21 @@ def test_dry_run_help_says_the_site_lock_is_taken(
     assert what_if.help is not None
     assert "Site Lock" in what_if.help, name
     assert "change nothing" not in what_if.help, name
+
+
+def _aliased(parser: argparse.ArgumentParser) -> list[argparse.Action]:
+    return [
+        a
+        for a in parser._actions  # noqa: SLF001
+        if len(a.option_strings) > 1 and a.nargs != 0 and a.help != argparse.SUPPRESS
+    ]
+
+
+def test_an_aliased_option_shows_its_metavar_once_on_every_python() -> None:
+    """CPython 3.13's rendering on 3.11 and 3.12 too, so the README block
+    ``tools/gen_cli_docs.py`` checks is the same on every interpreter."""
+    aliased = [(name, p, a) for name, p in PARSERS for a in _aliased(p)]
+    assert aliased, "no option with several spellings takes a value"
+    for name, parser, action in aliased:
+        text = parser.format_help()
+        assert ", ".join(action.option_strings) + " " in text, (name, action.dest)

@@ -25,15 +25,15 @@ from pathlib import Path
 
 import pytest
 
-from tests.root_mode import ROOT_MARK, running_as_root
+from tests.root_mode import ROOT_MARK, SITE_OWNER, running_as_root
 
 pytestmark = [
     getattr(pytest.mark, ROOT_MARK),
     pytest.mark.skipif(not running_as_root(), reason="needs real root"),
 ]
 
-#: ``nobody`` on Debian and Ubuntu; any uid without root's rights does.
-OWNER = 65534
+#: The one owner every root test uses (``tests/root_mode.py``).
+OWNER = SITE_OWNER
 PASSPHRASE = "root-only-passphrase-67"
 
 WP_CONFIG = (

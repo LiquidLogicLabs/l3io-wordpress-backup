@@ -7,12 +7,17 @@ import pytest
 from l3io.wp.backup.core.restore_journal import (
     STEP_CHECK_FAILED,
     STEP_CONFIG,
+    STEP_CONFIG_RESTORED,
+    STEP_CONFIG_SAVED,
     STEP_CONFIG_STARTED,
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
     STEP_CUTOVER_STARTED,
     STEP_LOSER_DROP_STARTED,
     STEP_LOSER_DROPPED,
+    STEP_RELOCATION_ROLLED_BACK,
+    STEP_ROLLBACK_FAILED,
+    STEP_ROLLED_BACK,
     STEP_STAGING_DROPPED,
     is_orderly_failure,
 )
@@ -101,3 +106,34 @@ def test_no_staging_drop_is_not_orderly() -> None:
 def test_a_cutover_intent_alone_does_not_make_it_non_orderly() -> None:
     assert READBACK_FAILED[1].step == "cutover_started:DB_NAME"
     assert is_orderly_failure(READBACK_FAILED)
+
+
+#: Owner decision 72: a URL relocation's rewrite failed and was rolled back.
+RELOCATION_UNDONE = (
+    _started(P.REWRITE_CONFIG),
+    _step(P.REWRITE_CONFIG, STEP_CONFIG_SAVED),
+    _done(P.REWRITE_CONFIG),
+    LOAD,
+    _step(P.LOAD_DUMP, STEP_CUTOVER + "DB_NAME"),
+    _done(P.LOAD_DUMP),
+    _started(P.SEARCH_REPLACE),
+    _step(P.LOAD_DUMP, STEP_ROLLED_BACK),
+    _step(P.SEARCH_REPLACE, STEP_CONFIG_RESTORED),
+    _step(P.SEARCH_REPLACE, STEP_RELOCATION_ROLLED_BACK),
+)
+
+
+def test_a_rolled_back_relocation_is_orderly_despite_its_config_writes() -> None:
+    assert is_orderly_failure(RELOCATION_UNDONE)
+
+
+@pytest.mark.parametrize("phase", [P.CLEAN, P.EXTRACT])
+def test_a_rolled_back_relocation_after_file_phases_is_not_orderly(
+    phase: RestorePhase,
+) -> None:
+    assert not is_orderly_failure((_started(phase), *RELOCATION_UNDONE))
+
+
+def test_a_relocation_rollback_that_failed_is_not_orderly() -> None:
+    failed = (*RELOCATION_UNDONE, _step(P.LOAD_DUMP, STEP_ROLLBACK_FAILED))
+    assert not is_orderly_failure(failed)

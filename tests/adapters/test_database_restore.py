@@ -148,11 +148,15 @@ def test_ensure_creates_then_reports_nothing_to_do(target: Target) -> None:
     empty = target.database.survey_target(
         target.location, table_prefix="wp_", wordpress_user=target.user
     )
+    # Owner decision 55: the WordPress account, which now logs in and sees
+    # its database, is the observer; it cannot read the account table, so
+    # whether its own account exists is unknown (``None``), never guessed.
     assert (empty.database_exists, empty.table_count, empty.user_exists) == (
         True,
         0,
-        True,
+        None,
     )
+    assert empty.prefixed_tables == ()
     assert not empty.is_wordpress
 
 
@@ -210,12 +214,9 @@ def test_a_dump_cannot_run_a_client_shell_command(
 
 @pytest.mark.integration
 @live
-def test_revoke_then_drop(target: Target) -> None:
+def test_ensure_then_drop(target: Target) -> None:
     target.database.ensure_database(target.location)
-    where, user = target.location, target.user
-    assert target.database.check_revoke(where, user=user, confirm=user).ready
-    assert target.database.revoke_grants(where, user=user, confirm=user) is True
-    assert target.database.check_drop_database(where, confirm=where.name).ready
+    where = target.location
     assert target.database.drop_database(where, confirm=where.name) is True
     gone = target.database.survey_target(where, table_prefix="wp_", wordpress_user=None)
     assert not gone.database_exists
@@ -272,20 +273,8 @@ CALLS = {
     ),
     "check_ensure": ("check_ensure", lambda db: db.check_ensure(WHERE)),
     "check_load": ("check_load", lambda db: db.check_load(WHERE, source=None)),
-    "check_revoke": (
-        "check_revoke",
-        lambda db: db.check_revoke(WHERE, user="u", confirm="u"),
-    ),
-    "check_drop_database": (
-        "check_drop_database",
-        lambda db: db.check_drop_database(WHERE, confirm="wptest"),
-    ),
     "ensure_database": ("ensure", lambda db: db.ensure_database(WHERE)),
     "load_dump": ("load", lambda db: db.load_dump(WHERE, Path("/dev/null"))),
-    "revoke_grants": (
-        "revoke",
-        lambda db: db.revoke_grants(WHERE, user="u", confirm="u"),
-    ),
     "drop_database": (
         "drop_database",
         lambda db: db.drop_database(WHERE, confirm="wptest"),
@@ -577,20 +566,6 @@ def test_drop_of_a_live_site_logs_the_warning_and_returns_changed(
     events = {e["event"]: e for e in logs}
     assert events["database_drop_warnings"]["warnings"] == ("live_wordpress_site",)
     assert events["database_dropped"]["changed"] is False
-
-
-def test_revoke_returns_changed_and_records_it(
-    admin_database: WpDatabase, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        wpdb,
-        "revoke",
-        lambda *_, **__: wpdb.OperationResult(True, _verdict("revoke")),
-    )
-    with capture_logs() as logs:
-        assert admin_database.revoke_grants(WHERE, user="u", confirm="u") is True
-    (record,) = [e for e in logs if e["event"] == "grants_revoked"]
-    assert record["changed"] is True
 
 
 @pytest.mark.parametrize(

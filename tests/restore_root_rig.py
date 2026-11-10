@@ -71,6 +71,12 @@ class FakeDatabase:
     def __init__(self, events: list[object], state: DatabaseTargetState) -> None:
         self.events = events
         self.state = state
+        #: Any other database (a relocation's load database): it holds no
+        #: table, as owner decision 73 requires of one, yet answers the
+        #: post-load check as WordPress (a test replaces it to plant one).
+        self.other_state = dataclasses.replace(
+            state, table_count=0, routine_count=0, event_count=0, prefixed_tables=()
+        )
         self.commands: list[str] = []
         self.administrator_bound = True
 
@@ -82,7 +88,11 @@ class FakeDatabase:
         wordpress_user: str | None,
     ) -> DatabaseTargetState:
         self.events.append(("survey", location.name, wordpress_user))
-        return self.state
+        # The root surveys the live database first, then a relocation's.
+        live = next(
+            e[1] for e in self.events if isinstance(e, tuple) and e[0] == "survey"
+        )
+        return self.state if location.name == live else self.other_state
 
     def check_dump(self, location: DatabaseLocation) -> Readiness:
         self.events.append(("check_dump", location.name))

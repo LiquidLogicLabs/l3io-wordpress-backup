@@ -6,6 +6,10 @@ four target states. The expected verdict is computed from the **flags**, not
 from ``OverrideSet``: without ``--force`` every non-empty part the ``--mode``
 names refuses; with it none does. So a table row whose waiver drifted from its
 flag fails here.
+
+A relocation's load database holding tables is refused first, whatever the
+flags (owner decision 73, :class:`RelocationTargetNotEmptyError`): ``--force``
+does not waive it.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli.exit import exit_code_for
 from l3io.wp.backup.core.restore import (
     NonEmptyTargetError,
+    RelocationTargetNotEmptyError,
     TargetState,
     check_target,
     render_flags,
@@ -86,15 +91,16 @@ def _non_empty(target: TargetState) -> set[RestorePart]:
 
 
 def _databases(target: TargetState) -> list[str]:
-    """``host:port/name`` of each surveyed database holding a table."""
-    return [
-        f"{location.host}:{location.port}/{location.name}"
-        for db, location in (
-            (target.database, target.database_location),
-            (target.load_target, target.load_location),
-        )
-        if db is not None and db.table_count and location is not None
-    ]
+    """``host:port/name`` of the live database when it holds a table."""
+    db, location = target.database, target.database_location
+    if db is not None and db.table_count and location is not None:
+        return [f"{location.host}:{location.port}/{location.name}"]
+    return []
+
+
+def _load_has_tables(target: TargetState) -> bool:
+    load = target.load_target
+    return load is not None and load.database_exists and load.table_count > 0
 
 
 @pytest.mark.parametrize("target_name", list(TARGETS))
@@ -112,6 +118,12 @@ def test_every_table_row_refuses_or_proceeds_as_its_flags_say(
     mode, overrides = resolve_flags(flags)
     scope = values["mode"]
     assert isinstance(scope, BackupScope)
+    if restores_database(mode) and _load_has_tables(target):
+        with pytest.raises(RelocationTargetNotEmptyError) as refused:
+            check_target(mode, overrides, target)
+        assert refused.value.database == "db2.internal:3306/moved_db"
+        assert refused.value.tables == 12
+        return
     expected = set() if values["force"] else SCOPE_PARTS[scope] & _non_empty(target)
     if not expected:
         check_target(mode, overrides, target)
@@ -211,15 +223,38 @@ def test_a_non_empty_live_database_refuses_without_a_load_database() -> None:
     assert caught.value.found == f"{LIVE.host}:{LIVE.port}/{LIVE.name}"
 
 
-def test_a_non_empty_load_database_refuses_over_an_empty_live_one() -> None:
+@pytest.mark.parametrize("load", [FULL_DB, WORDPRESS_DB], ids=["foreign", "wordpress"])
+@pytest.mark.parametrize("force", [False, True], ids=["plain", "force"])
+def test_a_load_database_holding_tables_is_refused_even_with_force(
+    load: DatabaseTargetState, force: bool
+) -> None:
+    """Owner decision 73: a relocation's target must be missing or empty; a
+    WordPress database there is refused too, and ``--force`` waives nothing."""
     target = dataclasses.replace(
-        EMPTY, database=EMPTY_DB, load_target=FULL_DB, load_location=LOAD
+        EMPTY, database=EMPTY_DB, load_target=load, load_location=LOAD
     )
-    with pytest.raises(NonEmptyTargetError) as caught:
-        check_target(RestoreMode.DATABASE, OverrideSet.none(), target)
-    assert caught.value.parts == ("database",)
-    assert caught.value.found == "db2.internal:3306/moved_db"
-    assert caught.value.detail == "12 tables"
+    overrides = OverrideSet(waived=frozenset(Override)) if force else OverrideSet.none()
+    with pytest.raises(RelocationTargetNotEmptyError) as caught:
+        check_target(RestoreMode.DATABASE, overrides, target)
+    assert caught.value.database == "db2.internal:3306/moved_db"
+    assert caught.value.tables == 12
+    assert "db2.internal:3306/moved_db" in str(caught.value)
+    assert "--force does not waive" in str(caught.value)
+    assert exit_code_for(caught.value) is ExitCode.REFUSED
+
+
+def test_a_load_location_that_is_the_live_database_is_not_a_relocation() -> None:
+    """``--new-db-host`` naming the live server: the live database is loaded,
+    and the Safety Snapshot covers it (decision 57's rule applies)."""
+    target = dataclasses.replace(
+        EMPTY, database=WORDPRESS_DB, load_target=WORDPRESS_DB, load_location=LIVE
+    )
+    check_target(RestoreMode.DATABASE, OverrideSet.none(), target)
+
+
+def test_a_load_database_with_tables_is_ignored_by_a_files_restore() -> None:
+    target = dataclasses.replace(EMPTY, load_target=FULL_DB, load_location=LOAD)
+    check_target(RestoreMode.FILES, OverrideSet.none(), target)
 
 
 @pytest.mark.parametrize(
@@ -322,9 +357,9 @@ def test_a_refused_run_makes_no_command_port_call(tmp_path: Path) -> None:
 
 def test_a_survey_without_its_location_is_named_by_role() -> None:
     target = dataclasses.replace(EMPTY, load_target=FULL_DB, load_location=None)
-    with pytest.raises(NonEmptyTargetError) as caught:
+    with pytest.raises(RelocationTargetNotEmptyError) as caught:
         check_target(RestoreMode.DATABASE_CLEAN, OverrideSet.none(), target)
-    assert caught.value.findings == (("the load database", "12 tables"),)
+    assert caught.value.database == "the load database"
 
 
 # --------------------------------------------------------------------------
@@ -360,10 +395,9 @@ def test_a_wordpress_site_root_never_waives_the_database() -> None:
 def test_a_wordpress_or_empty_database_needs_no_waiver(
     mode: RestoreMode, database: DatabaseTargetState
 ) -> None:
-    """Owner decision 57: the Safety Snapshot and the rollback cover it."""
-    target = dataclasses.replace(
-        EMPTY, database=database, load_target=database, load_location=LOAD
-    )
+    """Owner decision 57: the Safety Snapshot and the rollback cover it. (A
+    relocation's load database is decision 73's: it must hold no table.)"""
+    target = dataclasses.replace(EMPTY, database=database)
     check_target(mode, OverrideSet.none(), target)
 
 

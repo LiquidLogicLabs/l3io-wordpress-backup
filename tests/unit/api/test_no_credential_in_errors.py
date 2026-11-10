@@ -195,16 +195,13 @@ def test_a_rejected_passphrase_through_the_api_carries_no_secret(
 
 #: Every ``l3io.wp.database`` operation the real adapter can call.
 DATABASE_OPERATIONS = (
-    "check_drop_database",
     "check_dump",
     "check_ensure",
     "check_load",
-    "check_revoke",
     "drop_database",
     "dump",
     "ensure",
     "load",
-    "revoke",
     "survey",
 )
 

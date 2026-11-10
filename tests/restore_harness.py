@@ -23,7 +23,11 @@ from l3io.wp.backup.adapters.database import (
 )
 from l3io.wp.backup.adapters.noop import NoopTracer
 from l3io.wp.backup.adapters.redaction import SecretRegistry
-from l3io.wp.backup.adapters.restore_runner import execute_restore, snapshot_result
+from l3io.wp.backup.adapters.restore_runner import (
+    UndoRelocation,
+    execute_restore,
+    snapshot_result,
+)
 from l3io.wp.backup.adapters.site_files import LocalSiteFiles
 from l3io.wp.backup.adapters.tar import (
     TarArchiveProbe,
@@ -55,6 +59,7 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_CUTOVER_STARTED,
     STEP_LOAD_STARTED,
     STEP_LOADED,
+    STEP_RELOCATION_ROLLED_BACK,
     STEP_ROLLBACK_FAILED,
     STEP_ROLLBACK_STARTED,
     STEP_ROLLED_BACK,
@@ -319,6 +324,9 @@ class FakeConfig:
 
     def save_copy(self, config_file: Path, destination: Path) -> ConfigWriteResult:
         self.log.add("config", "save_copy", str(destination))
+        if config_file.is_file():  # the bytes a rollback copies back (decision 72)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(config_file.read_bytes())
         return ConfigWriteResult(changed=(), performed=True)
 
     def replace_file(
@@ -345,13 +353,16 @@ class RecordingPort:
 
 
 class FakeSearchReplace:
-    def __init__(self, log: CommandLog) -> None:
+    def __init__(self, log: CommandLog, failure: BaseException | None = None) -> None:
         self.log = log
+        self.failure = failure
 
     def relocate_content(
         self, site_root: Path, urls: object, *, archive_encrypted: bool | None = None
     ) -> SearchReplaceReport:
         self.log.add("search_replace", "relocate_content", urls)
+        if self.failure is not None:
+            raise self.failure
         return SearchReplaceReport(
             pairs=(), replacements=0, tables=(), remaining=0, merged=True
         )
@@ -424,6 +435,12 @@ class Harness:
     config_writer: ConfigPorts | None = None
     #: The ``load_database`` slot in place of :meth:`load_database`.
     slot: LoadSlot | None = None
+    #: What ``SEARCH_REPLACE`` raises (owner decision 72); ``None``: it works.
+    search_replace_failure: BaseException | None = None
+    #: The ``undo_relocation`` slot in place of :meth:`undo_relocation`.
+    undo_slot: UndoRelocation | None = None
+    #: What :meth:`undo_relocation` was called with (owner decision 72).
+    undone: list[tuple[str, bool, Path | None]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.site_root = self.work / "target"
@@ -484,7 +501,7 @@ class Harness:
             site_files_command=RecordingSiteFiles(self.log, real),
             config_query=self.config_ports,
             config_command=self.config_ports,
-            search_replace=FakeSearchReplace(self.log),
+            search_replace=FakeSearchReplace(self.log, self.search_replace_failure),
             journal_query=cast("RunJournalQuery", Unused("journal_query")),
             journal_command=self.journal,
         )
@@ -546,7 +563,12 @@ class Harness:
             ),
             prior_constants={"DB_NAME": "target_db"},
             phase_undo={},
-            saved_config=str(self.work / "saved-wp-config.php"),
+            # As the restore root sets it: --overwrite-wp-config's copy, and a
+            # URL relocation's (owner decision 72).
+            saved_config=str(self.work / "saved-wp-config.php")
+            if self.config_policy is ConfigPolicy.OVERWRITE
+            or self.relocation.search_replace is not None
+            else None,
         )
 
     def inputs(self) -> RestoreInputs:
@@ -590,6 +612,20 @@ class Harness:
         self.checks += 1
         if self.check_failure is not None:
             raise self.check_failure
+
+    def undo_relocation(
+        self,
+        inputs: RestoreInputs,
+        journal: RunJournalCommand,
+        cause: BaseException,
+        created: bool,
+        config_file: Path | None,
+    ) -> None:
+        """The fake ``undo_relocation`` slot: records, and journals as the real."""
+        del inputs
+        self.undone.append((type(cause).__name__, created, config_file))
+        self.log.add("slot", "undo_relocation", type(cause).__name__)
+        journal.step_completed(RestorePhase.SEARCH_REPLACE, STEP_RELOCATION_ROLLED_BACK)
 
     def load_database(
         self, inputs: RestoreInputs, journal: RunJournalCommand
@@ -651,6 +687,9 @@ class Harness:
             self.cipher,
             survey_target=self.target,
             opted_out_by=self.opted_out_by,
+            undo_relocation=self.undo_relocation
+            if self.undo_slot is None
+            else self.undo_slot,
         )
 
 

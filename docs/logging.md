@@ -156,6 +156,8 @@ never appear in any of them.
 | `database_rollback_failed` | ERROR | A failed load's automatic rollback failed, or nothing could roll it back; the Run is recorded as interrupted (`database`, `cause`, `rollback_error`, `snapshot`, `recovery`; owner decision 50) |
 | `database_rollback_owed` | WARNING | `--resolve-interrupted-run` acknowledged a Run that left the live database partly loaded; restore it from the snapshot (`run_id_resolved`, `database`, `snapshot`, `recovery`) |
 | `database_rollback_started` | WARNING | A load failed after it began; the live database is being put back (`database`, `rollback` `snapshot` or `empty`, `snapshot`, `cause`) |
+| `relocation_rollback_started` | WARNING | A URL relocation's content rewrite (`SEARCH_REPLACE`) failed; the database and `wp-config.php` are being put back (`database`, `wp_config_path`, `saved_config`, `cause`; owner decision 72) |
+| `relocation_rolled_back` | WARNING | The database and the original `wp-config.php` were put back after a failed `SEARCH_REPLACE` (`database`, `wp_config_path`, `saved_config`, `cause`); the Run then exits with the rewrite's error (owner decision 72) |
 | `database_rolled_back` | WARNING | The live database was put back as it was before the Run, from the Safety Snapshot or by emptying it (`database`, `rollback`, `snapshot`, `cause`); the Run then exits with the load's error |
 | `database_surveyed` | INFO | A restore target's database was surveyed (`db_name`, `observed_by` `wordpress` or `administrator`, `database_exists`, `prefixed_tables` count, `duration_ms`; owner decision 55) |
 | `database_tables_dropped` | INFO | The load dropped every table and view carrying the site's prefix before loading the Dump (`database`, `table_prefix`, `count`, `tables`; owner decision 53) |
@@ -165,7 +167,6 @@ never appear in any of them.
 | `dump_readiness` | INFO | The database reported whether it can be dumped (`db_name`, `credential_source`, blockers and warnings) |
 | `encryption_configured` | INFO | A backup encrypts its payload (`scheme` `age`, `mode` `passphrase`) |
 | `exclusions_applied` | INFO | The first exclusion decision of a backup (`source`, `pattern_count`) |
-| `grants_revoked` | INFO | An account had its grants on a database revoked (`db_name`, `changed`, `duration_ms`); no restore step revokes since the direct load (owner decision 55) |
 | `hard_link_stored_as_file` | WARNING | Files that are hard links of each other were each stored in full (`paths`) |
 | `incomplete_run_found` | ERROR | A restore found an interrupted Run's journal for this Site and refuses (`run_id_interrupted`, `started_at`, `interrupted_phase`) |
 | `interrupted_run_resolved` | INFO | `--resolve-interrupted-run` completed and cleared the interrupted Run's journal (`run_id_resolved`) |
@@ -230,6 +231,7 @@ never appear in any of them.
 | `wp_cli_running_as_root` | WARNING | WP-CLI runs as root, executing the Site's PHP as root (`site_root`, `archive_encrypted`) |
 | `wp_config_exclusion_ignored` | DEBUG | An exclusion pattern matched `wp-config.php`, which is never excluded (`path`) |
 | `wp_config_kept` | INFO | A restore kept the target's own `wp-config.php` (`path`) |
+| `wp_config_not_written` | INFO | A restore found no `wp-config.php` at the target and wrote none: a database-only restore onto a folder without one (`path`, `reason`; owner decision 74) |
 | `wp_config_located` | INFO | A backup found the Site's `wp-config.php` (`path`, `location`) |
 | `wp_config_outside_search_path` | WARNING | `--wp-config` names a file WordPress would not load for this Site Root (`path`) |
 | `wp_config_overwritten` | WARNING | `--overwrite-wp-config` replaced the target's `wp-config.php`; the old one was saved (`path`, `saved`) |

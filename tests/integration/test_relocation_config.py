@@ -68,10 +68,11 @@ from l3io.wp.backup.adapters.tar import verify_archive_view
 from l3io.wp.backup.cli.credentials import new_db_password
 from l3io.wp.backup.cli.parser import RESTORE_COMMAND, build_parser
 from l3io.wp.backup.cli.restore_request import RelocationFlags
-from l3io.wp.backup.core.restore import RestoreRelocation
-from l3io.wp.backup.domain.errors import BackupError, ConfigWriteFailedError
+from l3io.wp.backup.core.restore import RelocationTargetNotEmptyError, RestoreRelocation
+from l3io.wp.backup.domain.errors import ConfigWriteFailedError, WpCliFailedError
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.restore import OverrideSet, RestoreMode, RestorePhase
+from l3io.wp.backup.domain.search_replace import UrlRelocation
 from tests.conftest import CredentialSentinel
 from tests.integration.live_cli import (
     CliSite,
@@ -391,16 +392,13 @@ def test_a_read_back_mismatch_changes_nothing_and_loads_nothing(
     assert ("phase_started", RestorePhase.LOAD_DUMP) not in events
 
 
-@pytest.mark.parametrize("force", [False, True], ids=["refused", "forced"])
-def test_a_new_database_of_another_application_needs_force(
+@pytest.mark.parametrize("force", [False, True], ids=["plain", "force"])
+def test_a_new_database_holding_tables_is_refused_even_with_force(
     live_site: LiveSite, credential_sentinel: CredentialSentinel, force: bool
 ) -> None:
-    """Owner decision 57: tables, but none with the site's prefix, need ``--force``.
-
-    Without it the plan refuses before any phase. With it the Dump loads over
-    that database: only the tables with the site's prefix are dropped first
-    (decision 53), so the other application's table survives.
-    """
+    """Owner decision 73: ``--new-db-name`` naming a database that holds
+    tables is refused before any change, naming it; ``--force`` does not
+    waive it (the Safety Snapshot covers only the live database)."""
     site = live_site
     occupied = f"{site.database}_full"
     with root_connection().cursor() as cursor:
@@ -421,20 +419,74 @@ def test_a_new_database_of_another_application_needs_force(
     before = site.config.read_bytes()
     checksums = site.checksums(occupied)
     spec = spec_for(site, archive, RestoreMode.DATABASE, relocation=relocation)
-    if force:
+    if not force:
+        spec = replace_spec(spec, overrides=OverrideSet.none())
+    with pytest.raises(RelocationTargetNotEmptyError) as caught:
         restore(spec)
-        assert _tables(occupied) == {"keep_me", "wp_options", "wp_restored"}
-        assert read_keys(site.config)["DB_NAME"] == occupied
-        return
-    with pytest.raises(BackupError) as caught:
-        restore(replace_spec(spec, overrides=OverrideSet.none()))
     assert caught.value.exit_code is ExitCode.REFUSED, caught.value
+    assert caught.value.database.endswith(f"/{occupied}")
+    assert caught.value.tables == 1
     assert site.config.read_bytes() == before
     assert site.checksums(occupied) == checksums
     assert _tables(occupied) == {"keep_me"}
     record = journal_for(site.site_root).incomplete(PurePosixPath(site.site_root))
     started = [] if record is None else [e.phase for e in record.entries]
     assert RestorePhase.LOAD_DUMP not in started, started
+
+
+class _FailingRewrite:
+    """A planted ``wp search-replace`` failure (owner decision 72)."""
+
+    def relocate_content(self, *_: object, **__: object) -> object:
+        step = "search-replace"
+        raise WpCliFailedError(step, 1, "planted failure")
+
+
+def test_a_failed_url_rewrite_puts_the_database_and_config_back(
+    live_site: LiveSite, credential_sentinel: CredentialSentinel
+) -> None:
+    """Owner decision 72, on the CI database with the real config writer:
+    the live database is reloaded from a real Safety Snapshot and the
+    original ``wp-config.php`` is copied back, byte for byte; the Run is not
+    left interrupted."""
+    site = live_site
+    flags = RelocationFlags(
+        new_site_url="https://moved.e007.example",
+        new_home_url=None,
+        new_db_host=None,
+        new_db_name=None,
+        new_db_user=None,
+        new_db_password=None,
+        wp_config=None,
+    )
+    archive = build_archive(site.work, config=None)
+    relocation = dataclasses.replace(
+        _resolve(site, flags, RestoreMode.DATABASE, archive),
+        search_replace=UrlRelocation(
+            site_url="https://moved.e007.example", home_url=None
+        ),
+    )
+    relocation = dataclasses.replace(
+        relocation,
+        undo=(*relocation.undo, (RestorePhase.SEARCH_REPLACE, "planted: rewrite")),
+    )
+    config_before = site.config.read_bytes()
+    checksums = site.checksums()
+    spec = replace_spec(
+        spec_for(site, archive, RestoreMode.DATABASE, relocation=relocation),
+        snapshot=True,
+    )
+    with pytest.raises(WpCliFailedError):
+        restore(
+            spec,
+            select=lambda adapters: dataclasses.replace(
+                adapters, search_replace=_FailingRewrite()
+            ),
+        )
+    assert site.config.read_bytes() == config_before
+    assert site.checksums() == checksums
+    record = journal_for(site.site_root).incomplete(PurePosixPath(site.site_root))
+    assert record is None, "a rolled-back relocation left the Run interrupted"
 
 
 def test_a_db_only_relocation_runs_through_the_cli(

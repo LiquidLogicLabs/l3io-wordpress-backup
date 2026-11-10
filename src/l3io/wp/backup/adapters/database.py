@@ -3,7 +3,7 @@
 Locates ``wp-config.php``, builds the Site Descriptor from it (AD-3), resolves
 the WordPress credentials from it when no Credential Provider is given, checks
 dump readiness and produces the Dump through database's ``dump``; on restore
-it surveys, ensures, loads into, revokes on and drops a database through
+it surveys, ensures, loads into and drops a database through
 database's functions of those names (E002-S02-009). This package issues no
 SQL and quotes no identifier: AD-28's grant escaping is database's. Nothing
 else in the package builds a Site Descriptor from ``wp-config.php`` (AD-3);
@@ -1024,8 +1024,7 @@ class WpDatabase:
     database with the site's own account). ``survey_target`` observes as that
     account and turns to the administrator only when the account cannot see
     the database (AD-29 as amended). The provisioning methods
-    (``check_ensure``, ``ensure_database``, ``check_revoke``,
-    ``revoke_grants``, ``check_drop_database``, ``drop_database``) answer as
+    (``check_ensure``, ``ensure_database``, ``drop_database``) answer as
     the bound administrator and raise ``AdminCredentialsRequiredError`` before
     any connection when none is bound. Every real command result carries
     ``performed=True`` (ADR-0022).
@@ -1319,34 +1318,6 @@ class WpDatabase:
             )
         return _readiness(verdict)
 
-    def check_revoke(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> Readiness:
-        """Database's ``check_revoke``, as finding codes."""
-        admin = self._require_admin()
-        _require_extra()
-        from l3io.wp import database as wpdb
-
-        connection = self._connection(location)
-        with self._mapped(location, admin.source, ProvisioningFailedError):
-            verdict = wpdb.check_revoke(
-                connection, admin, user, user_host=_ANY_HOST, confirm=confirm
-            )
-        return _readiness(verdict)
-
-    def check_drop_database(
-        self, location: DatabaseLocation, *, confirm: str
-    ) -> Readiness:
-        """Database's ``check_drop_database``, as finding codes."""
-        admin = self._require_admin()
-        _require_extra()
-        from l3io.wp import database as wpdb
-
-        connection = self._connection(location)
-        with self._mapped(location, admin.source, ProvisioningFailedError):
-            verdict = wpdb.check_drop_database(connection, admin, confirm=confirm)
-        return _readiness(verdict)
-
     def ensure_database(self, location: DatabaseLocation) -> EnsureOutcome:
         """Database's ``ensure``: the database, the account, its one grant.
 
@@ -1447,23 +1418,6 @@ class WpDatabase:
         dropped = tuple(result.tables)
         _completed("tables_dropped", location, started, dropped=len(dropped))
         return dropped
-
-    def revoke_grants(
-        self, location: DatabaseLocation, *, user: str, confirm: str
-    ) -> bool:
-        """Database's ``revoke`` on this database only; whether it changed anything."""
-        admin = self._require_admin()
-        _require_extra()
-        from l3io.wp import database as wpdb
-
-        connection = self._connection(location)
-        started = time.monotonic_ns()
-        with self._mapped(location, admin.source, ProvisioningFailedError):
-            result = wpdb.revoke(
-                connection, admin, user, user_host=_ANY_HOST, confirm=confirm
-            )
-        _completed("grants_revoked", location, started, changed=result.changed)
-        return result.changed
 
     def drop_database(self, location: DatabaseLocation, *, confirm: str) -> bool:
         """Database's ``drop_database``; ``False`` for an absent database.

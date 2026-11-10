@@ -204,7 +204,11 @@ def _isolated_settings(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("xdg-data")))
     monkeypatch.delenv(settings.CONFIG_VAR, raising=False)
-    absent = tmp_path_factory.mktemp("etc") / "absent" / "config.toml"
+    etc = tmp_path_factory.mktemp("etc")
+    # Enterable, so a Run as the Site's owner (``tests/root_mode.py``) finds
+    # the file absent rather than unreadable.
+    etc.chmod(0o755)
+    absent = etc / "absent" / "config.toml"
     monkeypatch.setattr(settings, "SYSTEM_CONFIG_FILE", absent)
 
 
@@ -223,13 +227,16 @@ def _environ() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}
 
 
-def write_wp_config(path: Path, *, password: str, user: str | None = None) -> None:
+def write_wp_config(
+    path: Path, *, password: str, user: str | None = None, database: str | None = None
+) -> None:
     """A ``wp-config.php`` for the CI database (or ``localhost``)."""
     host = os.environ.get("DB_HOST", "localhost")
     user = user or os.environ.get("DB_USER", "wp")
+    database = database or os.environ.get("DB_NAME", "wptest")
     path.write_text(
         "<?php\n"
-        f"define('DB_NAME', {os.environ.get('DB_NAME', 'wptest')!r});\n"
+        f"define('DB_NAME', {database!r});\n"
         f"define('DB_USER', {user!r});\n"
         f"define('DB_PASSWORD', {password!r});\n"
         f"define('DB_HOST', {host!r});\n"

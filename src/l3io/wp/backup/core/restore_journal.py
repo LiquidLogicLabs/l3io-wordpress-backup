@@ -38,6 +38,7 @@ __all__ = [
     "STEP_CHECK_FAILED",
     "STEP_CONFIG",
     "STEP_CONFIG_REPLACED",
+    "STEP_CONFIG_RESTORED",
     "STEP_CONFIG_SAVED",
     "STEP_CONFIG_STARTED",
     "STEP_CUTOVER",
@@ -49,6 +50,7 @@ __all__ = [
     "STEP_LOAD_TARGET_DROPPED",
     "STEP_LOSER_DROPPED",
     "STEP_LOSER_DROP_STARTED",
+    "STEP_RELOCATION_ROLLED_BACK",
     "STEP_ROLLBACK_FAILED",
     "STEP_ROLLBACK_STARTED",
     "STEP_ROLLED_BACK",
@@ -85,6 +87,11 @@ STEP_ROLLBACK_STARTED: Final = "rollback_started"
 STEP_ROLLED_BACK: Final = "rolled_back"
 STEP_ROLLBACK_FAILED: Final = "rollback_failed"
 STEP_LOAD_TARGET_DROPPED: Final = "load_target_dropped"
+# A failed SEARCH_REPLACE after a relocation, rolled back (owner decision 72):
+# the original wp-config.php copied back from its saved copy, then the whole
+# relocation undone (the database's own steps are the rollback's above).
+STEP_CONFIG_RESTORED: Final = "config_restored"
+STEP_RELOCATION_ROLLED_BACK: Final = "relocation_rolled_back"
 # The staging design's steps, read from a journal an earlier version wrote.
 STEP_CHECK_FAILED: Final = "check_failed"
 STEP_STAGING_DROPPED: Final = "staging_dropped"
@@ -99,6 +106,8 @@ STEP_LOSER_DROPPED: Final = "loser_dropped"
 _FILE_PHASES: Final = frozenset(
     {RestorePhase.CLEAN, RestorePhase.EXTRACT, RestorePhase.REWRITE_CONFIG}
 )
+#: The phases that change the Site Root's tree, which no rollback undoes.
+_TREE_PHASES: Final = frozenset({RestorePhase.CLEAN, RestorePhase.EXTRACT})
 
 
 def is_orderly_failure(entries: tuple[JournalEntry, ...]) -> bool:
@@ -113,8 +122,20 @@ def is_orderly_failure(entries: tuple[JournalEntry, ...]) -> bool:
     ``"cutover_readback_failed"``. ``"rollback_failed"`` is never orderly:
     the Run is recorded interrupted, so the next Run refuses until it is
     resolved.
+
+    A relocation rolled back after a failed ``SEARCH_REPLACE``
+    (``"relocation_rolled_back"``, owner decision 72: the database put back
+    and the original ``wp-config.php`` copied back over the rewritten one) is
+    orderly when no ``CLEAN`` or ``EXTRACT`` started: ``REWRITE_CONFIG`` and
+    the cutover were undone with it, but files laid down are not.
     """
     steps = {e.step for e in entries if e.event == "step_completed" and e.step}
+    if STEP_ROLLBACK_FAILED in steps:
+        return False
+    if STEP_RELOCATION_ROLLED_BACK in steps:
+        return not any(
+            e.event == "phase_started" and e.phase in _TREE_PHASES for e in entries
+        )
     if any(e.event == "phase_started" and e.phase in _FILE_PHASES for e in entries):
         return False
     if any(step.startswith(STEP_CUTOVER) for step in steps):

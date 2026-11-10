@@ -82,6 +82,7 @@ from l3io.wp.backup.adapters.database_load import (
     check_live,
     complete_cutover,
     load_live,
+    roll_back_relocation,
 )
 from l3io.wp.backup.adapters.journal import (
     CURRENT,
@@ -956,9 +957,12 @@ def drive_restore(
         # Step 7: the journal header and the executor's inputs.
         stamp = run.started_at.astimezone(UTC).strftime(_STAMP)
         snapshot_path = snapshot_dir / f"{stamp}-{run.run_id}.tar.gz"
+        # --overwrite-wp-config's copy, and a URL relocation's: a failed
+        # SEARCH_REPLACE copies it back (owner decision 72).
         saved_config = (
             str(snapshot_dir / f"{stamp}-{run.run_id}-wp-config.php")
             if request.config_policy is ConfigPolicy.OVERWRITE
+            or RestorePhase.SEARCH_REPLACE in plan.phases
             else None
         )
         load = load_database_name(site.db_name, relocation)
@@ -1079,6 +1083,12 @@ def drive_restore(
                 request.cipher,
                 survey_target=survey,
                 opted_out_by=request.opted_out_by,
+                undo_relocation=functools.partial(
+                    roll_back_relocation,
+                    ports=ports,
+                    workspace=run.workspace,
+                    cipher=request.cipher,
+                ),
             )
         except NonEmptyTargetError as exc:
             refusal = refusal_for(exc)
@@ -1107,6 +1117,7 @@ def drive_restore(
             # links the plan says the real Run would skip.
             skipped_links=plan.skipped_links if run.dry_run else report.skipped_links,
             wp_config_kept=report.wp_config_kept,
+            wp_config_absent=report.wp_config_absent,
             notes=tuple(notes),
         )
 

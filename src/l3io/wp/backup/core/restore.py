@@ -98,6 +98,7 @@ __all__ = [
     "NoConfigForCutoverError",
     "NonEmptyTargetError",
     "PlannedRestoreAction",
+    "RelocationTargetNotEmptyError",
     "RestoreInputs",
     "RestorePlan",
     "RestoreRelocation",
@@ -227,6 +228,29 @@ class NoConfigForCutoverError(RefusedError):
             f"the restore relocates the database but no wp-config.php will exist "
             f"at {path!r} for the cutover (searched {where}: the target has none and "
             "nothing lays one down); nothing was changed"
+        )
+
+
+class RelocationTargetNotEmptyError(RefusedError):
+    """Owner decision 73: a relocation's load database already holds tables.
+
+    ``--new-db-name`` (or ``--new-db-host``) must name a database that is
+    missing (the Run creates it, and drops it again on failure) or empty: the
+    Safety Snapshot covers the live database only, so one holding tables
+    would be overwritten with nothing to put it back. Refused before any
+    change, and ``--force`` does not waive it. ``database`` is
+    ``host:port/name``; ``tables`` how many it holds. Never a credential.
+    """
+
+    def __init__(self, *, database: str, tables: int) -> None:
+        self.database = database
+        self.tables = tables
+        held = f"{tables} table" if tables == 1 else f"{tables} tables"
+        super().__init__(
+            f"the relocation's database {database!r} already holds {held}; "
+            "--new-db-name must name a missing or empty database, so nothing is "
+            "overwritten without a Safety Snapshot (--force does not waive "
+            "this); nothing was changed"
         )
 
 
@@ -540,6 +564,9 @@ class ExecutionReport:
     integrity: Integrity
     skipped_links: tuple[SkippedLink, ...]
     wp_config_kept: bool
+    #: Owner decision 74: the target had no ``wp-config.php`` and the Run
+    #: wrote none (a database-only restore onto such a folder).
+    wp_config_absent: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -670,7 +697,25 @@ def check_target(
     unauthorized
     part is named in one :class:`NonEmptyTargetError`; nothing is read
     beyond ``target``.
+
+    First, a relocation's load database holding tables is refused whatever
+    the overrides (:class:`RelocationTargetNotEmptyError`, owner decision
+    73).
     """
+    load = target.load_target
+    if (
+        restores_database(mode)
+        and load is not None
+        # A --new-db-host naming the live database's own server and name
+        # loads the live database, which the Safety Snapshot covers.
+        and target.load_location != target.database_location
+        and load.database_exists
+        and load.table_count > 0
+    ):
+        raise RelocationTargetNotEmptyError(
+            database=_where(target.load_location, "the load database"),
+            tables=load.table_count,
+        )
     parts: list[RestorePart] = []
     findings: list[tuple[str, str]] = []
     if (

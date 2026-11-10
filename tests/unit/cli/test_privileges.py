@@ -12,6 +12,10 @@ The real switch, in a child process, is ``tests/integration/test_root_restore.py
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,6 +24,7 @@ from structlog.testing import capture_logs
 from l3io.wp.backup.cli import privileges
 from l3io.wp.backup.cli.privileges import SiteOwner, drop_to_site_owner
 from l3io.wp.backup.domain.errors import (
+    InstallationNotReadableError,
     PrivilegeDropError,
     RootBackupRefusedError,
     RootRestoreRefusedError,
@@ -85,6 +90,70 @@ def test_root_that_could_be_regained_stops_the_run() -> None:
         drop_to_site_owner(
             Path("/srv/site"), environ={}, operation="restore", ids=Kernel(regain=True)
         )
+
+
+@pytest.mark.usefixtures("as_root")
+def test_an_installation_the_owner_cannot_read_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An interpreter under root's ``0700`` home: every later import would
+    fail as the owner, reported as a missing extra. Refused after the switch."""
+    readable, unreadable = tmp_path / "readable", tmp_path / "root-only"
+    monkeypatch.setattr(
+        privileges, "installation_paths", lambda: (readable, unreadable)
+    )
+    real = os.access
+    checked: list[Path] = []
+
+    def access(path: Path, mode: int) -> bool:
+        checked.append(Path(path))
+        return Path(path) != unreadable and real(tmp_path, mode)
+
+    monkeypatch.setattr(os, "access", access)
+    kernel = Kernel()
+    with pytest.raises(InstallationNotReadableError) as caught:
+        drop_to_site_owner(
+            Path("/srv/site"), environ={}, operation="backup", ids=kernel
+        )
+    assert checked == [readable, unreadable]
+    assert ("setuid", 33) in kernel.calls, "checked before the switch"
+    error = caught.value
+    assert (error.path, error.uid, error.user) == (str(unreadable), 33, "www-data")
+    assert error.exit_code is ExitCode.REFUSED
+    assert "nothing was changed" in str(error)
+
+
+def _module_file(name: str) -> Path:
+    module = importlib.import_module(name)
+    assert module.__file__, name
+    return Path(module.__file__)
+
+
+def test_the_installation_holds_every_kind_of_module_a_run_imports() -> None:
+    """The scope, not the rule: the standard library (``__future__``, the
+    import that failed in CI), a dependency, the ``database`` extra and this
+    package are each under one of the paths."""
+    paths = privileges.installation_paths()
+    files = [
+        _module_file("__future__"),
+        _module_file("structlog"),
+        _module_file("l3io.wp.backup.cli.privileges"),
+    ]
+    if importlib.util.find_spec("l3io.wp.database") is not None:
+        files.append(_module_file("l3io.wp.database"))
+    for file in files:
+        assert any(file.is_relative_to(p) for p in paths), (file, paths)
+
+
+def test_the_working_directory_is_not_the_installation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``sys.path[0]`` is the script's or working directory (``/root`` under
+    ``sudo``): not checked. A missing entry is skipped too."""
+    monkeypatch.setattr(
+        sys, "path", [str(tmp_path), "", str(tmp_path / "absent"), sys.path[1]]
+    )
+    assert privileges.installation_paths() == (Path(sys.path[3]),)
 
 
 def test_a_root_owned_site_root_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

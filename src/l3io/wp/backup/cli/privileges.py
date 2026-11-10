@@ -8,8 +8,13 @@ the config file, the passphrase, ``--new-db-password-file``, the target's
 keeps open (decision 58); a backup reads the config file, the passphrase and
 its database credentials, resolved through the whole chain (decision 67).
 After a backup's switch, :func:`require_writable` refuses an Archive
-directory the owner cannot write. The switch is :func:`drop_to_site_owner`,
-or its two halves
+directory the owner cannot write. After either switch,
+:func:`require_installation_readable` refuses an installation the owner
+cannot read (:func:`installation_paths`): Python imports a module on first
+use, so an interpreter or virtual environment under root's ``0700`` home
+(``uv tool install`` or ``pipx install`` run as root) would otherwise fail
+an import part way through the Run, reported as a missing extra. The
+switch is :func:`drop_to_site_owner`, or its two halves
 :func:`owner_to_run_as` (who, refusing a root-owned Site Root, before
 anything is read) and :func:`switch_to` (the switch): ``setgroups([gid])``,
 ``setgid(gid)``, ``setuid(uid)``, in that order, then the real, effective
@@ -46,7 +51,8 @@ from __future__ import annotations
 
 import os
 import pwd
-from collections.abc import MutableMapping, Sequence
+import sys
+from collections.abc import Callable, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, Protocol
@@ -55,6 +61,7 @@ import structlog
 
 from l3io.wp.backup.domain.errors import (
     ArchiveDirectoryNotWritableError,
+    InstallationNotReadableError,
     PrivilegeDropError,
     RootBackupRefusedError,
     RootRestoreRefusedError,
@@ -68,7 +75,9 @@ __all__ = [
     "Operation",
     "SiteOwner",
     "drop_to_site_owner",
+    "installation_paths",
     "owner_to_run_as",
+    "require_installation_readable",
     "require_not_root",
     "require_writable",
     "running_as_root",
@@ -205,7 +214,11 @@ def switch_to(
     ``environ`` is the process environment (``os.environ`` from the CLI
     root): its ``HOME`` becomes the owner's home directory when the password
     database has one. ``ids`` is ``os`` unless a test passes its own.
+    The installation (:func:`installation_paths`, listed while still root)
+    must be readable by ``owner`` afterwards
+    (:func:`require_installation_readable`).
     """
+    installation = installation_paths()
     _switch(owner, ids if ids is not None else _OS)
     if owner.home:
         environ["HOME"] = owner.home
@@ -213,6 +226,7 @@ def switch_to(
         _switched("backup_runs_as_site_owner", owner)
     else:
         _switched("restore_runs_as_site_owner", owner)
+    require_installation_readable(owner, installation)
     return owner
 
 
@@ -228,6 +242,44 @@ def drop_to_site_owner(
     if owner is None:
         return None
     return switch_to(owner, environ=environ, operation=operation, ids=ids)
+
+
+def installation_paths() -> tuple[Path, ...]:
+    """The directories this process imports from: ``sys.path`` after its first entry.
+
+    That is the standard library and its extension modules, the
+    environment's ``site-packages`` (the ``database`` and ``otel`` extras
+    and every dependency), any ``.pth`` addition (an editable install's
+    source tree) and ``PYTHONPATH``. The first entry is skipped: it is the
+    script's directory or the working directory, not the installation.
+    Those that exist, each once. Only the directories are checked, not every
+    file beneath them.
+    """
+    found: list[Path] = []
+    for entry in sys.path[1:]:
+        path = Path(entry)
+        if entry and path not in found and path.exists():
+            found.append(path)
+    return tuple(found)
+
+
+def require_installation_readable(
+    owner: SiteOwner,
+    paths: Sequence[Path],
+    *,
+    access: Callable[[Path, int], bool] | None = None,
+) -> None:
+    """After the switch, the owner can list and enter every one of ``paths``.
+
+    ``access`` is ``os.access`` (looked up at the call), which answers for
+    the switched process; a test passes its own.
+    """
+    check = os.access if access is None else access
+    for path in paths:
+        if not check(path, os.R_OK | os.X_OK):
+            raise InstallationNotReadableError(
+                path=str(path), uid=owner.uid, user=owner.user
+            )
 
 
 def require_writable(directory: Path, owner: SiteOwner) -> None:

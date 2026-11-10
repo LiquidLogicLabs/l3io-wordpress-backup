@@ -115,7 +115,11 @@ dependencies = [
 # declares getenv_docker() before the first carried define, replacing
 # backup's own textual check (its documented limits are the library's).
 # Nothing below 0.1.7 may be resolved.
-# database 0.3.4 is the floor: its client option file carries only the TLS
+# database 0.3.5 is the floor: restore loads into the live database with
+# load(..., prune_prefix=) / check_load(..., prune_prefix=) (owner decisions
+# 53 and 55), and a MySQL 8+ mysqldump against a MariaDB server passes
+# --column-statistics=0, without which every such dump exited 2.
+# From 0.3.4: its client option file carries only the TLS
 # lines each client family accepts (MySQL: ssl-mode; MariaDB: ssl and
 # ssl-verify-server-cert), without which every restore over verified TLS to a
 # non-local host failed with "unknown variable" (sidecar test, 2026-11-08).
@@ -126,7 +130,7 @@ dependencies = [
 # sanitized absolute PATH and LC_ALL=C, plus HOME and AGE_PASSPHRASE_FD for an
 # absolute-path `age` -- so no parent secret reaches them (BL-E004-055).
 database = [
-  "l3io-wordpress-database[encryption]>=0.3.4,<0.4",
+  "l3io-wordpress-database[encryption]>=0.3.5,<0.4",
   "l3io-wordpress-config>=0.1.7,<0.2",
   # Dependency inventory (FR-26, BL-E004-024), the two the `encryption` extra
   # brings:
@@ -149,7 +153,7 @@ database = [
 # FR-14 — AWS Secrets Manager credentials (E005-S01-001). database's own `aws`
 # extra brings boto3 (`boto3<2,>=1.34` in 0.3.3's metadata), imported inside
 # AwsSecretsManager.resolve(), so boto3 stays out of the base install.
-aws = ["l3io-wordpress-database[aws]>=0.3.4,<0.4"]
+aws = ["l3io-wordpress-database[aws]>=0.3.5,<0.4"]
 
 # AD-8 — an optional dependency is an optional import. Nothing here may be
 # imported at module scope; `verify-install` asserts a base install pulls none

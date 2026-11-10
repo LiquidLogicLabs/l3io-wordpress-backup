@@ -102,7 +102,6 @@ CASES: dict[type, list[tuple[Call, type | None]]] = {
         (lambda a, s: a.ensure_database(WHERE), EnsureOutcome),
         (lambda a, s: a.load_dump(WHERE, RecordingSource()), LoadResult),
         (lambda a, s: a.load_dump(WHERE, s / "absent.sql"), LoadResult),
-        (lambda a, s: a.revoke_grants(WHERE, user="wp", confirm="wp"), bool),
         (lambda a, s: a.drop_database(WHERE, confirm="wp"), bool),
     ],
     noop.NoopSiteFiles: [
@@ -283,10 +282,9 @@ def test_the_search_replace_twin_reports_planned_pairs_unresolved(
     "call",
     [
         lambda d: d.ensure_database(WHERE),
-        lambda d: d.revoke_grants(WHERE, user="wp", confirm="wp"),
         lambda d: d.drop_database(WHERE, confirm="wp"),
     ],
-    ids=["ensure_database", "revoke_grants", "drop_database"],
+    ids=["ensure_database", "drop_database"],
 )
 def test_the_database_twin_refuses_without_an_administrator(
     call: Callable[[noop.NoopDatabase], object],

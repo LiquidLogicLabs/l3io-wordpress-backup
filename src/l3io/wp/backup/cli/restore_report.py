@@ -259,6 +259,7 @@ def restore_summary(
         ),
         "snapshot_encrypted": outcome.snapshot_encrypted,
         "wp_config_kept": outcome.wp_config_kept,
+        "wp_config_absent": outcome.wp_config_absent,
     }
 
 
@@ -376,6 +377,8 @@ def print_outcome(
         emit_result(
             "wp-config.php kept (target's); pass --overwrite-wp-config to replace it"
         )
+    if outcome.wp_config_absent:
+        emit_result("wp-config.php: none at the target, and none written")
     if completed:
         emit_result(completion_line(outcome, archive=archive, site_root=site_root))
 

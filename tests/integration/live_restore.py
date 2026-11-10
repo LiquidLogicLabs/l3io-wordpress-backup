@@ -39,7 +39,11 @@ from l3io.wp.backup.adapters.database import (
     site_descriptor_from_archive_config,
     site_descriptor_from_wp_config,
 )
-from l3io.wp.backup.adapters.database_load import check_live, load_live
+from l3io.wp.backup.adapters.database_load import (
+    check_live,
+    load_live,
+    roll_back_relocation,
+)
 from l3io.wp.backup.adapters.journal import FileRunJournal, journal_directory
 from l3io.wp.backup.adapters.noop import NoopTracer
 from l3io.wp.backup.adapters.redaction import SecretRegistry
@@ -86,6 +90,7 @@ from l3io.wp.backup.domain.restore import (
     Override,
     OverrideSet,
     RestoreMode,
+    RestorePhase,
     SnapshotPolicy,
 )
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -550,7 +555,10 @@ def restore(
         cutover_targets=planned_cutover_targets(load, spec.relocation),
         prior_constants=prior,
         phase_undo={},
-        saved_config=None,
+        # As the restore root: a URL relocation saves the config (decision 72).
+        saved_config=str(root.parent / "snapshots" / f"{spec.run_id}-wp-config.php")
+        if RestorePhase.SEARCH_REPLACE in plan.phases
+        else None,
     )
     inputs = RestoreInputs(
         site=site,
@@ -583,6 +591,9 @@ def restore(
         None,
         survey_target=survey_target,
         opted_out_by="test: SnapshotPolicy.SKIP",
+        undo_relocation=functools.partial(
+            roll_back_relocation, ports=ports, workspace=workspace, cipher=None
+        ),
     )
 
 

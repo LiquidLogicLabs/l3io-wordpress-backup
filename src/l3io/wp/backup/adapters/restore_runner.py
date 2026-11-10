@@ -80,6 +80,7 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_CONFIG_REPLACED,
     STEP_CONFIG_SAVED,
     STEP_CONFIG_STARTED,
+    STEP_DATABASE_CREATED,
     is_orderly_failure,
 )
 from l3io.wp.backup.core.restore_space import (
@@ -133,11 +134,19 @@ __all__ = [
     "ArchiveChangedError",
     "ExtractionRefusedAfterCleanError",
     "TargetConfigMissingError",
+    "UndoRelocation",
     "execute_restore",
     "snapshot_result",
 ]
 
 _log = structlog.get_logger(__name__)
+
+#: The ``undo_relocation`` slot (owner decision 72): the inputs, the journal,
+#: the failure, whether the Run created the load database, and the
+#: ``wp-config.php`` to put back from its saved copy (``None``: none to).
+UndoRelocation = Callable[
+    [RestoreInputs, RunJournalCommand, BaseException, bool, Path | None], None
+]
 
 #: The phases that run before the journal begins: queries and verification.
 _CHECK_PHASES: Final = frozenset({RestorePhase.PREFLIGHT, RestorePhase.VERIFY})
@@ -280,6 +289,7 @@ class _Run:
     load_database: Callable[[RestoreInputs, RunJournalCommand], DatabaseRestoreReport]
     survey_target: Callable[[], TargetState]
     integrity: Integrity
+    undo_relocation: UndoRelocation
     config_existed: bool = False
     begun: bool = False
     rechecked: bool = False
@@ -288,6 +298,7 @@ class _Run:
     search_replace: SearchReplaceReport | None = None
     skipped: list[SkippedLink] = field(default_factory=list)
     wp_config_kept: bool = False
+    wp_config_absent: bool = False
 
     @property
     def site_root(self) -> Path:
@@ -331,6 +342,7 @@ def execute_restore(
     *,
     survey_target: Callable[[], TargetState],
     opted_out_by: str | None,
+    undo_relocation: UndoRelocation,
 ) -> ExecutionReport:
     """Run ``plan``'s phases, in order, and report what they did.
 
@@ -344,6 +356,13 @@ def execute_restore(
     immediately before the first destroying phase (RT-003). ``opted_out_by``
     names what chose :attr:`SnapshotPolicy.SKIP` (``--no-safety-snapshot``,
     or the API argument) for the ``safety_snapshot_skipped`` WARNING.
+
+    ``undo_relocation`` is the slot a failed ``SEARCH_REPLACE`` calls before
+    its error propagates (owner decision 72; the root binds
+    ``adapters/database_load.roll_back_relocation``): with the inputs, the
+    journal, the error, whether this Run created the load database, and the
+    ``wp-config.php`` to put back from its saved copy (``None`` when the
+    target had none).
     """
     if inputs.header.restore_mode is not plan.mode:
         msg = (
@@ -366,6 +385,7 @@ def execute_restore(
         load_database=load_database,
         survey_target=survey_target,
         integrity=inputs.view.integrity,
+        undo_relocation=undo_relocation,
     )
     try:
         for step in plan.phases:
@@ -382,6 +402,7 @@ def execute_restore(
         raise
     if run.begun:
         run.journal.finish_run()
+    _note_no_config_written(run)
     return ExecutionReport(
         phases=plan.phases,
         snapshot=run.snapshot,
@@ -390,6 +411,31 @@ def execute_restore(
         integrity=run.integrity,
         skipped_links=tuple(run.skipped),
         wp_config_kept=run.wp_config_kept,
+        wp_config_absent=run.wp_config_absent,
+    )
+
+
+#: The phases that may write ``wp-config.php`` (the cutover writes only an
+#: existing one: ``NoConfigForCutoverError`` refuses it otherwise).
+_CONFIG_WRITERS: Final = frozenset({RestorePhase.EXTRACT, RestorePhase.REWRITE_CONFIG})
+
+
+def _note_no_config_written(run: _Run) -> None:
+    """Owner decision 74: no ``wp-config.php`` at the target, and none written.
+
+    A database-only restore onto a folder without one loads the database and
+    writes no config; the result says so (``wp_config_absent``) and INFO
+    ``wp_config_not_written`` names the path.
+    """
+    if run.config_existed or _CONFIG_WRITERS & set(run.plan.phases):
+        return
+    if RestorePhase.PREFLIGHT not in run.plan.phases:
+        return
+    run.wp_config_absent = True
+    _log.info(
+        "wp_config_not_written",
+        path=str(run.config_file),
+        reason="the target has no wp-config.php and this restore writes none",
     )
 
 
@@ -921,13 +967,16 @@ def _rewrite_config(run: _Run) -> None:
     adapters, inputs = run.ports.adapters, run.inputs
     config_file = run.config_file
     run.journal.phase_started(RestorePhase.REWRITE_CONFIG, str(config_file))
-    if run.overwrites_config:
-        saved = inputs.header.saved_config
-        if saved is None:
-            msg = "--overwrite-wp-config needs the journal header's saved_config"
-            raise ValueError(msg)
+    saved = inputs.header.saved_config
+    if run.overwrites_config and saved is None:
+        msg = "--overwrite-wp-config needs the journal header's saved_config"
+        raise ValueError(msg)
+    if saved is not None and run.config_existed:
+        # --overwrite-wp-config's copy, and a URL relocation's (owner
+        # decision 72: a failed SEARCH_REPLACE copies it back).
         adapters.config_command.save_copy(config_file, Path(saved))
         run.journal.step_completed(RestorePhase.REWRITE_CONFIG, STEP_CONFIG_SAVED)
+    if run.overwrites_config:
         content = _archive_config(run)
         # The target's definitions are carried as source (owner decision 48),
         # so nothing is resolved here: a getenv_docker() stays a lookup.
@@ -956,7 +1005,26 @@ def _search_replace(run: _Run) -> None:
         raise ValueError(msg)
     run.journal.phase_started(RestorePhase.SEARCH_REPLACE, str(run.site_root))
     command = run.ports.adapters.search_replace
-    run.search_replace = command.relocate_content(
-        run.site_root, urls, archive_encrypted=run.inputs.view.encrypted
-    )
+    try:
+        run.search_replace = command.relocate_content(
+            run.site_root, urls, archive_encrypted=run.inputs.view.encrypted
+        )
+    except RunTerminated:
+        raise  # an interrupt is not rolled back
+    except Exception as exc:
+        _undo_relocation(run, exc)
+        raise
     run.journal.phase_completed(RestorePhase.SEARCH_REPLACE)
+
+
+def _undo_relocation(run: _Run, cause: Exception) -> None:
+    """Owner decision 72: the database and ``wp-config.php`` as they were.
+
+    A SIGTERM or Ctrl-C is not rolled back (the caller lets it through).
+    The original config is put back only when the target had one and its
+    copy was saved before ``REWRITE_CONFIG`` wrote anything.
+    """
+    steps = {e.step for e in run.journal.entries if e.event == "step_completed"}
+    created = STEP_DATABASE_CREATED in steps
+    original = run.config_file if STEP_CONFIG_SAVED in steps else None
+    run.undo_relocation(run.inputs, run.journal, cause, created, original)

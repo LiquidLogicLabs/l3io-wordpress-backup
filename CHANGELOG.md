@@ -7,6 +7,54 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Changed: relocation safety, owner decisions 72-75 (2026-11-09)
+
+- **A failed URL rewrite rolls the relocation back** (decision 72). When
+  `SEARCH_REPLACE` (`wp search-replace`, after `--new-site-url` or
+  `--new-site-home-url`) fails, the Run puts the database back as a failed
+  load does (the Safety Snapshot reloaded into the live database; a
+  `--new-db-name` database dropped again when the Run made it, emptied
+  otherwise) and copies the original `wp-config.php` back from the copy it now
+  saves before `REWRITE_CONFIG` (beside the Safety Snapshots), then exits with
+  the rewrite's error and WARNING `relocation_rolled_back`. A `--mode db` Run
+  is then not left interrupted. A rollback that fails is `RollbackFailedError`
+  (exit 1), as for a failed load. Before, the Run stopped with the database
+  loaded, the URLs half rewritten and `wp-config.php` pointing at the new
+  site, recorded as interrupted.
+- **`--new-db-name` must name a missing or empty database** (decision 73). A
+  relocation's load database (also the Site's name on a `--new-db-host`
+  server) that holds tables is refused before anything changes, naming it
+  (exit 3, `RelocationTargetNotEmptyError`, new); `--force` no longer waives
+  it, since the Safety Snapshot covers only the live database. A missing one
+  is created and, if the Run fails, dropped again, now also when the failure
+  comes before the load starts.
+- **A database-only restore onto a folder without `wp-config.php` says it wrote
+  none** (decision 74): `RestoreOutcome.wp_config_absent` (new, default
+  `False`), the JSON report's `wp_config_absent`, the line "wp-config.php:
+  none at the target, and none written", and INFO `wp_config_not_written`.
+- **Dead database ports removed** (decision 75): `revoke_grants`,
+  `check_revoke` and `check_drop_database`, which no restore has called since
+  the direct load, are gone from the database port and its adapters (and the
+  never-emitted `grants_revoked` log event from `docs/logging.md`). No
+  behaviour changes.
+
+### Changed: a root Run refuses an installation its site owner cannot read (2026-11-09)
+
+- **Checked right after the switch to the Site Root's owner** (owner
+  decisions 58, 67). Python imports a module on first use, so a `wpbackup2`
+  installed under root's home directory (`uv tool install` or `pipx install`
+  run as root: the interpreter or the virtual environment in `/root`, mode
+  `0700`) could not load the rest of itself once it ran as the site's user,
+  and the Run failed part way through as "this feature needs the 'database'
+  extra" (exit 7). Each directory of `sys.path` after the first is now
+  checked after the switch; one the owner cannot read refuses the Run before
+  it opens, a Dry Run too (exit 3, `InstallationNotReadableError`, naming the
+  directory). Install `wpbackup2` where the site's user can read it, or run
+  it as that user. `InstallationNotReadableError` is new.
+- **`--help` shows an option with two spellings the same on every Python**:
+  `--admin-user, --admin-username USER`, as CPython 3.13 and later print it;
+  3.11 and 3.12 repeated the metavar after each spelling.
+
 ### Changed: a database restore loads straight into the live database (owner decisions 49-55, 57, 63, 71; ADR-0027, 2026-11-09)
 
 - **No staging database, no `DB_NAME` change** (decisions 49, 55). A restore

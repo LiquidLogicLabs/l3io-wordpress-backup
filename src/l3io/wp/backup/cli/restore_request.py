@@ -537,6 +537,10 @@ class RestoreOutcome:
     also logged: the Archive ``--archive latest`` named (decision 64) and an
     encrypted Archive's database used as its config gives it (decision 65).
     A Dry Run prints them before its plan.
+
+    ``wp_config_absent`` is true when the target had no ``wp-config.php``
+    and the Run wrote none: a database-only restore onto such a folder
+    (owner decision 74).
     """
 
     run_id: str
@@ -552,4 +556,5 @@ class RestoreOutcome:
     resolved_run_id: str | None
     skipped_links: tuple[SkippedLink, ...] | None
     wp_config_kept: bool
+    wp_config_absent: bool = False
     notes: tuple[str, ...] = ()

@@ -5,7 +5,14 @@ The ``TargetState`` is built from the real ``LocalSiteFiles`` and the real
 database; each refusing row of AD-25's table is passed to
 ``build_restore_plan``, which raises ``NonEmptyTargetError`` naming the part
 and the authorizing flags, so ``execute_restore`` is never reached. The Site
-Root tree and ``CHECKSUM TABLE`` are unchanged afterwards. The CLI's exit code
+Root tree and ``CHECKSUM TABLE`` are unchanged afterwards.
+
+Since owner decision 57 only a database with content but no table carrying
+the site's prefix needs ``--force``: one with a prefixed table is the site's
+own, which the Safety Snapshot and the automatic rollback cover. So the Run's
+database is one of its own, holding a single table without the ``wp_``
+prefix, never CI's shared ``wptest``, where another test's ``wp_`` table
+would make the database part pass for the site's. The CLI's exit code
 and stderr text are E003-S02-006's ``test_restore_cli.py``.
 
 **Credentials.** The Run authenticates — as the WordPress account and as the
@@ -23,6 +30,7 @@ when ``DB_HOST`` is unset.
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 
@@ -62,7 +70,7 @@ from l3io.wp.backup.domain.restore import (
 )
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
-from tests.conftest import CredentialSentinel
+from tests.conftest import CredentialSentinel, write_wp_config
 from tests.restore_builders import view
 
 pytestmark = [
@@ -72,8 +80,8 @@ pytestmark = [
     ),
 ]
 
-DB_NAME = os.environ.get("DB_NAME", "wptest")
-TABLE = "wp_refusal_options"
+#: Not the site's ``wp_`` prefix: another application's table (decision 57).
+TABLE = "otherapp_refusal_options"
 
 #: Every row the table maps to a Mode without ``--force``: each must refuse.
 REFUSING: list[FlagCombination] = [
@@ -83,31 +91,50 @@ REFUSING: list[FlagCombination] = [
 ]
 
 
-def _connect() -> Connection:
+def _connect(database: str | None = None) -> Connection:
     """CI's own connection: seeding and checksums only, never the Run's."""
     return pymysql.connect(
         host=os.environ["DB_HOST"],
         user=os.environ.get("DB_USER", "root"),
         password=os.environ["DB_PASSWORD"],
-        database=DB_NAME,
+        database=database,
         autocommit=True,
     )
 
 
 @pytest.fixture
-def database() -> Iterator[Connection]:
-    connection = _connect()
+def database(
+    credential_sentinel: CredentialSentinel, live_account: str
+) -> Iterator[Connection]:
+    """A database of this test's own, with one unprefixed table, as the site's.
+
+    The sentinel's ``wp-config.php`` (already the throwaway account's) is
+    rewritten to name it.
+    """
+    name = f"wpb_refusal_{uuid.uuid4().hex[:12]}"
+    admin = _connect()
+    with admin.cursor() as cursor:
+        cursor.execute(f"CREATE DATABASE `{name}`")
+    admin.close()
+    write_wp_config(
+        credential_sentinel.config,
+        password=credential_sentinel.password,
+        user=live_account,
+        database=name,
+    )
+    connection = _connect(name)
     with connection.cursor() as cursor:
-        cursor.execute(f"DROP TABLE IF EXISTS {TABLE}")
         cursor.execute(f"CREATE TABLE {TABLE} (id INT PRIMARY KEY, v TEXT)")
         cursor.executemany(
             f"INSERT INTO {TABLE} VALUES (%s, %s)",  # noqa: S608 - constant name
             [(i, f"value-{i}") for i in range(20)],
         )
-    yield connection
-    with connection.cursor() as cursor:
-        cursor.execute(f"DROP TABLE IF EXISTS {TABLE}")
-    connection.close()
+    try:
+        yield connection
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f"DROP DATABASE IF EXISTS `{name}`")
+        connection.close()
 
 
 def _checksums(connection: Connection) -> dict[str, object]:
@@ -173,6 +200,7 @@ def test_a_refusing_row_changes_nothing_and_names_the_flag(
     assert not target.site_root_empty
     assert target.database is not None
     assert target.database.table_count > 0
+    assert target.database.prefixed_tables == ()
 
     mode, overrides = resolve_flags(flags)
     with pytest.raises(NonEmptyTargetError) as caught:

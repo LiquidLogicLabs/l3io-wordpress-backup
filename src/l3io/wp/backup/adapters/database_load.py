@@ -89,6 +89,7 @@ from l3io.wp.backup.core.restore import (
     planned_cutover_targets,
 )
 from l3io.wp.backup.core.restore_journal import (
+    STEP_CONFIG_RESTORED,
     STEP_CUTOVER,
     STEP_CUTOVER_READBACK_FAILED,
     STEP_CUTOVER_STARTED,
@@ -96,6 +97,7 @@ from l3io.wp.backup.core.restore_journal import (
     STEP_LOAD_STARTED,
     STEP_LOAD_TARGET_DROPPED,
     STEP_LOADED,
+    STEP_RELOCATION_ROLLED_BACK,
     STEP_ROLLBACK_FAILED,
     STEP_ROLLBACK_STARTED,
     STEP_ROLLED_BACK,
@@ -136,6 +138,7 @@ from l3io.wp.backup.domain.journal import (
 from l3io.wp.backup.domain.restore import RestorePhase
 from l3io.wp.backup.domain.storage_target import StorageTarget
 from l3io.wp.backup.ports.clock import Clock
+from l3io.wp.backup.ports.config import WHOLE_FILE
 from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.journal import RunJournalCommand
 from l3io.wp.backup.ports.restore import RestorePorts
@@ -152,6 +155,7 @@ __all__ = [
     "complete_cutover",
     "load_live",
     "roll_back",
+    "roll_back_relocation",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -231,6 +235,9 @@ def _failure_text(exc: BaseException) -> str:
 class RollbackFailedError(BackupError):
     """Decision 50: the load failed, and putting the database back failed too.
 
+    Decision 72 too: ``SEARCH_REPLACE`` failed after a relocation, and putting
+    the database or the original ``wp-config.php`` back failed.
+
     ``FAILED``. ``cause`` is the load's failure and ``rollback`` the
     rollback's (``None`` when nothing could roll back: no Safety Snapshot);
     ``database`` the live database, now partly loaded; ``snapshot`` the
@@ -265,9 +272,9 @@ class RollbackFailedError(BackupError):
             else "restore the database from another backup"
         )
         super().__init__(
-            f"the load into the live database {database!r} failed "
+            f"the restore into the database {database!r} failed "
             f"({_failure_text(cause)}); {failed}. The database is "
-            f"partly loaded and the run is recorded as interrupted; {what}"
+            f"partly restored and the run is recorded as interrupted; {what}"
         )
 
 
@@ -661,6 +668,10 @@ def load_live(
         )
     except BaseException as exc:
         _report_failure(target, ensure, written, exc)
+        if not started and not _interrupt(exc) and not target.loads_live:
+            # Owner decision 73: a relocated database this Run created is
+            # dropped again, whatever failed after ``ensure``.
+            _drop_relocated(target, ensure, ports=ports, journal=journal)
         # A cutover error other than ``ConfigCutoverError`` leaves unknown
         # whether its key landed (ADV-S02-04): resolution decides, not a
         # rollback.
@@ -940,6 +951,111 @@ def roll_back(
         snapshot=header.snapshot_path,
         cause=type(cause).__name__,
     )
+
+
+def roll_back_relocation(
+    inputs: RestoreInputs,
+    journal: RunJournalCommand,
+    cause: BaseException,
+    created: bool,
+    config_file: Path | None,
+    *,
+    ports: RestorePorts,
+    workspace: Path,
+    cipher: PayloadCipher | None,
+) -> None:
+    """Owner decision 72: a failed ``SEARCH_REPLACE`` puts the site back.
+
+    The executor's ``undo_relocation`` slot, called when the URL rewrite
+    fails after ``LOAD_DUMP`` (an interrupt is never rolled back). The
+    database first: the live one is rolled back as a failed load is
+    (:func:`roll_back`: the Safety Snapshot, or emptied when it was empty);
+    a relocated one this Run ``created`` is dropped again, and one that
+    existed (empty, decision 73) has the tables the load created dropped.
+    Then ``config_file``, the original ``wp-config.php``, is replaced by its
+    saved copy (the journal header's ``saved_config``), undoing
+    ``REWRITE_CONFIG`` and the cutover at once; ``None`` when the target had
+    none to put back. Journals ``"config_restored"`` and
+    ``"relocation_rolled_back"`` (orderly unless files were extracted) and
+    logs WARNING ``relocation_rolled_back``. Any failure journals
+    ``"rollback_failed"`` and raises :class:`RollbackFailedError` naming
+    ``cause`` (decision 50); the caller re-raises ``cause`` otherwise.
+    """
+    target = _target(inputs)
+    saved = inputs.header.saved_config
+    _log.warning(
+        "relocation_rollback_started",
+        database=target.load.name,
+        wp_config_path=None if config_file is None else str(config_file),
+        saved_config=saved,
+        cause=type(cause).__name__,
+    )
+    if target.loads_live:
+        roll_back(
+            inputs,
+            journal,
+            cause,
+            ports=ports,
+            workspace=workspace,
+            cipher=cipher,
+            created=created,
+        )
+    else:
+        _empty_relocated(
+            inputs, journal, cause, target=target, ports=ports, created=created
+        )
+    if config_file is not None:
+        try:
+            _put_back_config(config_file, saved, ports=ports)
+            journal.step_completed(RestorePhase.SEARCH_REPLACE, STEP_CONFIG_RESTORED)
+        except RunTerminated:
+            raise
+        except Exception as exc:  # named in RollbackFailedError, with the cause
+            _rollback_failed(inputs, journal, cause, exc, target=target)
+    journal.step_completed(RestorePhase.SEARCH_REPLACE, STEP_RELOCATION_ROLLED_BACK)
+    _log.warning(
+        "relocation_rolled_back",
+        database=target.load.name,
+        wp_config_path=None if config_file is None else str(config_file),
+        saved_config=saved,
+        cause=type(cause).__name__,
+    )
+
+
+def _put_back_config(
+    config_file: Path, saved: str | None, *, ports: RestorePorts
+) -> None:
+    """The saved copy's bytes over ``config_file``, atomically, nothing carried."""
+    if saved is None:
+        reason = "no saved copy of wp-config.php to put back"
+        raise ConfigWriteFailedError(config_file, WHOLE_FILE, reason)
+    text = Path(saved).read_bytes().decode("utf-8")
+    ports.adapters.config_command.replace_file(config_file, text, keep=())
+
+
+def _empty_relocated(
+    inputs: RestoreInputs,
+    journal: RunJournalCommand,
+    cause: BaseException,
+    *,
+    target: _Target,
+    ports: RestorePorts,
+    created: bool,
+) -> None:
+    """The relocated database as it was: dropped if made here, else emptied."""
+    command = ports.adapters.restore_database_command
+    try:
+        journal.step_completed(_PHASE, STEP_ROLLBACK_STARTED)
+        if created:
+            command.drop_database(target.load, confirm=target.load.name)
+            journal.step_completed(_PHASE, STEP_LOAD_TARGET_DROPPED)
+        else:
+            command.drop_tables(target.load, prefix=inputs.site.table_prefix)
+    except RunTerminated:
+        raise
+    except Exception as exc:  # named in RollbackFailedError, with the cause
+        _rollback_failed(inputs, journal, cause, exc, target=target)
+    journal.step_completed(_PHASE, STEP_ROLLED_BACK)
 
 
 def _rollback_failed(

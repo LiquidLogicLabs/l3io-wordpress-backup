@@ -83,6 +83,10 @@ WARNING `credential_below_redaction_floor`; it was refused with
 `PassphraseUnavailableError`. `RootBackupRefusedError` and
 `ArchiveDirectoryNotWritableError` (raised by the CLI) are new.
 
+**Pre-1.0 changes (2026-11-09).** `InstallationNotReadableError` (raised by
+the CLI) is new: a Run started as root refuses, right after switching to the
+Site Root's owner, an installation that owner cannot read.
+
 **Pre-1.0 changes (2026-11-07).** `backup`'s `target` is now required (no
 default; a call without it is a `TypeError`, raised before anything runs);
 the `context` parameter is gone from `backup`, `restore` and `verify`; passwords and
@@ -599,7 +603,7 @@ Members: `FILES` (`'files'`), `FILES_CLEAN` (`'files-clean'`), `DATABASE` (`'dat
 What one restore did (or, in a Dry Run, planned); built, never printed.
 
 ```python
-RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ...], dry_run: bool, actions: tuple[PlannedRestoreAction, ...], integrity: Integrity | None, snapshot_path: PurePosixPath | None, snapshot_encrypted: bool, database: DatabaseRestoreReport | None, search_replace: SearchReplaceReport | None, resolved_run_id: str | None, skipped_links: tuple[SkippedLink, ...] | None, wp_config_kept: bool, notes: tuple[str, ...] = ())
+RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ...], dry_run: bool, actions: tuple[PlannedRestoreAction, ...], integrity: Integrity | None, snapshot_path: PurePosixPath | None, snapshot_encrypted: bool, database: DatabaseRestoreReport | None, search_replace: SearchReplaceReport | None, resolved_run_id: str | None, skipped_links: tuple[SkippedLink, ...] | None, wp_config_kept: bool, wp_config_absent: bool = False, notes: tuple[str, ...] = ())
 ```
 
 | Field | Type | Default |
@@ -617,7 +621,11 @@ RestoreOutcome(*, run_id: str, mode: RestoreMode, phases: tuple[RestorePhase, ..
 | `resolved_run_id` | `str \| None` | required |
 | `skipped_links` | `tuple[SkippedLink, ...] \| None` | required |
 | `wp_config_kept` | `bool` | required |
+| `wp_config_absent` | `bool` | `False` |
 | `notes` | `tuple[str, ...]` | `()` |
+
+`wp_config_absent` is true when the target had no `wp-config.php` and the Run
+wrote none: a database-only restore onto such a folder (owner decision 74).
 
 `notes` are what the Run chose without asking, each also logged: the
 Archive `--archive latest` named (owner decision 64) and an encrypted
@@ -1556,9 +1564,11 @@ Fields: `uid`, `gid`, `step`, each holding the argument of the same name.
 
 ### `RollbackFailedError`
 
-Decision 50: the load failed, and putting the database back failed too.
+Decision 50: the load failed, and putting the database back failed too. Also
+decision 72: the content URL rewrite (`SEARCH_REPLACE`) after a relocation
+failed, and putting the database or the original `wp-config.php` back failed.
 
-`cause` is the load's failure and `rollback` the rollback's (`None` when
+`cause` is the load's (or the rewrite's) failure and `rollback` the rollback's (`None` when
 nothing could roll back: no Safety Snapshot); `database` the live database,
 now partly loaded; `snapshot` the Safety Snapshot's path (`None` without one)
 and `recovery` the commands that restore it. The Run stays recorded as
@@ -1596,6 +1606,30 @@ ArchiveDirectoryNotWritableError(*, directory: str, uid: int, user: str | None)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `directory`, `uid`, `user`, each holding the argument of the same name (`user` is `None` when the uid has no password entry).
+
+### `RelocationTargetNotEmptyError`
+
+A relocation's load database (`--new-db-name`, or the Site's name on the `--new-db-host` server) already holds tables. It must be missing (the Run creates it, and drops it again on failure) or empty: the Safety Snapshot covers only the live database, so nothing is overwritten without one. Refused before any change; `--force` does not waive it (owner decision 73).
+
+```python
+RelocationTargetNotEmptyError(*, database: str, tables: int)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `database` (`host:port/name`) and `tables` (how many it holds), each holding the argument of the same name.
+
+### `InstallationNotReadableError`
+
+The `wpbackup2` command, started as root, switched to the Site Root's owner (for a restore or a backup), and that owner cannot read a directory of the installation it runs from: the standard library, `site-packages` or another `sys.path` entry after the first, as an interpreter or virtual environment under root's home directory leaves them (`uv tool install` or `pipx install` run as root). Python imports a module on first use, so the Run would otherwise fail part way through, reported as a missing extra. Raised right after the switch and before the Run opens, a Dry Run too; nothing was changed (owner decisions 58, 67).
+
+```python
+InstallationNotReadableError(*, path: str, uid: int, user: str | None)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `path`, `uid`, `user`, each holding the argument of the same name (`path` is the first directory the owner cannot read; `user` is `None` when the uid has no password entry).
 
 ### `NoArchiveForSiteError`
 

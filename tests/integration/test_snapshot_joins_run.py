@@ -17,6 +17,10 @@ under JSON logging. ``subprocess.run(timeout=)`` turns a deadlock into
   ``VERIFIED``; the lock is acquirable at once after exit;
 - paused inside ``SNAPSHOT``, the Site is ``LOCKED`` to a second acquirer
   spelling the Site Root through a symlink, naming the first Run.
+
+As root (CI), ``python -m wpbackup2`` switches to the Site's owner, so the
+Site and the Run's directories are given to it, and the acquire afterwards,
+in this process, is made as that owner (``tests/root_mode.py``).
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ from tests.integration.live_cli import (
     authorizing_flags,
     cli_site,  # noqa: F401 - a fixture
 )
+from tests.root_mode import as_site_owner, give_to_site_owner
 
 pytest.importorskip("l3io.wp.database")
 
@@ -214,6 +219,7 @@ def test_a_destructive_all_clean_restore_joins_one_run(
         "wpbackup2",
         *site.argv(site.archive(), *authorizing_flags(RestoreMode.ALL_CLEAN)),
     ]
+    give_to_site_owner(site.root, site.site.work)
     done = subprocess.run(  # noqa: S603 - a fixed module under this interpreter
         argv,
         env={**os.environ, "PYTHONPATH": str(_ROOT)},
@@ -243,5 +249,5 @@ def test_a_destructive_all_clean_restore_joins_one_run(
     # Owner decision 49: the Dump loaded into the live database itself.
     assert site.site.databases() == [original]
     assert "wp_restored" in site.site.checksums()
-    with FcntlSiteLock().acquire(site.root, _holder()):
+    with as_site_owner(), FcntlSiteLock().acquire(site.root, _holder()):
         pass

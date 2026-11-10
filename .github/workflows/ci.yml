@@ -239,6 +239,13 @@ jobs:
       # cannot be used in a job-level env block — the runner context is step-level
       # only and act's schema validator rejects it — but `matrix` is available here.
       UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-py${{ matrix.python }}-${{ matrix.engine.name }}
+      # Python itself outside root's home. Under act every job runs as root, and
+      # setup-uv then installs the interpreter in /root (mode 0700); a test's
+      # `wpbackup2` child started as root switches to the Site's owner (owner
+      # decisions 58, 67), which could not read the standard library and is
+      # refused with InstallationNotReadableError. /tmp is readable by anyone
+      # on both act and GitHub (whose default is RUNNER_TEMP anyway).
+      UV_PYTHON_INSTALL_DIR: /tmp/l3io-python
     steps:
       - uses: actions/checkout@v7
         with:
@@ -331,6 +338,8 @@ jobs:
         python: ["3.11", "3.12", "3.13", "3.14"]
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/l3io-venv-unit-py${{ matrix.python }}
+      # Readable by the Site's owner a root test's child switches to: see `test`.
+      UV_PYTHON_INSTALL_DIR: /tmp/l3io-python
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }

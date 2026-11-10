@@ -256,9 +256,16 @@ ci-clean: ## Remove act containers, networks and volumes left by a run
 	@# the name turned into dashes. The prefixes are derived from the workflow
 	@# files' own `name:` fields, not listed here, so a renamed or added workflow
 	@# is still swept.
+	@#
+	@# `rm -v` removes each container's ANONYMOUS volumes with it -- the
+	@# database services' /var/lib/mysql (the mysql and mariadb images declare
+	@# it a VOLUME). Without it every swept service container left a dangling
+	@# volume behind (37 of them, ~16 GB, 2026-11-09). Only the volumes of the
+	@# containers removed here go: a named volume, or any other dangling one,
+	@# is never touched.
 	@set -eu; \
 	for n in $$(sed -n 's/^name:[[:space:]]*//p' .github/workflows/*.yml | tr ' ' '-'); do \
-	  docker ps -aq --filter "name=^act-$$n-" | xargs -r docker rm -f >/dev/null 2>&1 || true; \
+	  docker ps -aq --filter "name=^act-$$n-" | xargs -r docker rm -f -v >/dev/null 2>&1 || true; \
 	  docker network ls -q --filter "name=^act-$$n-" | xargs -r docker network rm >/dev/null 2>&1 || true; \
 	  docker volume ls -q --filter "name=^act-$$n-" | xargs -r docker volume rm >/dev/null 2>&1 || true; \
 	done; \
