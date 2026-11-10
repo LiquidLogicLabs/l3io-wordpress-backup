@@ -20,10 +20,15 @@ Credit for the original version of this goes to [Cariad Eccleston](https://githu
 ## Installation
 
 ```shell
-pip install 'l3io-wordpress-backup[database]'
+pip install l3io-wordpress-backup
 ```
 
-Every dependency, the `database` extra included (`l3io-wordpress-database`, `l3io-wordpress-config` and the `l3io-age-passphrase` binder), installs from PyPI; no extra index is needed. A feature used without its extra stops with exit 7 (`NOT_READY`) naming the extra to install.
+That is everything a backup and a restore need: `l3io-wordpress-database`, `l3io-wordpress-config` and the `l3io-age-passphrase` binder are required dependencies, and every dependency installs from PyPI; no extra index is needed. The optional extras add:
+
+- `aws` — AWS Secrets Manager credentials (boto3): `pip install 'l3io-wordpress-backup[aws]'`;
+- `otel` — the OpenTelemetry SDK and a JSON-file exporter, for tracing.
+
+`pip install 'l3io-wordpress-backup[database]'`, the install earlier releases documented, still works: `database` is now an empty extra that adds nothing. A feature used without its extra (`aws`) stops with exit 7 (`NOT_READY`) naming the extra to install. An installation missing a required dependency (installed with `--no-deps`, or pruned afterwards) stops with exit 7 too, saying the installation is incomplete; reinstall `l3io-wordpress-backup`.
 
 Requirements: Python 3.11 or newer. Extracting an archive also needs a Python with the June 2025 `tarfile` security fixes (3.11.13+, 3.12.11+, 3.13.4+; CVE-2025-4517); on an older one extraction is refused — upgrade Python.
 
@@ -42,7 +47,7 @@ A Run checks every external tool its plan needs before its first effect, and sto
 | MySQL/MariaDB client tools | client 8.4+, MariaDB 11.4+ | the database dump and load | checked per Site by l3io-wordpress-database (`check_dump`/`check_load`), never run by this package | your distribution's MySQL or MariaDB client package |
 <!-- END GENERATED: tool-requirements (tools/gen_tool_docs.py) -->
 
-The `database` extra installs the `l3io-age-passphrase` binder, published as wheels for Linux (glibc and musl; x86_64, aarch64, armv7l), macOS (x86_64, arm64) and Windows (amd64). On any other platform the installer builds it from its source distribution, which needs a Rust toolchain; if that build fails, the extra does not install. When the binder is not importable, the passphrase backend falls back to the `age` command line (`L3IO_AGE_PASSPHRASE_BACKEND=auto`, the default), so `age` 1.3 or newer and `age-plugin-batchpass` must be on `PATH`, or an encrypted Run stops with exit 7 (`NOT_READY`) before its first effect. `L3IO_AGE_PASSPHRASE_BACKEND=cli` selects that backend explicitly.
+The `l3io-age-passphrase` binder, a required dependency, is published as wheels for Linux (glibc and musl; x86_64, aarch64, armv7l), macOS (x86_64, arm64) and Windows (amd64). On any other platform the installer builds it from its source distribution, which needs a Rust toolchain; if that build fails, the package does not install. When the binder is not importable, the passphrase backend falls back to the `age` command line (`L3IO_AGE_PASSPHRASE_BACKEND=auto`, the default), so `age` 1.3 or newer and `age-plugin-batchpass` must be on `PATH`, or an encrypted Run stops with exit 7 (`NOT_READY`) before its first effect. `L3IO_AGE_PASSPHRASE_BACKEND=cli` selects that backend explicitly.
 
 ## Usage
 

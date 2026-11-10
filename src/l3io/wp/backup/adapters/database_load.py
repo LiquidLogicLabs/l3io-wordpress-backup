@@ -51,7 +51,7 @@ No SQL is issued and no config byte is written here: database and
 ``adapters/config_writer`` do both. ``l3io.wp.database`` is never imported
 here: the load name is checked through
 ``adapters/database.database_name_is_valid`` (ADR-0015), so this module
-imports without the ``database`` extra; it imports nothing from
+imports even without database installed; it imports nothing from
 ``l3io.wp.config``.
 """
 

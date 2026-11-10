@@ -151,7 +151,7 @@ backup logs its host (owner decision 51): no confirmation flag is asked for.
 | 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a relocation (`--new-db-*`) that would rewrite a `DB_*` read from the environment, a `DB_*` that is another PHP expression, an `--overwrite-wp-config` whose Archive's file does not define `getenv_docker()` for the target's definitions |
 | 4    | `CREDENTIALS`         | the database does not exist yet or the WordPress account cannot log in or lacks a right on it, and no administrator credentials are configured (`AdminCredentialsRequiredError`, naming what is missing); or a credential source is unusable |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
-| 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed, the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
+| 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed or the installation is incomplete (`IncompleteInstallError`), the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
 | 8    | `VERIFICATION_FAILED` | the Archive is malformed or corrupt, or a passphrase is wrong                                |
 | 9    | `LOCKED`              | another Run holds this Site's lock                                                          |
 
@@ -1087,7 +1087,7 @@ neither switches nor refuses.
 
 The installation must be readable by the owner too. Python imports a module
 on first use, so after the switch the owner loads the rest of `wpbackup2`,
-its extras and the standard library itself; an interpreter or virtual
+its dependencies and the standard library itself; an interpreter or virtual
 environment under root's home directory (mode `0700`, as `uv tool install`
 or `pipx install` run as root leave it) cannot be read. Right after the
 switch, each directory of `sys.path` after the first (the standard library,

@@ -19,6 +19,7 @@ Epic 3 story 3.1 applies the sentinel to a full restore; Epic 4
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import inspect
 import logging
 import os
@@ -27,16 +28,56 @@ import tarfile
 import tempfile
 import traceback
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
 import structlog
+from packaging.requirements import Requirement
 from structlog.testing import capture_logs
 
 from l3io.wp.backup.ports.crypto import PayloadCipher
+
+_DISTRIBUTION = "l3io-wordpress-backup"
+
+
+def unmet_base_requirements(*, extra_lines: Iterable[str] = ()) -> list[str]:
+    """The installed project's base requirements that are not met.
+
+    Read from its own ``Requires-Dist`` (no extra; a marker true here counts),
+    plus ``extra_lines`` for planted tests. Owner decision 76 made the family a
+    base requirement, so the many ``importorskip("l3io.wp.database")`` guards
+    in this suite could only skip in a broken environment: a false green.
+    ``pytest_configure`` refuses such a session instead.
+    """
+    lines = [*(importlib.metadata.requires(_DISTRIBUTION) or ()), *extra_lines]
+    unmet = []
+    for line in lines:
+        requirement = Requirement(line)
+        marker = requirement.marker
+        if marker is not None and not marker.evaluate({"extra": ""}):
+            continue
+        try:
+            installed = importlib.metadata.version(requirement.name)
+        except importlib.metadata.PackageNotFoundError:
+            unmet.append(str(requirement))
+            continue
+        if not requirement.specifier.contains(installed, prereleases=True):
+            unmet.append(str(requirement))
+    return unmet
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    unmet = unmet_base_requirements()
+    if unmet:
+        msg = (
+            "the test environment is an incomplete install of "
+            f"{_DISTRIBUTION} (unmet: {', '.join(unmet)}); run `uv sync`"
+        )
+        raise pytest.UsageError(msg)
+
 
 #: AD-26's environment step; spelled out so the fixture does not import the CLI.
 PASSPHRASE_ENV = "L3IO_WP_BACKUP_PASSPHRASE"

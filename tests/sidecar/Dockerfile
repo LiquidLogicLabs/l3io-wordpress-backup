@@ -31,11 +31,12 @@ COPY pyproject.toml ./
 COPY *.whl ./
 COPY local-deps/ ./local-deps/
 # The repository's own clean-install recipe (ci.yml "every optional extra
-# installs, wheels only"): the dependencies are read from pyproject.toml and
-# resolve from PyPI alone, the family included; then the built wheel, --no-deps.
+# installs, wheels only"), without extras: the dependencies are read from
+# pyproject.toml and resolve from PyPI alone; the family is a base dependency
+# (owner decision 76), so no extra is needed. Then the built wheel, --no-deps.
 ENV UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never
 RUN uv venv -q --python /usr/bin/python3 /opt/wpbackup \
- && uv pip install --python /opt/wpbackup --no-build -r pyproject.toml --extra database \
+ && uv pip install --python /opt/wpbackup --no-build -r pyproject.toml \
  && if [ "$LOCAL_DEPS" = 1 ]; then \
       uv pip install --python /opt/wpbackup --no-deps --reinstall ./local-deps/*.whl; \
     fi \

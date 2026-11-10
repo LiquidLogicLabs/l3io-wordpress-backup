@@ -595,6 +595,9 @@ wheels = [
 name = "l3io-wordpress-backup"
 source = { editable = "." }
 dependencies = [
+    { name = "l3io-age-passphrase" },
+    { name = "l3io-wordpress-config" },
+    { name = "l3io-wordpress-database", extra = ["encryption"] },
     { name = "opentelemetry-api" },
     { name = "packaging" },
     { name = "pathspec" },
@@ -606,11 +609,6 @@ dependencies = [
 [package.optional-dependencies]
 aws = [
     { name = "l3io-wordpress-database", extra = ["aws"] },
-]
-database = [
-    { name = "l3io-age-passphrase" },
-    { name = "l3io-wordpress-config" },
-    { name = "l3io-wordpress-database", extra = ["encryption"] },
 ]
 otel = [
     { name = "opentelemetry-exporter-otlp-json-file" },
@@ -644,10 +642,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "l3io-age-passphrase", marker = "extra == 'database'", specifier = ">=0.1.1,<0.2" },
-    { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.7,<0.2" },
+    { name = "l3io-age-passphrase", specifier = ">=0.1.1,<0.2" },
+    { name = "l3io-wordpress-config", specifier = ">=0.1.7,<0.2" },
     { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.5,<0.4" },
-    { name = "l3io-wordpress-database", extras = ["encryption"], marker = "extra == 'database'", specifier = ">=0.3.5,<0.4" },
+    { name = "l3io-wordpress-database", extras = ["encryption"], specifier = ">=0.3.5,<0.4" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },

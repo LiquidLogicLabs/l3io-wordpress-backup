@@ -3,8 +3,10 @@
 :class:`PassphraseCipher` implements the ``PayloadCipher`` port by calling
 ``l3io.wp.database.encryption``'s ``encrypt``/``decrypt`` with ``passphrase=``;
 no cipher, KDF or ``age`` code is written or imported here (ADR-0014). The
-database import is deferred (AD-8): without the ``database`` extra, or without
-database's passphrase backend, it raises ``MissingExtraError``. It is the one
+database import is deferred (AD-8). Database, ``pyrage`` and the binder are
+required dependencies (owner decision 76), so an installation that lacks one,
+or that has neither the binder nor the ``age`` command line as a backend,
+raises ``IncompleteInstallError`` naming the missing distribution. It is the one
 ``PayloadCipher`` in the package (BL-E004-042), and every composition root
 builds it through :func:`build_payload_cipher` (E004-S01-003).
 
@@ -28,7 +30,7 @@ from typing import IO, Final, overload
 from l3io.wp.backup.adapters.preflight import has_relative_path_entry
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.errors import (
-    MissingExtraError,
+    IncompleteInstallError,
     PassphraseRejectedError,
     PayloadDamagedError,
     UsageError,
@@ -44,7 +46,7 @@ __all__ = [
     "selected_backend",
 ]
 
-_EXTRA = "database"
+_DISTRIBUTION: Final = "l3io-wordpress-database"
 #: Database's backend switch (its README and ADR-0003).
 _BACKEND_ENV: Final = "L3IO_AGE_PASSPHRASE_BACKEND"
 _BINDER_MODULE: Final = "l3io_age_passphrase"
@@ -139,13 +141,13 @@ class PassphraseCipher:
     def check(self) -> None:
         """Refuse before any write if the passphrase or its backend cannot run.
 
-        ``MissingExtraError`` when database, ``pyrage`` or a usable backend is
-        missing; ``EncryptionConfigError`` for an invalid passphrase or backend
-        setting. Also ``EncryptionConfigError`` when the ``cli`` backend is
-        selected (explicitly, or because the binder is unavailable) and
-        ``PATH`` has an empty or relative entry: database resolves ``age``
-        through it and hands it the passphrase, while the preflight ignores
-        such entries (AR-3, RT-7).
+        ``IncompleteInstallError`` when database, ``pyrage`` or a usable
+        backend is missing; ``EncryptionConfigError`` for an invalid
+        passphrase or backend setting. Also ``EncryptionConfigError`` when the
+        ``cli`` backend is selected (explicitly, or because the binder is
+        unavailable) and ``PATH`` has an empty or relative entry: database
+        resolves ``age`` through it and hands it the passphrase, while the
+        preflight ignores such entries (AR-3, RT-7).
         """
         if selected_backend(os.environ) == "cli" and has_relative_path_entry():
             raise EncryptionConfigError(relative_path=True)
@@ -156,11 +158,11 @@ class PassphraseCipher:
                 MissingDependencyError,
             )
         except ImportError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise IncompleteInstallError(_DISTRIBUTION) from exc
         try:
             encryption.check_passphrase(self._passphrase.reveal())
         except MissingDependencyError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise IncompleteInstallError(exc.distribution) from exc
         except InvalidArgumentsError as exc:
             raise EncryptionConfigError from exc
 
@@ -173,11 +175,11 @@ class PassphraseCipher:
                 MissingDependencyError,
             )
         except ImportError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise IncompleteInstallError(_DISTRIBUTION) from exc
         try:
             encryption.encrypt(reader, writer, passphrase=self._passphrase.reveal())
         except MissingDependencyError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise IncompleteInstallError(exc.distribution) from exc
         except InvalidArgumentsError as exc:
             raise EncryptionConfigError from exc
 
@@ -192,11 +194,11 @@ class PassphraseCipher:
                 MissingDependencyError,
             )
         except ImportError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise IncompleteInstallError(_DISTRIBUTION) from exc
         try:
             encryption.decrypt(reader, writer, passphrase=self._passphrase.reveal())
         except MissingDependencyError as exc:
-            raise MissingExtraError(extra=_EXTRA) from exc
+            raise IncompleteInstallError(exc.distribution) from exc
         except InvalidArgumentsError as exc:
             raise EncryptionConfigError from exc
         except DecryptionError as exc:

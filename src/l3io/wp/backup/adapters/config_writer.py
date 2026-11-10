@@ -1,8 +1,9 @@
 """AD-18.2/AD-18.4 — the one writer of ``wp-config.php`` (ADR-0010, ADR-0023).
 
 :class:`WpConfigWriter` implements ``ConfigQuery`` and ``ConfigCommand`` over
-``l3io-wordpress-config`` (the ``database`` extra, imported inside the
-functions that use it — AD-8). This is the only module in the package that
+``l3io-wordpress-config`` (a required dependency, owner decision 76, imported
+inside the functions that use it; an installation that lacks it anyway is
+``IncompleteInstallError``). This is the only module in the package that
 imports ``l3io.wp.config``; :func:`read_defined` is the reader
 ``adapters/database.py`` uses for ``WP_SITEURL``/``WP_HOME``.
 
@@ -68,8 +69,8 @@ from l3io.wp.backup.domain.errors import (
     ConfigWriteFailedError,
     CredentialsError,
     EnvironmentDrivenTargetError,
+    IncompleteInstallError,
     InvalidSiteDescriptorError,
-    MissingExtraError,
     UndefinedConfigFunctionError,
     UnsupportedConfigValueError,
 )
@@ -91,7 +92,7 @@ __all__ = [
 
 _log = structlog.get_logger(__name__)
 
-_EXTRA: Final = "database"
+_DISTRIBUTION: Final = "l3io-wordpress-config"
 _NS_PER_MS: Final = 1_000_000
 _PASSWORD_KEY: Final = "DB_PASSWORD"  # noqa: S105 - a constant name
 _TMP_SUFFIX: Final = ".l3io-tmp"
@@ -121,11 +122,11 @@ SECRET_FILE_LIMIT: Final = 64 * 1024
 _NO_ENVIRONMENT: Final[Mapping[str, str]] = MappingProxyType({})
 
 
-def _require_extra() -> None:
+def _require_config() -> None:
     try:
         import l3io.wp.config  # noqa: F401 - imported for its presence only
     except ImportError as exc:
-        raise MissingExtraError(extra=_EXTRA) from exc
+        raise IncompleteInstallError(_DISTRIBUTION) from exc
 
 
 def _constant(value: object) -> ConstantValue:
@@ -143,7 +144,7 @@ def read_defined(
     An unreadable file is ``CredentialsError(label)``: ``wp-config.php`` is
     the credential provider whose file could not be read.
     """
-    _require_extra()
+    _require_config()
     from l3io.wp.config import MISSING, WpConfigError, WpConfigFile
 
     try:
@@ -239,7 +240,7 @@ def _read_values(
     type; a resolved lookup is text. A resolved ``DB_PASSWORD`` is registered
     with ``secrets`` before anything else happens to it.
     """
-    _require_extra()
+    _require_config()
     from l3io.wp.config import (
         MISSING,
         EnvLookup,
@@ -312,7 +313,7 @@ def refuse_environment_lookups(
     names every such key and its variable, and ``operation``; an
     ``Expression`` among ``keys`` is ``UnsupportedConfigValueError``.
     """
-    _require_extra()
+    _require_config()
     from l3io.wp.config import EnvLookup, Expression, WpConfigError, WpConfigFile
 
     try:
@@ -470,7 +471,7 @@ def carry_sources(
     ``getenv_docker()`` the new text does not declare before it is used
     (``UndefinedConfigFunctionError``; the library's ``declares_function``).
     """
-    _require_extra()
+    _require_config()
     return _carry(config_file, _open_target(config_file), content, keep)
 
 
@@ -485,7 +486,7 @@ def refuse_uncarriable(
     in memory as :func:`carry_sources` would, so a missing definition is
     refused here, a Dry Run included, and not at ``REWRITE_CONFIG``.
     """
-    _require_extra()
+    _require_config()
     from l3io.wp.config import EnvLookup, Expression, WpConfigError, WpConfigFile
 
     label = f"wp-config:{config_file}"
@@ -569,7 +570,7 @@ class WpConfigWriter:
         rewritten and is absent from ``changed``, which the caller journals
         per key. The file must exist: it is never created here.
         """
-        _require_extra()
+        _require_config()
         from l3io.wp.config import ConfigReadError, WpConfigError, WpConfigFile
 
         self._register(values, source="set_constants")
@@ -670,7 +671,7 @@ class WpConfigWriter:
         key twice is refused. ``config_file`` must exist. On any failure the
         original is byte-identical and no temp file is left behind.
         """
-        _require_extra()
+        _require_config()
         from l3io.wp.config import WpConfigError, WpConfigString
 
         started = time.monotonic_ns()

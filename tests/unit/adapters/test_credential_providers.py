@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import structlog
+from packaging.requirements import Requirement
 from structlog.testing import capture_logs
 
 wpdb = pytest.importorskip("l3io.wp.database")
@@ -53,6 +54,7 @@ from l3io.wp.backup.domain.credentials import (  # noqa: E402
 from l3io.wp.backup.domain.database import DatabaseLocation  # noqa: E402
 from l3io.wp.backup.domain.errors import (  # noqa: E402
     CredentialsError,
+    IncompleteInstallError,
     MissingExtraError,
 )
 from l3io.wp.backup.domain.secret import Secret  # noqa: E402
@@ -731,31 +733,107 @@ def test_a_restore_keeps_wp_configs_account_when_the_variables_are_set(
     assert resolved.password != planted
 
 
-def test_a_missing_database_dependency_names_this_packages_extra(
+def test_a_missing_config_library_is_an_incomplete_install(
     wp_config: CredentialSource, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Owner decision 76: required, so its absence names no extra to install."""
     from l3io.wp.backup.adapters.database import site_descriptor_from_wp_config
 
     monkeypatch.setitem(sys.modules, "l3io.wp.config", None)
     config = Path(wp_config.source.removeprefix("wp-config:"))
-    with pytest.raises(MissingExtraError) as caught:
+    with pytest.raises(IncompleteInstallError) as caught:
         site_descriptor_from_wp_config(
             config.parent, config_file=config, environ={}, secrets=SecretRegistry()
         )
-    assert caught.value.extra == "database"
+    assert caught.value.distribution == "l3io-wordpress-config"
 
 
-def test_every_database_extra_maps_to_an_extra_this_package_offers() -> None:
-    from importlib.metadata import metadata
+def _requirements(distribution: str) -> list[Requirement]:
+    from importlib.metadata import requires
 
+    return [Requirement(line) for line in requires(distribution) or ()]
+
+
+def _split_findings(
+    ours: set[str], base: list[Requirement], theirs: dict[str, list[Requirement]]
+) -> list[str]:
+    """Each of database's extras is offered by this package, or the base has it.
+
+    ``theirs`` maps each of database's extras to the requirements it gates.
+    One this package offers under the same name must be in ``_SHARED_EXTRAS``
+    (``MissingExtraError`` naming it); every other one must be brought by this
+    package's base install -- database required with that extra, or each
+    distribution it gates required directly -- or ``IncompleteInstallError``
+    would tell an operator to reinstall when reinstalling cannot help.
+    """
     from l3io.wp.backup.adapters import database
 
+    shared = database._SHARED_EXTRAS  # noqa: SLF001
+    found = [f"shared extra {e} is not offered" for e in sorted(shared - ours)]
+    in_base = {r.name: r for r in base}
+    database_extras = in_base.get("l3io-wordpress-database")
+    taken = set() if database_extras is None else database_extras.extras
+    for extra, gated in sorted(theirs.items()):
+        if extra in shared:
+            continue
+        if extra in ours:
+            found.append(f"{extra}: offered by this package but not in _SHARED_EXTRAS")
+        elif extra not in taken and not all(r.name in in_base for r in gated):
+            found.append(f"{extra}: neither offered nor brought by the base install")
+    return found
+
+
+def _database_extras() -> dict[str, list[Requirement]]:
+    from importlib.metadata import metadata
+
+    names = metadata("l3io-wordpress-database").get_all("Provides-Extra") or ()
+    reqs = _requirements("l3io-wordpress-database")
+    return {
+        name: [
+            r
+            for r in reqs
+            if r.marker is not None
+            and r.marker.evaluate({"extra": name})
+            and not r.marker.evaluate({"extra": ""})
+        ]
+        for name in names
+    }
+
+
+def _ours_and_base() -> tuple[set[str], list[Requirement]]:
+    from importlib.metadata import metadata
+
     ours = set(metadata("l3io-wordpress-backup").get_all("Provides-Extra") or ())
-    theirs = set(metadata("l3io-wordpress-database").get_all("Provides-Extra") or ())
+    base = [
+        r
+        for r in _requirements("l3io-wordpress-backup")
+        if r.marker is None or r.marker.evaluate({"extra": ""})
+    ]
+    return ours, base
+
+
+def test_every_database_extra_is_offered_or_in_the_base_install() -> None:
+    ours, base = _ours_and_base()
+    theirs = _database_extras()
     assert theirs, "l3io-wordpress-database declares no extra"
-    mapped = {database._backup_extra(extra) for extra in theirs}  # noqa: SLF001
-    assert mapped <= ours, sorted(mapped - ours)
-    assert database._backup_extra("aws") == "aws"  # noqa: SLF001
+    assert "aws" in ours, "this package no longer offers aws: nothing was checked"
+    assert _split_findings(ours, base, theirs) == []
+
+
+@pytest.mark.parametrize(
+    "plant",
+    ["a database extra nobody brings", "the base drops a gated distribution"],
+)
+def test_the_extra_split_check_catches_a_planted_gap(plant: str) -> None:
+    ours, base = _ours_and_base()
+    theirs = _database_extras()
+    if plant == "a database extra nobody brings":
+        theirs["planted"] = [Requirement('l3io-planted>=1; extra == "planted"')]
+    else:
+        # Attacks the scope: wpconfig is covered only because the base names
+        # l3io-wordpress-config directly; without it the gap must be reported.
+        base = [r for r in base if r.name != "l3io-wordpress-config"]
+    assert _split_findings(ours, base, theirs) != []
 
 
 # --------------------------------------------------------------------------

@@ -38,7 +38,7 @@ from l3io.wp.backup.adapters.crypto import (
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.domain.errors import (
-    MissingExtraError,
+    IncompleteInstallError,
     PassphraseRejectedError,
     PayloadDamagedError,
 )
@@ -218,24 +218,26 @@ def _hide_the_binder(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "l3io_age_passphrase", None)
 
 
-def test_the_binder_backend_without_the_binder_is_a_missing_extra(
+def test_the_binder_backend_without_the_binder_is_an_incomplete_install(
     monkeypatch: pytest.MonkeyPatch, passphrase: str
 ) -> None:
+    """Owner decision 76: the binder is required, so no extra is named."""
     monkeypatch.setenv(BACKEND_ENV, "binder")
     _hide_the_binder(monkeypatch)
-    with pytest.raises(MissingExtraError) as caught:
+    with pytest.raises(IncompleteInstallError) as caught:
         PassphraseCipher(passphrase).check()
-    assert caught.value.extra == "database"
+    assert caught.value.distribution == "l3io-age-passphrase"
     assert caught.value.exit_code is ExitCode.NOT_READY
+    assert "reinstall l3io-wordpress-backup" in str(caught.value)
 
 
-def test_no_usable_backend_under_auto_is_a_missing_extra(
+def test_no_usable_backend_under_auto_is_an_incomplete_install(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, passphrase: str
 ) -> None:
-    """F-18: auto (unset) with no binder and no ``age`` is ``MissingExtraError``."""
+    """F-18: auto (unset) with no binder and no ``age``: the binder is missing."""
     _hide_the_binder(monkeypatch)
     monkeypatch.setenv("PATH", str(tmp_path))
-    with pytest.raises(MissingExtraError):
+    with pytest.raises(IncompleteInstallError):
         PassphraseCipher(passphrase).check()
 
 

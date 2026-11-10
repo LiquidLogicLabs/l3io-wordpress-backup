@@ -13,7 +13,7 @@ directory the owner cannot write. After either switch,
 cannot read (:func:`installation_paths`): Python imports a module on first
 use, so an interpreter or virtual environment under root's ``0700`` home
 (``uv tool install`` or ``pipx install`` run as root) would otherwise fail
-an import part way through the Run, reported as a missing extra. The
+an import part way through the Run, reported as an incomplete installation. The
 switch is :func:`drop_to_site_owner`, or its two halves
 :func:`owner_to_run_as` (who, refusing a root-owned Site Root, before
 anything is read) and :func:`switch_to` (the switch): ``setgroups([gid])``,
@@ -248,8 +248,8 @@ def installation_paths() -> tuple[Path, ...]:
     """The directories this process imports from: ``sys.path`` after its first entry.
 
     That is the standard library and its extension modules, the
-    environment's ``site-packages`` (the ``database`` and ``otel`` extras
-    and every dependency), any ``.pth`` addition (an editable install's
+    environment's ``site-packages`` (the family, the ``otel`` extra
+    and every other dependency), any ``.pth`` addition (an editable install's
     source tree) and ``PYTHONPATH``. The first entry is skipped: it is the
     script's directory or the working directory, not the installation.
     Those that exist, each once. Only the directories are checked, not every

@@ -38,6 +38,7 @@ from l3io.wp.backup.domain.errors import (  # noqa: E402
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
+    IncompleteInstallError,
     MissingExtraError,
 )
 
@@ -215,7 +216,8 @@ def test_check_dump_copies_codes_and_does_not_raise(
     ("raised", "expected"),
     [
         (wpdb.AccessDeniedError("never-shown"), DatabaseRefusedError),
-        (wpdb.MissingDependencyError("x", "never-shown"), MissingExtraError),
+        (wpdb.MissingDependencyError("aws", "boto3"), MissingExtraError),
+        (wpdb.MissingDependencyError("encryption", "pyrage"), IncompleteInstallError),
         (wpdb.DatabaseError("never-shown"), BackupError),
     ],
     ids=lambda v: type(v).__name__ if isinstance(v, Exception) else v.__name__,
@@ -239,14 +241,14 @@ def test_check_dump_wraps_every_database_error(
         assert caught.value.findings == ("missing_privilege",)
 
 
-def test_the_missing_extra_is_reported_before_any_write(
+def test_an_incomplete_install_is_reported_before_any_write(
     database: WpDatabase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setitem(sys.modules, "l3io.wp.database", None)
     destination = tmp_path / "dump.sql"
-    with pytest.raises(MissingExtraError):
+    with pytest.raises(IncompleteInstallError):
         database.dump_to(LOCATION, destination)
-    with pytest.raises(MissingExtraError):
+    with pytest.raises(IncompleteInstallError):
         database.check_dump(LOCATION)
     assert not destination.exists()
 

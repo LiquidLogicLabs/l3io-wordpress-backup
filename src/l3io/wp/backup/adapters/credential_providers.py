@@ -1,8 +1,9 @@
 """FR-14/AD-9 — the credential chains, in the domain's declared precedence.
 
 Layer: ``adapters`` (AD-1). It imports ``domain/`` and ``adapters/redaction``;
-``l3io.wp.database`` (the optional ``database`` extra) is imported **inside the
-functions that use it** and, for annotations, under ``TYPE_CHECKING`` (AD-8).
+``l3io.wp.database`` (a required dependency, owner decision 76) is imported
+**inside the functions that use it** and, for annotations, under
+``TYPE_CHECKING`` (AD-8).
 
 Two builders put database's own sources in order and return a database
 ``CredentialChain`` (first source with an answer wins; a source that *failed*

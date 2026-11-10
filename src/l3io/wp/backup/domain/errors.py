@@ -57,6 +57,7 @@ __all__ = [
     "EnvironmentDrivenTargetError",
     "ExtractionRefusedError",
     "FlagCombinationRejectedError",
+    "IncompleteInstallError",
     "IncompleteRelocationCredentialsError",
     "InstallationNotReadableError",
     "InterferingReplacementsError",
@@ -479,7 +480,12 @@ class ArchiveExistsError(RefusedError):
 
 
 class MissingExtraError(BackupError):
-    """An optional feature was used without its extra installed (AD-8)."""
+    """An optional feature was used without its extra installed (AD-8).
+
+    Only for an extra that is still optional (``aws``, ``otel``): what the
+    ``database`` extra brought is a required dependency since 1.0.0 (owner
+    decision 76), and its absence is :class:`IncompleteInstallError`.
+    """
 
     exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
 
@@ -488,6 +494,26 @@ class MissingExtraError(BackupError):
         super().__init__(
             f"this feature needs the {extra!r} extra: "
             f"pip install 'l3io-wordpress-backup[{extra}]'"
+        )
+
+
+class IncompleteInstallError(BackupError):
+    """A required dependency cannot be imported: the installation is broken.
+
+    The family (``l3io-wordpress-database``, ``l3io-wordpress-config``, the
+    ``l3io-age-passphrase`` binder) is a required dependency since 1.0.0
+    (owner decision 76), so a pip install always brings it; one made with
+    ``--no-deps``, or an environment pruned afterwards, can still lack it.
+    ``distribution`` names what is missing. No extra would fix it.
+    """
+
+    exit_code: ClassVar[ExitCode] = ExitCode.NOT_READY
+
+    def __init__(self, distribution: str) -> None:
+        self.distribution = distribution
+        super().__init__(
+            f"the installation is incomplete: {distribution!r} is missing; "
+            "reinstall l3io-wordpress-backup"
         )
 
 

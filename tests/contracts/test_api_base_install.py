@@ -1,19 +1,23 @@
-"""AD-8 — ``l3io.wp.backup.api`` imports and refuses cleanly in a base install.
+"""AD-8, owner decision 76 — ``l3io.wp.backup.api`` in a base and a broken install.
 
-A subprocess blocks ``l3io.wp.database`` and ``opentelemetry.sdk`` in
-``sys.modules`` before the first import, which is what an environment without
-the ``database`` and ``otel`` extras looks like to an ``import``. There:
+Since 1.0.0 the family is a required dependency, so a base install has
+``l3io.wp.database`` and lacks only the optional extras (``otel``; ``aws``'s
+boto3 is not imported until an AWS secret is resolved). A subprocess blocks
+modules in ``sys.modules`` before the first import, which is what an
+environment without them looks like to an ``import``:
 
-- ``import l3io.wp.backup.api`` succeeds and every name in ``__all__``
-  resolves;
-- a ``database`` backup and a ``files`` backup each raise
-  ``MissingExtraError(extra="database")``: the Site Descriptor is parsed by
-  ``l3io-wordpress-database`` whatever the scope (A11), so the refusal comes
-  after the Site Lock was taken, and the lock is released.
+- ``base`` blocks ``opentelemetry.sdk`` only: ``import l3io.wp.backup.api``
+  succeeds, every name in ``__all__`` resolves, and neither backup is refused
+  for a missing extra or an incomplete install;
+- ``broken`` also blocks ``l3io.wp.database``, as an install made with
+  ``--no-deps`` would be: the API still imports, and a ``database`` and a
+  ``files`` backup each raise ``IncompleteInstallError`` naming
+  ``l3io-wordpress-database`` -- never an extra to install -- after the Site
+  Lock was taken (the Site Descriptor is parsed by database whatever the
+  scope, A11), and the lock is released.
 
 The subprocess prints one JSON line; the asserts are here, so a child that
-crashes before printing fails rather than passes. The planted case runs the
-same probe without the block and must see the extra present.
+crashes before printing fails rather than passes.
 
 The site's ``DB_PASSWORD`` is a unique sentinel per probe, and the child's
 stdout and stderr are checked not to contain it (BL-E006-003).
@@ -38,14 +42,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 PROBE = r"""
 import json, sys
-if sys.argv[1] == "blocked":
+sys.modules["opentelemetry.sdk"] = None
+if sys.argv[1] == "broken":
     sys.modules["l3io.wp.database"] = None
-    sys.modules["opentelemetry.sdk"] = None
 from tests.root_mode import become_site_owner
 become_site_owner()
 from structlog.testing import capture_logs
 import l3io.wp.backup.api as api
-from l3io.wp.backup.domain.errors import MissingExtraError
+from l3io.wp.backup.domain.errors import IncompleteInstallError, MissingExtraError
 
 report = {"unresolved": [n for n in api.__all__ if getattr(api, n, None) is None]}
 for scope in (api.BackupScope.DATABASE, api.BackupScope.FILES):
@@ -53,6 +57,9 @@ for scope in (api.BackupScope.DATABASE, api.BackupScope.FILES):
         try:
             api.backup(sys.argv[2], scope=scope, target=sys.argv[3] + scope.value)
             outcome = "returned"
+        except IncompleteInstallError as exc:
+            outcome = "incomplete:" + exc.distribution
+            assert "extra" not in str(exc), str(exc)
         except MissingExtraError as exc:
             outcome = "missing:" + exc.extra
         except Exception as exc:
@@ -100,22 +107,27 @@ def _probe(mode: str, tmp_path: Path) -> dict[str, Any]:
     return report
 
 
-def test_a_base_install_imports_and_refuses_with_the_extra_named(
+def test_a_broken_install_imports_and_says_it_is_incomplete(
     tmp_path: Path,
 ) -> None:
-    report = _probe("blocked", tmp_path)
+    report = _probe("broken", tmp_path)
     assert report["unresolved"] == []
     for scope in ("database", "files"):
         assert report[scope] == {
-            "outcome": "missing:database",
+            "outcome": "incomplete:l3io-wordpress-database",
             "locked": True,
             "released": True,
         }, scope
 
 
-def test_the_probe_sees_the_extra_when_it_is_installed(tmp_path: Path) -> None:
-    """The planted contrast: unblocked, the same calls do not name the extra."""
-    report = _probe("open", tmp_path)
+def test_a_base_install_needs_no_extra_to_back_up(tmp_path: Path) -> None:
+    """The contrast: only the optional extras absent, nothing is refused for it.
+
+    The ``database`` backup still fails (``db.invalid`` cannot be reached), but
+    not as a missing extra or an incomplete install.
+    """
+    report = _probe("base", tmp_path)
     assert report["unresolved"] == []
     assert report["files"]["outcome"] == "returned"
-    assert report["database"]["outcome"] != "missing:database"
+    outcome = report["database"]["outcome"]
+    assert not outcome.startswith(("missing:", "incomplete:")), outcome

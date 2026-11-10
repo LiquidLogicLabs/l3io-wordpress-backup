@@ -147,3 +147,14 @@ encrypted Run raises `MissingExtraError` (exit 7). When the binder is not import
 an authenticated verify or a restore of an encrypted Archive refuses with
 `PreflightFailedError` (exit 7) before its first effect. The operator-facing statement
 is in the README's External tools section.
+
+## Amendment — 2026-11-10: the binder is a required dependency (owner decision 76)
+
+From 1.0.0 the family, database's `encryption` extra and the binder included, is in
+`[project.dependencies]`; the `database` extra is an empty alias. On a platform with no
+published binder wheel the source build therefore decides whether the package installs
+at all, not whether an extra does. An installation that lacks database, `pyrage` or the
+binder anyway (`--no-deps`, a pruned environment), or that has neither the binder nor
+the `age` command line under `auto`, raises `IncompleteInstallError` (exit 7, "reinstall
+l3io-wordpress-backup") in place of `MissingExtraError`. The CLI fallback and its
+preflight are unchanged.

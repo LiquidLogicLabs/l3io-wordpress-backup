@@ -11,12 +11,13 @@ else in the package builds a Site Descriptor from ``wp-config.php`` (AD-3);
 ``adapters/config_writer``. This package invokes no MySQL client tool and
 writes no option file.
 
-``l3io.wp.database`` is the optional ``database`` extra, imported **inside the
-functions that use it**; its absence raises ``MissingExtraError`` at the first
-call, before any write (AD-8). Every database exception reaching a public
-boundary is re-raised as a package error with ``raise ... from`` (AD-14).
-Credentials are passed straight from database's sources to database's
-functions and are never stored, logged or put in an exception message.
+``l3io.wp.database`` is a required dependency (owner decision 76), still
+imported **inside the functions that use it**; an installation that lacks it
+anyway raises ``IncompleteInstallError`` at the first call, before any
+write. Every database exception reaching a public boundary is re-raised as a
+package error with ``raise ... from`` (AD-14). Credentials are passed straight
+from database's sources to database's functions and are never stored, logged
+or put in an exception message.
 
 This module and ``adapters/credential_providers.py`` are the only ones that
 construct database's credential classes (ADR-0015 amendment):
@@ -82,6 +83,7 @@ from l3io.wp.backup.domain.errors import (
     DatabaseRefusedError,
     DatabaseUnreachableError,
     DumpFailedError,
+    IncompleteInstallError,
     InvalidSiteDescriptorError,
     LoadFailedError,
     LoadReadinessError,
@@ -98,6 +100,7 @@ if TYPE_CHECKING:
     from l3io.wp.database import (
         Connection,
         CredentialSource,
+        MissingDependencyError,
         ResolvedCredentials,
         Survey,
         TlsSettings,
@@ -136,10 +139,12 @@ __all__ = [
 
 _log = structlog.get_logger(__name__)
 
-_EXTRA = "database"
-#: Database's extras that this package also offers under the same name. Every
-#: other extra database names (``wpconfig``, ``encryption``) is installed by
-#: this package's ``database`` extra, so the install hint names that.
+_DISTRIBUTION: Final = "l3io-wordpress-database"
+#: Database's extras that this package also offers under the same name: still
+#: optional, so their absence is ``MissingExtraError`` naming the extra. What
+#: every other extra database names (``wpconfig``, ``encryption``) brings is a
+#: required dependency of this package (owner decision 76), so its absence is
+#: ``IncompleteInstallError`` (test_credential_providers proves the split).
 _SHARED_EXTRAS: Final = frozenset({"aws"})
 _CONFIG_NAME: Final = WP_CONFIG_NAME
 _SETTINGS_NAME: Final = WP_SETTINGS_NAME
@@ -255,7 +260,7 @@ def _tls_settings(db_tls: DbTls) -> TlsSettings:
     account, as WordPress connects; ``--db-tls`` opts in. ``--db-tls-ca``
     without a verifying mode is ``UsageError``, before any connection.
     """
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     if db_tls.mode is not None and db_tls.mode not in DB_TLS_MODES:
@@ -299,19 +304,25 @@ def _tls_error(exc: BaseException, location: DatabaseLocation) -> BackupError:
     return DatabaseTlsHandshakeError(location.host, location.port)
 
 
-def _backup_extra(extra: str) -> str:
-    """This package's extra for database's ``extra`` (review F-2)."""
-    return extra if extra in _SHARED_EXTRAS else _EXTRA
+def _missing_dependency(exc: MissingDependencyError) -> BackupError:
+    """Database's ``MissingDependencyError`` as this package's (review F-2).
+
+    An extra this package also offers is ``MissingExtraError`` naming it;
+    anything else is a required dependency, so ``IncompleteInstallError``.
+    """
+    if exc.extra in _SHARED_EXTRAS:
+        return MissingExtraError(extra=exc.extra)
+    return IncompleteInstallError(exc.distribution)
 
 
 def database_name_is_valid(name: str) -> bool:
     """Whether database's ``validate_database_name`` accepts ``name``.
 
     The one door for that check (ADR-0015): ``adapters/database_load.py`` asks here
-    instead of importing ``l3io.wp.database``. ``MissingExtraError`` without
-    the ``database`` extra (AD-8).
+    instead of importing ``l3io.wp.database``. ``IncompleteInstallError`` when
+    database is not installed.
     """
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     try:
@@ -327,20 +338,20 @@ def database_host_is_local(host: str) -> bool:
     The set is database's ``DEFAULT_LOCAL_HOSTS`` (``localhost``,
     ``127.0.0.1`` and the IPv6 loopback), the one the TLS policy uses; a host
     that is an absolute path is a Unix socket. Case-insensitive, as host names
-    are. ``MissingExtraError`` without the ``database`` extra (AD-8).
+    are. ``IncompleteInstallError`` when database is not installed.
     """
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     return host.startswith("/") or host.lower() in wpdb.DEFAULT_LOCAL_HOSTS
 
 
-def _require_extra() -> None:
-    """Raise ``MissingExtraError`` when the ``database`` extra is absent (AD-8)."""
+def _require_database() -> None:
+    """Raise ``IncompleteInstallError`` when ``l3io.wp.database`` is absent."""
     try:
         import l3io.wp.database  # noqa: F401 - imported for its presence only
     except ImportError as exc:
-        raise MissingExtraError(extra=_EXTRA) from exc
+        raise IncompleteInstallError(_DISTRIBUTION) from exc
 
 
 # --------------------------------------------------------------------------
@@ -526,7 +537,7 @@ def _parse(
     and ``$table_prefix`` are read through ``config_writer.read_settings``
     (owner decision 47); the location is database's ``Connection``.
     """
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     label = f"wp-config:{config_file}"
@@ -664,7 +675,7 @@ def database_location_from_db_host(db_host: str, name: str) -> DatabaseLocation:
     parsed a second way (BL-E002-114). An empty host, a port that is not an
     integer in range, or an invalid database name is a ``UsageError``.
     """
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     # ADV-S02-11: fixed texts that echo neither database's message nor the
@@ -741,14 +752,14 @@ def resolve_admin_now(source: CredentialSource) -> ResolvedCredentialSpec:
     Failures are ``CredentialsError`` naming the source's label; never a
     value.
     """
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     label = source.source
     try:
         resolved = source.resolve()
     except wpdb.MissingDependencyError as exc:
-        raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+        raise _missing_dependency(exc) from exc
     except (
         wpdb.CredentialsUnobtainableError,
         wpdb.CredentialsAbsentError,
@@ -766,14 +777,14 @@ def resolve_admin_now(source: CredentialSource) -> ResolvedCredentialSpec:
 def _resolve_mapped(
     source: CredentialSource, *, environ: Mapping[str, str]
 ) -> ResolvedCredentials:
-    _require_extra()
+    _require_database()
     from l3io.wp import database as wpdb
 
     label = source.source
     try:
         return source.resolve()
     except wpdb.MissingDependencyError as exc:
-        raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+        raise _missing_dependency(exc) from exc
     except wpdb.ConfigUnreadableError as exc:
         raise CredentialsError(label, reason="wp-config.php is unreadable") from exc
     except wpdb.CredentialsUnobtainableError as exc:
@@ -867,7 +878,7 @@ class _RegisteringSource:
         try:
             resolved = self._inner.resolve()
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+            raise _missing_dependency(exc) from exc
         except wpdb.RegionNotKnownError as exc:
             reason = (
                 f"no AWS region: pass {self._region_flag} "
@@ -931,7 +942,7 @@ def wordpress_source(
     already: its source answers with it under the chain's label, and nothing
     is read again (it was registered, and warned of, when it was resolved).
     """
-    _require_extra()
+    _require_database()
     if isinstance(spec, ResolvedCredentialSpec):
         if len(spec.secret) >= MIN_SECRET_LENGTH:
             secrets.register(spec.secret, source=spec.source)
@@ -956,7 +967,7 @@ def admin_source(
     by a restore the CLI started as root before it switched to the Site
     Root's owner (owner decision 71): nothing is read again.
     """
-    _require_extra()
+    _require_database()
     if isinstance(spec, ResolvedCredentialSpec):
         if len(spec.secret) >= MIN_SECRET_LENGTH:
             secrets.register(spec.secret, source=spec.source)
@@ -1064,7 +1075,7 @@ class WpDatabase:
 
     def check_dump(self, location: DatabaseLocation) -> Readiness:
         """Database's ``check_dump``, its verdict copied as finding codes."""
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1084,7 +1095,7 @@ class WpDatabase:
             # An authenticated account lacking a privilege mid-session.
             raise DatabaseRefusedError(findings=(_MISSING_PRIVILEGE,)) from exc
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+            raise _missing_dependency(exc) from exc
         except wpdb.DatabaseError as exc:
             raise DumpFailedError(type(exc).__name__, database=location.name) from exc
         blockers, warnings = _codes(verdict)
@@ -1105,7 +1116,7 @@ class WpDatabase:
         No key argument is passed: the Dump is encrypted, if at all, inside the
         payload (ADR-0024).
         """
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1139,7 +1150,7 @@ class WpDatabase:
         ) as exc:
             raise CredentialsError(source) from exc
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+            raise _missing_dependency(exc) from exc
         except wpdb.DatabaseError as exc:
             raise DumpFailedError(type(exc).__name__, database=location.name) from exc
         except OSError as exc:
@@ -1176,7 +1187,7 @@ class WpDatabase:
         bound, else ``AdminCredentialsRequiredError`` names what is missing,
         before anything changes.
         """
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1278,7 +1289,7 @@ class WpDatabase:
     def check_ensure(self, location: DatabaseLocation) -> Readiness:
         """Database's ``check_ensure``, as finding codes."""
         admin = self._require_admin()
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1304,7 +1315,7 @@ class WpDatabase:
         (BL-E002-104), so a failure to run it is :class:`LoadReadinessError`
         (``NOT_READY``) naming that account's credential source.
         """
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1325,7 +1336,7 @@ class WpDatabase:
         package writes no ``GRANT`` and quotes no identifier.
         """
         admin = self._require_admin()
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1379,7 +1390,7 @@ class WpDatabase:
         whose name starts with ``prune_prefix``; their names are
         ``LoadResult.dropped``.
         """
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1408,7 +1419,7 @@ class WpDatabase:
         self, location: DatabaseLocation, *, prefix: str
     ) -> tuple[str, ...]:
         """Database's ``drop_tables`` as the WordPress account; the names dropped."""
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1425,7 +1436,7 @@ class WpDatabase:
         Database's warnings (``live_wordpress_site``) are logged, not dropped.
         """
         admin = self._require_admin()
-        _require_extra()
+        _require_database()
         from l3io.wp import database as wpdb
 
         connection = self._connection(location)
@@ -1499,7 +1510,7 @@ class WpDatabase:
         ) as exc:
             raise CredentialsError(credential_source) from exc
         except wpdb.MissingDependencyError as exc:
-            raise MissingExtraError(extra=_backup_extra(exc.extra)) from exc
+            raise _missing_dependency(exc) from exc
         except wpdb.InvalidIdentifierError as exc:
             raise InvalidSiteDescriptorError(_unusable_connection(exc)) from exc
         except wpdb.DatabaseError as exc:

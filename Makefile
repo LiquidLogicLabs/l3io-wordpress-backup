@@ -153,10 +153,7 @@ verify-wheel: build ## Install the BUILT WHEEL into a clean env and import it (n
 	  echo "verifying $$wheel"; \
 	  uv run --isolated --no-project --with "$$wheel" \
 	    python -c "from l3io.wp import backup; print('import ok')"; \
-	  uv run --isolated --no-project --with "$$wheel" python -c "\
-import importlib.util, sys; \
-[sys.exit('AD-8 — base install pulled ' + m) for m in ('boto3','botocore','opentelemetry.sdk') if importlib.util.find_spec(m)]; \
-print('base install clean')"
+	  uv run --isolated --no-project --with "$$wheel" python tools/check_base_install.py
 
 # ---- local CI replay -------------------------------------------------------
 

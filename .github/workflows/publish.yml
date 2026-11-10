@@ -169,7 +169,8 @@ jobs:
       matrix:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
-      # pyproject.toml is read by the PyPI-only extras check below.
+      # pyproject.toml is read by the PyPI-only extras check below, and
+      # tools/check_base_install.py by the base-install check.
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: actions/download-artifact@v8
@@ -204,6 +205,16 @@ jobs:
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$WHEEL" \
                  python -c "from l3io.wp import backup; print('import ok')"
+      # Owner decision 76 and AD-8, as ci.yml's verify-install: the base install
+      # has every base requirement (the family included) and nothing only an
+      # extra brings (boto3, the OpenTelemetry SDK), read from the wheel's own
+      # metadata by tools/check_base_install.py.
+      - name: base install has the family and pulls no optional dependency
+        run: |
+          set -euo pipefail
+          uv run --isolated --no-project --python "${{ matrix.python }}" \
+                 --with "$WHEEL" \
+                 python tools/check_base_install.py
 
       # FR-25 for a PyPI release: every extra must install from PyPI ALONE. The
       # same check as ci.yml's, with --no-sources, uv's built-in switch that ignores
@@ -299,8 +310,10 @@ jobs:
           version: "0.11.6"
       - name: three distributions, one interpreter
         # The siblings come from PyPI (2026-11-10), as a consumer gets them: the
-        # built wheel with its `database` extra, so the versions are the ones the
-        # wheel's own metadata allows -- no hand-kept URL or version here. (The
+        # built wheel's own dependencies (required since owner decision 76),
+        # so the versions are the ones its metadata allows -- no hand-kept URL
+        # or version here. Installed as `[database]`, the empty alias, so the
+        # alias pre-1.0.0 instructions use is proven to resolve too. (The
         # GitHub Release wheels used before were pinned to config 0.1.1 and
         # database 0.1.0, far below the floors.)
         run: |

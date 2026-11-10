@@ -48,6 +48,7 @@ from l3io.wp.backup.domain.errors import (
     CredentialsError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
+    IncompleteInstallError,
     MissingExtraError,
     PassphraseRejectedError,
     SiteLockedError,
@@ -113,8 +114,12 @@ MODES: dict[str, tuple[Callable[[], BaseException], type[BaseException]]] = {
     ),
     "refused": (lambda: wpdb.AccessDeniedError("no privilege"), DatabaseRefusedError),
     "missing extra": (
-        lambda: wpdb.MissingDependencyError("database", "l3io-wordpress-database"),
+        lambda: wpdb.MissingDependencyError("aws", "boto3"),
         MissingExtraError,
+    ),
+    "incomplete install": (
+        lambda: wpdb.MissingDependencyError("encryption", "pyrage"),
+        IncompleteInstallError,
     ),
     "unexpected": (lambda: RuntimeError("a defect"), api.UnexpectedError),
 }

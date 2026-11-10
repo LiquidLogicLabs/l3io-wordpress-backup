@@ -1187,6 +1187,23 @@ Base: `UsageError`. Exit code: `USAGE` (2).
 
 Fields: `reason`, `use_instead`, each holding the argument of the same name.
 
+### `IncompleteInstallError`
+
+A required dependency cannot be imported: the installation is broken. The
+family (`l3io-wordpress-database`, `l3io-wordpress-config`, the
+`l3io-age-passphrase` binder) is a required dependency since 1.0.0 (owner
+decision 76), so a pip install always brings it; one made with `--no-deps`, or
+an environment pruned afterwards, can still lack it. No extra would fix it:
+reinstall `l3io-wordpress-backup`. Raised at the first use, before any write.
+
+```python
+IncompleteInstallError(distribution: str)
+```
+
+Base: `BackupError`. Exit code: `NOT_READY` (7).
+
+Fields: `distribution`, the missing distribution's name.
+
 ### `IncompleteRelocationCredentialsError`
 
 FR-11 — half of the relocated account was given.
@@ -1375,7 +1392,9 @@ Fields: `path`, `reason`, each holding the argument of the same name.
 
 ### `MissingExtraError`
 
-An optional feature was used without its extra installed (AD-8).
+An optional feature was used without its extra installed (AD-8): today the
+`aws` extra, when an AWS Secrets Manager secret is resolved. A required
+dependency missing from the installation is `IncompleteInstallError`, never this.
 
 ```python
 MissingExtraError(extra: str)
@@ -1621,7 +1640,7 @@ Fields: `database` (`host:port/name`) and `tables` (how many it holds), each hol
 
 ### `InstallationNotReadableError`
 
-The `wpbackup2` command, started as root, switched to the Site Root's owner (for a restore or a backup), and that owner cannot read a directory of the installation it runs from: the standard library, `site-packages` or another `sys.path` entry after the first, as an interpreter or virtual environment under root's home directory leaves them (`uv tool install` or `pipx install` run as root). Python imports a module on first use, so the Run would otherwise fail part way through, reported as a missing extra. Raised right after the switch and before the Run opens, a Dry Run too; nothing was changed (owner decisions 58, 67).
+The `wpbackup2` command, started as root, switched to the Site Root's owner (for a restore or a backup), and that owner cannot read a directory of the installation it runs from: the standard library, `site-packages` or another `sys.path` entry after the first, as an interpreter or virtual environment under root's home directory leaves them (`uv tool install` or `pipx install` run as root). Python imports a module on first use, so the Run would otherwise fail part way through, reported as an incomplete installation. Raised right after the switch and before the Run opens, a Dry Run too; nothing was changed (owner decisions 58, 67).
 
 ```python
 InstallationNotReadableError(*, path: str, uid: int, user: str | None)

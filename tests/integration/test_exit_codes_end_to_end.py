@@ -165,7 +165,7 @@ def _not_ready(env: _Env) -> list[int]:
     env.check_dump_finds(wpdb.Code.CLIENT_TOOL_MISSING)
     env.dump_raises(AssertionError("preflight let the dump run"))
     preflight = [env.backup(), env.backup_rehearsed()]
-    # The database extra absent: importing it fails.
+    # An incomplete install (owner decision 76): importing database fails.
     env.monkeypatch.setitem(sys.modules, "l3io.wp.database", None)
     return [*preflight, env.backup()]
 

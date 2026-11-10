@@ -106,6 +106,8 @@ DECLARED = {
     # E002-S02-008: an unusable lock directory; the Run does not proceed unlocked.
     "SiteLockLocationError": ExitCode.NOT_READY,
     "MissingExtraError": ExitCode.NOT_READY,
+    # Owner decision 76: a required dependency missing from a broken install.
+    "IncompleteInstallError": ExitCode.NOT_READY,
     "LoadReadinessError": ExitCode.NOT_READY,
     "PreflightFailedError": ExitCode.NOT_READY,
     # Owner decision 2026-11-07 (item 9: BL-E002-069/074/103).

@@ -18,10 +18,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
-# Plain imports, not importorskip (BL-E006-002): CI syncs --all-extras, so a
-# broken extra must fail this file, not skip it; DB_HOST alone gates the tier.
-import l3io.wp.database  # noqa: F401 - the database extra must be installed
-import pymysql  # noqa: F401 - the live tier's driver, from that extra
+# Plain imports, not importorskip (BL-E006-002): the family is a required
+# dependency (owner decision 76), so a broken install must fail this file, not
+# skip it; DB_HOST alone gates the tier.
+import l3io.wp.database  # noqa: F401 - a required dependency
+import pymysql  # noqa: F401 - the live tier's driver, from database
 import pytest
 from structlog.testing import capture_logs
 

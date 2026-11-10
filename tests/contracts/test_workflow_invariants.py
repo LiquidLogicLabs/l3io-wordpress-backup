@@ -306,6 +306,53 @@ def test_ci_checks_extras_on_every_run_and_a_pypi_release_against_pypi_alone() -
         )
 
 
+#: A step that installs the bare built wheel (no extra) into an isolated env.
+_BARE_WHEEL = re.compile(r'--isolated\b[\s\S]*--with "\$(?:wheel|WHEEL)"')
+_BASE_CHECK = "tools/check_base_install.py"
+
+
+def _codes(job: dict) -> list[str]:
+    codes = []
+    for step in job.get("steps") or []:
+        lines = (step.get("run") or "").splitlines()
+        codes.append("\n".join(ln for ln in lines if not ln.lstrip().startswith("#")))
+    return codes
+
+
+def _clean_install_jobs(jobs: dict) -> list[str]:
+    """Jobs that install the bare wheel: found by what they do, not by a list."""
+    return [j for j, job in jobs.items() if any(map(_BARE_WHEEL.search, _codes(job)))]
+
+
+def _base_install_findings(name: str, jobs: dict) -> list[str]:
+    """Owner decision 76: every job that installs the bare wheel checks the base."""
+    found = []
+    for job_id in _clean_install_jobs(jobs):
+        checks = [c for c in _codes(jobs[job_id]) if _BASE_CHECK in c]
+        if not any(_BARE_WHEEL.search(c) for c in checks):
+            found.append(f"{name}:{job_id}: installs the wheel, not {_BASE_CHECK}")
+    return found
+
+
+def test_every_clean_install_job_checks_the_base_install() -> None:
+    jobs = {wf.name: _jobs(wf) for wf in WORKFLOWS}
+    assert _clean_install_jobs(jobs["ci.yml"]), "ci.yml has no clean install job"
+    assert _clean_install_jobs(jobs["publish.yml"]), "publish.yml has none"
+    for name, wf_jobs in jobs.items():
+        assert _base_install_findings(name, wf_jobs) == []
+    makefile = (WORKFLOWS[0].parents[2] / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("\nverify-wheel:", 1)[1].split("\n\n", 1)[0]
+    assert _BASE_CHECK in recipe, "make verify-wheel does not check the base install"
+
+
+def test_a_clean_install_job_without_the_base_check_is_reported() -> None:
+    """Planted: ci.yml's verify-install with the check step removed."""
+    jobs = _jobs(next(wf for wf in WORKFLOWS if wf.name == "ci.yml"))
+    job = jobs["verify-install"]
+    job["steps"] = [s for s in job["steps"] if _BASE_CHECK not in (s.get("run") or "")]
+    assert _base_install_findings("ci.yml", {"verify-install": job}) != []
+
+
 def test_a_login_gated_index_never_runs_on_pull_requests() -> None:
     """A step that uses the login-gated family index must not run on pull requests.
 

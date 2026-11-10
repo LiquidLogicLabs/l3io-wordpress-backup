@@ -482,20 +482,19 @@ jobs:
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$wheel" \
                  python -c "from l3io.wp import backup; import sys; print('import ok', sys.version)"
-      - name: base install pulls no optional dependency
-        # AD-8 — an optional dependency is an optional import.
+      - name: base install has the family and pulls no optional dependency
+        # Owner decision 76 and AD-8: the base install backs up and restores
+        # (every base requirement met, the family included, l3io.wp.database
+        # and l3io.wp.config import) and pulls nothing only an extra brings
+        # (boto3 through `aws`, the OpenTelemetry SDK through `otel`). Both
+        # sets are read from the installed wheel's own metadata by
+        # tools/check_base_install.py; nothing is listed here.
         run: |
           set -euo pipefail
           wheel=$(ls "$DIST_DIR"/*.whl)
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$wheel" \
-                 python - <<'PY'
-          import importlib.util, sys
-          for forbidden in ("boto3", "botocore", "opentelemetry.sdk", "l3io.wp.database"):
-              if importlib.util.find_spec(forbidden) is not None:
-                  sys.exit(f"AD-8 — base install pulled {forbidden}")
-          print("base install is clean")
-          PY
+                 python tools/check_base_install.py
       - name: the console script runs from the installed distribution
         run: |
           set -euo pipefail
@@ -516,7 +515,8 @@ jobs:
         # FR-25: "every runtime dependency resolves from its declared index at
         # release time". The steps above install the BASE wheel only, so a broken
         # extra would pass them. This one installs every extra (`--all-extras`, so
-        # one added later -- E004's `encryption` -- is covered with no edit) with
+        # one added later is covered with no edit; `database` is an empty alias
+        # since owner decision 76, so it must still resolve, adding nothing) with
         # --no-build, so a dependency that only has an sdist or a git source fails
         # here, not at an operator's install (E004 gate AG-3, 2026-10-28). Then the
         # built wheel itself, --no-deps. The dependencies are read from

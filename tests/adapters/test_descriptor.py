@@ -33,8 +33,8 @@ from l3io.wp.backup.domain.archive_format import (
 )
 from l3io.wp.backup.domain.errors import (
     CredentialsError,
+    IncompleteInstallError,
     InvalidSiteDescriptorError,
-    MissingExtraError,
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
 
@@ -209,15 +209,18 @@ def test_a_missing_db_name_is_an_invalid_site(tmp_path: Path) -> None:
         )
 
 
-def test_the_missing_extra_is_reported(
+def test_a_missing_database_library_is_an_incomplete_install(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Owner decision 76: required, so its absence names no extra to install."""
     monkeypatch.setitem(sys.modules, "l3io.wp.database", None)
-    with pytest.raises(MissingExtraError) as caught:
+    with pytest.raises(IncompleteInstallError) as caught:
         site_descriptor_from_wp_config(
             tmp_path, config_file=FIXTURE, environ={}, secrets=SecretRegistry()
         )
-    assert caught.value.extra == "database"
+    assert caught.value.distribution == "l3io-wordpress-database"
+    assert "reinstall l3io-wordpress-backup" in str(caught.value)
+    assert "extra" not in str(caught.value)
 
 
 def test_a_planted_password_never_reaches_the_manifest(tmp_path: Path) -> None:

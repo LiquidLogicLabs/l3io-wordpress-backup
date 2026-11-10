@@ -63,42 +63,37 @@ dependencies = [
   # (BSD-3-Clause, unused here: pydantic-settings requires it). Latest at
   # adoption: 2.16.2 (pydantic 2.14.3).
   "pydantic-settings>=2.16,<3",
-]
-
-[project.optional-dependencies]
-# The family (l3io-wordpress-database, l3io-wordpress-config, the
-# l3io-age-passphrase binder) resolves from PyPI, like every other dependency
-# (2026-11-10; until then from TestPyPI, owner decision 2026-11-02). There is no
-# [tool.uv.sources] and no extra index: development, CI, the sidecar image and an
-# operator's `pip install 'l3io-wordpress-backup[database]'` resolve the same way.
-#
-# Still an extra, not core, and verify-install's base-install check (ci.yml)
-# still forbids it. The original reason -- the family was not publicly
-# resolvable -- no longer holds; moving it into `dependencies` is a separate
-# decision, not taken for 1.0.0.
-#
-# The NAMESPACE is unaffected: it imports as l3io.wp.database (docs/adr/0012).
-#
-# Floors, and why nothing below them may be resolved:
-# - l3io-wordpress-database >=0.3.5: restore loads into the live database with
-#   load(..., prune_prefix=) / check_load(..., prune_prefix=) (owner decisions
-#   53 and 55), and a MySQL 8+ mysqldump against a MariaDB server passes
-#   --column-statistics=0. Earlier fixes it carries: 0.3.4's client option file
-#   holds only the TLS lines each client family accepts (sidecar test,
-#   2026-11-08); 0.3.3's spans name a failure by class only (BL-E006-010) and its
-#   `mysql`, `mysqldump` and `age` children get minimal environments
-#   (BL-E004-055). Its `encryption` extra (E004-S01-003, ADR-0024) brings pyrage
-#   and the binder.
-# - l3io-wordpress-config >=0.1.7: named directly, not left to database's
-#   `wpconfig` extra, because restore writes wp-config.php through it
-#   (adapters/config_writer, AD-18). 0.1.1 keeps mode and owner (0.1.0 widened a
-#   0640 file to 0644, exposing DB_PASSWORD); 0.1.2 fixes four scanner defects;
-#   0.1.4 adds replace_content (BL-E002-091); 0.1.5 get_value()/get_source()
-#   (owner decision 47); 0.1.6 set_source() (owner decision 48, BL-E008-032);
-#   0.1.7 declares_function(name, before=key), which --overwrite-wp-config uses
-#   in place of backup's own textual check.
-# - l3io-age-passphrase >=0.1.1: see the inventory below.
-database = [
+  # Owner decision 76 (2026-11-10): the family (l3io-wordpress-database,
+  # l3io-wordpress-config, the l3io-age-passphrase binder) is REQUIRED, so a
+  # plain `pip install l3io-wordpress-backup` backs up and restores. It was the
+  # optional `database` extra only while it was not publicly installable; it
+  # resolves from PyPI like every other dependency (2026-11-10; until then from
+  # TestPyPI, owner decision 2026-11-02). There is no [tool.uv.sources] and no
+  # extra index. The code still imports it inside the functions that use it, and
+  # an install that lacks it anyway (`--no-deps`, a pruned environment) is
+  # IncompleteInstallError (exit 7), never a hint to install an extra.
+  #
+  # The NAMESPACE is unaffected: it imports as l3io.wp.database (docs/adr/0012).
+  #
+  # Floors, and why nothing below them may be resolved:
+  # - l3io-wordpress-database >=0.3.5: restore loads into the live database with
+  #   load(..., prune_prefix=) / check_load(..., prune_prefix=) (owner decisions
+  #   53 and 55), and a MySQL 8+ mysqldump against a MariaDB server passes
+  #   --column-statistics=0. Earlier fixes it carries: 0.3.4's client option file
+  #   holds only the TLS lines each client family accepts (sidecar test,
+  #   2026-11-08); 0.3.3's spans name a failure by class only (BL-E006-010) and its
+  #   `mysql`, `mysqldump` and `age` children get minimal environments
+  #   (BL-E004-055). Its `encryption` extra (E004-S01-003, ADR-0024) brings pyrage
+  #   and the binder. Its `aws` extra (boto3) is NOT taken here: see `aws` below.
+  # - l3io-wordpress-config >=0.1.7: named directly, not left to database's
+  #   `wpconfig` extra, because restore writes wp-config.php through it
+  #   (adapters/config_writer, AD-18). 0.1.1 keeps mode and owner (0.1.0 widened a
+  #   0640 file to 0644, exposing DB_PASSWORD); 0.1.2 fixes four scanner defects;
+  #   0.1.4 adds replace_content (BL-E002-091); 0.1.5 get_value()/get_source()
+  #   (owner decision 47); 0.1.6 set_source() (owner decision 48, BL-E008-032);
+  #   0.1.7 declares_function(name, before=key), which --overwrite-wp-config uses
+  #   in place of backup's own textual check.
+  # - l3io-age-passphrase >=0.1.1: see the inventory below.
   "l3io-wordpress-database[encryption]>=0.3.5,<0.4",
   "l3io-wordpress-config>=0.1.7,<0.2",
   # Dependency inventory (FR-26, BL-E004-024), the two the `encryption` extra
@@ -117,6 +112,13 @@ database = [
   # are stated in this package's own metadata (E004-S01-003).
   "l3io-age-passphrase>=0.1.1,<0.2",
 ]
+
+[project.optional-dependencies]
+# Owner decision 76: an EMPTY alias, kept so `pip install
+# 'l3io-wordpress-backup[database]'` (the install every release before 1.0.0
+# documented) keeps working without a warning. What it used to bring is in
+# `dependencies` above. It must stay empty (tests/contracts/test_family_required.py).
+database = []
 # FR-14 — AWS Secrets Manager credentials (E005-S01-001). database's own `aws`
 # extra brings boto3 (`boto3<2,>=1.34` in 0.3.3's metadata), imported inside
 # AwsSecretsManager.resolve(), so boto3 stays out of the base install.

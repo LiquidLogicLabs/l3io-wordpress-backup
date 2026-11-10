@@ -7,9 +7,31 @@ owner asked for, which a commit subject cannot hold.
 
 ## 1.0.0 — 2026-11-10
 
+### Changed: the family libraries are required dependencies; `[database]` is now an empty alias (2026-11-10)
+
+- **`pip install l3io-wordpress-backup` backs up and restores** (owner decision
+  76). `l3io-wordpress-database[encryption]` (>=0.3.5), `l3io-wordpress-config`
+  (>=0.1.7) and the `l3io-age-passphrase` binder (>=0.1.1) moved from the
+  `database` extra into the required dependencies.
+- **`[database]` still installs**, without a warning: the extra is kept and is
+  empty, so `pip install 'l3io-wordpress-backup[database]'` installs exactly
+  what the plain install does.
+- **`aws` stays optional** (decision 71): `pip install
+  'l3io-wordpress-backup[aws]'` adds boto3, and the base install pulls none.
+- **A broken installation says so**: one that lacks a required dependency
+  anyway (installed with `--no-deps`, or pruned afterwards) raises
+  `IncompleteInstallError` (new; exit 7, `NOT_READY`, naming the missing
+  distribution) — "the installation is incomplete ...; reinstall
+  l3io-wordpress-backup". It used to be `MissingExtraError` naming the
+  `database` extra; `MissingExtraError` now names only an optional extra
+  (`aws`).
+- On a platform with no published binder wheel, the binder's source build
+  (which needs a Rust toolchain) now decides whether the package installs,
+  where before only the extra failed.
+
 ### Changed: the family resolves from PyPI (2026-11-10)
 
-- `pip install 'l3io-wordpress-backup[database]'` installs from PyPI alone, with
+- `pip install l3io-wordpress-backup` installs from PyPI alone, with
   no extra index: `l3io-wordpress-database` (>=0.3.5), `l3io-wordpress-config`
   (>=0.1.7) and the `l3io-age-passphrase` binder (>=0.1.1) are published there.
   Development and CI took them from TestPyPI until now; that index is no longer

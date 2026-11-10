@@ -39,6 +39,7 @@ from l3io.wp.backup.domain.errors import (  # noqa: E402
     CredentialsError,
     DatabaseRefusedError,
     DatabaseUnreachableError,
+    IncompleteInstallError,
     LoadFailedError,
     LoadReadinessError,
     MissingExtraError,
@@ -304,7 +305,8 @@ def test_the_call_table_covers_every_restore_method() -> None:
         (wpdb.DatabaseUnreachableError("x"), DatabaseUnreachableError),
         (wpdb.AuthenticationFailedError("x"), CredentialsError),
         (wpdb.AccessDeniedError("x"), CredentialsError),
-        (wpdb.MissingDependencyError("x", "y"), MissingExtraError),
+        (wpdb.MissingDependencyError("aws", "boto3"), MissingExtraError),
+        (wpdb.MissingDependencyError("encryption", "pyrage"), IncompleteInstallError),
     ],
 )
 @pytest.mark.parametrize("method", sorted(CALLS))
