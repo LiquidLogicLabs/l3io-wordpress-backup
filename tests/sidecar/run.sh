@@ -12,7 +12,7 @@
 #   KEEP_STACK=1                  leave the stack and scratch dir up (debugging;
 #                                 tear down with the `docker compose ... down -v` it prints)
 #   L3IO_LOCAL_WHEELS=DIR         install the wheels in DIR over the published ones
-#                                 (a family release not yet on TestPyPI, built from
+#                                 (a family release not yet on PyPI, built from
 #                                 its checkout; local runs only)
 #
 # Everything it creates -- containers, volumes, the network, the bind-mounted

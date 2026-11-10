@@ -11,7 +11,7 @@
 #
 # LOCAL_DEPS=1 (run.sh, L3IO_LOCAL_WHEELS set): the wheels in the context's
 # local-deps/ replace the published ones they name, after the index install.
-# For a run that needs a family release not yet on TestPyPI (for example
+# For a run that needs a family release not yet on PyPI (for example
 # l3io-wordpress-database built from its checkout); never for a release.
 
 ARG UBUNTU_IMAGE=ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
@@ -31,9 +31,8 @@ COPY pyproject.toml ./
 COPY *.whl ./
 COPY local-deps/ ./local-deps/
 # The repository's own clean-install recipe (ci.yml "every optional extra
-# installs, wheels only"): the dependencies are read from pyproject.toml, so
-# [tool.uv.sources] takes the family from the explicit TestPyPI index and
-# everything else from PyPI; then the built wheel, --no-deps.
+# installs, wheels only"): the dependencies are read from pyproject.toml and
+# resolve from PyPI alone, the family included; then the built wheel, --no-deps.
 ENV UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never
 RUN uv venv -q --python /usr/bin/python3 /opt/wpbackup \
  && uv pip install --python /opt/wpbackup --no-build -r pyproject.toml --extra database \

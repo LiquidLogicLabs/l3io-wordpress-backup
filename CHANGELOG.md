@@ -5,7 +5,15 @@ release notes proper are built from commit subjects
 (`.github/changelog-config.json`); this file carries the named entries the
 owner asked for, which a commit subject cannot hold.
 
-## Unreleased
+## 1.0.0 — 2026-11-10
+
+### Changed: the family resolves from PyPI (2026-11-10)
+
+- `pip install 'l3io-wordpress-backup[database]'` installs from PyPI alone, with
+  no extra index: `l3io-wordpress-database` (>=0.3.5), `l3io-wordpress-config`
+  (>=0.1.7) and the `l3io-age-passphrase` binder (>=0.1.1) are published there.
+  Development and CI took them from TestPyPI until now; that index is no longer
+  used anywhere in the dependency path.
 
 ### Changed: relocation safety, owner decisions 72-75 (2026-11-09)
 

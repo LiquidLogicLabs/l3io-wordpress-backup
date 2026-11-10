@@ -512,7 +512,7 @@ jobs:
           cd "$RUNNER_TEMP"
           uv run --isolated --no-project --python "${{ matrix.python }}" \
                  --with "$wheel" python -m wpbackup2 --version
-      - name: every optional extra installs, wheels only (dev and test indexes)
+      - name: every optional extra installs, wheels only, from PyPI
         # FR-25: "every runtime dependency resolves from its declared index at
         # release time". The steps above install the BASE wheel only, so a broken
         # extra would pass them. This one installs every extra (`--all-extras`, so
@@ -522,11 +522,10 @@ jobs:
         # built wheel itself, --no-deps. The dependencies are read from
         # pyproject.toml, which is what the wheel is built from.
         #
-        # WHICH INDEX, with no scripting (Shawn, 2026-11-02/03): uv's own switch.
-        # Here, for development and test, uv honours [tool.uv.sources], so the
-        # family comes from TestPyPI through the explicit index pyproject.toml
-        # declares, and everything else from PyPI. A PyPI release runs the same
-        # check with --no-sources, i.e. PyPI only (publish.yml, smoke). Anonymous,
+        # WHICH INDEX: PyPI only. pyproject.toml declares no [tool.uv.sources] and
+        # no extra index (2026-11-10; the family came from TestPyPI before), so
+        # this resolves exactly as an operator's pip install does. A PyPI release
+        # runs the same check with --no-sources (publish.yml, smoke). Anonymous,
         # so this runs on pull requests too.
         run: |
           set -euo pipefail

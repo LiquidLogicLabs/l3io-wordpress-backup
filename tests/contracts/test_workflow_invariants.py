@@ -281,13 +281,15 @@ def test_every_extra_is_install_checked_wheels_only() -> None:
         assert "-r pyproject.toml" in code, f"{where}: not reading pyproject.toml"
 
 
-def test_dev_and_test_use_the_sources_a_pypi_release_does_not() -> None:
+def test_ci_checks_extras_on_every_run_and_a_pypi_release_against_pypi_alone() -> None:
     """Which index, by uv's built-in switch rather than scripting (2026-11-03).
 
-    Development and test honour ``[tool.uv.sources]`` (the family from TestPyPI);
-    a PyPI release passes ``--no-sources`` and so resolves from PyPI alone. Both
-    halves must exist: ci.yml checks the development indexes on every run, and
-    publish.yml checks PyPI only when the target is PyPI. Losing the second
+    Both halves must exist: ci.yml checks the extras on every run, and
+    publish.yml checks them with ``--no-sources`` (PyPI alone) exactly when the
+    target is PyPI. ``pyproject.toml`` declares no sources since 2026-11-10 (the
+    family resolves from PyPI; test_dependencies_from_pypi.py guards that), so
+    ``--no-sources`` is kept for the way back: a development source added later
+    must never stand in for PyPI in a release check. Losing the second half
     would let a PyPI release ship extras that cannot install from PyPI.
     """
     installs = _extras_installs()
@@ -295,10 +297,6 @@ def test_dev_and_test_use_the_sources_a_pypi_release_does_not() -> None:
     release = [i for i in installs if i[0].startswith("publish.yml:")]
     assert dev, "ci.yml has no extras install check"
     assert release, "publish.yml has no extras install check for a PyPI release"
-    for where, code, _step in dev:
-        assert "--no-sources" not in code, (
-            f"{where}: development must honour [tool.uv.sources] (TestPyPI)"
-        )
     for where, code, step in release:
         assert "--no-sources" in code, f"{where}: a PyPI release must ignore sources"
         cond = str(step.get("if", ""))

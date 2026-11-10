@@ -66,69 +66,38 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Family-internal dependencies are extras, not core, for one reason: until every
-# package beneath this one is publicly resolvable, a hard dependency makes the
-# base install unresolvable in a clean environment — which is AD-15's gate
-# correctly refusing, not a CI defect. Matches the arrangement in
-# l3io-wordpress-database, which carries l3io-wordpress-config the same way.
+# The family (l3io-wordpress-database, l3io-wordpress-config, the
+# l3io-age-passphrase binder) resolves from PyPI, like every other dependency
+# (2026-11-10; until then from TestPyPI, owner decision 2026-11-02). There is no
+# [tool.uv.sources] and no extra index: development, CI, the sidecar image and an
+# operator's `pip install 'l3io-wordpress-backup[database]'` resolve the same way.
 #
-# REVERT CONDITION: when l3io-wordpress-database is publicly resolvable from the index a
-# consumer uses, this moves back into `dependencies` and the base-install check
-# below stops forbidding it.
-# l3io-wordpress-database: the API this rewrite builds on -- dump/load, survey,
-# ensure, drop_database, CredentialChain and age encryption -- released at v0.1.0
-# (2026-10-20); passphrase= arrived in v0.2.0 (ADR-0014). v0.2.1 (2026-11-03) is
-# the same source as v0.2.0 (`git diff v0.2.0 v0.2.1 -- src/` is empty) and the
-# first database release on TestPyPI; its published metadata names config and the
-# binder by version range, not by git. Its `encryption` extra is taken
-# (E004-S01-003, ADR-0024): it brings pyrage and the l3io-age-passphrase binder,
-# which also comes from TestPyPI (named directly in the extra, with a source).
-#
-# STILL AN EXTRA, and the revert condition above is NOT met. TestPyPI is where the
-# family resolves anonymously for development and CI (Shawn, 2026-11-02), but it
-# is not an index a consumer already uses: a plain `pip install` searches PyPI
-# only. The family moves to PyPI before backup's first real release; then this
-# moves into `dependencies`.
+# Still an extra, not core, and verify-install's base-install check (ci.yml)
+# still forbids it. The original reason -- the family was not publicly
+# resolvable -- no longer holds; moving it into `dependencies` is a separate
+# decision, not taken for 1.0.0.
 #
 # The NAMESPACE is unaffected: it imports as l3io.wp.database (docs/adr/0012).
-# l3io-wordpress-config is named directly, not left to database's `wpconfig`
-# extra, because restore writes wp-config.php through it (adapters/config_writer,
-# AD-18) and v0.1.0's write widened the file's mode -- a 0640 file came back
-# 0644, exposing DB_PASSWORD. v0.1.1 keeps mode and owner and fsyncs. v0.1.2 fixes
-# four scanner defects PHP 8.4 confirmed on real configs: a define inside a
-# multi-line comment read as live (wrong DB_NAME), DEFINE() in other cases
-# unread, CRLF files rewritten as LF, and WpConfigString.set raising on CRLF
-# (ADR-0023's OVERWRITE path). 0.1.3 is the same code with LiquidLogicLabs URLs,
-# and is the first config release on TestPyPI. 0.1.4 adds WpConfigFile.replace_content,
-# the atomic whole-file replace config_writer.replace_file calls (BL-E002-091).
-# 0.1.5 adds get_value()/get_variable_value(), which tell a literal from an
-# EnvLookup (getenv_docker()/getenv(), resolved with PHP's semantics including
-# NAME_FILE Docker secrets) or an Expression, and get_source(). Backup reads the
-# official image's getenv_docker() DB_* and $table_prefix through them (owner
-# decision 47). 0.1.6 adds set_source()/set_variable_source(), which write a
-# value's PHP source verbatim (refusing source that could end the statement,
-# open a comment or unbalance a bracket): --overwrite-wp-config carries the
-# target's DB_* into the Archive's config as source, so getenv_docker() stays a
-# lookup instead of becoming a string (owner decision 48, BL-E008-032). 0.1.7
-# adds declares_function(name, before=key), a lexical query on the library's
-# own scanner: --overwrite-wp-config asks it whether the Archive's config
-# declares getenv_docker() before the first carried define, replacing
-# backup's own textual check (its documented limits are the library's).
-# Nothing below 0.1.7 may be resolved.
-# database 0.3.5 is the floor: restore loads into the live database with
-# load(..., prune_prefix=) / check_load(..., prune_prefix=) (owner decisions
-# 53 and 55), and a MySQL 8+ mysqldump against a MariaDB server passes
-# --column-statistics=0, without which every such dump exited 2.
-# From 0.3.4: its client option file carries only the TLS
-# lines each client family accepts (MySQL: ssl-mode; MariaDB: ssl and
-# ssl-verify-server-cert), without which every restore over verified TLS to a
-# non-local host failed with "unknown variable" (sidecar test, 2026-11-08).
-# From 0.3.3: its spans name a failure by class only
-# (`error.type`, ERROR status with no description, no exception event), so no
-# error text or stack leaves through them (BL-E006-010); and its `mysql`,
-# `mysqldump` and `age` children get explicit minimal environments -- a
-# sanitized absolute PATH and LC_ALL=C, plus HOME and AGE_PASSPHRASE_FD for an
-# absolute-path `age` -- so no parent secret reaches them (BL-E004-055).
+#
+# Floors, and why nothing below them may be resolved:
+# - l3io-wordpress-database >=0.3.5: restore loads into the live database with
+#   load(..., prune_prefix=) / check_load(..., prune_prefix=) (owner decisions
+#   53 and 55), and a MySQL 8+ mysqldump against a MariaDB server passes
+#   --column-statistics=0. Earlier fixes it carries: 0.3.4's client option file
+#   holds only the TLS lines each client family accepts (sidecar test,
+#   2026-11-08); 0.3.3's spans name a failure by class only (BL-E006-010) and its
+#   `mysql`, `mysqldump` and `age` children get minimal environments
+#   (BL-E004-055). Its `encryption` extra (E004-S01-003, ADR-0024) brings pyrage
+#   and the binder.
+# - l3io-wordpress-config >=0.1.7: named directly, not left to database's
+#   `wpconfig` extra, because restore writes wp-config.php through it
+#   (adapters/config_writer, AD-18). 0.1.1 keeps mode and owner (0.1.0 widened a
+#   0640 file to 0644, exposing DB_PASSWORD); 0.1.2 fixes four scanner defects;
+#   0.1.4 adds replace_content (BL-E002-091); 0.1.5 get_value()/get_source()
+#   (owner decision 47); 0.1.6 set_source() (owner decision 48, BL-E008-032);
+#   0.1.7 declares_function(name, before=key), which --overwrite-wp-config uses
+#   in place of backup's own textual check.
+# - l3io-age-passphrase >=0.1.1: see the inventory below.
 database = [
   "l3io-wordpress-database[encryption]>=0.3.5,<0.4",
   "l3io-wordpress-config>=0.1.7,<0.2",
@@ -144,10 +113,8 @@ database = [
   #   upstream pyrage gaining a streaming passphrase API
   #   (woodruffw/pyrage#171/#172) replaces it.
   # Named directly although database's `encryption` extra already requires it
-  # (`<0.2,>=0.1.1` in 0.3.3's metadata): uv applies [tool.uv.sources] to
-  # direct dependencies only -- in the lock, in `uv pip install -r
-  # pyproject.toml` and in `uv run --with-editable` -- so without this line the
-  # binder resolves from PyPI, where it is not published (E004-S01-003).
+  # (`<0.2,>=0.1.1` in its metadata), so the binder's range and its exit plan
+  # are stated in this package's own metadata (E004-S01-003).
   "l3io-age-passphrase>=0.1.1,<0.2",
 ]
 # FR-14 — AWS Secrets Manager credentials (E005-S01-001). database's own `aws`
@@ -172,35 +139,11 @@ Issues = "https://github.com/LiquidLogicLabs/l3io-wordpress-backup/issues"
 [project.scripts]
 wpbackup2 = "l3io.wp.backup.cli:run_from_cli"
 
-# Development and CI only: `uv build --no-sources` keeps all of this out of the
-# published metadata (ADR-0007). The family resolves from TestPyPI, anonymously,
-# not from git and not from the family Gitea index (Shawn, 2026-11-02): that index
-# needs a login, and this repository is public, so a clean clone or a fork's pull
-# request has no token. TestPyPI is a stepping stone, not a release index -- the
-# family moves to PyPI before backup's first real release, and these lines go.
-[tool.uv.sources]
-# v0.2.1 (2026-11-03): src identical to v0.2.0 (48a7da9).
-l3io-wordpress-database = { index = "testpypi" }
-# v0.1.7 (2026-11-08): declares_function() (8106001).
-l3io-wordpress-config = { index = "testpypi" }
-# The passphrase binder, required by database's `encryption` extra. uv applies
-# [tool.uv.sources] to direct dependencies only, so the `database` extra names
-# it (E004-S01-003).
-l3io-age-passphrase = { index = "testpypi" }
-
-# `explicit = true`: TestPyPI holds name-squatted and junk packages, so ONLY the
-# packages named in [tool.uv.sources] are taken from it; everything else is PyPI.
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-explicit = true
-
 [tool.uv]
 required-version = "==0.11.6"
-# No `override-dependencies` for the passphrase binder (E004-S01-003): the
-# `database` extra names it directly instead, the equivalent the story allows.
-# An override also breaks CI's `uv pip install -r pyproject.toml --all-extras`
-# check, which then resolves the binder from PyPI, where it is not published.
+# No [tool.uv.sources] and no [[tool.uv.index]]: every dependency resolves from
+# PyPI (tests/contracts/test_dependencies_from_pypi.py). Releases still build
+# with `uv build --no-sources` (ADR-0007).
 
 # PEP 735. `uv sync --dev` installs `dev`, which includes `test`.
 #

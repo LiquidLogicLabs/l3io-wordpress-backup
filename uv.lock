@@ -576,19 +576,19 @@ wheels = [
 
 [[package]]
 name = "l3io-age-passphrase"
-version = "0.1.1"
-source = { registry = "https://test.pypi.org/simple/" }
-sdist = { url = "https://test-files.pythonhosted.org/packages/88/44/27a370d77a5a807899ed9d093ca6d7bc000b7a911776a821d9205dca64d5/l3io_age_passphrase-0.1.1.tar.gz", hash = "sha256:3c05b2d27d5fadc491acf9ada0f775d2f9f08b119e8f2fe6287acfd8a6ea35ed", size = 29133, upload-time = "2026-11-03T01:17:12.4Z" }
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/61/96c445571a31f967433a0176395b23e9863e6914a27f4b0e1adedc51457a/l3io_age_passphrase-0.1.2.tar.gz", hash = "sha256:23e8bfe34038a2e3ac64d0d1d1be9ab7a6e16bfd516c1929388fe52ae6629165", size = 33831, upload-time = "2026-11-10T18:43:25.242Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/bb/b8/bc36eadd5b0850c08e2920e89642c3f2357fd72e7d0cf2f47fa1618ee7d0/l3io_age_passphrase-0.1.1-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:a049356f556527a0eab6dbbac75f8decde2918c1438497242b7f8394efcf5ade", size = 548181, upload-time = "2026-11-03T01:16:58.423Z" },
-    { url = "https://test-files.pythonhosted.org/packages/46/27/ce4e3c1eaf0a1071c4f58a7d408fb809ca3d33522ec2e73f330fc39273f8/l3io_age_passphrase-0.1.1-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:a64e37d319236012c692b4bd130e75735da90a71dcec9f44b608aee87ad4c9d1", size = 538106, upload-time = "2026-11-03T01:17:00.699Z" },
-    { url = "https://test-files.pythonhosted.org/packages/90/fd/3b2eca0f0573a505595b9a1db4b037326c22cfda2e4946fd451f3f79af7a/l3io_age_passphrase-0.1.1-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:db28431ef8a0b4c47bab4bcf6a9fa37da5f62596fc032ea49675930463a6841a", size = 591317, upload-time = "2026-11-03T01:17:02.256Z" },
-    { url = "https://test-files.pythonhosted.org/packages/01/cb/883793579594e315f881f684be779be0f5042246ad41c416a50d4c62dcd7/l3io_age_passphrase-0.1.1-cp311-abi3-manylinux2014_armv7l.manylinux_2_17_armv7l.whl", hash = "sha256:54f88a8c498ee29acace203ff6efb4bc911e096c3494d6a98fb8d0c2fc09fe86", size = 583806, upload-time = "2026-11-03T01:17:04.099Z" },
-    { url = "https://test-files.pythonhosted.org/packages/4a/1c/e3a1520ab1ca8bc209bd8624ef8b62189a4db3e32e83775ce98f34eb5f67/l3io_age_passphrase-0.1.1-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6a294831b24d98e037b7c55299e816b2c4e8ac14a67f47824d1c440abd706a3c", size = 607337, upload-time = "2026-11-03T01:17:05.605Z" },
-    { url = "https://test-files.pythonhosted.org/packages/0d/ac/46d59683abfbbcd6729bbb3fe92fd940850eec9b396b62afd9f21c843787/l3io_age_passphrase-0.1.1-cp311-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:2a1ba104c47a43b7d7805adf092b6785eaaaea2e275365b90dfcf11dce531530", size = 768157, upload-time = "2026-11-03T01:17:06.925Z" },
-    { url = "https://test-files.pythonhosted.org/packages/86/15/091032b46185e2a68c090a5968ad5da20d47492f1cbca09a1e96b74c3054/l3io_age_passphrase-0.1.1-cp311-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:ef04fcfc4329b9bc9efd53b06116e552ff039e55730c8ecc4e38a5d9511fc72b", size = 859880, upload-time = "2026-11-03T01:17:08.308Z" },
-    { url = "https://test-files.pythonhosted.org/packages/91/03/0e76801742e56845d3f797582b23d35deebcedd4966cb1193eaafbd5a082/l3io_age_passphrase-0.1.1-cp311-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:526df561c90890bdb4c94dd7528cbccd95ccc4879a010a377619195f73323576", size = 814294, upload-time = "2026-11-03T01:17:09.682Z" },
-    { url = "https://test-files.pythonhosted.org/packages/ae/44/a43270b79a8cdeccfa13f2bcbc5f513cb1d4c54a9a95784e9140f5d1bd0b/l3io_age_passphrase-0.1.1-cp311-abi3-win_amd64.whl", hash = "sha256:9368231a10f1f80fceed0123feecb2fe8d55633263db3206cc28a7c2ae8da18d", size = 422500, upload-time = "2026-11-03T01:17:10.965Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/c7/e4092b6b31878f5cd8c5661d143b7141db7778e856b60f791d7b9e244f13/l3io_age_passphrase-0.1.2-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c6c0132091eadb9b51acf79d718aade95ba414bcb5cdfc6167c1eaa21750520e", size = 548192, upload-time = "2026-11-10T18:43:12.631Z" },
+    { url = "https://files.pythonhosted.org/packages/36/d2/57686202d03859cef0d0827b5163c382fa60a3b850d618f9f9a3a0c1790c/l3io_age_passphrase-0.1.2-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:abb557eaf868735b817b2ec841b98ce736c26d2752595aa9d0c5616628e0340f", size = 538097, upload-time = "2026-11-10T18:43:14.419Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/34/faa542ee0b8f74385ba9f0c77fff983c3544393e6de20934d737fa446b76/l3io_age_passphrase-0.1.2-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:8896551a4e7cdf5988b0b1700800756f276f9931cb5d5199aaaf290dae3ce0e6", size = 591300, upload-time = "2026-11-10T18:43:15.559Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/ff/984115a8d743178ceaac37069608c5a326ddb449ee7fa244f9316a9a8c71/l3io_age_passphrase-0.1.2-cp311-abi3-manylinux2014_armv7l.manylinux_2_17_armv7l.whl", hash = "sha256:b3594446447206ef22f417b9c38e6f55c72f30bad6b0ec77509f6aa2218bec06", size = 583894, upload-time = "2026-11-10T18:43:17.774Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/9d/1689bdbc112b8d9806822c1f1fa0c0c5a9209aef68052d02744f3c3ea508/l3io_age_passphrase-0.1.2-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:eea4c13b642ba78442a6ccabdc69859a164b5541d41ad7a89cfcb4050b469ca7", size = 607307, upload-time = "2026-11-10T18:43:18.972Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/eb/ce88ec554a0f2886c32055249ae750121c9896b7773794ed2869a02a38bb/l3io_age_passphrase-0.1.2-cp311-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:b6c4b20c280596712ed199bcc7b26bc5cc264df26a9d36d1a6f5425eefb3b440", size = 768162, upload-time = "2026-11-10T18:43:20.162Z" },
+    { url = "https://files.pythonhosted.org/packages/79/2b/5adb6d7c2bb34cc71e59a46afa632f96fe7159a87ac67170ca896c1ade36/l3io_age_passphrase-0.1.2-cp311-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:d9e4fe7a0a14a53af41d74316689a6f0d30c917a2f887c4adb0a562725b56176", size = 859675, upload-time = "2026-11-10T18:43:21.379Z" },
+    { url = "https://files.pythonhosted.org/packages/23/7e/63a14c6c15399fcabaf9ab2a6039f351c0f20c1ec37c408aafeb0c85b8a1/l3io_age_passphrase-0.1.2-cp311-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a94fe3ef7193aefd76982bd5539f1cd8414f1ddc7fa98738014a78ebcf6ebb9b", size = 814435, upload-time = "2026-11-10T18:43:22.553Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/cc/1458c36affaa3ca56766fc6d2e17d16610ee7932f4a8d5a4b6acb686a803/l3io_age_passphrase-0.1.2-cp311-abi3-win_amd64.whl", hash = "sha256:2098322eadcb1363c581722ad2b0ab22d0663f94d076d7efa846c4dc3f51a023", size = 422502, upload-time = "2026-11-10T18:43:23.893Z" },
 ]
 
 [[package]]
@@ -644,10 +644,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "l3io-age-passphrase", marker = "extra == 'database'", specifier = ">=0.1.1,<0.2", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.7,<0.2", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.5,<0.4", index = "https://test.pypi.org/simple/" },
-    { name = "l3io-wordpress-database", extras = ["encryption"], marker = "extra == 'database'", specifier = ">=0.3.5,<0.4", index = "https://test.pypi.org/simple/" },
+    { name = "l3io-age-passphrase", marker = "extra == 'database'", specifier = ">=0.1.1,<0.2" },
+    { name = "l3io-wordpress-config", marker = "extra == 'database'", specifier = ">=0.1.7,<0.2" },
+    { name = "l3io-wordpress-database", extras = ["aws"], marker = "extra == 'aws'", specifier = ">=0.3.5,<0.4" },
+    { name = "l3io-wordpress-database", extras = ["encryption"], marker = "extra == 'database'", specifier = ">=0.3.5,<0.4" },
     { name = "opentelemetry-api", specifier = ">=1.40,<2" },
     { name = "opentelemetry-exporter-otlp-json-file", marker = "extra == 'otel'", specifier = ">=0.65b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.40,<2" },
@@ -687,24 +687,24 @@ test = [
 [[package]]
 name = "l3io-wordpress-config"
 version = "0.1.7"
-source = { registry = "https://test.pypi.org/simple/" }
-sdist = { url = "https://test-files.pythonhosted.org/packages/8e/bd/be0118f29f53e9666f7e767bbfc0a302d53a80ed3813964acc3c181919b9/l3io_wordpress_config-0.1.7.tar.gz", hash = "sha256:4665f49fb82acabcee3adec1a6e0d4d336b9bca987ef979e6fca0ba522996844", size = 157014, upload-time = "2026-11-09T01:58:32.929Z" }
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/bd/be0118f29f53e9666f7e767bbfc0a302d53a80ed3813964acc3c181919b9/l3io_wordpress_config-0.1.7.tar.gz", hash = "sha256:4665f49fb82acabcee3adec1a6e0d4d336b9bca987ef979e6fca0ba522996844", size = 157014, upload-time = "2026-11-10T18:26:20.484Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/18/60/11cc9ea9a60b47f31ab24801baf350dd3ab7c9d1b3e4cfb04a09745b4e04/l3io_wordpress_config-0.1.7-py3-none-any.whl", hash = "sha256:8f94dc06f51ffbe1ea57f327585191883dec918484e61995772662fe03476ce7", size = 29041, upload-time = "2026-11-09T01:58:31.937Z" },
+    { url = "https://files.pythonhosted.org/packages/18/60/11cc9ea9a60b47f31ab24801baf350dd3ab7c9d1b3e4cfb04a09745b4e04/l3io_wordpress_config-0.1.7-py3-none-any.whl", hash = "sha256:8f94dc06f51ffbe1ea57f327585191883dec918484e61995772662fe03476ce7", size = 29041, upload-time = "2026-11-10T18:26:19.071Z" },
 ]
 
 [[package]]
 name = "l3io-wordpress-database"
 version = "0.3.5"
-source = { registry = "https://test.pypi.org/simple/" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pymysql", extra = ["rsa"] },
     { name = "structlog" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/aa/ae/057f41f6f665adef3647b68fd5e1ded4fa18a9f69d4e75b7c7e7230ff8a9/l3io_wordpress_database-0.3.5.tar.gz", hash = "sha256:4d3d5a7edc690e10b1cd566f324e83df29b311bd92064e052cf328478e3ff82e", size = 59741, upload-time = "2026-11-09T17:55:31.064Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/ae/057f41f6f665adef3647b68fd5e1ded4fa18a9f69d4e75b7c7e7230ff8a9/l3io_wordpress_database-0.3.5.tar.gz", hash = "sha256:4d3d5a7edc690e10b1cd566f324e83df29b311bd92064e052cf328478e3ff82e", size = 59741, upload-time = "2026-11-10T18:45:14.93Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/5f/fd/5ec62fd9017f664b29cfa18544704cb75f08876d2c530b619130fcf31ada/l3io_wordpress_database-0.3.5-py3-none-any.whl", hash = "sha256:aeb4960ec3e6d1913ea01453e4fbbf0f38b6d353e2a187e41829663e8766ad88", size = 70935, upload-time = "2026-11-09T17:55:29.08Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/fd/5ec62fd9017f664b29cfa18544704cb75f08876d2c530b619130fcf31ada/l3io_wordpress_database-0.3.5-py3-none-any.whl", hash = "sha256:aeb4960ec3e6d1913ea01453e4fbbf0f38b6d353e2a187e41829663e8766ad88", size = 70935, upload-time = "2026-11-10T18:45:13.665Z" },
 ]
 
 [package.optional-dependencies]

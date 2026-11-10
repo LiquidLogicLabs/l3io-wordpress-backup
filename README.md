@@ -20,8 +20,10 @@ Credit for the original version of this goes to [Cariad Eccleston](https://githu
 ## Installation
 
 ```shell
-pip install l3io-wordpress-backup
+pip install 'l3io-wordpress-backup[database]'
 ```
+
+Every dependency, the `database` extra included (`l3io-wordpress-database`, `l3io-wordpress-config` and the `l3io-age-passphrase` binder), installs from PyPI; no extra index is needed. A feature used without its extra stops with exit 7 (`NOT_READY`) naming the extra to install.
 
 Requirements: Python 3.11 or newer. Extracting an archive also needs a Python with the June 2025 `tarfile` security fixes (3.11.13+, 3.12.11+, 3.13.4+; CVE-2025-4517); on an older one extraction is refused — upgrade Python.
 

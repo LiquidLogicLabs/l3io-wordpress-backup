@@ -695,3 +695,21 @@ Record: `_bmad-output/implementation-artifacts/epic-003/arch/arch-gate-review.md
     from TestPyPI, and `--no-sources` fails with "l3io-wordpress-database was not found".
   - The release step itself has only been dry-run under act, because running it for
     real needs a PyPI release dispatch.
+
+## Update — 2026-11-10: the family resolves from PyPI; TestPyPI is superseded
+
+- **Superseded:** the 2026-11-03 TestPyPI arrangement above (owner decision
+  2026-11-02). With the owner's go-ahead for 1.0.0, `l3io-wordpress-config` 0.1.7,
+  `l3io-wordpress-database` 0.3.5 and `l3io-age-passphrase` are on pypi.org.
+- **`pyproject.toml`:** no `[tool.uv.sources]` and no `[[tool.uv.index]]`; floors
+  unchanged (database `>=0.3.5,<0.4`, config `>=0.1.7,<0.2`, binder
+  `>=0.1.1,<0.2`). `uv.lock` takes every package from `https://pypi.org/simple`.
+- **CI:** ci.yml's extras check now resolves exactly as an operator's install does.
+  publish.yml's PyPI-only check keeps `--no-sources`, so a development source added
+  later can never stand in for PyPI there. The sidecar image installs from PyPI.
+- **Guard:** `tests/contracts/test_dependencies_from_pypi.py` (no sources or extra
+  index in `pyproject.toml`; every locked package from PyPI; no install recipe
+  names the TestPyPI simple index), proven by planted violations.
+- **Still open:** the family is still an extra. The revert condition that kept it
+  one (not publicly resolvable) is met; moving it into `dependencies` is a
+  separate owner decision, not taken for 1.0.0.

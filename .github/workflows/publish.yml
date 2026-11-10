@@ -207,12 +207,12 @@ jobs:
 
       # FR-25 for a PyPI release: every extra must install from PyPI ALONE. The
       # same check as ci.yml's, with --no-sources, uv's built-in switch that ignores
-      # [tool.uv.sources] -- so the TestPyPI index development uses is not
-      # consulted. Until the family (database, config, the age binder) is on PyPI
-      # this FAILS, and that is the intent: a PyPI release of a package whose
-      # extras cannot resolve from PyPI is refused here rather than broken for the
-      # user (Shawn, 2026-11-02/03). TestPyPI and mirror targets skip it: they are
-      # not PyPI releases, and ci.yml checks the development indexes.
+      # [tool.uv.sources]. pyproject.toml declares none today (the family resolves
+      # from PyPI since 2026-11-10); --no-sources stays so a source added later for
+      # development can never stand in for PyPI here. A PyPI release whose extras
+      # cannot resolve from PyPI is refused here rather than broken for the user
+      # (Shawn, 2026-11-02/03). TestPyPI and mirror targets skip it: they are not
+      # PyPI releases, and ci.yml runs the same check on every push.
       - name: every optional extra installs from PyPI alone (PyPI releases only)
         if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'
         run: |
@@ -298,18 +298,16 @@ jobs:
         with:
           version: "0.11.6"
       - name: three distributions, one interpreter
-        # Siblings are not on PyPI yet. Install their GitHub Release wheels (same
-        # shape as a consumer would until the family is on an index). Wrong name
-        # `l3io-wp-database` and bare PyPI lookups failed the first v0.0.1 publish.
-        env:
-          CONFIG_WHEEL: https://github.com/LiquidLogicLabs/l3io-wordpress-config/releases/download/v0.1.1/l3io_wordpress_config-0.1.1-py3-none-any.whl
-          DATABASE_WHEEL: https://github.com/LiquidLogicLabs/l3io-wordpress-database/releases/download/v0.1.0/l3io_wordpress_database-0.1.0-py3-none-any.whl
+        # The siblings come from PyPI (2026-11-10), as a consumer gets them: the
+        # built wheel with its `database` extra, so the versions are the ones the
+        # wheel's own metadata allows -- no hand-kept URL or version here. (The
+        # GitHub Release wheels used before were pinned to config 0.1.1 and
+        # database 0.1.0, far below the floors.)
         run: |
           set -euo pipefail
+          wheel=$(realpath "$WHEEL")
           uv run --isolated --no-project \
-                 --with "$WHEEL" \
-                 --with "$CONFIG_WHEEL" \
-                 --with "$DATABASE_WHEEL" \
+                 --with "l3io-wordpress-backup[database] @ file://$wheel" \
                  python - <<'PY'
           import importlib.util, pathlib
           import l3io, l3io.wp
