@@ -126,3 +126,8 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Defaults:** runs as uid 33, configurable; `WP_DIR=/var/www/html`, `ARCHIVE_DIR=/backups`.
     - **Proof:** a smoke test with the sidecar suite against WordPress, under the CI rule (a local act dry run, green GitHub CI).
     - **Docs:** a compose example in the README.
+78. **The Docker image supports scheduled runs (owner, 2026-11-10): Supercronic on the family's l3io base image.**
+    - **Base image:** the exact base, user mapping (PUID/PGID) and Supercronic pattern follow the family conventions in docker-apps-config-images and docker-apps-config-mods, confirmed with the images agent.
+    - **Two modes:** a scheduled default (a crontab built from env, e.g. `L3IO_WP_BACKUP_SCHEDULE`, plus an optional mounted crontab, output to the container log) and one-shot `wpbackup2 ...` runs.
+    - **Supercronic:** pinned by version and checksum.
+    - **Test:** a crontab firing every minute must produce an Archive in the sidecar smoke test.
