@@ -131,3 +131,4 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Two modes:** a scheduled default (a crontab built from env, e.g. `L3IO_WP_BACKUP_SCHEDULE`, plus an optional mounted crontab, output to the container log) and one-shot `wpbackup2 ...` runs.
     - **Supercronic:** pinned by version and checksum.
     - **Test:** a crontab firing every minute must produce an Archive in the sidecar smoke test.
+79. **Image base and scheduler: (a) the public upstream LSIO base for now** (`ghcr.io/linuxserver/baseimage-ubuntu`, digest-pinned, kept as a build-arg so a later internal `FROM` the l3io base is one line). The l3io bases are private (gcr.ravenwolf.org) and have no Python. **Supercronic is baked in, not the family's s6 mod:** pinned per architecture by version and SHA-256, installed at build time, run as our own s6 service.
