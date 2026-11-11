@@ -147,3 +147,8 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Discovery:** `--archive latest` and prune find Archives by their Manifest, not their name, so existing `wpbackup2-*` Archives remain found.
     - **Override:** `--archive` still overrides the name.
     - **Release:** in 1.1.0, with the MariaDB variant (decision 81) and the Phase 3 findings: the docs for `PUID=0` restores, a preflight write check on the target, and the skew log record's `event` field.
+83. **Retention: a `wpbackup2 prune` command (owner, via home-lab agent 6, 2026-11-11).**
+    - **What it deletes:** only Archives in the Archive directory whose Manifest is this site's (the `--archive latest` matching). It keeps the newest N by Manifest `created_at`, never deletes the newest, and never touches Safety Snapshots or foreign files.
+    - **Flags and settings:** `--keep N` (also `L3IO_WP_BACKUP_KEEP` / config `keep`) is required on the CLI. The command has a `--whatIf` and logs every deletion.
+    - **Image:** the scheduled mode runs prune after each successful backup with `WPBACKUP_KEEP`, documented default **14** (two weeks of nightly runs); `WPBACKUP_KEEP=0` disables pruning.
+    - **Release:** 1.1.0. The estate's keep count comes later through docker-apps-config.
