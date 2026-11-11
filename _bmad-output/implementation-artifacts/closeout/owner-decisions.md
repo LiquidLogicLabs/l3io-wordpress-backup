@@ -132,3 +132,7 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Supercronic:** pinned by version and checksum.
     - **Test:** a crontab firing every minute must produce an Archive in the sidecar smoke test.
 79. **Image base and scheduler: (a) the public upstream LSIO base for now** (`ghcr.io/linuxserver/baseimage-ubuntu`, digest-pinned, kept as a build-arg so a later internal `FROM` the l3io base is one line). The l3io bases are private (gcr.ravenwolf.org) and have no Python. **Supercronic is baked in, not the family's s6 mod:** pinned per architecture by version and SHA-256, installed at build time, run as our own s6 service.
+80. **The image is public, on GHCR and Docker Hub, with the registries configurable** (owner, 2026-11-10).
+    - **Configuration:** repo or org variables choose the registries and image names. GHCR is the default and uses `GITHUB_TOKEN`. Docker Hub needs the `DOCKERHUB_USERNAME` variable and the `DOCKERHUB_TOKEN` secret; enabled without them, the run fails loudly.
+    - **Build:** one multi-arch build, pushed with the same digest to every enabled registry, with attestations and a scan.
+    - **Publicity:** the GHCR package is made public after its first push.
