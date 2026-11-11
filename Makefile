@@ -20,7 +20,11 @@
 #   make ci           replay every workflow act can run, full matrix (see below)
 #   make ci-quick     the same, one interpreter (3.11) across every engine
 #   make ci-job JOB=  replay one job, e.g. make ci-job JOB=contracts
-#   make ci-dryrun    dry-run publish/release/security-audit for every trigger
+#   make ci-dryrun    dry-run publish/release/security-audit/docker for every trigger
+#   make image-smoke  build the official image from this checkout's wheel and run
+#                     the sidecar suite (tests/sidecar/run.sh) on every engine
+#   make image-resolve  run docker.yml's `resolve` job for real under act, once
+#                     per registry configuration (no build, no push)
 #   make ci-clean     remove act containers, networks and volumes a run left
 #   make preflight    lint, types, contracts, then `make ci`; records the commit
 #                     it passed for. `make release` refuses without it.
@@ -30,7 +34,9 @@
 #   ci.yml, every job and every leg -- lint/types, contracts, test (py3.11-3.14
 #     x mysql80, mysql84, mariadb; the `integration` tests only), unit
 #     (py3.11-3.14; everything else), clean install (py3.11-3.14, which builds
-#     and installs its own wheel), build;
+#     and installs its own wheel), build, image (the official image built for
+#     amd64 from this checkout's wheel, then tests/sidecar/run.sh on mysql and
+#     mariadb; nothing pushed);
 #
 # THE TWO TEST TIERS (2026-11-09). `test` runs `-m integration`, `unit` runs
 #   `-m "not integration"`: complements, on the same Pythons, so every test runs
@@ -41,8 +47,12 @@
 #   skips fails) and tests/contracts/test_workflow_invariants.py (the two
 #   selections). Coverage is measured in both tiers, one report each.
 #   security-audit.yml for real (uv audit over uv.lock);
-#   ci-dryrun: publish.yml, release.yml and security-audit.yml as act dry runs,
-#     one leg per trigger and choice option, so every `uses:` ref resolves.
+#   ci-dryrun: publish.yml, release.yml, security-audit.yml and docker.yml as
+#     act dry runs, one leg per trigger and choice option and one per image
+#     registry, so every `uses:` ref resolves;
+#   image-resolve: docker.yml's `resolve` job for real (the release on PyPI, the
+#     registries and their credential checks), including the configurations
+#     that must FAIL (Docker Hub enabled without its token, an unknown registry).
 #
 # WHAT STAYS GITHUB-ONLY, and why:
 #   ci.yml `build` -> upload-artifact@v7: act's artifact server rejects v7's
@@ -56,6 +66,11 @@
 #   publish.yml publish-* jobs: need OIDC and environment protection, which act
 #     does not have (and must not fake). Dry-run only.
 #   release.yml: creates tags and dispatches publishes. Dry-run only, by design.
+#   docker.yml build/smoke/publish, run for real: multi-arch (QEMU) builds,
+#     pushes to GHCR/Docker Hub, OIDC-signed attestations. Dry-run only; the
+#     amd64 build and the sidecar suite run locally through ci.yml's `image` job
+#     and `make image-smoke` (no arm64 locally unless QEMU binfmt is installed),
+#     the Trivy policy through `make image-scan`.
 #   Runner image: act runs ghcr.io/catthehacker/ubuntu:act-latest (Ubuntu
 #     24.04, apt mysql-client 8.0); GitHub's ubuntu-latest is Ubuntu 26.04
 #     (mysql-client 8.4). Client-version-specific behaviour can differ.
@@ -94,7 +109,7 @@ ACT := $(INFISICAL_RUN) act
 # go four at a time regardless -- and lowering it serialises the first stage.
 ACT_CONCURRENT_JOBS ?= 4
 
-.PHONY: help act-init infisical-init secrets-check lint format types test contracts audit verify-wheel ci ci-quick ci-job ci-dryrun ci-list ci-clean preflight build clean
+.PHONY: help act-init infisical-init secrets-check lint format types test contracts audit verify-wheel ci ci-quick ci-job ci-dryrun ci-list ci-clean preflight build clean image-smoke image-scan image-resolve
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -168,6 +183,8 @@ ci: act-init secrets-check ## Replay every workflow act can run, full matrix
 	$(ACT) push -W .github/workflows/security-audit.yml || fail="$$fail security-audit.yml"; \
 	echo "== dry runs: publish.yml, release.yml, security-audit.yml"; \
 	$(MAKE) --no-print-directory ci-dryrun || fail="$$fail ci-dryrun"; \
+	echo "== docker.yml resolve, for real"; \
+	$(MAKE) --no-print-directory image-resolve || fail="$$fail image-resolve"; \
 	$(MAKE) --no-print-directory ci-clean; \
 	if [ -n "$$fail" ]; then echo "make ci FAILED:$$fail"; exit 1; fi; \
 	echo "make ci passed"
@@ -226,6 +243,11 @@ ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
 	@# dispatches publishes; without the flag this target would do both from a
 	@# laptop. It is hardcoded here and must stay hardcoded.
 	@#
+	@# --var ACT_DRYRUN=1: docker.yml's build job is gated on an output of its
+	@# `resolve` job, and a dry run runs no step, so without it the dry run stops
+	@# at resolve and never resolves the later jobs' refs (measured). The
+	@# variable is read by that one `if:` and nowhere else.
+	@#
 	@# ci.yml is excluded: act SEGFAULTS on a dry run of it (nil pointer in
 	@# containerReference.GetHealth) because the `test` job declares a `db` service
 	@# a dry run never starts. Reproduced: SIGSEGV, exit 2. `make ci` runs it for real.
@@ -244,7 +266,7 @@ ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
 	while IFS=$$'\t' read -r wf event args; do \
 	  n=$$((n+1)); \
 	  printf '  %-13s %-18s %-24s ' "$$wf" "$$event" "$$args"; \
-	  if act "$$event" -W ".github/workflows/$$wf" --dryrun $$args >/tmp/act-leg.$$$$ 2>&1; then \
+	  if act "$$event" -W ".github/workflows/$$wf" --dryrun --var ACT_DRYRUN=1 $$args >/tmp/act-leg.$$$$ 2>&1; then \
 	    echo "ok"; \
 	  else \
 	    echo "FAILED"; fail=$$((fail+1)); \
@@ -254,6 +276,54 @@ ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
 	done < <(uv run scripts/act-legs.py); \
 	echo "  $$(uv run scripts/act-legs.py | wc -l) legs run"
 
+
+# ---- the official image (owner decisions 77-80) -----------------------------
+IMAGE_ENGINES ?= mysql mysql84 mariadb
+TRIVY_IMAGE := $(shell sed -n 's/^  TRIVY_IMAGE: //p' .github/workflows/docker.yml)
+
+image-smoke: ## Build the image from this checkout's wheel; sidecar suite on every engine
+	@set -u; fail=""; \
+	for e in $(IMAGE_ENGINES); do \
+	  echo "== tests/sidecar/run.sh $$e"; \
+	  tests/sidecar/run.sh "$$e" || fail="$$fail $$e"; \
+	done; \
+	if [ -n "$$fail" ]; then echo "image-smoke FAILED:$$fail"; exit 1; fi
+
+image-scan: ## Trivy over IMAGE (default: the image-smoke build), docker.yml's policy
+	@# The scanner image and the policy are docker.yml's (TRIVY_IMAGE is read
+	@# from it): fixable CRITICAL/HIGH fails, everything CRITICAL/HIGH is listed.
+	@set -eu; img="$${IMAGE:-l3io-wordpress-backup:sidecar-test-mysql}"; \
+	trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+	  -v l3io-trivy-cache:/root/.cache/trivy "$(TRIVY_IMAGE)" image --quiet "$$@" "$$img"; }; \
+	trivy --severity CRITICAL,HIGH --exit-code 0; \
+	trivy --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+
+image-resolve: ## docker.yml's resolve job for real under act, per registry configuration
+	@# Each line: expected outcome, then act arguments. `resolve` builds and
+	@# pushes nothing; it reads PyPI and checks each enabled registry's
+	@# credentials. Docker Hub enabled without its token MUST fail: a registry is
+	@# never skipped while the run reports success (owner decision 80).
+	@# REGISTRY_NAME is pinned to the workflow's default because ~/.actrc may set
+	@# it for other repositories (it names the internal registry here).
+	@set -u; \
+	command -v act >/dev/null || { echo "act is not installed"; exit 1; }; \
+	export GITHUB_TOKEN="$$($(GH) auth token)"; \
+	for s in $(ACT_PLACEHOLDER_SECRETS); do export $$s=unused-by-this-repo; done; \
+	fail=0; \
+	while IFS='|' read -r want args; do \
+	  printf '  %-5s %-70s ' "$$want" "$$args"; \
+	  if act workflow_dispatch -W .github/workflows/docker.yml -j resolve --input version=1.0.0 \
+	       --var REGISTRY_NAME=ghcr.io $$args >/tmp/act-resolve.$$$$ 2>&1; then got=pass; else got=fail; fi; \
+	  if [ "$$got" = "$$want" ]; then echo ok; else echo "MISMATCH (got $$got)"; fail=1; tail -5 /tmp/act-resolve.$$$$ | sed 's/^/      /'; fi; \
+	  rm -f /tmp/act-resolve.$$$$; \
+	done <<< "$$(printf '%s\n' \
+	  'pass|-s DOCKERHUB_USERNAME=example' \
+	  'pass|--var DOCKERHUB_ENABLED=false' \
+	  'fail|-s DOCKERHUB_USERNAME=example -s DOCKERHUB_TOKEN=' \
+	  'fail|-s DOCKERHUB_USERNAME=' \
+	  'fail|-s DOCKERHUB_USERNAME=example --var DOCKERHUB_ENABLED=yes' \
+	  'fail|-s DOCKERHUB_USERNAME=example --var IMAGE_BUILD_MODE=bogus')"; \
+	exit $$fail
 
 ci-list: act-init secrets-check ## List the jobs act can see
 	$(ACT) push --list

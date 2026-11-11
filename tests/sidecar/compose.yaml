@@ -7,8 +7,11 @@
 # the image's getenv_docker() wp-config.php, a separate MySQL or MariaDB
 # container on a shared network, and the backup tool as a sidecar sharing both.
 #
-# Engine: exactly one of the profiles `mysql` (mysql:8.0) or `mariadb`
-# (mariadb:11.4). Both carry the network alias `db`.
+# Engine: exactly one of the profiles `mysql` (mysql:8.0), `mysql84`
+# (mysql:8.4) or `mariadb` (mariadb:11.4). Each carries the network alias `db`.
+#
+# The sidecar is the product image (docker/Dockerfile), L3IO_SIDECAR_IMAGE:
+# built by run.sh from this checkout's wheel, or a published image (IMAGE=).
 
 x-db-common: &db-common
   networks:
@@ -36,6 +39,16 @@ services:
       timeout: 5s
       retries: 60
 
+  db-mysql84:
+    <<: *db-common
+    profiles: [mysql84]
+    image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+
   db-mariadb:
     <<: *db-common
     profiles: [mariadb]
@@ -54,6 +67,7 @@ services:
     networks: [backend]
     depends_on:
       db-mysql: {condition: service_healthy, required: false}
+      db-mysql84: {condition: service_healthy, required: false}
       db-mariadb: {condition: service_healthy, required: false}
     healthcheck:
       test: ["CMD-SHELL", "test -f /var/www/html/wp-config.php"]
@@ -62,8 +76,13 @@ services:
       retries: 60
 
   backup:
-    image: l3io-wordpress-backup:sidecar-test-${L3IO_DB_CLIENT:?}
+    image: ${L3IO_SIDECAR_IMAGE:?}
     init: true
+    # The one-shot mode, idling: jobs are `docker compose exec backup wpbackup2
+    # ...`. Started as 33:33, so a read-only root filesystem works and `exec`
+    # runs as www-data unless a step asks for root (`-u 0`).
+    user: "33:33"
+    command: ["sleep", "infinity"]
     # The site's WORDPRESS_DB_* (the WordPress container's own file), from which
     # the image's getenv_docker() wp-config.php is resolved (owner decision 47),
     # and the administrator account a database restore needs
@@ -82,6 +101,24 @@ services:
     networks: [backend]
     depends_on:
       wordpress: {condition: service_healthy}
+
+  # The scheduled mode, the image's default (no command): s6 starts Supercronic
+  # as PUID:PGID (33:33). Started by run.sh's schedule phase only.
+  scheduler:
+    profiles: [schedule]
+    image: ${L3IO_SIDECAR_IMAGE:?}
+    env_file:
+      - ${L3IO_SCRATCH:?}/wp.env
+      - ${L3IO_SCRATCH:?}/backup.env
+      - ${L3IO_SCRATCH:?}/schedule.env
+    volumes:
+      - ${L3IO_SCRATCH:?}/html:/var/www/html
+      - backups:/backups
+      - state:/var/lib/wpbackup/state
+      - ${L3IO_SCRATCH:?}/crontab:/etc/l3io-wp-backup/crontab:ro
+    tmpfs:
+      - /tmp/wpbackup:mode=0700,uid=33,gid=33
+    networks: [backend]
 
   # One-shot tools, run with `docker compose run --rm`.
   wpcli:

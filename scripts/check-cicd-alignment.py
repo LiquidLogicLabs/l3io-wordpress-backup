@@ -294,12 +294,19 @@ def check_action_refs(repo: pathlib.Path, R: Reporter, *, online: bool) -> None:
     import subprocess
 
     refs: dict[str, set[str]] = {}
+    # A ref pinned to a commit SHA (docker.yml) names its release in a trailing
+    # `# vX.Y.Z` comment; the comment must resolve to that same commit, or it
+    # tells a reader (and Dependabot) a version the workflow does not run.
+    sha_comments: dict[tuple[str, str], str] = {}
     for f in sorted((repo / ".github" / "workflows").glob("*.yml")):
         for m in re.finditer(
-            r"uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([^\s\"']+)",
+            r"uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([^\s\"']+)"
+            r"[ \t]*(?:#[ \t]*(\S+))?",
             f.read_text(encoding="utf-8"),
         ):
             refs.setdefault(m.group(1), set()).add(m.group(2))
+            if re.fullmatch(r"[0-9a-f]{40}", m.group(2)):
+                sha_comments[(m.group(1), m.group(2))] = m.group(3) or ""
 
     for action, tags in sorted(refs.items()):
         is_org = action.startswith("LiquidLogicLabs/")
@@ -315,6 +322,19 @@ def check_action_refs(repo: pathlib.Path, R: Reporter, *, online: bool) -> None:
             if not online:
                 continue
             key = f"{action}@{tag}"
+            if (action, tag) in sha_comments:
+                if key not in _REF_CACHE:
+                    _REF_CACHE[key] = _sha_matches_comment(
+                        action, tag, sha_comments[(action, tag)]
+                    )
+                if not _REF_CACHE[key]:
+                    named = sha_comments[(action, tag)]
+                    R(
+                        "act",
+                        f"{key} is not the commit its `# {named}` comment names "
+                        "(or the comment is missing)",
+                    )
+                continue
             if key not in _REF_CACHE:
                 # A branch-style ref (pypa's release/v1) is not a tag; try both.
                 ok = False
@@ -329,6 +349,39 @@ def check_action_refs(repo: pathlib.Path, R: Reporter, *, online: bool) -> None:
                 _REF_CACHE[key] = ok
             if not _REF_CACHE[key]:
                 R("act", f"{key} DOES NOT EXIST -- the workflow cannot resolve it")
+
+
+def _sha_matches_comment(action: str, sha: str, comment: str) -> bool:
+    """The tag a SHA pin's comment names exists and peels to that commit."""
+    import subprocess
+
+    if not comment:
+        return False
+
+    def api(path: str) -> str | None:
+        r = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"repos/{action}/{path}",
+                "--jq",
+                '.object.type + " " + .object.sha',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    found = api(f"git/ref/tags/{comment}")
+    if found is None:
+        return False
+    kind, target = found.split()
+    if kind == "tag":  # an annotated tag: peel it to its commit
+        peeled = api(f"git/tags/{target}")
+        if peeled is None:
+            return False
+        target = peeled.split()[1]
+    return target == sha
 
 
 def check_release_process(repo: pathlib.Path, R: Reporter) -> None:

@@ -1,0 +1,18 @@
+{
+  "//": "Publish completing successfully for a release tag: the workflow_run event docker.yml builds on. Without it act synthesises an empty workflow_run whose conclusion is not success, so `resolve` is skipped and no job's refs are resolved.",
+  "action": "completed",
+  "workflow_run": {
+    "id": 1,
+    "name": "Publish",
+    "conclusion": "success",
+    "head_branch": "v1.0.0",
+    "head_sha": "0000000000000000000000000000000000000000",
+    "event": "workflow_dispatch"
+  },
+  "repository": {
+    "full_name": "ravensorb/l3io-wordpress-backup",
+    "name": "l3io-wordpress-backup",
+    "default_branch": "main",
+    "owner": { "login": "ravensorb" }
+  }
+}

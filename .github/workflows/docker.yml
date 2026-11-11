@@ -1,0 +1,387 @@
+# l3io-wordpress-backup official image (owner decision 77).
+#
+# Builds docker/Dockerfile from the l3io-wordpress-backup release ON PYPI --
+# never from this checkout's source; the Dockerfile's test-only `wheels` build
+# context is never passed here (tests/contracts/test_docker_image.py) -- for
+# linux/amd64 and linux/arm64, scans it, pushes it BY DIGEST, runs the sidecar
+# suite against that pushed digest on every engine, and only then tags it and
+# attests it in every enabled registry. One build, one digest, every registry.
+#
+# TRIGGERS. No push or pull_request: nothing a contributor can start reaches
+# the packages: write token.
+#   workflow_run    after Publish completes. Proceeds only when that run
+#                   succeeded AND its "publish to PyPI" job succeeded (a TestPyPI
+#                   or mirror publish builds nothing), for its release tag.
+#   workflow_dispatch  `version`: an existing PyPI release (e.g. 1.0.0, the
+#                   first image), or a rebuild of one (new base, new scan).
+# Either way the `resolve` job waits until that version installs from PyPI.
+#
+# REGISTRIES (owner decision 80; the family's image-release convention, as in
+# LiquidLogicLabs/markdown-mermaidjs-to-pdf's release.yml). Repository
+# variables, with the defaults below:
+#   REGISTRY_NAME / REGISTRY_ORG / IMAGE_NAME   the primary registry and image:
+#       ghcr.io/liquidlogiclabs/l3io-wordpress-backup. Logs in with the secrets
+#       REGISTRY_USERNAME / REGISTRY_PASSWORD when set, else GITHUB_TOKEN.
+#   DOCKERHUB_ENABLED (true) / DOCKERHUB_ORG (REGISTRY_ORG)   the second
+#       registry: docker.io/liquidlogiclabs/l3io-wordpress-backup, with the
+#       secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN. Enabled without both,
+#       `resolve` FAILS: a registry is never skipped while the run reports
+#       success.
+#   DOCKER_FILE (docker/Dockerfile), DOCKER_PLATFORMS (linux/amd64,linux/arm64).
+#   IMAGE_BUILD_MODE (push): `load` builds and scans and pushes nothing.
+# Every Docker Hub step is gated by `env.DOCKERHUB_ENABLED == 'true'`, which a
+# dry run evaluates, so `make ci-dryrun` reaches the Docker Hub path; the
+# credential refusal itself runs for real in `make image-resolve`.
+#
+# PUBLIC. Each published tag must pull anonymously (the last step). A new GHCR
+# package is private and does not take its linked repository's visibility, so
+# the first run fails there until an owner makes the package public
+# (RELEASING.md); every later run proves it still is.
+#
+# TAGS. `X.Y.Z` always; `X.Y`, `X` and `latest` only when X.Y.Z is PyPI's latest
+# release, so rebuilding an older release never moves them backwards.
+#
+# SCAN POLICY. Trivy (container image, pinned by digest -- no third-party
+# action) over both platforms BEFORE anything is pushed: fixable CRITICAL or
+# HIGH fails the run (`--ignore-unfixed`); unfixed ones are listed, not fatal,
+# since no rebuild can remove them.
+#
+# act: every job as a dry run (make ci-dryrun), and the `resolve` job for real
+# (make image-resolve: PyPI, the registries, the credential refusals). build,
+# smoke and publish push to registries and sign with OIDC, so they never run
+# under act; the amd64 build and the sidecar suite run locally through ci.yml's
+# `image` job and `make image-smoke`, the scan through `make image-scan`.
+
+name: Docker image
+
+on:
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The l3io-wordpress-backup release on PyPI to build (e.g. 1.0.0)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: docker-image-${{ github.event.inputs.version || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY_NAME: ${{ vars.REGISTRY_NAME || 'ghcr.io' }}
+  REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'liquidlogiclabs' }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || 'l3io-wordpress-backup' }}
+  DOCKERHUB_ENABLED: ${{ vars.DOCKERHUB_ENABLED || 'true' }}
+  DOCKERHUB_ORG: ${{ vars.DOCKERHUB_ORG || vars.REGISTRY_ORG || 'liquidlogiclabs' }}
+  DOCKER_FILE: ${{ vars.DOCKER_FILE || 'docker/Dockerfile' }}
+  DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64' }}
+  IMAGE_BUILD_MODE: ${{ vars.IMAGE_BUILD_MODE || 'push' }}
+  TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+
+jobs:
+  resolve:
+    name: resolve the release and the registries
+    runs-on: ubuntu-latest
+    # Cheap first filter; the jobs API check below is the real gate.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      actions: read    # the Publish run's jobs
+      contents: read
+    outputs:
+      build: ${{ steps.release.outputs.build }}
+      version: ${{ steps.release.outputs.version }}
+      revision: ${{ steps.release.outputs.revision }}
+      latest: ${{ steps.pypi.outputs.latest }}
+      names: ${{ steps.registries.outputs.names }}
+      primary: ${{ steps.registries.outputs.primary }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: the release this run builds
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_run ]; then
+            # The Publish run must have published to PyPI: its "publish to
+            # PyPI" job ran and succeeded. A TestPyPI, mirror or tag-only run
+            # skips that job, and builds no image.
+            pypi=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" --paginate \
+                     --jq '.jobs[] | select(.name == "publish to PyPI") | .conclusion')
+            if [ "$pypi" != success ]; then
+              echo "Publish run $RUN_ID did not publish to PyPI (publish to PyPI: ${pypi:-not run}); no image"
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            version=${RUN_TAG#v}
+          else
+            version=$INPUT_VERSION
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::not a release version: $version"; exit 1
+          fi
+          revision=$(git rev-parse --verify "refs/tags/v$version^{commit}") \
+            || { echo "::error::no tag v$version in this repository"; exit 1; }
+          { echo "build=true"; echo "version=$version"; echo "revision=$revision"; } >> "$GITHUB_OUTPUT"
+          echo "release $version (v$version = $revision)"
+
+      - name: the release installs from PyPI
+        id: pypi
+        if: steps.release.outputs.build == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # PyPI's CDN can lag the upload by minutes: wait up to 30.
+          for i in $(seq 1 60); do
+            if python3 -m pip download -q --no-deps --only-binary :all: -d "$RUNNER_TEMP/pypi" \
+                 "l3io-wordpress-backup==$VERSION" 2>/dev/null; then
+              echo "l3io-wordpress-backup $VERSION is on PyPI"; break
+            fi
+            [ "$i" = 60 ] && { echo "::error::l3io-wordpress-backup $VERSION never became installable from PyPI"; exit 1; }
+            sleep 30
+          done
+          newest=$(curl -fsS https://pypi.org/pypi/l3io-wordpress-backup/json | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])')
+          echo "PyPI's latest release: $newest"
+          if [ "$newest" = "$VERSION" ]; then echo "latest=true"; else echo "latest=false"; fi >> "$GITHUB_OUTPUT"
+
+      - name: the registries, each with its credentials
+        id: registries
+        if: steps.release.outputs.build == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$IMAGE_BUILD_MODE" in push|load) ;; *)
+            echo "::error::IMAGE_BUILD_MODE must be push or load, not '$IMAGE_BUILD_MODE'"; exit 1 ;;
+          esac
+          # The primary registry: always.
+          names=("$REGISTRY_NAME/$REGISTRY_ORG/$IMAGE_NAME")
+          case "$DOCKERHUB_ENABLED" in
+            true)
+              # Enabled means required: missing credentials fail the run.
+              # ${VAR:+set} reports presence, never a value.
+              if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+                echo "::error::DOCKERHUB_ENABLED is true but the secret DOCKERHUB_USERNAME (${DOCKERHUB_USERNAME:+set}) or DOCKERHUB_TOKEN (${DOCKERHUB_TOKEN:+set}) is missing"
+                exit 1
+              fi
+              names+=("docker.io/$DOCKERHUB_ORG/$IMAGE_NAME")
+              ;;
+            false) ;;
+            *) echo "::error::DOCKERHUB_ENABLED must be true or false, not '$DOCKERHUB_ENABLED'"; exit 1 ;;
+          esac
+          for n in "${names[@]}"; do
+            printf '%s' "$n" | grep -Eq '^[a-z0-9.-]+(/[a-z0-9._-]+)+$' || { echo "::error::not an image name: $n"; exit 1; }
+          done
+          joined=$(IFS=,; echo "${names[*]}")
+          { echo "names=$joined"; echo "primary=${names[0]}"; } >> "$GITHUB_OUTPUT"
+          echo "registries ($IMAGE_BUILD_MODE): $joined"
+
+  build:
+    # Scan, then push by digest only: no tag moves until `smoke` has passed on
+    # the pushed digest.
+    name: build · scan · push by digest
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    # ACT_DRYRUN: set only by `make ci-dryrun` (always with --dryrun), where no
+    # step runs and resolve's outputs are empty; without it a dry run would stop
+    # at resolve and never resolve this job's or later jobs' action refs. Set on
+    # GitHub by mistake it still builds nothing: VERSION would be empty and the
+    # Dockerfile refuses it.
+    if: needs.resolve.outputs.build == 'true' || vars.ACT_DRYRUN == '1'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: log in to the primary registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY_NAME }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+      - name: log in to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: build each platform locally and scan it (nothing pushed yet)
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          REVISION: ${{ needs.resolve.outputs.revision }}
+        run: |
+          set -euo pipefail
+          for platform in ${DOCKER_PLATFORMS//,/ }; do
+            tag="l3io-wordpress-backup:scan-${platform#linux/}"
+            docker buildx build --load --platform "$platform" \
+              --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
+              -f "$DOCKER_FILE" -t "$tag" docker
+            trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE" image --quiet "$@" "$tag"; }
+            echo "== $platform: every CRITICAL/HIGH, fixed or not (reported)"
+            trivy --severity CRITICAL,HIGH --exit-code 0
+            echo "== $platform: fixable CRITICAL/HIGH (fatal)"
+            trivy --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+          done
+
+      - name: push every platform, by digest only, with SBOM and provenance
+        id: push
+        if: env.IMAGE_BUILD_MODE == 'push'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: docker
+          file: ${{ env.DOCKER_FILE }}
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+          build-args: |
+            VERSION=${{ needs.resolve.outputs.version }}
+            REVISION=${{ needs.resolve.outputs.revision }}
+          sbom: true
+          provenance: mode=max
+          outputs: type=image,"name=${{ needs.resolve.outputs.names }}",push-by-digest=true,name-canonical=true,push=true
+
+  smoke:
+    # The sidecar suite against the digest just pushed, pulled from the
+    # registry, on each engine the image claims (docs/docker.md).
+    name: sidecar suite · ${{ matrix.engine }}
+    runs-on: ubuntu-latest
+    needs: [resolve, build]
+    if: needs.build.outputs.digest != '' || vars.ACT_DRYRUN == '1'
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [mysql, mysql84, mariadb]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: log in to the primary registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY_NAME }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+      - name: log in to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: run tests/sidecar/run.sh against the pushed digest
+        env:
+          IMAGE: ${{ needs.resolve.outputs.primary }}@${{ needs.build.outputs.digest }}
+          ENGINE: ${{ matrix.engine }}
+        run: tests/sidecar/run.sh "$ENGINE"
+
+  publish:
+    name: tag · attest
+    runs-on: ubuntu-latest
+    needs: [resolve, build, smoke]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write       # Sigstore signing of the attestation
+      attestations: write
+    steps:
+      - name: log in to the primary registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY_NAME }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+      - name: log in to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: the tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ needs.resolve.outputs.names }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.resolve.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.latest == 'true' }}
+            type=semver,pattern={{major}},value=v${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.latest == 'true' }}
+            type=raw,value=latest,enable=${{ needs.resolve.outputs.latest == 'true' }}
+      - name: tag the tested digest in every registry
+        env:
+          NAMES: ${{ needs.resolve.outputs.names }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          for name in ${NAMES//,/ }; do
+            args=()
+            while IFS= read -r tag; do
+              case "$tag" in "$name":*) args+=(-t "$tag") ;; esac
+            done <<<"$TAGS"
+            [ "${#args[@]}" -gt 0 ] || { echo "::error::no tags for $name"; exit 1; }
+            docker buildx imagetools create "${args[@]}" "$name@$DIGEST"
+            echo "$name@$DIGEST tagged: ${args[*]}"
+          done
+      - name: attest build provenance (primary registry)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY_NAME }}/${{ env.REGISTRY_ORG }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          push-to-registry: true
+      - name: attest build provenance (Docker Hub)
+        if: env.DOCKERHUB_ENABLED == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          # Docker Hub's attestation subject is named index.docker.io/<repo>.
+          subject-name: index.docker.io/${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          push-to-registry: true
+      - name: every published tag pulls anonymously
+        # Public is the owner's decision (80). A first GHCR push is private
+        # until an owner changes it (RELEASING.md); this fails until then, and
+        # catches a package made private later.
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          anon=$(mktemp -d)   # an empty DOCKER_CONFIG: no credentials
+          fail=0
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            if DOCKER_CONFIG="$anon" docker manifest inspect "$tag" >/dev/null 2>&1; then
+              echo "public: $tag"
+            else
+              echo "::error::$tag does not pull anonymously; make the package public (RELEASING.md)"; fail=1
+            fi
+          done <<<"$TAGS"
+          rm -rf "$anon"
+          exit "$fail"

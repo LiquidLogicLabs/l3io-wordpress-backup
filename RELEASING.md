@@ -63,8 +63,39 @@ commit.** It is enforced, not remembered:
 3. Tag `vX.Y.Z` and push it. `publish.yml` builds, runs the clean-install smoke
    matrix and the namespace check, then publishes via PyPI trusted publishing.
 4. Run the gate above.
+5. **The Docker image** (`l3io-wordpress-backup` only; owner decisions 77–80).
+   `docker.yml` starts by itself when a Publish run's `publish to PyPI` job
+   succeeds: it waits until the version installs from PyPI, builds both
+   platforms from that release, scans them, pushes by digest, runs the sidecar
+   suite against the pushed digest on every engine, then tags (`X.Y.Z`; `X.Y`,
+   `X`, `latest` when it is PyPI's latest) and attests. Check that run is green.
+   To build an existing release (1.0.0, the first image) or rebuild one (a new
+   base, a fixed CVE): `gh workflow run docker.yml -f version=X.Y.Z`.
+   [docs/docker.md](docs/docker.md) has the details.
 
-Rehearse without publishing: `workflow_dispatch` with `target: testpypi`.
+Rehearse without publishing: `workflow_dispatch` with `target: testpypi` (it
+builds no image: the PyPI job does not run).
+
+### The image's registries (one-off setup)
+
+The variables and their defaults are in [docs/docker.md](docs/docker.md#release-pipeline)
+(the family's `REGISTRY_NAME`/`REGISTRY_ORG`/`IMAGE_NAME` convention, plus
+`DOCKERHUB_ENABLED`, default `true`).
+
+- **GHCR** (`ghcr.io/liquidlogiclabs/l3io-wordpress-backup`): nothing to
+  configure; `GITHUB_TOKEN` pushes. **After the first push the package is
+  private**, whatever the repository's visibility (a linked package inherits
+  its repository's access permissions, not its visibility). That first run
+  fails at "every published tag pulls anonymously". Make the package public
+  once, as an organisation owner: the package's page -> Package settings ->
+  Danger Zone -> Change visibility -> Public (irreversible; GitHub documents no
+  API for it). Then re-run the failed job; the tags are already pushed.
+- **Docker Hub** (`docker.io/liquidlogiclabs/l3io-wordpress-backup`, public):
+  the repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (an access
+  token with read/write scope on that repository) are set. With
+  `DOCKERHUB_ENABLED` true (the default) and either missing, the run fails in
+  `resolve`, before building; `DOCKERHUB_ENABLED=false` pushes to GHCR only.
+- Never set `ACT_DRYRUN` or `LOCAL_ACT` as GitHub variables: they exist for act.
 
 ## Legacy names
 

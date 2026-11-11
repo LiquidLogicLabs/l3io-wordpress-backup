@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# LOCAL smoke run of wpbackup2 as a Docker sidecar beside the official
-# WordPress image. Not part of the pytest suite and not run by CI.
+# Smoke run of the official image (docker/Dockerfile) as a Docker sidecar
+# beside the official WordPress image, in both of its modes: one-shot
+# (`docker compose exec backup wpbackup2 ...`) and scheduled (Supercronic under
+# s6, a crontab firing every minute that must produce an Archive). Not part of
+# the pytest suite; ci.yml's `image` job and docker.yml's smoke job run it.
 #
-#   tests/sidecar/run.sh mysql      # mysql:8.0,    mysql-client 8.4 sidecar
-#   tests/sidecar/run.sh mariadb    # mariadb:11.4, mariadb-client 11.8 sidecar
+#   tests/sidecar/run.sh mysql      # mysql:8.0
+#   tests/sidecar/run.sh mysql84    # mysql:8.4
+#   tests/sidecar/run.sh mariadb    # mariadb:11.4
 #
 # Environment:
-#   L3IO_DB_CLIENT=mysql|mariadb  sidecar client family (default: the engine's own)
-#   REMOVE_IMAGE=1                remove the sidecar image on exit
-#   SKIP_BUILD=1                  reuse an existing sidecar image
+#   IMAGE=REF                     test this image (a published one, by digest)
+#                                 instead of building one from this checkout
+#   L3IO_DB_CLIENT=mysql|mariadb  client family of the image built here
+#                                 (default: mysql; docs/docker.md says why)
+#   REMOVE_IMAGE=1                remove the image built here on exit
+#   SKIP_BUILD=1                  reuse an image built here earlier
+#   L3IO_IMAGE_SUFFIX=S           suffix for the image built here (parallel runs)
+#   L3IO_SIDECAR_SCRATCH=DIR      parent of the scratch directory (default
+#                                 $TMPDIR): must be the same path for this script
+#                                 and the Docker daemon, which bind-mounts it
 #   KEEP_STACK=1                  leave the stack and scratch dir up (debugging;
 #                                 tear down with the `docker compose ... down -v` it prints)
 #   L3IO_LOCAL_WHEELS=DIR         install the wheels in DIR over the published ones
@@ -33,20 +44,28 @@ umask 077
 usage() { echo "usage: $0 mysql|mariadb" >&2; exit 2; }
 [[ $# -eq 1 ]] || usage
 ENGINE=$1
-[[ $ENGINE == mysql || $ENGINE == mariadb ]] || usage
+[[ $ENGINE == mysql || $ENGINE == mysql84 || $ENGINE == mariadb ]] || usage
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-L3IO_DB_CLIENT=${L3IO_DB_CLIENT:-$ENGINE}
-IMAGE="l3io-wordpress-backup:sidecar-test-$L3IO_DB_CLIENT"
+if [[ -n ${IMAGE:-} ]]; then
+    BUILT=0
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull -q "$IMAGE" >/dev/null
+    L3IO_DB_CLIENT=$(docker image inspect -f '{{index .Config.Labels "io.l3io.wp-backup.db-client"}}' "$IMAGE")
+else
+    BUILT=1
+    L3IO_DB_CLIENT=${L3IO_DB_CLIENT:-mysql}
+    IMAGE="l3io-wordpress-backup:sidecar-test-$L3IO_DB_CLIENT${L3IO_IMAGE_SUFFIX:+-$L3IO_IMAGE_SUFFIX}"
+fi
+L3IO_SIDECAR_IMAGE=$IMAGE
 
 rand() { openssl rand -hex "$1"; }
-L3IO_SCRATCH=$(mktemp -d -t l3io-sidecar.XXXXXX)
+L3IO_SCRATCH=$(mktemp -d -p "${L3IO_SIDECAR_SCRATCH:-${TMPDIR:-/tmp}}" l3io-sidecar.XXXXXX)
 LOGS=$L3IO_SCRATCH/logs
 mkdir -p "$LOGS" "$L3IO_SCRATCH/content" "$L3IO_SCRATCH/tls"
 chmod 0755 "$L3IO_SCRATCH" "$L3IO_SCRATCH/content" "$L3IO_SCRATCH/tls"
 PROJECT="l3io-sidecar-$ENGINE-$(rand 4)"
-export L3IO_SCRATCH L3IO_DB_CLIENT
+export L3IO_SCRATCH L3IO_DB_CLIENT L3IO_SIDECAR_IMAGE
 
 log() { printf '[%(%H:%M:%S)T] %s\n' -1 "$*" | tee -a "$LOGS/run.log" >&2; }
 dc() { docker compose -f "$HERE/compose.yaml" -p "$PROJECT" --profile "$ENGINE" "$@"; }
@@ -57,7 +76,7 @@ cleanup() {
     local rc=$?
     set +e
     log "teardown (exit $rc)"
-    dc --profile tools logs --no-color --timestamps >"$LOGS/compose.log" 2>&1
+    dc --profile tools --profile schedule logs --no-color --timestamps >"$LOGS/compose.log" 2>&1
     # Leak check: no generated secret may appear in any collected log.
     local leaks=0 s
     for s in "${SECRETS[@]}"; do
@@ -65,17 +84,17 @@ cleanup() {
     done
     log "secret leak check over $LOGS: $leaks of ${#SECRETS[@]} secrets found"
     if [[ ${KEEP_STACK:-0} == 1 ]]; then
-        log "KEEP_STACK=1: left up; tear down with: L3IO_SCRATCH=$L3IO_SCRATCH L3IO_DB_CLIENT=$L3IO_DB_CLIENT docker compose -f $HERE/compose.yaml -p $PROJECT --profile $ENGINE --profile tools down -v"
+        log "KEEP_STACK=1: left up; tear down with: L3IO_SCRATCH=$L3IO_SCRATCH L3IO_SIDECAR_IMAGE=$IMAGE docker compose -f $HERE/compose.yaml -p $PROJECT --profile $ENGINE --profile tools --profile schedule down -v"
         exit "$rc"
     fi
-    dc --profile tools down -v --remove-orphans -t 5 >>"$LOGS/teardown.log" 2>&1
+    dc --profile tools --profile schedule down -v --remove-orphans -t 5 >>"$LOGS/teardown.log" 2>&1
     # The Site Root is owned by www-data (33) inside the containers.
     if [[ -d $L3IO_SCRATCH/html ]] && docker image inspect "$IMAGE" >/dev/null 2>&1; then
         docker run --rm --user 0 -v "$L3IO_SCRATCH:/s" --entrypoint rm "$IMAGE" -rf /s/html
     fi
     rm -rf "$L3IO_SCRATCH/html" "$L3IO_SCRATCH/tls" "$L3IO_SCRATCH/content" "$L3IO_SCRATCH/ctx" \
-        "$L3IO_SCRATCH"/*.env "$L3IO_SCRATCH/wp-config.docker.php"
-    [[ ${REMOVE_IMAGE:-0} == 1 ]] && docker image rm "$IMAGE" >/dev/null 2>&1
+        "$L3IO_SCRATCH"/*.env "$L3IO_SCRATCH/wp-config.docker.php" "$L3IO_SCRATCH/crontab"
+    [[ ${REMOVE_IMAGE:-0} == 1 && $BUILT == 1 ]] && docker image rm "$IMAGE" >/dev/null 2>&1
     log "logs kept in $LOGS"
     exit "$rc"
 }
@@ -110,6 +129,15 @@ EOF
 cat >"$L3IO_SCRATCH/backup.env" <<EOF
 # no administrator (owner decision 55)
 EOF
+# The schedule phase: the image's daily expression replaced by one firing every
+# minute, and a mounted crontab whose job is merged in (yearly: it does not fire).
+# Not an impossible date (31 Feb): Supercronic 0.2.51 accepts one and then
+# logs a warning in a busy loop.
+cat >"$L3IO_SCRATCH/schedule.env" <<EOF
+WPBACKUP_SCHEDULE=* * * * *
+EOF
+printf '%s\n' '# mounted by tests/sidecar/run.sh' '0 0 1 1 * wpbackup2 doctor' >"$L3IO_SCRATCH/crontab"
+chmod 0644 "$L3IO_SCRATCH/crontab"
 
 # Test CA and a server certificate for `db`, for the TLS opt-in steps
 # (--db-tls; no TLS is required by default, owner decision 56).
@@ -195,22 +223,57 @@ SITE=/var/www/html
 CA=/run/l3io-tls/ca.pem
 
 # ---- build -----------------------------------------------------------------------
-log "engine=$ENGINE client=$L3IO_DB_CLIENT project=$PROJECT scratch=$L3IO_SCRATCH"
+log "engine=$ENGINE image=$IMAGE client=$L3IO_DB_CLIENT project=$PROJECT scratch=$L3IO_SCRATCH"
 log "repo HEAD $(git -C "$REPO" rev-parse --short HEAD); modified tracked files: $(git -C "$REPO" status --porcelain --untracked-files=no | wc -l)"
-if [[ ${SKIP_BUILD:-0} != 1 ]]; then
-    mkdir -p "$L3IO_SCRATCH/ctx/local-deps"
+if [[ $BUILT == 1 && ${SKIP_BUILD:-0} != 1 ]]; then
+    # The product Dockerfile, with this checkout's wheel (and L3IO_LOCAL_WHEELS)
+    # in its test-only `wheels` context in place of the PyPI release.
+    mkdir -p "$L3IO_SCRATCH/ctx"
     step build-wheel 0 bash -c "cd '$REPO' && uv build --no-sources --wheel -o '$L3IO_SCRATCH/ctx'"
-    cp "$REPO/pyproject.toml" "$L3IO_SCRATCH/ctx/"
-    LOCAL_DEPS=0
     if [[ -n ${L3IO_LOCAL_WHEELS:-} ]]; then
-        cp "$L3IO_LOCAL_WHEELS"/*.whl "$L3IO_SCRATCH/ctx/local-deps/"
-        LOCAL_DEPS=1
-        log "local wheels: $(cd "$L3IO_SCRATCH/ctx/local-deps" && echo ./*.whl)"
+        cp "$L3IO_LOCAL_WHEELS"/*.whl "$L3IO_SCRATCH/ctx/"
+        log "local wheels: $(cd "$L3IO_SCRATCH/ctx" && echo ./*.whl)"
     fi
-    step build-image 0 docker build -f "$HERE/Dockerfile" --build-arg "DB_CLIENT=$L3IO_DB_CLIENT" \
-        --build-arg "LOCAL_DEPS=$LOCAL_DEPS" -t "$IMAGE" "$L3IO_SCRATCH/ctx"
+    VERSION=$(basename "$(ls "$L3IO_SCRATCH"/ctx/l3io_wordpress_backup-*.whl)" | cut -d- -f2)
+    step build-image 0 docker buildx build --load -f "$REPO/docker/Dockerfile" \
+        --build-context "wheels=$L3IO_SCRATCH/ctx" --build-arg "VERSION=$VERSION" \
+        --build-arg "DB_CLIENT=$L3IO_DB_CLIENT" -t "$IMAGE" "$REPO/docker"
     [[ $FAILED == 0 ]] || { printf '%s\n' "${RESULTS[@]}"; exit 1; }
 fi
+
+# ---- the image's entrypoint, without the stack ---------------------------------
+img() { docker run --rm "$@"; }
+# A wpbackup2 subcommand naming an executable on PATH would run that executable
+# instead (l3io-wpbackup-entrypoint). The subcommands are read from the image's
+# own wpbackup2, never listed here.
+subcommands_are_not_executables() {
+    local subs s
+    subs=$(img "$IMAGE" --help | sed -n 's/^ *{\([a-z,-]*\)}.*/\1/p' | head -1 | tr , ' ')
+    echo "subcommands: $subs"
+    [[ -n $subs ]] || return 1
+    for s in $subs; do
+        if img --entrypoint sh "$IMAGE" -c "command -v $s"; then return 1; fi
+    done
+}
+one_shot_is_wpbackup2() { [[ $(img "$IMAGE" --version) == "wpbackup2 "* ]]; }
+one_shot_runs_as_33() { [[ $(img "$IMAGE" id -u):$(img "$IMAGE" id -g) == 33:33 ]]; }
+puid_pgid_honoured() {
+    local got
+    got=$(img -e PUID=1234 -e PGID=1234 "$IMAGE" sh -c 'echo "$(id -u):$(id -g) $(stat -c %u:%g "$XDG_STATE_HOME")"')
+    echo "PUID=PGID=1234: $got"
+    [[ $got == "1234:1234 1234:1234" ]]
+}
+puid_0_keeps_root() { [[ $(img -e PUID=0 "$IMAGE" id -u) == 0 ]]; }
+# The scheduled mode refuses to start (s6 stops the container, non-zero) on an
+# empty or unparsable schedule rather than idling with nothing scheduled.
+schedule_refused() { ! timeout 60 docker run --rm -e "WPBACKUP_SCHEDULE=$1" "$IMAGE"; }
+check image:subcommands-are-not-executables subcommands_are_not_executables
+check image:one-shot-is-wpbackup2 one_shot_is_wpbackup2
+check image:one-shot-runs-as-33 one_shot_runs_as_33
+check image:puid-pgid-honoured puid_pgid_honoured
+check image:puid-0-keeps-root puid_0_keeps_root
+check image:empty-schedule-refused schedule_refused ''
+check image:bad-schedule-refused schedule_refused 'not a schedule'
 
 # ---- stack -----------------------------------------------------------------------
 step stack-up 0 dc up -d --wait --wait-timeout 300
@@ -325,6 +388,10 @@ check B:dryrun-kept-the-plugin-table table_present "$PLUGIN_TABLE"
 step B-restore-dryrun-tls-verified 0 wb_pp --whatIf "${RESTORE[@]}" --db-tls verify-identity --db-tls-ca "$CA"
 step B-restore-dryrun-tls-untrusted-ca 3 wb_pp --whatIf "${RESTORE[@]}" --db-tls verify-identity
 step B-restore-dryrun-tls-required 0 wb_pp --whatIf "${RESTORE[@]}" --db-tls required
+# The image carries no WP-CLI (docs/docker.md): a URL relocation is refused
+# before any effect, exit 7 NOT_READY naming `wp`.
+step B-relocation-needs-wp-cli 7 wb_pp --whatIf "${RESTORE[@]}" --new-site-url http://relocated.invalid
+check B:relocation-names-wp-cli grep -qF 'wp is needed for SEARCH_REPLACE' "$LOGS/B-relocation-needs-wp-cli.err"
 step B-restore 0 wb_pp "${RESTORE[@]}"
 run_id_of() { jq -r 'select(.event == "run_started") | .l3io_run_id' "$LOGS/$1.err" 2>/dev/null | head -1; }
 if [[ $LAST_RC != 0 ]]; then
@@ -454,6 +521,37 @@ check C:plain-refused-undefined-function refused_with C-overwrite-plain-archive 
 check C:plain-refusal-left-config site_config_is_docker
 check C:page-200-after-plain-refusal code_is / 200
 step C-backup-after 0 wb backup --archive /backups/c.tar.gz
+
+# ---- the scheduled mode ------------------------------------------------------------
+# The image's default command, as the README's compose example runs it: s6
+# moves `abc` to PUID:PGID (33:33), builds the crontab from WPBACKUP_SCHEDULE
+# (here every minute) plus the mounted crontab, and runs Supercronic. Within
+# three minutes it must have written a new Archive of this site, owned by 33,
+# that verifies, and the job's own output must be in the container log.
+archives_of_site() { in_backup sh -c "ls -1 /backups/wpbackup2-$DB_NAME-*.tar.gz 2>/dev/null" || true; }
+scheduler_log() { dc --profile schedule logs --no-color scheduler 2>&1; }
+BEFORE=$(archives_of_site)
+step S-scheduler-up 0 dc --profile schedule up -d scheduler
+SCHEDULED=
+for _ in $(seq 1 36); do
+    SCHEDULED=$(comm -13 <(sort <<<"$BEFORE") <(archives_of_site | sort) | head -1)
+    # The backup prints the Archive's path when it is complete.
+    [[ -n $SCHEDULED ]] && scheduler_log | grep -qF "$SCHEDULED" && break
+    sleep 5
+done
+scheduler_log >"$LOGS/S-scheduler.log" || true
+log "scheduled Archive: ${SCHEDULED:-none}"
+supercronic_uid() { [[ $(dc --profile schedule exec -T scheduler ps -o uid= -C supercronic | tr -d ' ') == 33 ]]; }
+check S:schedule-lists-the-env-job grep -qF '* * * * * wpbackup2 backup' "$LOGS/S-scheduler.log"
+check S:schedule-merges-the-mounted-crontab grep -qF '0 0 1 1 * wpbackup2 doctor' "$LOGS/S-scheduler.log"
+check S:scheduled-backup-wrote-an-archive test -n "$SCHEDULED"
+check S:job-output-in-container-log grep -qF "${SCHEDULED:-no archive}" "$LOGS/S-scheduler.log"
+check S:supercronic-runs-as-33 supercronic_uid
+step S-scheduler-stop 0 dc --profile schedule stop -t 30 scheduler
+if [[ -n $SCHEDULED ]]; then
+    check S:scheduled-archive-owned-by-33 owned_by_33 "$SCHEDULED"
+    step S-verify-scheduled 0 wb verify --archive "$SCHEDULED"
+fi
 
 # ---- report -----------------------------------------------------------------------
 {

@@ -5,6 +5,28 @@ release notes proper are built from commit subjects
 (`.github/changelog-config.json`); this file carries the named entries the
 owner asked for, which a commit subject cannot hold.
 
+## Unreleased
+
+### Added: the official Docker image (owner decisions 77–80)
+
+- **`ghcr.io/liquidlogiclabs/l3io-wordpress-backup`** and
+  **`docker.io/liquidlogiclabs/l3io-wordpress-backup`**, public,
+  `linux/amd64` and `linux/arm64`, built from the PyPI release by
+  `.github/workflows/docker.yml` after each PyPI publish. The first image is
+  1.0.0, built from the 1.0.0 package on PyPI; the package itself is unchanged.
+- **A sidecar for the official `wordpress` image**: `L3IO_WP_BACKUP_WP_DIR`
+  `/var/www/html`, `L3IO_WP_BACKUP_ARCHIVE_DIR` `/backups`, runs as uid/gid 33
+  (`PUID`/`PGID`). One image for MySQL 8.0/8.4 and MariaDB 11.4 servers (MySQL's
+  8.4 client).
+- **Scheduled by default**: Supercronic under s6 runs `wpbackup2 backup` on
+  `WPBACKUP_SCHEDULE` (default `0 3 * * *`) plus an optional mounted crontab.
+  Given a command it runs once: `docker run IMAGE restore --archive latest`.
+- **No WP-CLI in the image**: a `--new-site-url`/`--new-site-home-url`
+  relocation stops before any change with exit 7 (`NOT_READY`).
+- Every release is scanned (fixable CRITICAL/HIGH fails it), carries an SBOM
+  and provenance, and is tested with the sidecar suite on the pushed digest
+  before it is tagged. See [docs/docker.md](docs/docker.md).
+
 ## 1.0.0 — 2026-11-10
 
 ### Changed: the family libraries are required dependencies; `[database]` is now an empty alias (2026-11-10)

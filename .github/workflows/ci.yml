@@ -535,3 +535,48 @@ jobs:
           uv pip install --python "$venv" --no-build -r pyproject.toml --all-extras
           uv pip install --python "$venv" --no-deps "$wheel"
           "$venv/bin/python" -c "from l3io.wp import backup, database, config; print('extras install ok')"
+
+  image:
+    # The official image's Dockerfile (docker/Dockerfile), built for amd64 from
+    # THIS checkout's wheel through its test-only `wheels` context, then the
+    # sidecar suite (tests/sidecar/run.sh: one-shot and scheduled modes)
+    # against WordPress, so a Dockerfile, entrypoint or s6 breakage fails here
+    # and not at release. Nothing is pushed: docker.yml builds the released
+    # image from PyPI, multi-arch, and runs the same suite on the pushed digest.
+    #
+    # Under act the scratch directory lives in the bind-mounted checkout, whose
+    # path is the same in the job container and on the host: the compose bind
+    # mounts are resolved by the HOST's Docker daemon, so a /tmp path inside the
+    # job container would mount an empty host directory.
+    name: image · sidecar suite · ${{ matrix.engine }}
+    runs-on: ubuntu-latest
+    needs: [static, contracts]
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both server families, each with the image's one client (docs/docker.md).
+        engine: [mysql, mariadb]
+    env:
+      # One directory per leg: the legs run at once, and each removes its own.
+      L3IO_SIDECAR_SCRATCH: ${{ vars.LOCAL_ACT && format('{0}/.sidecar-scratch/{1}', github.workspace, matrix.engine) || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: "0.11.6"
+          enable-cache: ${{ !vars.LOCAL_ACT }}
+      - name: run tests/sidecar/run.sh (builds the image from this checkout's wheel)
+        env:
+          ENGINE: ${{ matrix.engine }}
+          REMOVE_IMAGE: "1"
+          # One image per leg: under act the legs share the host's daemon, and
+          # one leg's REMOVE_IMAGE must not remove the other's.
+          L3IO_IMAGE_SUFFIX: ${{ matrix.engine }}
+        run: |
+          set -euo pipefail
+          if [ -n "$L3IO_SIDECAR_SCRATCH" ]; then mkdir -p "$L3IO_SIDECAR_SCRATCH"; fi
+          tests/sidecar/run.sh "$ENGINE"
+      - name: remove the scratch directory (act)
+        if: ${{ always() && vars.LOCAL_ACT }}
+        run: rm -rf "$L3IO_SIDECAR_SCRATCH"

@@ -29,3 +29,6 @@ htmlcov
 # worktrees. Neither belongs in the repository (BL-E007-012).
 .codex
 .claude/worktrees/
+
+# tests/sidecar/run.sh scratch under act (ci.yml `image`): the job removes it.
+.sidecar-scratch/

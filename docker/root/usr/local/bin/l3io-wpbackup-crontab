@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# l3io-wpbackup-crontab OUTPUT
+#
+# Writes the crontab the scheduled mode runs and checks that Supercronic parses
+# it. Two sources, both optional, at least one required:
+#
+#   WPBACKUP_SCHEDULE  one cron expression; the line `<expr> wpbackup2 backup`.
+#                      The image sets "0 3 * * *" (daily at 03:00 in TZ, UTC
+#                      by default). Set it empty to schedule only the file.
+#   WPBACKUP_CRONTAB   a crontab file appended as written (default
+#                      /etc/l3io-wp-backup/crontab, used when it exists).
+#
+# The image's variables are WPBACKUP_*, not L3IO_WP_BACKUP_*: wpbackup2 reads
+# every L3IO_WP_BACKUP_* variable as a setting and logs WARNING
+# unknown_setting_variable for one it does not know, on every Run.
+set -Eeuo pipefail
+
+die() { echo "l3io-wpbackup-crontab: $*" >&2; exit 2; }
+[[ $# == 1 ]] || die "usage: l3io-wpbackup-crontab OUTPUT"
+out=$1
+file=${WPBACKUP_CRONTAB:-/etc/l3io-wp-backup/crontab}
+
+: >"$out"
+if [[ -n ${WPBACKUP_SCHEDULE:-} ]]; then
+    [[ $WPBACKUP_SCHEDULE != *$'\n'* ]] || die "WPBACKUP_SCHEDULE must be one cron expression"
+    printf '%s wpbackup2 backup\n' "$WPBACKUP_SCHEDULE" >>"$out"
+fi
+if [[ -f $file ]]; then
+    cat -- "$file" >>"$out"
+    printf '\n' >>"$out"
+elif [[ -n ${WPBACKUP_CRONTAB:-} ]]; then
+    die "WPBACKUP_CRONTAB names $file, which is not a file"
+fi
+
+jobs=$(grep -vE '^[[:space:]]*(#|$)' "$out" || true)
+[[ -n $jobs ]] || die "nothing to schedule: set WPBACKUP_SCHEDULE or mount a crontab at $file"
+supercronic -test "$out" >/dev/null 2>&1 || {
+    supercronic -test "$out" >&2 || true
+    die "the crontab does not parse"
+}
+echo "l3io-wpbackup-crontab: scheduled jobs (as uid ${PUID:-33}):"
+# shellcheck disable=SC2001  # one prefix per line of a multi-line value
+sed 's/^/  /' <<<"$jobs"

@@ -63,37 +63,7 @@ the file, the file over the default. The file is `--config PATH` or
 readable by its owner only (`chmod 600`), or it is refused. ADR-0028 records
 the design.
 
-**As a Docker sidecar** next to the official `wordpress` image, sharing its
-site volume and its `WORDPRESS_DB_*` environment:
-
-```yaml
-services:
-  backup:
-    image: <your wpbackup2 image>
-    env_file: wordpress.env            # the site's WORDPRESS_DB_*
-    environment:
-      L3IO_WP_BACKUP_WP_DIR: /var/www/html
-      L3IO_WP_BACKUP_ARCHIVE_DIR: /backups
-    volumes:
-      - html:/var/www/html
-      - backups:/backups
-```
-
-then `docker compose exec backup wpbackup2 backup` on a schedule, and to
-restore the newest backup of this site:
-
-```
-docker compose exec backup wpbackup2 restore --archive latest
-```
-
-Set `L3IO_WP_BACKUP_PASSPHRASE` (and add `--encrypt-with-passphrase`, or
-`encrypt_with_passphrase = true` in the config file) to encrypt; a restore
-then decrypts with the same passphrase. Started as root, a backup or a restore
-runs as the owner of `/var/www/html` (www-data in the official image), after
-reading the passphrase and credentials, so Archives and restored files belong
-to it and both share its state directory; `/backups` must then be writable by
-that user, or the backup is refused before it starts. `tests/sidecar/` is a
-working example.
+**As a Docker sidecar**: the official image, below.
 
 **From cron**, with the tool installed by `pip`:
 
@@ -118,6 +88,82 @@ Root is written with a warning: the web server may serve it. A backup started
 as root runs as the Site Root's owner: that user's data directory, and an
 Archive directory that user can write (otherwise the backup is refused before
 it starts, naming the directory).
+
+### Run as a Docker sidecar
+
+The official image runs next to the official `wordpress` image, sharing its
+site volume and its `WORDPRESS_DB_*` environment. It is built from the PyPI
+release, for `linux/amd64` and `linux/arm64`:
+
+```
+docker pull ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1
+docker pull docker.io/liquidlogiclabs/l3io-wordpress-backup:1
+```
+
+One image works with MySQL 8.0, MySQL 8.4 and MariaDB 11.4 servers. By default
+it is a scheduler: a daily `wpbackup2 backup` at 03:00 (`WPBACKUP_SCHEDULE`, in
+`TZ`), run as uid/gid 33 (www-data, `PUID`/`PGID` to change), each job's output
+in the container log. Given a command, it runs that once instead.
+
+```yaml
+services:
+  db:
+    image: mariadb:11.4
+    env_file: db.env                 # MARIADB_DATABASE, _USER, _PASSWORD, _ROOT_PASSWORD
+    volumes: [db:/var/lib/mysql]
+
+  wordpress:
+    image: wordpress:php8.3-apache
+    env_file: wordpress.env          # WORDPRESS_DB_HOST=db, _NAME, _USER, _PASSWORD (or _PASSWORD_FILE)
+    volumes: [html:/var/www/html]
+    depends_on: [db]
+
+  backup:
+    image: ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1
+    env_file: wordpress.env          # the site's own WORDPRESS_DB_*
+    environment:
+      WPBACKUP_SCHEDULE: "0 3 * * *" # the default: daily at 03:00
+      TZ: Europe/London
+      L3IO_WP_BACKUP_CONFIG: /run/secrets/wpbackup.toml
+    secrets: [wpbackup.toml]
+    volumes:
+      - html:/var/www/html                     # L3IO_WP_BACKUP_WP_DIR
+      - backups:/backups                       # L3IO_WP_BACKUP_ARCHIVE_DIR
+      - state:/var/lib/wpbackup/state          # the Site Lock and the Run Journal
+    tmpfs:
+      - /tmp/wpbackup:mode=0700,uid=33,gid=33  # the Dump never touches disk
+    restart: unless-stopped
+    depends_on: [wordpress]
+
+secrets:
+  wpbackup.toml:
+    file: ./wpbackup.toml   # chown 33:33, chmod 600: a file holding a secret must be its owner's only
+
+volumes: {db: {}, html: {}, backups: {}, state: {}}
+```
+
+```toml
+# wpbackup.toml
+encrypt_with_passphrase = true
+passphrase = "a long passphrase, 12 characters or more"
+```
+
+Restore the newest backup of this site, with no other flag, either in the
+running container or in a one-shot one:
+
+```
+docker compose exec backup wpbackup2 restore --archive latest
+docker compose run --rm backup restore --archive latest
+```
+
+To schedule from the host instead (cron or a systemd timer), run the one-shot
+form, `docker compose run --rm backup backup`, and put the service in a
+profile (`profiles: [manual]`) so `docker compose up` does not also start the
+built-in scheduler. More jobs: mount a crontab at `/etc/l3io-wp-backup/crontab`; it is
+added to `WPBACKUP_SCHEDULE`'s line. [docs/docker.md](docs/docker.md) has the
+details: users and `PUID`/`PGID`, read-only root filesystems, tags, what is in
+the image (no WP-CLI: a `--new-site-url` relocation stops with exit 7), and the
+release pipeline. `tests/sidecar/` runs this setup, both modes, on every engine.
 
 ### By hand
 

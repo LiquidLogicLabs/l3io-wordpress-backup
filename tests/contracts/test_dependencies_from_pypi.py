@@ -165,7 +165,7 @@ def _install_recipes() -> list[pathlib.Path]:
 def test_there_are_install_recipes_to_check() -> None:
     names = {p.relative_to(ROOT).as_posix() for p in _install_recipes()}
     assert ".github/workflows/ci.yml" in names
-    assert "tests/sidecar/Dockerfile" in names
+    assert "docker/Dockerfile" in names
 
 
 @pytest.mark.parametrize(

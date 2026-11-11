@@ -37,6 +37,9 @@ def main() -> int:
             args = " ".join(
                 f"--input {k}={v}" for k, v in (leg.get("inputs") or {}).items()
             )
+        # `vars` reach jobs a variable gates (docker.yml's registries).
+        extra = " ".join(f"--var {k}={v}" for k, v in (leg.get("vars") or {}).items())
+        args = f"{args} {extra}".strip()
         print(f"{leg['workflow']}\t{leg['event']}\t{args}")
     return 0
 

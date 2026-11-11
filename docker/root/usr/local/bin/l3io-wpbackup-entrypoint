@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# The official image's entrypoint (owner decision 77). Two modes:
+#
+#   (no command) or `schedule`  Scheduled, the default: the base image's s6
+#                               init (/init) starts, init-adduser moves `abc` to
+#                               PUID:PGID, init-wpbackup-config builds the
+#                               crontab (l3io-wpbackup-crontab) and
+#                               svc-wpbackup-schedule runs Supercronic as abc.
+#   anything else               One-shot, without s6: `docker run IMAGE backup`
+#                               is `wpbackup2 backup`, and so is
+#                               `docker run IMAGE wpbackup2 backup`. The first
+#                               argument is run as a command only when it names
+#                               an executable on PATH (`sh`, `sleep`); otherwise
+#                               it goes to wpbackup2. tests/sidecar/run.sh checks
+#                               that no wpbackup2 subcommand names an executable
+#                               in the image.
+#
+# Users, one-shot. Started as root (the image's default), the command runs as
+# PUID:PGID (33:33 by default, www-data in the official `wordpress` image);
+# PUID=0 keeps root, and wpbackup2 then runs a backup or restore as the Site
+# Root's owner itself (owner decisions 58, 67). Started as any other user
+# (`user: "33:33"`, read-only root filesystems), it runs as that user.
+set -Eeuo pipefail
+
+if [[ $# == 0 || $1 == schedule ]]; then
+    [[ $(id -u) == 0 ]] || {
+        echo "l3io-wpbackup-entrypoint: the scheduled mode starts as root (it drops to PUID:PGID); remove 'user:' or run a one-shot command" >&2
+        exit 2
+    }
+    exec /init
+fi
+
+if [[ $(id -u) == 0 ]]; then
+    puid=${PUID:-33}
+    pgid=${PGID:-33}
+    [[ $puid =~ ^[0-9]+$ && $pgid =~ ^[0-9]+$ ]] || {
+        echo "l3io-wpbackup-entrypoint: PUID and PGID must be numeric ids" >&2
+        exit 2
+    }
+    if [[ $puid != 0 ]]; then
+        # As init-wpbackup-config does for the scheduled mode: the image's own
+        # directories recursively, the Archive directory's top level only; and
+        # only what PUID:PGID does not own already.
+        for d in "${XDG_STATE_HOME:?}" "${TMPDIR:?}" "${HOME:?}"; do
+            [[ -d $d ]] && lsiown -R "$puid:$pgid" "$d"
+        done
+        [[ -d ${L3IO_WP_BACKUP_ARCHIVE_DIR:-/backups} ]] && lsiown "$puid:$pgid" "${L3IO_WP_BACKUP_ARCHIVE_DIR:-/backups}"
+        exec setpriv --reuid="$puid" --regid="$pgid" --clear-groups -- "$0" "$@"
+    fi
+fi
+
+if [[ $1 != -* ]] && command -v -- "$1" >/dev/null 2>&1; then
+    exec "$@"
+fi
+exec wpbackup2 "$@"
