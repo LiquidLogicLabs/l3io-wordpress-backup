@@ -528,6 +528,16 @@ jobs:
   release:
     # Created AFTER PyPI accepts, never before — a release pointing at a version
     # that failed to publish is worse than no release.
+    #
+    # IDEMPOTENT, because the documented flow runs it twice on one tag: release.yml
+    # dispatches target=mirror (which creates the release), then a separate
+    # target=pypi dispatch on the same tag runs this job again. Without
+    # `skip-if-release-exists` that second run fails with HTTP 422 already_exists
+    # (run 42904345406, v1.0.0) after PyPI has already accepted. Gating the job off
+    # for target=pypi instead was rejected: a pypi dispatch on a tag that has no
+    # release yet (the mirror unconfigured or its run failed) would then never get
+    # one. Skipping is not trusting: the step after the action checks the existing
+    # release's assets against THIS run's build.
     name: create the release
     runs-on: ubuntu-latest
     needs: [version-gate, smoke, namespace, publish-pypi]
@@ -647,3 +657,64 @@ jobs:
           # returned nothing, so a release is never bodyless.
           body: ${{ steps.notes.outputs.changelog }}
           generate-release-notes: ${{ steps.notes.outputs.changelog == '' }}
+          # The action's own option, not a shell pre-check: it skips only when a
+          # NON-DRAFT release exists for the tag. Skipping also skips the artifact
+          # upload, which is why the next step exists.
+          skip-if-release-exists: 'true'
+
+      # The release carries exactly this build. Runs on both paths: on a fresh
+      # release it catches an upload the action dropped (artifact-errors-fail-build
+      # defaults to false, so a failed upload does not fail the action); on an
+      # existing one it is the only check that the assets are these artifacts.
+      #   same name, same sha256  -> nothing to do
+      #   name absent             -> uploaded, WITHOUT --clobber, so an asset that
+      #                              appears concurrently is never overwritten
+      #   same name, other sha256 -> the run FAILS before anything is uploaded;
+      #                              replacing published content silently is never
+      #                              an option
+      # The build is reproducible (v1.0.0's release assets and the files PyPI took
+      # from a later run are byte-identical), so a mismatch means a different build.
+      # `.digest` is GitHub's own sha256 of the asset; an asset uploaded before
+      # GitHub recorded digests has none, and is downloaded and hashed instead.
+      - name: the release's assets are this build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          listing=$(gh release view "$TAG" --json assets --jq '.assets[] | [.name, (.digest // "")] | @tsv')
+          scratch=$(mktemp -d)
+          shopt -s nullglob
+          files=(dist/*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::dist/ is empty; there is nothing to check the release against"
+            exit 1
+          fi
+          missing=(); bad=0
+          for f in "${files[@]}"; do
+            name=$(basename "$f")
+            want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
+            row=$(awk -F'\t' -v n="$name" '$1 == n' <<<"$listing")
+            if [ -z "$row" ]; then
+              echo "missing on the release: $name"
+              missing+=("$f")
+              continue
+            fi
+            have=$(cut -f2 <<<"$row")
+            if [ -z "$have" ]; then
+              gh release download "$TAG" --pattern "$name" --dir "$scratch"
+              have="sha256:$(sha256sum "$scratch/$name" | cut -d' ' -f1)"
+            fi
+            if [ "$have" = "$want" ]; then
+              echo "matches: $name $want"
+            else
+              echo "::error::release $TAG already has $name with $have, but this build's is $want; refusing to replace it"
+              bad=1
+            fi
+          done
+          [ "$bad" -eq 0 ] || exit 1
+          if [ "${#missing[@]}" -gt 0 ]; then
+            gh release upload "$TAG" "${missing[@]}"
+            echo "uploaded ${#missing[@]} missing asset(s)"
+          fi

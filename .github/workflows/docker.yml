@@ -22,11 +22,15 @@
 #   REGISTRY_NAME / REGISTRY_ORG / IMAGE_NAME   the primary registry and image:
 #       ghcr.io/liquidlogiclabs/l3io-wordpress-backup. Logs in with the secrets
 #       REGISTRY_USERNAME / REGISTRY_PASSWORD when set, else GITHUB_TOKEN.
-#   DOCKERHUB_ENABLED (true) / DOCKERHUB_ORG (REGISTRY_ORG)   the second
-#       registry: docker.io/liquidlogiclabs/l3io-wordpress-backup, with the
-#       secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN. Enabled without both,
-#       `resolve` FAILS: a registry is never skipped while the run reports
-#       success.
+#   DOCKERHUB_ENABLED (true) / DOCKERHUB_ORG (ravensorb)   the second
+#       registry: docker.io/ravensorb/l3io-wordpress-backup, logging in as the
+#       VARIABLE DOCKERHUB_USERNAME with the secret DOCKERHUB_TOKEN. Enabled
+#       without both, `credentials` FAILS before anything is built: a registry
+#       is never skipped while the run reports success.
+#   The username is a variable, not a secret, and it must stay one: it equals
+#   DOCKERHUB_ORG, so as a secret it masks the image name, and GitHub drops a
+#   job output that contains a secret's value (run 43001741839: "Skip output
+#   'names' since it may contain secret", then a push with an empty name).
 #   DOCKER_FILE (docker/Dockerfile), DOCKER_PLATFORMS (linux/amd64,linux/arm64).
 #   IMAGE_BUILD_MODE (push): `load` builds and scans and pushes nothing.
 # Every Docker Hub step is gated by `env.DOCKERHUB_ENABLED == 'true'`, which a
@@ -76,7 +80,7 @@ env:
   REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'liquidlogiclabs' }}
   IMAGE_NAME: ${{ vars.IMAGE_NAME || 'l3io-wordpress-backup' }}
   DOCKERHUB_ENABLED: ${{ vars.DOCKERHUB_ENABLED || 'true' }}
-  DOCKERHUB_ORG: ${{ vars.DOCKERHUB_ORG || vars.REGISTRY_ORG || 'liquidlogiclabs' }}
+  DOCKERHUB_ORG: ${{ vars.DOCKERHUB_ORG || 'ravensorb' }}
   DOCKER_FILE: ${{ vars.DOCKER_FILE || 'docker/Dockerfile' }}
   DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64' }}
   IMAGE_BUILD_MODE: ${{ vars.IMAGE_BUILD_MODE || 'push' }}
@@ -157,12 +161,13 @@ jobs:
           echo "PyPI's latest release: $newest"
           if [ "$newest" = "$VERSION" ]; then echo "latest=true"; else echo "latest=false"; fi >> "$GITHUB_OUTPUT"
 
-      - name: the registries, each with its credentials
+      # NO SECRET IN THIS JOB, not even to check one is set: its outputs are the
+      # image names, and GitHub drops any job output containing the value of a
+      # secret the job references. The credential checks are in `credentials`.
+      # Asserted by tests/contracts/test_workflow_invariants.py.
+      - name: the registries
         id: registries
         if: steps.release.outputs.build == 'true'
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
           case "$IMAGE_BUILD_MODE" in push|load) ;; *)
@@ -172,12 +177,6 @@ jobs:
           names=("$REGISTRY_NAME/$REGISTRY_ORG/$IMAGE_NAME")
           case "$DOCKERHUB_ENABLED" in
             true)
-              # Enabled means required: missing credentials fail the run.
-              # ${VAR:+set} reports presence, never a value.
-              if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
-                echo "::error::DOCKERHUB_ENABLED is true but the secret DOCKERHUB_USERNAME (${DOCKERHUB_USERNAME:+set}) or DOCKERHUB_TOKEN (${DOCKERHUB_TOKEN:+set}) is missing"
-                exit 1
-              fi
               names+=("docker.io/$DOCKERHUB_ORG/$IMAGE_NAME")
               ;;
             false) ;;
@@ -190,12 +189,43 @@ jobs:
           { echo "names=$joined"; echo "primary=${names[0]}"; } >> "$GITHUB_OUTPUT"
           echo "registries ($IMAGE_BUILD_MODE): $joined"
 
+  credentials:
+    # Each enabled registry's credentials, checked before anything is built. A
+    # job of its own, with NO outputs, because checking a secret means
+    # referencing it, and resolve (whose outputs are the image names) must not.
+    name: the registries' credentials
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    # ACT_DRYRUN: as for build, below.
+    if: needs.resolve.outputs.build == 'true' || vars.ACT_DRYRUN == '1'
+    permissions: {}
+    steps:
+      - name: every enabled registry has its credentials
+        id: credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$DOCKERHUB_ENABLED" in
+            true)
+              # Enabled means required: missing credentials fail the run.
+              # ${VAR:+set} reports presence, never a value.
+              if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+                echo "::error::DOCKERHUB_ENABLED is true but the variable DOCKERHUB_USERNAME (${DOCKERHUB_USERNAME:+set}) or the secret DOCKERHUB_TOKEN (${DOCKERHUB_TOKEN:+set}) is missing"
+                exit 1
+              fi
+              ;;
+            *) ;;  # resolve has already refused anything but true or false
+          esac
+          echo "credentials present for every enabled registry"
+
   build:
     # Scan, then push by digest only: no tag moves until `smoke` has passed on
     # the pushed digest.
     name: build · scan · push by digest
     runs-on: ubuntu-latest
-    needs: [resolve]
+    needs: [resolve, credentials]
     # ACT_DRYRUN: set only by `make ci-dryrun` (always with --dryrun), where no
     # step runs and resolve's outputs are empty; without it a dry run would stop
     # at resolve and never resolve this job's or later jobs' action refs. Set on
@@ -225,7 +255,7 @@ jobs:
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: build each platform locally and scan it (nothing pushed yet)
@@ -292,7 +322,7 @@ jobs:
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: run tests/sidecar/run.sh against the pushed digest
         env:
@@ -321,7 +351,7 @@ jobs:
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: the tags

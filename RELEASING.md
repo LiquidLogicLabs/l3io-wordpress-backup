@@ -60,8 +60,16 @@ commit.** It is enforced, not remembered:
 
 1. `make preflight`, push, and let CI go green; `make release` checks both.
 2. Bump the version in `pyproject.toml`; update the changelog.
-3. Tag `vX.Y.Z` and push it. `publish.yml` builds, runs the clean-install smoke
-   matrix and the namespace check, then publishes via PyPI trusted publishing.
+3. `make release-<bump>` tags `vX.Y.Z` and dispatches `publish.yml` on the tag
+   with `target=mirror`: build, the clean-install smoke matrix, the namespace
+   check, the internal mirror, and the GitHub release with the wheel and sdist.
+   Then publish to PyPI (trusted publishing) from the same tag:
+   `gh workflow run publish.yml --ref vX.Y.Z -f target=pypi`. That run finds
+   the release already there: `create the release` skips creating it
+   (`skip-if-release-exists`) and checks its assets against this run's build.
+   It uploads a missing one and fails, uploading nothing, when a same-named
+   asset's sha256 differs. The build is reproducible, so they match.
+   Asserted in `tests/contracts/test_workflow_invariants.py`.
 4. Run the gate above.
 5. **The Docker image** (`l3io-wordpress-backup` only; owner decisions 77–80).
    `docker.yml` starts by itself when a Publish run's `publish to PyPI` job
@@ -90,11 +98,14 @@ The variables and their defaults are in [docs/docker.md](docs/docker.md#release-
   once, as an organisation owner: the package's page -> Package settings ->
   Danger Zone -> Change visibility -> Public (irreversible; GitHub documents no
   API for it). Then re-run the failed job; the tags are already pushed.
-- **Docker Hub** (`docker.io/liquidlogiclabs/l3io-wordpress-backup`, public):
-  the repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (an access
-  token with read/write scope on that repository) are set. With
+- **Docker Hub** (`docker.io/ravensorb/l3io-wordpress-backup`, public; the
+  default `DOCKERHUB_ORG` is `ravensorb`): the repository **variable**
+  `DOCKERHUB_USERNAME` and the repository **secret** `DOCKERHUB_TOKEN` (an
+  access token with read/write scope on that repository). The username is not
+  a secret and must not be one: it equals the org, so as a secret it masks the
+  image name and GitHub drops the `names` output (run 43001741839). With
   `DOCKERHUB_ENABLED` true (the default) and either missing, the run fails in
-  `resolve`, before building; `DOCKERHUB_ENABLED=false` pushes to GHCR only.
+  `credentials`, before building; `DOCKERHUB_ENABLED=false` pushes to GHCR only.
 - Never set `ACT_DRYRUN` or `LOCAL_ACT` as GitHub variables: they exist for act.
 
 ## Legacy names

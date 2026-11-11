@@ -6,7 +6,7 @@ has the compose example; this page is the reference.
 
 ```
 ghcr.io/liquidlogiclabs/l3io-wordpress-backup:<tag>
-docker.io/liquidlogiclabs/l3io-wordpress-backup:<tag>
+docker.io/ravensorb/l3io-wordpress-backup:<tag>
 ```
 
 Both public, the same digest in each.
@@ -146,12 +146,16 @@ one digest, pushed to every enabled registry.
 
 1. **resolve**: the Publish run's `publish to PyPI` job succeeded (else nothing
    is built); the version installs from PyPI (waits up to 30 min); the
-   registries, each with its credentials (below).
-2. **build**: each platform built and scanned (Trivy, below), then both pushed
+   registries (below). It references no secret: its outputs are the image
+   names, and GitHub drops a job output that contains a referenced secret's
+   value.
+2. **credentials**: each enabled registry's login is present (below), before
+   anything is built.
+3. **build**: each platform built and scanned (Trivy, below), then both pushed
    **by digest only**, with an SBOM and `mode=max` provenance.
-3. **smoke**: `tests/sidecar/run.sh` against that digest, pulled from the
+4. **smoke**: `tests/sidecar/run.sh` against that digest, pulled from the
    registry, on `mysql:8.0`, `mysql:8.4` and `mariadb:11.4`.
-4. **publish**: the tags applied to the tested digest in every registry; a
+5. **publish**: the tags applied to the tested digest in every registry; a
    GitHub build-provenance attestation (Sigstore) pushed beside it; then every
    published tag must pull anonymously (the image is public, owner decision 80).
 
@@ -162,8 +166,9 @@ variables with these defaults:
 | Variable | Default | Meaning |
 |---|---|---|
 | `REGISTRY_NAME`, `REGISTRY_ORG`, `IMAGE_NAME` | `ghcr.io`, `liquidlogiclabs`, `l3io-wordpress-backup` | the primary registry, always pushed; logs in with the secrets `REGISTRY_USERNAME`/`REGISTRY_PASSWORD` when set, else `GITHUB_TOKEN` |
-| `DOCKERHUB_ENABLED` | `true` | also push `docker.io/<DOCKERHUB_ORG>/<IMAGE_NAME>`, with the secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`; enabled without both, `resolve` fails before building |
-| `DOCKERHUB_ORG` | `REGISTRY_ORG` | the Docker Hub namespace |
+| `DOCKERHUB_ENABLED` | `true` | also push `docker.io/<DOCKERHUB_ORG>/<IMAGE_NAME>`, logging in as the variable `DOCKERHUB_USERNAME` with the secret `DOCKERHUB_TOKEN`; enabled without both, `credentials` fails before building |
+| `DOCKERHUB_USERNAME` | none | the Docker Hub login. A variable, never a secret: it equals the org, and as a secret it masks the image name, which drops resolve's `names` output |
+| `DOCKERHUB_ORG` | `ravensorb` | the Docker Hub namespace (the `liquidlogiclabs` namespace refused the push) |
 | `DOCKER_FILE`, `DOCKER_PLATFORMS` | `docker/Dockerfile`, `linux/amd64,linux/arm64` | |
 | `IMAGE_BUILD_MODE` | `push` | `load`: build and scan, push nothing |
 
@@ -188,7 +193,7 @@ The older workflows (`ci.yml`, `publish.yml`, `release.yml`,
 covered here.
 
 **Local proof:** `make image-smoke` (the image from this checkout's wheel, every
-engine), `make image-scan`, `make image-resolve` (the `resolve` job for real under
-act: both registries, GHCR alone, and the configurations that must fail), `make ci-dryrun` (every job's
+engine), `make image-scan`, `make image-resolve` (the `resolve` and `credentials` jobs for real
+under act: both registries, GHCR alone, and the configurations that must fail), `make ci-dryrun` (every job's
 refs, the Docker Hub path included). Multi-arch builds, pushes and attestations
 are GitHub-only.

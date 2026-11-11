@@ -97,7 +97,7 @@ release, for `linux/amd64` and `linux/arm64`:
 
 ```
 docker pull ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1
-docker pull docker.io/liquidlogiclabs/l3io-wordpress-backup:1
+docker pull docker.io/ravensorb/l3io-wordpress-backup:1
 ```
 
 One image works with MySQL 8.0, MySQL 8.4 and MariaDB 11.4 servers. By default

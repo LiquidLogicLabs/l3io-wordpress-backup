@@ -362,6 +362,19 @@ def _registry_step(doc: dict) -> dict:
     )
 
 
+def _credentials_job(doc: dict) -> tuple[str, dict]:
+    """The job whose step ``credentials`` checks each enabled registry's login.
+
+    Not resolve: resolve's outputs are the image names, and GitHub drops a job
+    output containing the value of any secret the job references.
+    """
+    return next(
+        (name, job)
+        for name, job in doc["jobs"].items()
+        if any(s.get("id") == "credentials" for s in job.get("steps") or [])
+    )
+
+
 def toggled(doc: dict) -> dict[str, str]:
     """Each optional registry's prefix -> its default (`true`/`false`)."""
     out = {}
@@ -388,9 +401,15 @@ def _arm(script: str, prefix: str) -> str:
 
 def registry_findings(doc: dict, legs: list[dict]) -> list[str]:
     findings = []
-    step = _registry_step(doc)
-    script = step["run"]
-    step_env = step.get("env") or {}
+    script = _registry_step(doc)["run"]
+    cred_name, cred_job = _credentials_job(doc)
+    cred_step = next(s for s in cred_job["steps"] if s.get("id") == "credentials")
+    cred_env = cred_step.get("env") or {}
+    build_needs = doc["jobs"]["build"].get("needs") or []
+    if cred_name not in (
+        [build_needs] if isinstance(build_needs, str) else build_needs
+    ):
+        findings.append(f"build does not need {cred_name}: it may push unchecked")
     for job_name, job in doc["jobs"].items():
         logins = [
             s
@@ -418,15 +437,17 @@ def registry_findings(doc: dict, legs: list[dict]) -> list[str]:
         arm = _arm(script, prefix)
         if not arm:
             findings.append(f"{prefix}: resolve does not handle {prefix}_ENABLED=true")
-        secrets = [
-            k
-            for k, v in step_env.items()
-            if k.startswith(f"{prefix}_") and "secrets." in str(v)
-        ]
-        if not secrets:
-            findings.append(f"{prefix}: resolve checks none of its secrets")
-        for var in secrets:
-            if not re.search(rf'-z "\${var}"', arm) or "exit 1" not in arm:
+        cred_arm = _arm(cred_step["run"], prefix)
+        creds = {
+            k: str(v)
+            for k, v in cred_env.items()
+            if k.startswith(f"{prefix}_")
+            and ("secrets." in str(v) or "vars." in str(v))
+        }
+        if not any("secrets." in v for v in creds.values()):
+            findings.append(f"{prefix}: {cred_name} checks none of its secrets")
+        for var in creds:
+            if not re.search(rf'-z "\${var}"', cred_arm) or "exit 1" not in cred_arm:
                 findings.append(f"{prefix}: {var} is not refused when missing (exit 1)")
         enabled = [
             leg
@@ -452,7 +473,8 @@ def test_every_registry_has_its_login_its_credential_check_and_a_leg() -> None:
 
 
 def _plant_no_credential_check(doc: dict) -> None:
-    step = _registry_step(doc)
+    _, job = _credentials_job(doc)
+    step = next(s for s in job["steps"] if s.get("id") == "credentials")
     step["run"] = re.sub(
         r'if \[ -z "\$DOCKERHUB_USERNAME" \].*?fi\n', "", step["run"], flags=re.S
     )
@@ -475,8 +497,13 @@ def _plant_gated_primary(doc: dict) -> None:
             s["if"] = "vars.PRIMARY == 'yes'"
 
 
+def _plant_build_skips_credentials(doc: dict) -> None:
+    doc["jobs"]["build"]["needs"] = ["resolve"]
+
+
 REGISTRY_PLANTS = {
     "a registry enabled with no credential check": _plant_no_credential_check,
+    "build not waiting for the credential check": _plant_build_skips_credentials,
     "a registry added with no login, check or leg": _plant_new_registry,
     "a job pushing without that registry's login": _plant_dropped_login,
     "the primary login made conditional": _plant_gated_primary,

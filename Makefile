@@ -298,11 +298,13 @@ image-scan: ## Trivy over IMAGE (default: the image-smoke build), docker.yml's p
 	trivy --severity CRITICAL,HIGH --exit-code 0; \
 	trivy --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
 
-image-resolve: ## docker.yml's resolve job for real under act, per registry configuration
-	@# Each line: expected outcome, then act arguments. `resolve` builds and
-	@# pushes nothing; it reads PyPI and checks each enabled registry's
-	@# credentials. Docker Hub enabled without its token MUST fail: a registry is
-	@# never skipped while the run reports success (owner decision 80).
+image-resolve: ## docker.yml's resolve and credentials jobs for real under act, per registry configuration
+	@# Each line: expected outcome, then act arguments. `-j credentials` runs
+	@# `resolve` first (act runs a job's needs). Neither builds or pushes: resolve
+	@# reads PyPI and names the registries; credentials checks each enabled
+	@# registry's login (the username a VARIABLE, the token a secret). Docker Hub
+	@# enabled without either MUST fail: a registry is never skipped while the run
+	@# reports success (owner decision 80).
 	@# REGISTRY_NAME is pinned to the workflow's default because ~/.actrc may set
 	@# it for other repositories (it names the internal registry here).
 	@set -u; \
@@ -312,17 +314,17 @@ image-resolve: ## docker.yml's resolve job for real under act, per registry conf
 	fail=0; \
 	while IFS='|' read -r want args; do \
 	  printf '  %-5s %-70s ' "$$want" "$$args"; \
-	  if act workflow_dispatch -W .github/workflows/docker.yml -j resolve --input version=1.0.0 \
+	  if act workflow_dispatch -W .github/workflows/docker.yml -j credentials --input version=1.0.0 \
 	       --var REGISTRY_NAME=ghcr.io $$args >/tmp/act-resolve.$$$$ 2>&1; then got=pass; else got=fail; fi; \
 	  if [ "$$got" = "$$want" ]; then echo ok; else echo "MISMATCH (got $$got)"; fail=1; tail -5 /tmp/act-resolve.$$$$ | sed 's/^/      /'; fi; \
 	  rm -f /tmp/act-resolve.$$$$; \
 	done <<< "$$(printf '%s\n' \
-	  'pass|-s DOCKERHUB_USERNAME=example' \
-	  'pass|--var DOCKERHUB_ENABLED=false' \
-	  'fail|-s DOCKERHUB_USERNAME=example -s DOCKERHUB_TOKEN=' \
-	  'fail|-s DOCKERHUB_USERNAME=' \
-	  'fail|-s DOCKERHUB_USERNAME=example --var DOCKERHUB_ENABLED=yes' \
-	  'fail|-s DOCKERHUB_USERNAME=example --var IMAGE_BUILD_MODE=bogus')"; \
+	  'pass|--var DOCKERHUB_USERNAME=example' \
+	  'pass|--var DOCKERHUB_ENABLED=false --var DOCKERHUB_USERNAME=' \
+	  'fail|--var DOCKERHUB_USERNAME=example -s DOCKERHUB_TOKEN=' \
+	  'fail|--var DOCKERHUB_USERNAME=' \
+	  'fail|--var DOCKERHUB_USERNAME=example --var DOCKERHUB_ENABLED=yes' \
+	  'fail|--var DOCKERHUB_USERNAME=example --var IMAGE_BUILD_MODE=bogus')"; \
 	exit $$fail
 
 ci-list: act-init secrets-check ## List the jobs act can see

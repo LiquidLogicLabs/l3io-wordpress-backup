@@ -10,7 +10,7 @@ owner asked for, which a commit subject cannot hold.
 ### Added: the official Docker image (owner decisions 77–80)
 
 - **`ghcr.io/liquidlogiclabs/l3io-wordpress-backup`** and
-  **`docker.io/liquidlogiclabs/l3io-wordpress-backup`**, public,
+  **`docker.io/ravensorb/l3io-wordpress-backup`**, public,
   `linux/amd64` and `linux/arm64`, built from the PyPI release by
   `.github/workflows/docker.yml` after each PyPI publish. The first image is
   1.0.0, built from the 1.0.0 package on PyPI; the package itself is unchanged.

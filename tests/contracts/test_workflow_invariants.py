@@ -717,3 +717,384 @@ def test_passing_tests_leave_no_temporary_files() -> None:
     ini = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     options = ini["tool"]["pytest"]["ini_options"]
     assert options.get("tmp_path_retention_policy") == "failed"
+
+
+# ---- a release job tolerates an existing release --------------------------------
+#
+# The documented flow runs publish.yml twice on one tag: release.yml dispatches
+# target=mirror, which creates the GitHub release, then target=pypi runs the same
+# release job again. Run 42904345406 (v1.0.0) failed its last job with HTTP 422
+# already_exists after PyPI had accepted. The scope is every step, in every
+# workflow, that creates a release -- not publish.yml's `release` job by name.
+
+_RELEASE_ACTIONS = ("git-action-release@", "action-gh-release@")
+
+
+def _creates_a_release(step: dict) -> bool:
+    uses = str(step.get("uses", ""))
+    return any(a in uses for a in _RELEASE_ACTIONS) or "gh release create" in str(
+        step.get("run", "")
+    )
+
+
+def _release_findings(doc: dict) -> list[str]:
+    findings = []
+    for job_id, job in (doc.get("jobs") or {}).items():
+        steps = job.get("steps") or []
+        for i, step in enumerate(steps):
+            if not _creates_a_release(step):
+                continue
+            where = f"{job_id}: {step.get('uses') or step.get('name')}"
+            skip = (step.get("with") or {}).get("skip-if-release-exists")
+            if str(skip).lower() != "true":
+                findings.append(f"{where} does not set skip-if-release-exists: 'true'")
+            checks = [
+                s
+                for s in steps[i + 1 :]
+                if "gh release view" in str(s.get("run", ""))
+                and "gh release upload" in str(s.get("run", ""))
+            ]
+            if not checks:
+                findings.append(f"{where} has no later step checking the assets")
+            elif any("--clobber" in str(s.get("run", "")) for s in checks):
+                findings.append(f"{where}: the asset check may overwrite (--clobber)")
+    return findings
+
+
+def _release_steps() -> list[tuple[str, dict]]:
+    return [
+        (f"{wf.name}:{job}", step)
+        for wf in WORKFLOWS
+        for job, j in _jobs(wf).items()
+        for step in j.get("steps") or []
+        if _creates_a_release(step)
+    ]
+
+
+def test_there_is_a_release_step_to_check() -> None:
+    assert _release_steps(), "no workflow creates a release -- the check is vacuous"
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
+def test_every_release_step_tolerates_an_existing_release(wf: pathlib.Path) -> None:
+    assert _release_findings(_load(wf)) == []
+
+
+PUBLISH_YML = WORKFLOWS[0].parent / "publish.yml"
+
+
+def _release_job(doc: dict) -> list[dict]:
+    return doc["jobs"]["release"]["steps"]
+
+
+def _creator(doc: dict) -> dict:
+    return next(s for s in _release_job(doc) if _creates_a_release(s))
+
+
+def _asset_step(doc: dict) -> dict:
+    return next(
+        s for s in _release_job(doc) if "gh release upload" in str(s.get("run", ""))
+    )
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        lambda d: _creator(d)["with"].pop("skip-if-release-exists"),
+        lambda d: _creator(d)["with"].update({"skip-if-release-exists": "false"}),
+        lambda d: _release_job(d).remove(_asset_step(d)),
+        lambda d: _asset_step(d).update(
+            run=_asset_step(d)["run"].replace(
+                'gh release upload "$TAG"', 'gh release upload --clobber "$TAG"'
+            )
+        ),
+        # Scope: a release created anywhere else, by another job or another means.
+        lambda d: d["jobs"].update(
+            {"another": {"steps": [{"run": 'gh release create "$TAG" dist/*'}]}}
+        ),
+        lambda d: d["jobs"].update(
+            {"another": {"steps": [{"uses": "softprops/action-gh-release@v2"}]}}
+        ),
+    ],
+    ids=[
+        "skip-removed",
+        "skip-false",
+        "asset-check-removed",
+        "asset-check-clobbers",
+        "another-job-gh-cli",
+        "another-job-other-action",
+    ],
+)
+def test_the_release_rule_rejects_a_planted_violation(
+    plant: Callable[[dict], object],
+) -> None:
+    doc = _load(PUBLISH_YML)
+    assert _release_findings(doc) == []
+    plant(doc)
+    assert _release_findings(doc), "planted violation not reported"
+
+
+# The asset check itself, run as written in publish.yml against a stub `gh`: the
+# structural rule above proves the step exists, this proves what it does.
+_STUB_GH = """#!/usr/bin/env bash
+set -eu
+echo "$*" >> "$STUB_LOG"
+case "$1 $2" in
+  "release view") cat "$STUB_LISTING" ;;
+  "release download")
+    shift 3; name=""; dir=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --pattern) name=$2; shift 2 ;;
+        --dir) dir=$2; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    cp "$STUB_ASSETS/$name" "$dir/$name" ;;
+  "release upload") ;;
+  *) echo "unexpected gh call: $*" >&2; exit 2 ;;
+esac
+"""
+
+_WHEEL = "l3io_wordpress_backup-9.9.9-py3-none-any.whl"
+_SDIST = "l3io_wordpress_backup-9.9.9.tar.gz"
+
+
+def _digest(data: bytes) -> str:
+    import hashlib
+
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _run_asset_check(
+    tmp_path: pathlib.Path, release: dict[str, tuple[bytes, bool]]
+) -> tuple[int, str, list[str]]:
+    """``release`` maps an asset name to (content, digest-recorded)."""
+    import os
+    import subprocess
+
+    work = tmp_path / "work"
+    (work / "dist").mkdir(parents=True)
+    (work / "dist" / _WHEEL).write_bytes(b"wheel")
+    (work / "dist" / _SDIST).write_bytes(b"sdist")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "gh").write_text(_STUB_GH, encoding="utf-8")
+    (bin_ / "gh").chmod(0o755)
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    rows = []
+    for name, (data, recorded) in release.items():
+        (assets / name).write_bytes(data)
+        rows.append(f"{name}\t{_digest(data) if recorded else ''}\n")
+    (tmp_path / "listing").write_text("".join(rows), encoding="utf-8")
+    log = tmp_path / "gh.log"
+    log.touch()
+    env = {
+        **os.environ,
+        "PATH": f"{bin_}{os.pathsep}{os.environ['PATH']}",
+        "STUB_LOG": str(log),
+        "STUB_LISTING": str(tmp_path / "listing"),
+        "STUB_ASSETS": str(assets),
+        "TAG": "v9.9.9",
+    }
+    proc = subprocess.run(  # noqa: S603
+        ["bash", "-c", _asset_step(_load(PUBLISH_YML))["run"]],  # noqa: S607
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, proc.stdout + proc.stderr, log.read_text().splitlines()
+
+
+def _uploads(calls: list[str]) -> list[str]:
+    return [c for c in calls if c.startswith("release upload")]
+
+
+def test_the_asset_check_passes_a_release_that_already_has_this_build(
+    tmp_path: pathlib.Path,
+) -> None:
+    code, out, calls = _run_asset_check(
+        tmp_path, {_WHEEL: (b"wheel", True), _SDIST: (b"sdist", True)}
+    )
+    assert code == 0, out
+    assert _uploads(calls) == []
+
+
+def test_the_asset_check_uploads_only_the_missing_name(tmp_path: pathlib.Path) -> None:
+    code, out, calls = _run_asset_check(tmp_path, {_WHEEL: (b"wheel", True)})
+    assert code == 0, out
+    assert _uploads(calls) == [f"release upload v9.9.9 dist/{_SDIST}"]
+
+
+def test_the_asset_check_fails_on_different_content_and_uploads_nothing(
+    tmp_path: pathlib.Path,
+) -> None:
+    code, out, calls = _run_asset_check(tmp_path, {_WHEEL: (b"another build", True)})
+    assert code != 0
+    assert f"already has {_WHEEL}" in out
+    assert _uploads(calls) == [], "uploaded despite a mismatch"
+
+
+def test_the_asset_check_hashes_an_asset_github_recorded_no_digest_for(
+    tmp_path: pathlib.Path,
+) -> None:
+    code, out, calls = _run_asset_check(
+        tmp_path, {_WHEEL: (b"wheel", False), _SDIST: (b"other", False)}
+    )
+    assert code != 0, out
+    assert f"already has {_SDIST}" in out
+    assert any(c.startswith("release download") for c in calls)
+    assert _uploads(calls) == []
+
+
+# ---- no secret in a job whose outputs name an image -----------------------------
+#
+# GitHub drops a job output that contains the value of any secret the job
+# references. docker.yml's resolve read the Docker Hub username as a secret, equal
+# to the Docker Hub org, so `names` held a secret's value: run 43001741839 logged
+# "Skip output 'names' since it may contain secret" and pushed with `name=`.
+#
+# The scope is derived: every `needs.<job>.outputs.<key>` reference that reaches
+# an image name -- an image-naming input of a docker/attest action, or the env of
+# a step that pushes or tags -- and the job it names. Not resolve by name.
+_NAME_INPUTS = {
+    "docker/build-push-action": ("outputs", "tags"),
+    "docker/metadata-action": ("images",),
+    "actions/attest": ("subject-name",),
+}
+_PUSHING_RUN = ("imagetools create", "docker push", "docker tag")
+_OUTPUT_REF = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
+
+
+def _name_feeding_outputs(doc: dict) -> set[tuple[str, str]]:
+    refs = set()
+    for job in (doc.get("jobs") or {}).values():
+        for step in job.get("steps") or []:
+            uses = str(step.get("uses", ""))
+            values = [
+                str((step.get("with") or {}).get(key, ""))
+                for action, keys in _NAME_INPUTS.items()
+                if uses.startswith(action)
+                for key in keys
+            ]
+            if any(p in str(step.get("run", "")) for p in _PUSHING_RUN):
+                values += [str(v) for v in (step.get("env") or {}).values()]
+            refs |= {(m[1], m[2]) for v in values for m in _OUTPUT_REF.finditer(v)}
+    return refs
+
+
+def _content_addressed(job: dict, key: str) -> bool:
+    """An output taken only from docker/build-push-action (the digest): a hash
+    the registry computed cannot hold a secret's value. Anything a `run:` step
+    writes can, so it stays in scope."""
+    ids = re.findall(r"steps\.([\w-]+)\.outputs", str((job.get("outputs") or {})[key]))
+    by_id = {s.get("id"): s for s in job.get("steps") or []}
+    return bool(ids) and all(
+        str(by_id.get(i, {}).get("uses", "")).startswith("docker/build-push-action")
+        for i in ids
+    )
+
+
+def _name_feeding_jobs(doc: dict) -> set[str]:
+    jobs = doc.get("jobs") or {}
+    return {
+        name
+        for name, key in _name_feeding_outputs(doc)
+        if name in jobs and not _content_addressed(jobs[name], key)
+    }
+
+
+def _secret_in_name_job_findings(doc: dict) -> list[str]:
+    return [
+        f"job {name}'s outputs name an image, but it references a secret"
+        for name in sorted(_name_feeding_jobs(doc))
+        if "secrets." in yaml.safe_dump(doc["jobs"].get(name) or {})
+    ]
+
+
+DOCKER_YML = WORKFLOWS[0].parent / "docker.yml"
+
+
+def test_there_is_a_job_whose_outputs_name_an_image() -> None:
+    assert any(_name_feeding_jobs(_load(wf)) for wf in WORKFLOWS), "check is vacuous"
+
+
+@pytest.mark.parametrize("wf", WORKFLOWS, ids=lambda p: p.name)
+def test_no_job_whose_outputs_name_an_image_references_a_secret(
+    wf: pathlib.Path,
+) -> None:
+    assert _secret_in_name_job_findings(_load(wf)) == []
+
+
+def test_the_docker_hub_username_is_never_a_secret() -> None:
+    """Owner direction after run 43001741839: it is a variable, everywhere."""
+    for wf in WORKFLOWS:
+        assert "secrets.DOCKERHUB_USERNAME" not in wf.read_text(encoding="utf-8"), wf
+
+
+def _names_job(doc: dict) -> dict:
+    (name,) = {
+        m[1] for m in _OUTPUT_REF.finditer(str(doc["jobs"]["build"])) if "names" in m[2]
+    }
+    return doc["jobs"][name]
+
+
+def _secret_into(job: dict) -> None:
+    job["steps"][-1].setdefault("env", {})["DOCKERHUB_TOKEN"] = (
+        "${{ secrets.DOCKERHUB_TOKEN }}"
+    )
+
+
+def _another_job_names_the_image(doc: dict, sink: Callable[[dict, str], None]) -> None:
+    doc["jobs"]["names2"] = {
+        "outputs": {"names": "${{ steps.n.outputs.names }}"},
+        "steps": [{"id": "n", "env": {"U": "${{ secrets.DOCKERHUB_USERNAME }}"}}],
+    }
+    sink(doc, "${{ needs.names2.outputs.names }}")
+
+
+def _metadata_sink(doc: dict, ref: str) -> None:
+    for step in doc["jobs"]["publish"]["steps"]:
+        if str(step.get("uses", "")).startswith("docker/metadata-action"):
+            step["with"]["images"] = ref
+
+
+def _tagging_run_sink(doc: dict, ref: str) -> None:
+    for step in doc["jobs"]["publish"]["steps"]:
+        if "imagetools create" in str(step.get("run", "")):
+            step["env"]["NAMES"] = ref
+
+
+def _digest_from_a_run_step(doc: dict) -> None:
+    """Attacks the content-addressed exemption: build (which logs in with
+    secrets) now writes its digest output from its own shell."""
+    build = doc["jobs"]["build"]
+    build["steps"].append({"id": "mine", "run": 'echo "digest=x" >> "$GITHUB_OUTPUT"'})
+    build["outputs"]["digest"] = "${{ steps.mine.outputs.digest }}"
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        lambda d: _secret_into(_names_job(d)),
+        lambda d: _another_job_names_the_image(d, _metadata_sink),
+        lambda d: _another_job_names_the_image(d, _tagging_run_sink),
+        _digest_from_a_run_step,
+    ],
+    ids=[
+        "secret-back-in-resolve",
+        "another-job-via-metadata",
+        "another-job-via-run",
+        "digest-written-by-a-run-step",
+    ],
+)
+def test_the_secret_in_a_name_job_rule_rejects_a_planted_violation(
+    plant: Callable[[dict], object],
+) -> None:
+    doc = _load(DOCKER_YML)
+    assert _secret_in_name_job_findings(doc) == []
+    plant(doc)
+    assert _secret_in_name_job_findings(doc), "planted violation not reported"
