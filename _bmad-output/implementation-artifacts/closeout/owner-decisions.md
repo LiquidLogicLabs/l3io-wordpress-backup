@@ -117,3 +117,12 @@ Each is implemented after all are collected, then the item is resolved with the 
 74. **A database-only restore onto a folder with no `wp-config.php`: load it.** `--mode db` loads the database, using the Archive's settings (trusted when encrypted, decision 65) or the environment and flags, and writes no `wp-config.php`. The Run's result and log state that no config was written. It is no longer refused with `NoConfigForCutoverError`.
 75. **Ports no longer called by restore (`revoke_grants`, `check_revoke`, `check_drop_database`):** removed as dead code (the orchestrator's call; no behaviour change).
 76. **The family libraries are required dependencies from 1.0.0 (owner, 2026-11-10).** They were an optional `database` extra only because they were not publicly installable. With all three on PyPI, `l3io-wordpress-database[encryption]`, `l3io-wordpress-config` and `l3io-age-passphrase` move into `[project.dependencies]`, so a plain `pip install l3io-wordpress-backup` backs up and restores everything. The `database` extra is kept as an empty alias, so existing `[database]` installs keep working. The `aws` extra stays optional (decision 71).
+77. **Publish an official Docker image (owner, 2026-11-10), as the sidecar next to the official `wordpress` image.**
+    - **Source:** built from the PyPI-published `l3io-wordpress-backup` version, never the working tree; the first image is for 1.0.0.
+    - **Registry:** GHCR (`ghcr.io/liquidlogiclabs/l3io-wordpress-backup`), plus the family's internal registry if the existing release conventions mirror there.
+    - **Platforms:** amd64 and arm64.
+    - **Supply chain:** base images pinned by digest, SBOM and provenance attestations, a vulnerability scan.
+    - **Clients:** one image whose dump client works with both MySQL and MariaDB servers if a compatibility test proves it, else per-family tags.
+    - **Defaults:** runs as uid 33, configurable; `WP_DIR=/var/www/html`, `ARCHIVE_DIR=/backups`.
+    - **Proof:** a smoke test with the sidecar suite against WordPress, under the CI rule (a local act dry run, green GitHub CI).
+    - **Docs:** a compose example in the README.
