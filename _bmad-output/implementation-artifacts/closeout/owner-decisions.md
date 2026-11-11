@@ -142,3 +142,8 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Gates:** the same scan, SBOM and provenance gates as the default image, with its sidecar suite run against MariaDB.
     - **Default image:** unchanged (MySQL client; works against both).
     - **Rollout:** the estate's sidecars use the `-mariadb` variant.
+82. **Default Archive name (owner request via home-lab agent 6, 2026-11-11):** `wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz` (UTC, sortable), replacing `wpbackup2-<db>-<YYYYMMDDHHMMSS>.tar.gz`.
+    - **`<site>`:** the new `--site-name` / `L3IO_WP_BACKUP_SITE_NAME` setting (also a config key), falling back to the database name. It is sanitised to `[A-Za-z0-9._-]`.
+    - **Discovery:** `--archive latest` and prune find Archives by their Manifest, not their name, so existing `wpbackup2-*` Archives remain found.
+    - **Override:** `--archive` still overrides the name.
+    - **Release:** in 1.1.0, with the MariaDB variant (decision 81) and the Phase 3 findings: the docs for `PUID=0` restores, a preflight write check on the target, and the skew log record's `event` field.
