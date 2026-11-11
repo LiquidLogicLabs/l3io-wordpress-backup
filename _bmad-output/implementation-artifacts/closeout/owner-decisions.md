@@ -137,3 +137,8 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Configuration:** repo or org variables choose the registries and image names. GHCR is the default and uses `GITHUB_TOKEN`. Docker Hub needs the `DOCKERHUB_USERNAME` variable and the `DOCKERHUB_TOKEN` secret; enabled without them, the run fails loudly.
     - **Build:** one multi-arch build, pushed with the same digest to every enabled registry, with attestations and a scan.
     - **Publicity:** the GHCR package is made public after its first push.
+81. **Publish a MariaDB-client image variant (owner, 2026-11-11).** The estate's WordPress databases are all MariaDB 11.4.12, and the default image's MySQL 8.4 `mysqldump` logs `client_server_skew` on every dump.
+    - **Variant:** built with `DB_CLIENT=mariadb`, published as `X.Y.Z-mariadb`, `X.Y-mariadb`, `X-mariadb` and `mariadb` alongside the default tags.
+    - **Gates:** the same scan, SBOM and provenance gates as the default image, with its sidecar suite run against MariaDB.
+    - **Default image:** unchanged (MySQL client; works against both).
+    - **Rollout:** the estate's sidecars use the `-mariadb` variant.
