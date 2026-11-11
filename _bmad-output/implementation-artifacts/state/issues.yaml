@@ -27,16 +27,6 @@ backlog:
   severity: Low
   status: backlog
   description: "Deferred: the real output can only be captured where wp, php-mysql and MySQL exist (CI, from this story's ci.yml change); see _bmad-output/implementation-artifacts/epic-007/sprint-01/closure/review-E007-S01-003.md (L3, H3 item 3)"
-- key: BL-E006-022
-  epic: '006'
-  sprint: ''
-  title: 'Supply chain: family dependencies resolve from TestPyPI in tool.uv.sources; claim the names on PyPI before first release'
-  source: epic-redteam (RT-10)
-  source_phase: epic-redteam
-  source_ref: RT-10
-  severity: Low
-  status: backlog
-  description: ' See _bmad-output/implementation-artifacts/epic-006/epic-closure/redteam-report.md'
 - key: BL-E008-001
   epic: '008'
   sprint: ''
