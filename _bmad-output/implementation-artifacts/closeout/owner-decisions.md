@@ -152,3 +152,9 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Flags and settings:** `--keep N` (also `L3IO_WP_BACKUP_KEEP` / config `keep`) is required on the CLI. The command has a `--whatIf` and logs every deletion.
     - **Image:** the scheduled mode runs prune after each successful backup with `WPBACKUP_KEEP`, documented default **14** (two weeks of nightly runs); `WPBACKUP_KEEP=0` disables pruning.
     - **Release:** 1.1.0. The estate's keep count comes later through docker-apps-config.
+84. **Tiered retention in `prune` (owner, 2026-11-11): (a), the grandfather-father-son model, with one nightly schedule.**
+    - **The tiers:** `--keep-daily`, `--keep-weekly`, `--keep-monthly` and optional `--keep-yearly`. Each keeps the newest of this site's Archives per UTC day, ISO week, month or year, over the last N periods that have one.
+    - **Selection:** an Archive kept by any rule (including the existing `--keep N`) survives, and the newest is always kept. Nothing is copied or renamed: a daily that is the last of its week or month stays retained by the longer tier.
+    - **Three spellings each:** every setting has a CLI flag, an `L3IO_WP_BACKUP_KEEP_*` variable and a config key (ADR-0028); the image's `WPBACKUP_KEEP_*` variables feed them.
+    - **Image defaults:** 7 daily, 4 weekly, 6 monthly, replacing the flat `WPBACKUP_KEEP=14` default. `WPBACKUP_KEEP` remains for newest-N.
+    - **Implementation:** the bucketing uses a maintained library if one fits (rule 1); otherwise an ADR records the evaluation.
