@@ -1,7 +1,9 @@
 """Owner decisions 83, 84 — ``wpbackup2 prune``: retention of this Site's Archives.
 
-**What it removes.** Only Archives in the Archive directory (``--archive-dir``,
-else the directory a backup writes to by default) whose Manifest is this
+**What it removes.** Only Archives under the Archive directory (``--archive-dir``,
+else the directory a backup writes to by default), flat or in subfolders
+(owner decision 86; ``adapters/archive_dir.list_archives``' bounded walk),
+whose Manifest is this
 Site's, by the one definition ``--archive latest`` uses
 (``core/archive_choice.site_archives``): any name, ``wpbak-*`` and the legacy
 ``wpbackup2-*`` alike. What the retention rules keep stays and the rest go:
@@ -29,6 +31,13 @@ Run (``--whatIf``) lists the same and removes nothing (``performed``
 logs WARNING ``archive_prune_failed`` and the rest go on; the command then
 exits ``FAILED``.
 
+**Emptied folders (owner decision 86).** After the removals, each folder on
+the path from a removed Archive up to the Archive directory that is now empty
+is removed, deepest first, logging INFO ``archive_dir_removed``
+(``adapters/archive_dir.remove_emptied_directories``). Never the Archive
+directory itself, a folder still holding anything, a symlink, or a folder no
+removed Archive was in. A Dry Run removes none.
+
 Started as root, the CLI runs as the Site Root's owner, as a backup does
 (owner decision 67); the library refuses to run as root (decision 68).
 """
@@ -43,7 +52,11 @@ from pathlib import Path, PurePosixPath
 
 import structlog
 
-from l3io.wp.backup.adapters.archive_dir import delete_archive, list_archives
+from l3io.wp.backup.adapters.archive_dir import (
+    delete_archive,
+    list_archives,
+    remove_emptied_directories,
+)
 from l3io.wp.backup.adapters.database import (
     locate_wp_config,
     site_descriptor_from_wp_config,
@@ -129,7 +142,9 @@ class PruneResult:
     (in a Dry Run, those that would be: ``performed`` is ``False``), newest
     first, each with why; ``skipped`` the ``*.tar.gz`` entries that were no candidate
     for what they are (path, reason). ``considered`` is how many Archives
-    were read, ``matched`` how many are this Site's.
+    were read, ``matched`` how many are this Site's. ``removed_directories``
+    are the folders under the Archive directory the removals emptied and the
+    prune removed, deepest first (owner decision 86; none in a Dry Run).
     """
 
     directory: PurePosixPath
@@ -140,6 +155,7 @@ class PruneResult:
     considered: int
     matched: int
     performed: bool
+    removed_directories: tuple[PurePosixPath, ...] = ()
 
 
 def _directory(request: PruneRequest, site_root: Path) -> Path:
@@ -234,6 +250,11 @@ def drive_prune(
                     reasons=chosen.reasons,
                 )
             )
+        emptied = (
+            ()
+            if run.dry_run
+            else remove_emptied_directories(directory, [p.path for p in pruned])
+        )
         result = PruneResult(
             directory=PurePosixPath(directory),
             policy=request.policy,
@@ -246,6 +267,7 @@ def drive_prune(
             considered=choice.considered,
             matched=choice.matched,
             performed=not run.dry_run,
+            removed_directories=tuple(PurePosixPath(d) for d in emptied),
         )
         _log.info(
             "prune_completed",
@@ -258,6 +280,7 @@ def drive_prune(
             considered=result.considered,
             matched=result.matched,
             performed=result.performed,
+            removed_directories=[str(d) for d in result.removed_directories],
             kept_archives=[
                 {
                     "path": str(k.path),
@@ -285,7 +308,8 @@ def summary_lines(result: PruneResult) -> list[str]:
 
     ``kept <path> (created <t>): daily, weekly`` for each kept, newest first;
     ``pruned <path> (<n> bytes, created <t>): <why>; <why>`` for each removed
-    (``would prune`` in a Dry Run); then one line of totals and the rules.
+    (``would prune`` in a Dry Run); ``removed empty folder <path>`` for each
+    folder the removals emptied; then one line of totals and the rules.
     """
     verb = "pruned" if result.performed else "would prune"
     lines = [
@@ -297,6 +321,7 @@ def summary_lines(result: PruneResult) -> list[str]:
         f"{'; '.join(p.reasons)}"
         for p in result.pruned
     ]
+    lines += [f"removed empty folder {d}" for d in result.removed_directories]
     total = sum(p.bytes for p in result.pruned)
     lines.append(
         f"{verb} {len(result.pruned)} of this site's {result.matched} archives "

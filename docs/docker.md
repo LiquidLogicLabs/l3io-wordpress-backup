@@ -94,6 +94,7 @@ schedule stops the container at start (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`).
 | `WPBACKUP_KEEP_YEARLY` | unset | `--keep-yearly N`: the newest of each of the last N years that have one |
 | `WPBACKUP_KEEP` | unset | `--keep N`: this site's newest N Archives (owner decision 83) |
 | `WPBACKUP_CRONTAB` | `/etc/l3io-wp-backup/crontab` | a crontab appended as written, when it exists (named explicitly, it must exist) |
+| `L3IO_WP_BACKUP_ARCHIVE_SUBDIR` | unset (flat) | `wpbackup2`'s own `--archive-subdir` setting, read by every `backup`, scheduled or one-shot: the subfolder of `/backups` the Archive goes in, e.g. `{site}/{yyyy}` ([Archive subfolders](#archive-subfolders); owner decision 86) |
 | `TZ` | UTC | the schedule's time zone |
 
 Each `WPBACKUP_KEEP*` rule is passed to the prune only when it is set and not
@@ -121,6 +122,31 @@ wpbackup2 backup && wpbackup2 prune --keep-daily 7 --keep-weekly 4
 crontab are run as written. It deletes only Archives whose Manifest is this
 site's: another site's Archives in the same volume, Safety Snapshots and files
 that are no Archive are never touched.
+
+### Archive subfolders
+
+`/backups` is flat by default. To sort a site's Archives by year, as the
+estate does:
+
+```yaml
+    environment:
+      L3IO_WP_BACKUP_SITE_NAME: shop
+      L3IO_WP_BACKUP_ARCHIVE_SUBDIR: "{site}/{yyyy}"
+```
+
+Each backup then writes `/backups/shop/2026/wpbak-shop-20261112T030000Z.tar.gz`.
+The template is a relative path using `{site}` (the Archive name's `<site>`:
+`L3IO_WP_BACKUP_SITE_NAME`, else the database name), `{yyyy}`, `{mm}` and
+`{dd}` (the UTC date of the name's timestamp), at most 6 levels; a bad one
+stops each Run with exit 2 before anything is read. The folders are made
+`0700`, owned by `PUID:PGID` like the Archives (only `/backups` itself is
+re-owned at start). It is `wpbackup2`'s own setting, not a `WPBACKUP_*` one:
+the scheduled job and a one-shot `backup` both read it. `restore --archive
+latest` and the scheduled prune search every subfolder (never through a
+symlinked folder), matching by Manifest, so flat Archives from before the
+change are still found and pruned, and the prune removes the folders it
+empties. `tests/sidecar/run.sh` runs the schedule with
+`{site}/{yyyy}/{mm}`.
 
 ### How retention works
 

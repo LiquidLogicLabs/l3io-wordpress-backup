@@ -137,6 +137,7 @@ def real_adapters(
     db_tls: DbTls | None = None,
     create_archive_directory: bool = False,
     environ: Mapping[str, str] | None = None,
+    archive_root: Path | None = None,
 ) -> AdapterSet:
     """The real set; a port not yet implemented is bound to its placeholder.
 
@@ -152,12 +153,17 @@ def real_adapters(
     ``create_archive_directory`` (the restore root's only) has the store
     create a missing Archive directory ``0700`` when it stages, so the Safety
     Snapshot's directory is made by the command a Dry Run replaces (AD-4).
+    ``archive_root`` (the backup root's, with an ``archive_subdir``, owner
+    decision 86) has the store make the missing folders below that Archive
+    directory and sweep stale ``.partial`` files across its tree.
     ``environ`` (the restore root's) is the Run's environment mapping the
     config reader resolves a ``getenv_docker()``/``getenv()`` constant
     against (owner decision 47); ``None`` resolves none from the environment.
     """
     store = LocalArchiveStore(
-        verify=verify_or_raise, create_directory=create_archive_directory
+        verify=verify_or_raise,
+        create_directory=create_archive_directory,
+        archive_root=archive_root,
     )
     database = WpDatabase(
         wordpress_source, secrets=secrets, admin=admin_source, db_tls=db_tls

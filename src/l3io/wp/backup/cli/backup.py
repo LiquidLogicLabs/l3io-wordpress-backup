@@ -55,10 +55,15 @@ takes :func:`default_exclusion_policy`. ``--list-default-excludes`` prints
 without it, the default name is written into ``--archive-dir``, else the
 current directory when that is outside the Site Root, else the per-user data
 directory (:func:`default_archive_directory`), so a default target is never
-inside the Site Root. The choice is logged (INFO ``archive_target_chosen``)
-and the Dry Run's ``publish`` line names it. A target the operator put inside
-the Site Root is written, with WARNING ``archive_target_in_site_root``: the
-web server may serve it.
+inside the Site Root. With ``--archive-subdir`` (owner decision 86) the
+default name goes into that template's subfolder of the Archive directory,
+its date the UTC date of the same instant the name stamps; a folder on the
+way that is a symlink or a file is refused (``adapters/archive_dir.
+archive_subdirectory``), and the missing ones are made ``0700`` by the store
+when it stages, which a Dry Run replaces. The choice is logged (INFO
+``archive_target_chosen``) and the Dry Run's ``publish`` line names it. A
+target the operator put inside the Site Root is written, with WARNING
+``archive_target_in_site_root``: the web server may serve it.
 
 **The database host (owner decision 54).** Logged as INFO ``database_host``
 and named in the Dry Run's ``dump`` line; no confirmation is asked. A
@@ -96,6 +101,7 @@ from urllib.parse import unquote, urlsplit
 import platformdirs
 import structlog
 
+from l3io.wp.backup.adapters.archive_dir import archive_subdirectory
 from l3io.wp.backup.adapters.crypto import PassphraseCipher, build_payload_cipher
 from l3io.wp.backup.adapters.database import (
     LocatedConfig,
@@ -158,6 +164,7 @@ from l3io.wp.backup.domain.archive_format import (
     pending_payload,
     source_from_descriptor,
 )
+from l3io.wp.backup.domain.archive_subdir import resolve_archive_subdir
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import CredentialSpec, ResolvedCredentialSpec
 from l3io.wp.backup.domain.errors import (
@@ -327,7 +334,8 @@ class BackupRequest:
     ``target=None`` means the default Archive name in ``archive_dir``, else
     in :func:`default_archive_directory` (owner decision 60); ``site_name``
     is that name's ``<site>`` part, the database name when ``None`` (owner
-    decision 82).
+    decision 82); ``archive_subdir`` the subfolder template it goes in
+    (owner decision 86; ``None``: the directory itself).
     ``dry_run`` selects the no-op command adapters (AD-4) when the driver
     opens the Run; ``extra_tools`` reaches preflight through the plan.
     ``db_tls`` is ``--db-tls``/``--db-tls-ca`` (owner decision 56; ``None``
@@ -351,6 +359,7 @@ class BackupRequest:
     db_tls: DbTls = field(default_factory=DbTls)
     site_name: str | None = None
     target_chosen_by: str = field(default="--archive", compare=False)
+    archive_subdir: str | None = None
 
 
 #: Under the per-user data directory: where a default Archive goes when the
@@ -799,8 +808,13 @@ def drive_backup(
             site_root, config_file=config.path, environ=environ, secrets=run.secrets
         )
         run.run_span.set_attributes(db_name=site.db_name)
-        target, chosen_by, create = _target(request, site_root, site, run)
-        _log.info("archive_target_chosen", path=str(target.path), chosen_by=chosen_by)
+        target, chosen_by, create, archive_root = _target(request, site_root, site, run)
+        _log.info(
+            "archive_target_chosen",
+            path=str(target.path),
+            chosen_by=chosen_by,
+            archive_subdir=None if archive_root is None else request.archive_subdir,
+        )
         _warn_target_inside(target, site_root, on_warning=on_warning)
         if request.scope is not BackupScope.FILES:
             _log_database_host(site)
@@ -835,6 +849,7 @@ def drive_backup(
                 tracer=run.tracer,
                 db_tls=request.db_tls,
                 create_archive_directory=create,
+                archive_root=archive_root,
             )
             run.bind_adapters(dry_run_adapters(real) if request.dry_run else real)
         result = backup(
@@ -857,20 +872,28 @@ def drive_backup(
 
 def _target(
     request: BackupRequest, site_root: Path, site: SiteDescriptor, run: RunContext
-) -> tuple[StorageTarget, str, bool]:
-    """The Storage Target, what chose it, and whether its directory may be made.
+) -> tuple[StorageTarget, str, bool, Path | None]:
+    """The Storage Target, what chose it, whether its directory may be made,
+    and the Archive directory an ``archive_subdir`` folder is under.
 
     Only the per-user data directory is created when missing (``0700``, by the
     store's ``stage``, which a Dry Run replaces); a directory the operator
-    named must exist.
+    named must exist. With ``archive_subdir`` (owner decision 86) the store
+    makes the missing folders below the Archive directory; ``--archive``
+    ignores it. The name and the folder read one instant, so they agree.
     """
     if request.target is not None:
-        return request.target, request.target_chosen_by, False
+        return request.target, request.target_chosen_by, False, None
     site_name = site.db_name if request.site_name is None else request.site_name
-    name = default_archive_name(site_name, run.clock.now())
+    now = run.clock.now()
+    name = default_archive_name(site_name, now)
     directory, chosen_by = _archive_directory(request, site_root)
-    target = storage_target_from_cli(str(directory / name))
-    return target, chosen_by, chosen_by == _DATA_DIRECTORY
+    create = chosen_by == _DATA_DIRECTORY
+    if request.archive_subdir is None:
+        return storage_target_from_cli(str(directory / name)), chosen_by, create, None
+    relative = resolve_archive_subdir(request.archive_subdir, site=site_name, now=now)
+    folder = archive_subdirectory(directory, relative)
+    return storage_target_from_cli(str(folder / name)), chosen_by, create, directory
 
 
 def _archive_directory(request: BackupRequest, site_root: Path) -> tuple[Path, str]:
@@ -1091,6 +1114,7 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         db_tls=db_tls_setting(args.db_tls, args.db_tls_ca),
         site_name=args.site_name,
         target_chosen_by=_chosen_by(origins.get("archive")),
+        archive_subdir=args.archive_subdir,
     )
     if origins.get("db_password") == "command line":
         note_password_on_command_line("--db-password")

@@ -55,6 +55,10 @@ from l3io.wp.backup.adapters.credential_providers import (
 )
 from l3io.wp.backup.adapters.database import DB_TLS_MODES
 from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
+from l3io.wp.backup.domain.archive_subdir import (
+    ARCHIVE_TREE_DEPTH,
+    archive_subdir_problem,
+)
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
 from l3io.wp.backup.domain.storage_target import (
     sanitise_site_name,
@@ -147,6 +151,14 @@ def _site_name(text: str) -> str:
     if not safe:
         raise argparse.ArgumentTypeError(unusable_site_name(text))
     return safe
+
+
+def _archive_subdir(text: str) -> str:
+    """``--archive-subdir``, checked as a template (owner decision 86)."""
+    problem = archive_subdir_problem(text)
+    if problem is not None:
+        raise argparse.ArgumentTypeError(problem)
+    return text
 
 
 def exit_code_epilog() -> str:
@@ -474,6 +486,21 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
             "The <site> part of the default archive name (default: the "
             "database name); characters other than A-Z, a-z, 0-9, '.', '_' "
             "and '-' become '-'"
+        ),
+    )
+    backup.add_argument(
+        "--archive-subdir",
+        metavar="TEMPLATE",
+        type=_archive_subdir,
+        default=None,
+        help=(
+            "Write the default-named archive into this subfolder of "
+            "--archive-dir, made 0700 when missing (default: none, flat). A "
+            "relative path using {site} (the archive name's <site>), {yyyy}, "
+            "{mm} and {dd} (the UTC date of the archive name's timestamp), "
+            f"e.g. '{{site}}/{{yyyy}}/{{mm}}'; at most {ARCHIVE_TREE_DEPTH} levels. "
+            "Ignored with "
+            "--archive. restore --archive latest and prune search subfolders"
         ),
     )
     backup.add_argument(

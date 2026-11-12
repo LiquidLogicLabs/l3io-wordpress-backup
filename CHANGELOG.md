@@ -77,6 +77,36 @@ owner asked for, which a commit subject cannot hold.
   [ADR-0029](docs/adr/0029-tiered-retention-bucketing.md) records the
   libraries evaluated.
 
+### Added: optional Archive subfolders (owner decision 86)
+
+- **`--archive-subdir TEMPLATE`** (`L3IO_WP_BACKUP_ARCHIVE_SUBDIR`, config key
+  `archive_subdir`) puts the default-named Archive in a subfolder of the
+  Archive directory: a relative path using `{site}` (the name's `<site>`),
+  `{yyyy}`, `{mm}` and `{dd}` (the UTC date of the name's own timestamp, so
+  folder and name always agree), such as `{site}/{yyyy}/{mm}`. Missing folders
+  are made `0700`, by the Run's user (in the image, `PUID`). Unset (the
+  default), the Archive directory stays flat, as before. `--archive` still
+  names the file outright. The Dry Run shows the resolved path and makes no
+  folder.
+- **Refused with exit 2, from every spelling, before any Run:** an unknown
+  token, a format spec or conversion, a literal or unbalanced brace, an
+  absolute path, a `.`, `..` or empty segment, a character outside
+  `A-Z a-z 0-9 . _ - /`, more than 6 levels; and, per backup, a `{site}` that
+  would make a `.`/`..` folder or a folder on the way that is a symlink or a
+  file.
+- **`restore --archive latest` and `prune` search subfolders** of the Archive
+  directory, up to 6 levels, never through a symlinked folder, skipping Run
+  workspaces and the state directory, and still match by Manifest: flat and
+  nested Archives, under either name, are one site's set. `latest` now reads
+  the same list `prune` does, so a symlink named `*.tar.gz` is no longer a
+  `latest` candidate (it never was a `prune` one).
+- **`prune` removes the subfolders it empties** (`archive_dir_removed`;
+  `PruneResult.removed_directories`; a `removed empty folder` line on stdout):
+  only folders a removed Archive was in, never the Archive directory, a folder
+  still holding anything, or a symlink; none in a Dry Run.
+- **The stale `.partial` sweep** reaches every subfolder when
+  `--archive-subdir` is set.
+
 ### Added: a MariaDB-client image variant (owner decision 81)
 
 - **`:X.Y.Z-mariadb`, `:X.Y-mariadb`, `:X-mariadb`, `:mariadb`**, built with

@@ -111,6 +111,9 @@ SECRETS=("$DB_ROOT_PW" "$DB_PW" "$WP_ADMIN_PW" "$PASSPHRASE" "$WRONG_PASSPHRASE"
 # weekly and monthly tiers off. Every Archive of the run is of one UTC day (or
 # two, across midnight), so exactly one of this site's stays: the newest.
 SCHEDULED_KEEP_DAILY=1
+# The scheduled backups write into subfolders (owner decision 86); every
+# earlier Archive of the run is flat, so the prune and `latest` must read both.
+SCHEDULED_SUBDIR='{site}/{yyyy}/{mm}'
 
 cat >"$L3IO_SCRATCH/db.env" <<EOF
 MYSQL_ROOT_PASSWORD=$DB_ROOT_PW
@@ -142,6 +145,7 @@ WPBACKUP_SCHEDULE=* * * * *
 WPBACKUP_KEEP_DAILY=$SCHEDULED_KEEP_DAILY
 WPBACKUP_KEEP_WEEKLY=0
 WPBACKUP_KEEP_MONTHLY=0
+L3IO_WP_BACKUP_ARCHIVE_SUBDIR=$SCHEDULED_SUBDIR
 EOF
 printf '%s\n' '# mounted by tests/sidecar/run.sh' '0 0 1 1 * wpbackup2 doctor' >"$L3IO_SCRATCH/crontab"
 chmod 0644 "$L3IO_SCRATCH/crontab"
@@ -577,9 +581,10 @@ step C-backup-after 0 wb backup --archive /backups/c.tar.gz
 # (here every minute) plus the mounted crontab, and runs Supercronic. Within
 # three minutes it must have written a new Archive of this site, owned by 33,
 # that verifies, and the job's own output must be in the container log.
-archives_of_site() { in_backup sh -c "ls -1 /backups/wpbak-$DB_NAME-*.tar.gz 2>/dev/null" || true; }
+# Every Archive under /backups, flat or in subfolders (owner decision 86).
+archives_of_site() { in_backup find /backups -name "wpbak-$DB_NAME-*.tar.gz" 2>/dev/null || true; }
 scheduler_log() { dc --profile schedule logs --no-color scheduler 2>&1; }
-all_archives() { in_backup sh -c 'ls -1 /backups/*.tar.gz 2>/dev/null | wc -l'; }
+all_archives() { in_backup sh -c 'find /backups -name "*.tar.gz" | wc -l'; }
 # Another site's Archive in the same directory: no prune may remove it.
 OTHER_SITE=/tmp/wpbackup/other-site
 step S-other-site-backup 0 in_backup sh -c '
@@ -611,6 +616,11 @@ check P:dryrun-lists-would-prune printed P-prune-dryrun "would prune "
 check P:dryrun-spares-the-other-site not_printed P-prune-dryrun "$OTHER_ARCHIVE"
 check P:dryrun-daily-says-why printed P-prune-dryrun-daily "daily: not the newest of its day"
 check P:dryrun-daily-keeps-one printed P-prune-dryrun-daily "; kept 1 (--keep-daily 1)"
+# A one-shot backup into another subfolder layout: the scheduled prune must
+# find it there, delete it, and remove the folders it empties.
+step S-backup-old-layout 0 wb backup --archive-subdir 'old/{site}'
+OLD_LAYOUT=$(head -1 "$LOGS/S-backup-old-layout.out")
+check S:old-layout-is-nested grep -qE "^/backups/old/$DB_NAME/wpbak-$DB_NAME-[0-9]{8}T[0-9]{6}Z\.tar\.gz\$" "$LOGS/S-backup-old-layout.out"
 BEFORE=$(archives_of_site)
 step S-scheduler-up 0 dc --profile schedule up -d scheduler
 SCHEDULED=
@@ -642,10 +652,38 @@ check S:scheduled-backup-wrote-an-archive test -n "$SCHEDULED"
 check S:job-output-in-container-log grep -qF "${SCHEDULED:-no archive}" "$LOGS/S-scheduler.log"
 check S:supercronic-runs-as-33 supercronic_uid
 step S-scheduler-stop 0 dc --profile schedule stop -t 30 scheduler
+# The schedule fires every minute: a later job may have run before the stop,
+# and its prune (one daily) removed the earlier scheduled Archive. The checks
+# below are of the newest one that survives (by name: a UTC timestamp).
+if [[ -n $SCHEDULED ]]; then
+    NEWEST=$(archives_of_site | awk -F/ '{print $NF "\t" $0}' | sort | tail -1 | cut -f2)
+    if [[ -n $NEWEST && $NEWEST != "$SCHEDULED" ]]; then
+        log "a later scheduled job ran before the stop; newest Archive: $NEWEST"
+        SCHEDULED=$NEWEST
+    fi
+fi
 if [[ -n $SCHEDULED ]]; then
     check S:scheduled-archive-owned-by-33 owned_by_33 "$SCHEDULED"
     step S-verify-scheduled 0 wb verify --archive "$SCHEDULED"
 fi
+# L3IO_WP_BACKUP_ARCHIVE_SUBDIR in the scheduler's environment: the Archive is
+# under /backups/<site>/<yyyy>/<mm>, its folders made 0700 and owned by 33;
+# the prune reached the flat Archives and the old layout's, and removed the
+# old layout's folders; `latest`, from the flat-configured one-shot service,
+# finds the nested Archive.
+scheduled_is_nested() { [[ $SCHEDULED =~ ^/backups/$DB_NAME/[0-9]{4}/[0-9]{2}/wpbak-$DB_NAME-[0-9]{8}T[0-9]{6}Z\.tar\.gz$ ]]; }
+folder_is_private_33() { [[ $(in_backup stat -c %a:%u:%g "$1") == 700:33:33 ]]; }
+check S:scheduled-archive-in-subfolders scheduled_is_nested
+check S:subfolder-0700-owned-by-33 folder_is_private_33 "$(dirname "${SCHEDULED:-/nonexistent/x}")"
+check S:site-folder-0700-owned-by-33 folder_is_private_33 "/backups/$DB_NAME"
+check S:old-layout-archive-pruned absent_in_backups "old/$DB_NAME/$(basename "${OLD_LAYOUT:-none}")"
+check S:old-layout-folders-removed absent_in_backups old
+check S:folder-removal-logged grep -qF "\"path\": \"/backups/old/$DB_NAME\"" "$LOGS/S-scheduler.log"
+check S:folder-removal-event grep -qF '"event": "archive_dir_removed"' "$LOGS/S-scheduler.log"
+step S-latest-nested 0 wb --whatIf restore --archive latest --mode files
+check S:latest-is-the-nested-scheduled-archive printed S-latest-nested "archive latest: ${SCHEDULED:-none}"
+step S-prune-nested-dryrun 0 wb --whatIf prune --keep 1
+check S:prune-keeps-the-nested-newest printed S-prune-nested-dryrun "kept ${SCHEDULED:-none} "
 
 # ---- report -----------------------------------------------------------------------
 {

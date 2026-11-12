@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     archive: str | None = None
     archive_dir: str | None = None
     site_name: str | None = None
+    archive_subdir: str | None = None
     mode: str | None = None
     # Encryption.
     encrypt_with_passphrase: bool | None = None

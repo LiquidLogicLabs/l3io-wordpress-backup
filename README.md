@@ -86,6 +86,13 @@ time), `<site>` being `--site-name` (`L3IO_WP_BACKUP_SITE_NAME`, `site_name`)
 or else the database name, kept to `A-Z a-z 0-9 . _ -` (other characters
 become `-`). Before 1.1.0 it was `wpbackup2-<db>-<YYYYmmddHHMMSS>.tar.gz`;
 `--archive latest` finds Archives by their Manifest, so both names are found.
+To sort Archives into subfolders, set `--archive-subdir TEMPLATE`
+(`L3IO_WP_BACKUP_ARCHIVE_SUBDIR`, `archive_subdir`): a relative path under the
+Archive directory using `{site}`, `{yyyy}`, `{mm}` and `{dd}` (the UTC date of
+the name's timestamp), such as `{site}/{yyyy}/{mm}`; missing folders are made
+`0700`. Unset, the Archive directory stays flat. `--archive latest` and `prune`
+search the Archive directory and its subfolders (up to 6 levels, never through
+a symlinked folder), so changing the layout strands no Archive.
 Without `--archive` or `archive_dir`, the Archive goes into the current
 directory, or into the per-user data directory
 (`~/.local/share/l3io-wp-backup/archives`) when the current directory is
@@ -183,7 +190,9 @@ anywhere: `wpbackup2 prune --keep-daily 7 --keep-weekly 4 --keep-monthly 6`,
 or `--keep 14` for the newest 14 (`--whatIf` lists what it would delete, and
 which rule keeps each Archive). Only Archives whose Manifest is this site's
 are ever deleted, never another site's, a Safety Snapshot or a file that is no
-Archive.
+Archive. With Archive subfolders (`L3IO_WP_BACKUP_ARCHIVE_SUBDIR='{site}/{yyyy}'`
+in the service's environment), prune searches them all and removes the
+folders it empties.
 
 To schedule from the host instead (cron or a systemd timer), run the one-shot
 form, `docker compose run --rm backup backup`, and put the service in a
@@ -306,12 +315,13 @@ exit codes:
 ```text
 $ wpbackup2 backup --help
 usage: wpbackup2 backup [-h] [--config PATH] [--wp-dir WP_DIR] [--archive-dir DIR] [--whatIf]
-                        [--archive ARCHIVE] [--site-name NAME] [--wp-config PATH]
-                        [--mode {files,db,all}] [--encrypt-with-passphrase] [--passphrase SECRET]
-                        [--exclude PATTERN] [--no-default-excludes] [--list-default-excludes]
-                        [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
-                        [--db-user USER] [--db-password SECRET]
-                        [--db-tls {required,verify-ca,verify-identity}] [--db-tls-ca FILE]
+                        [--archive ARCHIVE] [--site-name NAME] [--archive-subdir TEMPLATE]
+                        [--wp-config PATH] [--mode {files,db,all}] [--encrypt-with-passphrase]
+                        [--passphrase SECRET] [--exclude PATTERN] [--no-default-excludes]
+                        [--list-default-excludes] [--db-credentials-aws-secret-id ID]
+                        [--db-credentials-aws-region REGION] [--db-user USER]
+                        [--db-password SECRET] [--db-tls {required,verify-ca,verify-identity}]
+                        [--db-tls-ca FILE]
 
 Perform a WordPress backup
 
@@ -337,6 +347,12 @@ options:
                         is written with a warning: the web server may serve it
   --site-name NAME      The <site> part of the default archive name (default: the database name);
                         characters other than A-Z, a-z, 0-9, '.', '_' and '-' become '-'
+  --archive-subdir TEMPLATE
+                        Write the default-named archive into this subfolder of --archive-dir, made
+                        0700 when missing (default: none, flat). A relative path using {site} (the
+                        archive name's <site>), {yyyy}, {mm} and {dd} (the UTC date of the archive
+                        name's timestamp), e.g. '{site}/{yyyy}/{mm}'; at most 6 levels. Ignored
+                        with --archive. restore --archive latest and prune search subfolders
   --wp-config PATH      Use this wp-config.php instead of searching for it
   --mode {files,db,all}
                         What to back up: files, db, or all (default: all)

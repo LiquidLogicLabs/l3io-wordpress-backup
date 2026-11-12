@@ -67,6 +67,7 @@ from typing import BinaryIO, Final
 
 import structlog
 
+from l3io.wp.backup.adapters.archive_dir import list_archives
 from l3io.wp.backup.adapters.config_writer import refuse_uncarriable
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
 from l3io.wp.backup.adapters.database import (
@@ -99,7 +100,6 @@ from l3io.wp.backup.adapters.restore_runner import (
 from l3io.wp.backup.adapters.tar import (
     TarArchiveProbe,
     decrypt_payload,
-    read_leading_manifest,
 )
 from l3io.wp.backup.cli import privileges
 from l3io.wp.backup.cli.adapter_sets import (
@@ -194,14 +194,11 @@ from l3io.wp.backup.domain.archive_format import (
     WP_CONFIG_NAME,
     ArchiveView,
     Integrity,
-    Manifest,
     ManifestOrigin,
     MemberRole,
     OriginKind,
     classify,
     config_member,
-    ignore_unknown,
-    manifest_from_json,
     member_relative,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
@@ -213,7 +210,6 @@ from l3io.wp.backup.domain.errors import (
     BackupError,
     ConfigWriteFailedError,
     InvalidSiteDescriptorError,
-    MalformedManifestError,
     PassphraseRequiredError,
     RunTerminated,
     SiteRootNotFoundError,
@@ -1326,8 +1322,6 @@ def _trusted_database(site: SiteDescriptor, user: str) -> str:
 
 #: The origins whose secret the chain reads for itself (owner decision 60).
 _CHAIN_ORIGINS: Final = frozenset({"environment", "default", None})
-#: The Archive file names ``--archive latest`` reads.
-_ARCHIVE_GLOB: Final = "*.tar.gz"
 
 
 def _admin_pair(
@@ -1371,16 +1365,6 @@ def _db_tls(
     return db_tls_setting(db_tls or admin_tls, db_tls_ca or admin_tls_ca)
 
 
-def _manifest(path: Path) -> Manifest | None:
-    text = read_leading_manifest(path)
-    if text is None:
-        return None
-    try:
-        return manifest_from_json(text, on_unknown=ignore_unknown)
-    except MalformedManifestError:
-        return None
-
-
 def _latest(
     site_root: Path,
     *,
@@ -1389,6 +1373,10 @@ def _latest(
     secrets: SecretRegistry,
 ) -> tuple[StorageTarget, str]:
     """Owner decision 64: the Archive ``--archive latest`` names, and its note.
+
+    The candidates are the Archive directory's tree as ``prune`` reads it
+    (``adapters/archive_dir.list_archives``, owner decision 86): flat and in
+    subfolders, regular files only.
 
     "This Site" is the target's ``wp-config.php``'s database and the canonical
     Site Root (``core/archive_choice.py``), so a target without one is
@@ -1410,10 +1398,8 @@ def _latest(
         if archive_dir is not None
         else default_archive_directory(canonical)[0]
     )
-    paths = sorted(p for p in directory.glob(_ARCHIVE_GLOB) if p.is_file())
-    candidates = [
-        LatestCandidate(path=PurePosixPath(p), manifest=_manifest(p)) for p in paths
-    ]
+    files, _ = list_archives(directory)
+    candidates = [LatestCandidate(path=f.path, manifest=f.manifest) for f in files]
     choice = choose_latest(
         candidates,
         ArchiveSite.from_descriptor(site),

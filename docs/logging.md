@@ -135,15 +135,17 @@ never appear in any of them.
 | `archive_kept` | DEBUG | `prune` keeps one of this site's Archives (`path`, `created_at`, `reasons`: the rules that keep it, of `newest`, `daily`, `weekly`, `monthly`, `yearly`; owner decision 84) |
 | `archive_pruned` | INFO | `prune` removed one of this site's Archives, or in a Dry Run would (`path`, `bytes`, `created_at`, `performed`, `reasons`: why each rule given lets it go; owner decisions 83, 84) |
 | `archive_prune_failed` | WARNING | `prune` chose an Archive and left it in place: it changed after it was read, or could not be removed (`path`, `reason`); the command then exits 1 |
-| `archive_prune_skipped` | INFO | `prune` found a `*.tar.gz` entry that is not a regular file (a symlink, a directory) and did not consider it (`path`, `reason`) |
-| `prune_completed` | INFO | A prune finished: `archive_dir`, `rules` (each rule given, by setting name), `kept`, `pruned`, `bytes`, `skipped`, `considered`, `matched`, `performed`, and `kept_archives` / `pruned_archives` (each `path`, `created_at`, `reasons`) |
+| `archive_prune_skipped` | INFO | `prune` found a `*.tar.gz` entry that is not a regular file (a symlink, a directory) and did not consider it, or a folder of the Archive directory it did not search: a symlinked directory, one deeper than 6 levels, or one it could not read (`path`, `reason`; owner decision 86) |
+| `archive_dir_removed` | INFO | `prune` removed a subfolder of the Archive directory that its removals emptied (`path`; owner decision 86). Never the Archive directory itself |
+| `archive_dir_not_removed` | DEBUG | `prune` could not remove a folder its removals emptied, for a reason other than it not being empty (`path`, `reason`); it stays |
+| `prune_completed` | INFO | A prune finished: `archive_dir`, `rules` (each rule given, by setting name), `kept`, `pruned`, `bytes`, `skipped`, `considered`, `matched`, `performed`, `removed_directories` (the emptied subfolders removed; owner decision 86), and `kept_archives` / `pruned_archives` (each `path`, `created_at`, `reasons`) |
 | `archive_manifest_unread` | DEBUG | `--archive latest` could not read a file's leading Manifest and skips it (`path`, `error`, the class name) |
 | `archive_not_encrypted` | WARNING | A restore was given a passphrase but the Archive is not encrypted; it proceeds (`archive`, `reason`; `--require-encrypted` refuses instead; owner decision 59) |
 | `archive_discarded` | INFO | A staged Archive was removed without being published (`path`, its final name) |
 | `archive_published` | INFO | A verified Archive was renamed onto its final name (`path`) |
 | `archive_read_stopped` | DEBUG | Reading the outer tar stopped at a stream error; the classifier decides truncated or unrecognised (`error`, the class name) |
 | `archive_staged` | DEBUG | A temporary file was created beside the final Archive name (`path`, `staged`) |
-| `archive_target_chosen` | INFO | Where a backup writes its Archive, and what chose it: `--archive`, its variable or config key, `--archive-dir`, the current directory or the per-user data directory (`path`, `chosen_by`; owner decision 60) |
+| `archive_target_chosen` | INFO | Where a backup writes its Archive, and what chose it: `--archive`, its variable or config key, `--archive-dir`, the current directory or the per-user data directory (`path`, `chosen_by`; owner decision 60), and `archive_subdir`, the subfolder template the default name went under (`null` when flat or with `--archive`; owner decision 86) |
 | `archive_target_in_site_root` | WARNING | A backup writes its Archive inside the Site Root, where the web server may serve it; it proceeds (`path`, `site_root`; owner decision 60) |
 | `archive_unauthenticated` | WARNING | A restore proceeds from an unencrypted Archive, whose checksums prove consistency, not authenticity (`integrity`, `archive`) |
 | `backup_completed` | INFO | A backup finished (`path`, `format_version`, `members` by kind, `bytes`, `performed` — `false` in a Dry Run) |
@@ -234,7 +236,7 @@ never appear in any of them.
 | `special_file_skipped` | WARNING | A backup skipped a file that is not regular, a directory or a symlink (`path`) |
 | `rollback_failed_not_journaled` | ERROR | A failed rollback could not be journaled; the journal stays at `rollback_started`, still blocking (`error_type`) |
 | `stale_lock_reclaimed` | WARNING | A dead Run's lock record was overwritten (`previous_run_id`, `previous_pid`, `previous_started_at`, `previous_pid_alive`) |
-| `stale_residue_removed` | INFO | A dead Run's workspace or `.partial` file older than 24 h was removed (`path`) |
+| `stale_residue_removed` | INFO | A dead Run's workspace or `.partial` file older than 24 h was removed (`path`); with `--archive-subdir`, from any subfolder of the Archive directory |
 | `symlink_outside_site_root` | WARNING | A backup stored a symlink whose target leaves the Site Root (`path`, `target`) |
 | `symlink_skipped` | WARNING | A restore did not restore a symlink (`path`, `link_target`, `reason`) |
 | `tables_dropped` | INFO | An empty live database was emptied again by a rollback (`db_name`, `dropped`, `duration_ms`) |

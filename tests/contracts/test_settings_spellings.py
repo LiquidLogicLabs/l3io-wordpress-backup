@@ -173,6 +173,7 @@ def test_the_scope_reaches_what_it_should() -> None:
         "keep_weekly",
         "keep_monthly",
         "keep_yearly",
+        "archive_subdir",  # owner decision 86
     } <= names
     variables = {v.split(": ")[1] for v in unknown_variables(SRC)} | {
         env_name(n) for n in names

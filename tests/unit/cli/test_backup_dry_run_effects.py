@@ -55,6 +55,9 @@ ADAPTERS = "l3io.wp.backup.adapters"
 #: The adapter modules ``cli/backup.py`` may import from, and the names it may
 #: take: queries and locators, observation, and the registry type.
 ADAPTER_ALLOWANCE: dict[str, frozenset[str]] = {
+    # Owner decision 86: checks the folders an archive_subdir resolves to
+    # (lstat only, refuses a symlink); a query, the store makes the folders.
+    f"{ADAPTERS}.archive_dir": frozenset({"archive_subdirectory"}),
     f"{ADAPTERS}.database": frozenset(
         {
             "LocatedConfig",

@@ -50,9 +50,11 @@ __all__ = [
     "WORKSPACE_PREFIX",
     "WorkspaceNotRemovedError",
     "private_directories",
+    "private_directories_below",
     "private_state_directories",
     "require_private_state_directory",
     "run_workspace",
+    "staged_globs",
     "sweep_stale",
     "sweep_stale_partials",
     "sweep_stale_workspaces",
@@ -137,6 +139,21 @@ def private_directories(path: Path) -> None:
             directory.mkdir(mode=PRIVATE_DIR_MODE)
     if not path.is_dir():
         raise NotADirectoryError(str(path))
+
+
+def private_directories_below(root: Path, path: Path) -> None:
+    """:func:`private_directories` for ``path``, creating nothing above ``root``.
+
+    ``root`` (the Archive directory an ``archive_subdir`` is under, owner
+    decision 86) must already be a directory; only the missing folders
+    between it and ``path`` are made, each ``0700``.
+    """
+    if not root.is_dir():
+        raise NotADirectoryError(str(root))
+    if not path.is_relative_to(root):
+        msg = f"{path} is not under {root}"
+        raise ValueError(msg)
+    private_directories(path)
 
 
 def _effective_uid() -> int | None:
@@ -282,6 +299,16 @@ def sweep_stale_workspaces(parent: Path | None, *, now: float) -> tuple[Path, ..
 STAGED_SUFFIX = ".partial"
 
 
+def staged_globs(name: str) -> frozenset[str]:
+    """The staged-file globs of Archive ``name`` and of every default name."""
+    return frozenset(
+        {
+            f".{name}.*{STAGED_SUFFIX}",
+            *(f".{each}.*{STAGED_SUFFIX}" for each in DEFAULT_ARCHIVE_NAME_GLOBS),
+        }
+    )
+
+
 def sweep_stale_partials(directory: Path, name: str, *, now: float) -> tuple[Path, ...]:
     """:func:`sweep_stale` over ``directory``'s staged files of Archive ``name``.
 
@@ -289,10 +316,7 @@ def sweep_stale_partials(directory: Path, name: str, *, now: float) -> tuple[Pat
     ``wpbak-*`` and the legacy ``wpbackup2-*`` (``.<name>.<random>.partial``,
     the store's staging spelling).
     """
-    globs = {
-        f".{name}.*{STAGED_SUFFIX}",
-        *(f".{each}.*{STAGED_SUFFIX}" for each in DEFAULT_ARCHIVE_NAME_GLOBS),
-    }
+    globs = staged_globs(name)
     try:
         candidates = sorted({p for g in globs for p in directory.glob(g)})
     except OSError:

@@ -20,6 +20,13 @@ directory for this target's stray ``.partial`` files a hard-killed Run left
 (the target's own name, or this package's default name), older than 24 h and
 owned by this user (``adapters/workspace.sweep_stale``; BL-E002-065, owner
 decision 2026-11-07). A Dry Run binds the no-op store, which sweeps nothing.
+
+**Archive subfolders (owner decision 86).** A store built with
+``archive_root`` (the Archive directory an ``archive_subdir`` folder is
+under) makes the missing folders between it and the target ``0700``, never
+the Archive directory itself, and sweeps the stale ``.partial`` files of the
+whole tree under it (``adapters/archive_dir.sweep_stale_partials_in_tree``),
+so a Run killed in last month's folder is cleaned up by this month's.
 """
 
 from __future__ import annotations
@@ -35,10 +42,12 @@ from typing import IO, Final, cast
 
 import structlog
 
+from l3io.wp.backup.adapters.archive_dir import sweep_stale_partials_in_tree
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.workspace import (
     STAGED_SUFFIX,
     private_directories,
+    private_directories_below,
     sweep_stale_partials,
 )
 from l3io.wp.backup.core.backup import BackupStep
@@ -194,13 +203,18 @@ class _LocalStagedArchive:
 class LocalArchiveStore:
     """``ArchiveStoreQuery`` and ``ArchiveStoreCommand`` for local paths."""
 
-    __slots__ = ("_create_directory", "_verify")
+    __slots__ = ("_archive_root", "_create_directory", "_verify")
 
     def __init__(
-        self, *, verify: Callable[[Path], None], create_directory: bool = False
+        self,
+        *,
+        verify: Callable[[Path], None],
+        create_directory: bool = False,
+        archive_root: Path | None = None,
     ) -> None:
         self._verify = verify
         self._create_directory = create_directory
+        self._archive_root = archive_root
 
     def exists(self, target: StorageTarget) -> bool:
         """Whether anything is at the final name (a dangling link included)."""
@@ -210,14 +224,22 @@ class LocalArchiveStore:
         """Create the temporary file beside the final name, mode ``0600``.
 
         With ``create_directory``, a missing destination directory is created
-        first (mode ``0700``); a failure is ``ArchiveWriteError``.
+        first (mode ``0700``); with ``archive_root``, only the folders below
+        it; a failure is ``ArchiveWriteError``.
         """
         final = _final_path(target)
         directory = final.parent
-        sweep_stale_partials(directory, final.name, now=time.time())
+        if self._archive_root is None:
+            sweep_stale_partials(directory, final.name, now=time.time())
+        else:
+            sweep_stale_partials_in_tree(
+                self._archive_root, final.name, now=time.time()
+            )
         try:
             if self._create_directory:
                 private_directories(directory)
+            elif self._archive_root is not None:
+                private_directories_below(self._archive_root, directory)
             fd, staged = tempfile.mkstemp(
                 prefix=f".{final.name}.", suffix=_STAGED_SUFFIX, dir=directory
             )
