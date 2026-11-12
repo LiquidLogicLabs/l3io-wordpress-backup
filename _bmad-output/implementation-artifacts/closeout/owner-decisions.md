@@ -158,3 +158,8 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Three spellings each:** every setting has a CLI flag, an `L3IO_WP_BACKUP_KEEP_*` variable and a config key (ADR-0028); the image's `WPBACKUP_KEEP_*` variables feed them.
     - **Image defaults:** 7 daily, 4 weekly, 6 monthly, replacing the flat `WPBACKUP_KEEP=14` default. `WPBACKUP_KEEP` remains for newest-N.
     - **Implementation:** the bucketing uses a maintained library if one fits (rule 1); otherwise an ADR records the evaluation.
+85. **ADR-0029 accepted (owner, 2026-11-12):** the retention bucketing stays a pure module in `core/retention.py` for 1.1.0, with no new library. It is extracted into a family library when a second project needs the same rules (added to ADR-0029's revisit conditions).
+86. **Optional Archive subfolders (owner, 2026-11-12): (a) a path template under the Archive directory, flat by default.**
+    - **The setting:** `archive_subdir`, as a CLI flag, an `L3IO_WP_BACKUP_*` variable and a config key, with UTC tokens `{site}`, `{yyyy}`, `{mm}`, `{dd}` (e.g. `{site}/{yyyy}/{mm}`).
+    - **Discovery:** `--archive latest` and `prune` search the Archive directory recursively, still matching by Manifest, so a layout change never strands Archives. Prune removes the subfolders it empties.
+    - **Rejected:** per-tier folders.

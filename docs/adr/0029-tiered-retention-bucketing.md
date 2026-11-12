@@ -1,8 +1,8 @@
 # ADR-0029: Tiered retention bucketing is a pure function in `core/`, not a library
 
-- **Status:** Proposed
+- **Status:** Accepted (Shawn Anderson, 2026-11-12; owner decision 85)
 - **Date:** 2026-11-11
-- **Deciders:** Shawn Anderson (owner decision 84 asks for this record)
+- **Deciders:** Shawn Anderson
 - **Epic:** E008 (close-out, 1.1.0)
 - **Resolves:** owner decision 84, "Implementation: the bucketing uses a maintained library if one
   fits (rule 1); otherwise an ADR records the evaluation"
@@ -71,4 +71,7 @@ unreadable Manifest are never candidates) are unchanged.
   that applies independent restic-style day/ISO-week/month/year rules to caller-supplied
   timestamps; or
 - the rules grow beyond these five (hourly, `within` durations, tags), at which point a library's
-  breadth is worth its weight.
+  breadth is worth its weight; or
+- a second family project needs the same retention rules (for example database snapshots or
+  another backup tool): then extract `core/retention.py` and its tests into a family library
+  (owner decision 85).
