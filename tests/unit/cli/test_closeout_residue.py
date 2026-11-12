@@ -90,12 +90,14 @@ def _verify(path: Path) -> None:
 def test_staging_sweeps_stale_partials_of_its_own_target(tmp_path: Path) -> None:
     final = tmp_path / "site.tar.gz"
     stale = tmp_path / ".site.tar.gz.abc123.partial"
-    default_named = tmp_path / ".wpbackup2-wp-20260101T000000Z.tar.gz.x1.partial"
+    # Owner decision 82: today's default name and the legacy one alike.
+    default_named = tmp_path / ".wpbak-wp-20260101T000000Z.tar.gz.x1.partial"
+    legacy_named = tmp_path / ".wpbackup2-wp-20260101000000.tar.gz.x2.partial"
     fresh = tmp_path / ".site.tar.gz.def456.partial"
     foreign = tmp_path / ".other.tar.gz.zz.partial"
-    for path in (stale, default_named, fresh, foreign):
+    for path in (stale, default_named, legacy_named, fresh, foreign):
         path.write_bytes(b"plaintext")
-    for path in (stale, default_named, foreign):
+    for path in (stale, default_named, legacy_named, foreign):
         os.utime(path, (OLD, OLD))
     store = LocalArchiveStore(verify=_verify)
     with capture_logs() as logs:
@@ -103,10 +105,11 @@ def test_staging_sweeps_stale_partials_of_its_own_target(tmp_path: Path) -> None
     staged.discard()
     assert not stale.exists()
     assert not default_named.exists()
+    assert not legacy_named.exists()
     assert fresh.exists()
     assert foreign.exists()
     paths = {e["path"] for e in logs if e["event"] == "stale_residue_removed"}
-    assert paths == {str(stale), str(default_named)}
+    assert paths == {str(stale), str(default_named), str(legacy_named)}
 
 
 @pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP", "SIGQUIT"])

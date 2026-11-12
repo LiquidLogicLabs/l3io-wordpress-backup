@@ -49,6 +49,7 @@ from l3io.wp.backup.domain.journal import (
     JournalEvent,
     JournalHeader,
     JournalRecord,
+    SnapshotSkipped,
 )
 from l3io.wp.backup.domain.restore import RestoreMode, RestorePhase
 
@@ -143,6 +144,7 @@ def _header_dict(header: JournalHeader) -> dict[str, object]:
         "prior_constants": dict(header.prior_constants),
         "phase_undo": {p.value: t for p, t in header.phase_undo.items()},
         "saved_config": header.saved_config,
+        "snapshot_skipped": header.snapshot_skipped,
     }
 
 
@@ -200,7 +202,18 @@ def _header(raw: Mapping[str, Any]) -> JournalHeader:
             RestorePhase(k): _str(v, "undo") for k, v in raw["phase_undo"].items()
         },
         saved_config=_opt(raw["saved_config"], "saved_config"),
+        # Absent from a journal written before 1.1.0.
+        snapshot_skipped=_skipped(raw.get("snapshot_skipped")),
     )
+
+
+def _skipped(value: object) -> SnapshotSkipped | None:
+    if value is None:
+        return None
+    if value not in get_args(SnapshotSkipped):
+        msg = f"unknown snapshot_skipped {value!r}"
+        raise ValueError(msg)
+    return cast("SnapshotSkipped", value)
 
 
 def _entry(raw: Mapping[str, Any]) -> JournalEntry:

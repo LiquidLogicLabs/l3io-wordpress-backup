@@ -56,6 +56,10 @@ from l3io.wp.backup.adapters.credential_providers import (
 from l3io.wp.backup.adapters.database import DB_TLS_MODES
 from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
+from l3io.wp.backup.domain.storage_target import (
+    sanitise_site_name,
+    unusable_site_name,
+)
 
 __all__ = [
     "BACKUP_COMMAND",
@@ -67,6 +71,7 @@ __all__ = [
     "NOT_AVAILABLE_NOTE",
     "NOT_YET_IMPLEMENTED",
     "PASSPHRASE_VAR",
+    "PRUNE_COMMAND",
     "RESTORE_COMMAND",
     "RESTORE_MODE_GROUP",
     "RESTORE_OPTIONS_GROUP",
@@ -86,6 +91,8 @@ RESTORE_COMMAND = "restore"
 VERIFY_COMMAND = "verify"
 #: An addition AD-22 permits (FR-27): report whether a host is ready.
 DOCTOR_COMMAND = "doctor"
+#: An addition AD-22 permits (owner decision 83): this Site's Archive retention.
+PRUNE_COMMAND = "prune"
 #: The argument group holding the restore flags AD-25's table maps.
 RESTORE_MODE_GROUP = "restore mode"
 #: The argument group holding every other restore flag.
@@ -132,6 +139,14 @@ def _log_level(text: str) -> str:
         msg = f"invalid level {text!r} (choose {choices})"
         raise argparse.ArgumentTypeError(msg)
     return name
+
+
+def _site_name(text: str) -> str:
+    """``--site-name`` as the default Archive name carries it (owner decision 82)."""
+    safe = sanitise_site_name(text)
+    if not safe:
+        raise argparse.ArgumentTypeError(unusable_site_name(text))
+    return safe
 
 
 def exit_code_epilog() -> str:
@@ -260,6 +275,13 @@ def build_parser() -> CliParser:
             subparsers,
             DOCTOR_COMMAND,
             "Report whether this host is ready to back up and restore",
+        )
+    )
+    _add_prune(
+        _command(
+            subparsers,
+            PRUNE_COMMAND,
+            "Delete this site's older archives, keeping the newest --keep N",
         )
     )
     for command, command_parser in subparsers.choices.items():
@@ -434,12 +456,24 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
     backup.add_argument(
         "--archive",
         help=(
-            "Archive path or file: URL (default: wpbackup2-<db>-<UTC "
-            "timestamp>.tar.gz in --archive-dir). Inside the Site Root it is "
-            "written with a warning: the web server may serve it"
+            "Archive path or file: URL (default: wpbak-<site>-<UTC "
+            "timestamp>.tar.gz in --archive-dir, the timestamp as "
+            "YYYYMMDDTHHMMSSZ). Inside the Site Root it is written with a "
+            "warning: the web server may serve it"
         ),
         default=None,
         required=False,
+    )
+    backup.add_argument(
+        "--site-name",
+        metavar="NAME",
+        type=_site_name,
+        default=None,
+        help=(
+            "The <site> part of the default archive name (default: the "
+            "database name); characters other than A-Z, a-z, 0-9, '.', '_' "
+            "and '-' become '-'"
+        ),
     )
     backup.add_argument(
         "--wp-config",
@@ -823,6 +857,67 @@ def _add_doctor(doctor: argparse.ArgumentParser) -> None:
     )
     doctor.add_argument(
         "--json", action="store_true", help="Print the diagnosis as JSON"
+    )
+
+
+def _keep(text: str) -> int:
+    """``--keep``: a whole number of at least 1 (owner decision 83)."""
+    try:
+        value = int(text, 10)
+    except ValueError:
+        value = 0
+    if value < 1 or not text.strip().isdigit():
+        msg = (
+            f"invalid count {text!r}: a whole number of at least 1 (the newest "
+            "archive is never pruned)"
+        )
+        raise argparse.ArgumentTypeError(msg)
+    return value
+
+
+def _add_prune(prune: argparse.ArgumentParser) -> None:
+    prune.add_argument(
+        "--wp-dir",
+        required=True,
+        help="Path to the root of the WordPress directory whose archives are pruned",
+    )
+    prune.add_argument(
+        "--keep",
+        metavar="N",
+        type=_keep,
+        required=True,
+        help=(
+            "How many of this site's newest archives to keep (at least 1); its "
+            "older ones in --archive-dir are deleted. Only archives whose "
+            "manifest is this site's count; safety snapshots, other sites' "
+            "archives and unreadable files are never deleted"
+        ),
+    )
+    prune.add_argument(
+        "--archive-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Directory holding the archives (default: the one a backup writes "
+            "to by default)"
+        ),
+    )
+    prune.add_argument(
+        "--wp-config",
+        metavar="PATH",
+        help="Use this wp-config.php instead of searching for it",
+        default=None,
+    )
+    prune.add_argument(
+        "--whatIf",
+        "--what-if",
+        dest="what_if",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "Dry Run: list the archives that would be deleted and delete none; "
+            "takes the Site Lock (also accepted before `prune`)"
+        ),
     )
 
 

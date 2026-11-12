@@ -80,6 +80,12 @@ log_format = "console"
 15 3 * * *  wpbackup2 backup
 ```
 
+Without `--archive`, the Archive is named
+`wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz` (UTC, so a site's Archives sort by
+time), `<site>` being `--site-name` (`L3IO_WP_BACKUP_SITE_NAME`, `site_name`)
+or else the database name, kept to `A-Z a-z 0-9 . _ -` (other characters
+become `-`). Before 1.1.0 it was `wpbackup2-<db>-<YYYYmmddHHMMSS>.tar.gz`;
+`--archive latest` finds Archives by their Manifest, so both names are found.
 Without `--archive` or `archive_dir`, the Archive goes into the current
 directory, or into the per-user data directory
 (`~/.local/share/l3io-wp-backup/archives`) when the current directory is
@@ -96,11 +102,17 @@ site volume and its `WORDPRESS_DB_*` environment. It is built from the PyPI
 release, for `linux/amd64` and `linux/arm64`:
 
 ```
-docker pull ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1
-docker pull docker.io/ravensorb/l3io-wordpress-backup:1
+docker pull ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1           # MySQL servers
+docker pull ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1-mariadb   # MariaDB servers
+docker pull docker.io/ravensorb/l3io-wordpress-backup:1               # the same images
+docker pull docker.io/ravensorb/l3io-wordpress-backup:1-mariadb
 ```
 
-One image works with MySQL 8.0, MySQL 8.4 and MariaDB 11.4 servers. By default
+Pick the variant by the database server: `:1-mariadb` (MariaDB's client) for
+MariaDB, `:1` (MySQL's client) for MySQL 8.0 and 8.4. The default dumps
+MariaDB too, but logs `client_server_skew` on every dump; the `-mariadb`
+variant does not, and does not work against MySQL
+([docs/docker.md](docs/docker.md#which-variant)). By default
 it is a scheduler: a daily `wpbackup2 backup` at 03:00 (`WPBACKUP_SCHEDULE`, in
 `TZ`), run as uid/gid 33 (www-data, `PUID`/`PGID` to change), each job's output
 in the container log. Given a command, it runs that once instead.
@@ -119,7 +131,7 @@ services:
     depends_on: [db]
 
   backup:
-    image: ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1
+    image: ghcr.io/liquidlogiclabs/l3io-wordpress-backup:1-mariadb   # a MariaDB server; :1 for MySQL
     env_file: wordpress.env          # the site's own WORDPRESS_DB_*
     environment:
       WPBACKUP_SCHEDULE: "0 3 * * *" # the default: daily at 03:00
@@ -155,6 +167,17 @@ running container or in a one-shot one:
 docker compose exec backup wpbackup2 restore --archive latest
 docker compose run --rm backup restore --archive latest
 ```
+
+An Archive written by another uid than the one owning `/var/www/html` (a
+restore onto a new host) needs root to start: `docker compose run --rm -e
+PUID=0 backup restore --archive latest`. `wpbackup2` then runs as the Site
+Root's owner ([docs/docker.md](docs/docker.md#restoring-an-archive-another-user-wrote)).
+
+After each successful scheduled backup the image prunes this site's older
+Archives, keeping the newest 14 (`WPBACKUP_KEEP`; `0` disables it). By hand,
+anywhere: `wpbackup2 prune --keep 14` (`--whatIf` lists what it would delete).
+Only Archives whose Manifest is this site's are ever deleted, never another
+site's, a Safety Snapshot or a file that is no Archive.
 
 To schedule from the host instead (cron or a systemd timer), run the one-shot
 form, `docker compose run --rm backup backup`, and put the service in a
@@ -229,7 +252,7 @@ $ wpbackup2 --help
 usage: wpbackup2 [-h] [--version] [--config PATH]
                  [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--log-format {console,json}]
                  [--whatIf]
-                 {backup,restore,verify,doctor} ...
+                 {backup,restore,verify,doctor,prune} ...
 
 Backup/restore your WordPress content and database.
 
@@ -238,12 +261,13 @@ Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
 (wp_dir = "..."); a flag wins over a variable, a variable over the file.
 
 positional arguments:
-  {backup,restore,verify,doctor}
+  {backup,restore,verify,doctor,prune}
                         Action being requested
     backup              Perform a WordPress backup
     restore             Perform a WordPress restore
     verify              Check an archive without touching a site
     doctor              Report whether this host is ready to back up and restore
+    prune               Delete this site's older archives, keeping the newest --keep N
 
 options:
   -h, --help            Show this help message and exit
@@ -275,9 +299,9 @@ exit codes:
 ```text
 $ wpbackup2 backup --help
 usage: wpbackup2 backup [-h] [--config PATH] [--wp-dir WP_DIR] [--archive-dir DIR] [--whatIf]
-                        [--archive ARCHIVE] [--wp-config PATH] [--mode {files,db,all}]
-                        [--encrypt-with-passphrase] [--passphrase SECRET] [--exclude PATTERN]
-                        [--no-default-excludes] [--list-default-excludes]
+                        [--archive ARCHIVE] [--site-name NAME] [--wp-config PATH]
+                        [--mode {files,db,all}] [--encrypt-with-passphrase] [--passphrase SECRET]
+                        [--exclude PATTERN] [--no-default-excludes] [--list-default-excludes]
                         [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
                         [--db-user USER] [--db-password SECRET]
                         [--db-tls {required,verify-ca,verify-identity}] [--db-tls-ca FILE]
@@ -301,9 +325,11 @@ options:
                         directory is inside the Site Root)
   --whatIf, --what-if   Dry Run: run every check and query for real and print the ordered plan;
                         writes no archive but takes the Site Lock (also accepted before `backup`)
-  --archive ARCHIVE     Archive path or file: URL (default: wpbackup2-<db>-<UTC timestamp>.tar.gz
-                        in --archive-dir). Inside the Site Root it is written with a warning: the
-                        web server may serve it
+  --archive ARCHIVE     Archive path or file: URL (default: wpbak-<site>-<UTC timestamp>.tar.gz in
+                        --archive-dir, the timestamp as YYYYMMDDTHHMMSSZ). Inside the Site Root it
+                        is written with a warning: the web server may serve it
+  --site-name NAME      The <site> part of the default archive name (default: the database name);
+                        characters other than A-Z, a-z, 0-9, '.', '_' and '-' become '-'
   --wp-config PATH      Use this wp-config.php instead of searching for it
   --mode {files,db,all}
                         What to back up: files, db, or all (default: all)
@@ -546,6 +572,46 @@ options:
   --wp-dir DIR      Also check this Site Root
   --archive TARGET  Also check this archive target
   --json            Print the diagnosis as JSON
+
+exit codes:
+   0  OK                   the Run succeeded
+   1  FAILED               the Run failed for a reason no other code names
+   2  USAGE                the command line was invalid
+   3  REFUSED              a check found a reason not to act; nothing was done
+   4  CREDENTIALS          credentials were missing, unusable or rejected
+   5  UNREACHABLE          the database server could not be reached
+   7  NOT_READY            a required tool or optional extra is not available
+   8  VERIFICATION_FAILED  the archive failed verification
+   9  LOCKED               another Run holds the site lock
+```
+
+```text
+$ wpbackup2 prune --help
+usage: wpbackup2 prune [-h] [--config PATH] --wp-dir WP_DIR --keep N [--archive-dir DIR]
+                       [--wp-config PATH] [--whatIf]
+
+Delete this site's older archives, keeping the newest --keep N
+
+Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
+(--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
+(wp_dir = "..."); a flag wins over a variable, a variable over the file.
+
+options:
+  -h, --help           Show this help message and exit
+  --config PATH        Read settings from this TOML file (also L3IO_WP_BACKUP_CONFIG; default:
+                       /etc/l3io-wp-backup/config.toml, then the per-user ~/.config/l3io-wp-
+                       backup/config.toml). A file holding a secret must be readable by its owner
+                       only
+  --wp-dir WP_DIR      Path to the root of the WordPress directory whose archives are pruned
+  --keep N             How many of this site's newest archives to keep (at least 1); its older
+                       ones in --archive-dir are deleted. Only archives whose manifest is this
+                       site's count; safety snapshots, other sites' archives and unreadable files
+                       are never deleted
+  --archive-dir DIR    Directory holding the archives (default: the one a backup writes to by
+                       default)
+  --wp-config PATH     Use this wp-config.php instead of searching for it
+  --whatIf, --what-if  Dry Run: list the archives that would be deleted and delete none; takes the
+                       Site Lock (also accepted before `prune`)
 
 exit codes:
    0  OK                   the Run succeeded

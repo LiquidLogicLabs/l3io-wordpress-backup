@@ -85,6 +85,7 @@ from l3io.wp.backup.cli.passphrase import (
     require_passphrase,
     resolve_passphrase,
 )
+from l3io.wp.backup.cli.prune import PruneRequest, PruneResult, drive_prune
 from l3io.wp.backup.cli.restore import RESTORE_PROMPT, drive_restore
 from l3io.wp.backup.cli.restore_report import require_database_restored
 from l3io.wp.backup.cli.restore_request import (
@@ -112,7 +113,7 @@ from l3io.wp.backup.ports.crypto import PayloadCipher
 from l3io.wp.backup.ports.database import DbTls
 from l3io.wp.backup.ports.exclusion import ExclusionPolicy
 
-__all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "restore", "verify"]
+__all__ = ["SNAPSHOT_SKIPPED_BY", "backup", "doctor", "prune", "restore", "verify"]
 
 #: What a library Run's ``safety_snapshot_skipped`` record names as having
 #: chosen ``SnapshotPolicy.SKIP`` (BL-E003-050): the argument, not the CLI flag.
@@ -423,5 +424,41 @@ def doctor(
         target=None if archive is None else _target(archive, argument="archive"),
         secrets=SecretRegistry(),
         tracer=OpenTelemetryTracer(),
+        environ=os.environ,
+    )
+
+
+@public_boundary
+def prune(
+    site: str | os.PathLike[str],
+    *,
+    keep: int,
+    archive_dir: str | os.PathLike[str] | None = None,
+    wp_config: str | os.PathLike[str] | None = None,
+    dry_run: bool = False,
+) -> PruneResult:
+    """Delete this Site's older Archives, keeping the newest ``keep`` (decision 83).
+
+    As ``wpbackup2 prune``: only Archives in ``archive_dir`` (``None``: the
+    directory the CLI's backup writes to by default) whose Manifest is this
+    Site's count; Safety Snapshots, other sites' Archives, unreadable files,
+    symlinks and ``.partial`` files are never deleted. ``keep`` has no default
+    and must be at least 1 (``UsageError``), so the newest always stays.
+    ``dry_run=True`` deletes nothing and returns what would go. Takes the
+    Site Lock. A file chosen but not removable raises ``PruneFailedError``
+    after the others are removed; a process running as root is refused
+    (``RootBackupRefusedError``).
+    """
+    return drive_prune(
+        PruneRequest(
+            site_root=Path(site),
+            keep=keep,
+            archive_dir=None if archive_dir is None else Path(archive_dir),
+            wp_config=None if wp_config is None else Path(wp_config),
+            dry_run=dry_run,
+        ),
+        ctx=None,
+        tracer=OpenTelemetryTracer(),
+        secrets=SecretRegistry(),
         environ=os.environ,
     )

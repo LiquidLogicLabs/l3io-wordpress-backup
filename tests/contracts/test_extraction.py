@@ -824,3 +824,30 @@ def test_the_fixture_really_does_escape_without_the_filter(tmp_path: Path) -> No
         "the fixture did not traverse, so the refusal above proved nothing"
     )
     assert escaped.read_bytes() == PAYLOAD
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes whatever the mode bits")
+def test_a_destination_it_cannot_write_is_named_as_the_site_root(
+    tmp_path: Path, destination: Path
+) -> None:
+    """Phase 3: the failure names the Site Root, not "archive"."""
+    from l3io.wp.backup.domain.errors import ArchiveWriteError, ExtractionWriteError
+
+    source, view = _v1(
+        tmp_path,
+        [
+            _special("site-root", tarfile.DIRTYPE),
+            _file("site-root/index.php", b"<?php"),
+        ],
+    )
+    destination.chmod(0o555)
+    try:
+        with pytest.raises(ExtractionWriteError) as caught:
+            extract_archive(source, destination, view, roles=frozenset({SITE}))
+    finally:
+        destination.chmod(0o755)
+    assert isinstance(caught.value, ArchiveWriteError)  # the same exit code
+    assert caught.value.path == destination
+    text = str(caught.value)
+    assert f"the Site Root {str(destination)!r}" in text
+    assert "could not write archive" not in text

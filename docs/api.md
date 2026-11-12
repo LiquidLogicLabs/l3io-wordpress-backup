@@ -390,6 +390,26 @@ Returns: `tuple[str, ...]`.
 
 ## Values
 
+### `prune`
+
+Owner decision 83: delete this Site's older Archives, keeping the newest `keep`, as `wpbackup2 prune --keep N` does. Only Archives in `archive_dir` (`None`: the directory the CLI's backup writes to by default) whose Manifest is this Site's count, by the matching `restore --archive latest` uses; a Safety Snapshot, another site's Archive, a file whose Manifest cannot be read, a symlink and a `.partial` file are never deleted. `keep` has no default and must be at least 1, so the newest always stays. `dry_run=True` deletes nothing and returns what would go. Takes the Site Lock. Each deletion is logged (`archive_pruned`).
+
+```python
+prune(site: str | os.PathLike[str], *, keep: int, archive_dir: str | os.PathLike[str] | None = None, wp_config: str | os.PathLike[str] | None = None, dry_run: bool = False) -> PruneResult
+```
+
+| Parameter | Type | Default |
+|---|---|---|
+| `site` | `str \| os.PathLike[str]` | required |
+| `keep` | `int` | required |
+| `archive_dir` | `str \| os.PathLike[str] \| None` | `None` |
+| `wp_config` | `str \| os.PathLike[str] \| None` | `None` |
+| `dry_run` | `bool` | `False` |
+
+Returns: `PruneResult`.
+
+Raises: `UsageError` (`keep` below 1, a missing Archive directory), `SiteLockedError`, `PruneFailedError` (a chosen Archive could not be removed; the others were), `RootBackupRefusedError` (running as root), and `UnexpectedError`, with the original on `__cause__`, for any defect.
+
 ### `Diagnosis`
 
 FR-27's diagnostic: what is present, never an environment value. Fields:
@@ -478,6 +498,26 @@ BackupResult(path: PurePosixPath, scope: BackupScope, bytes: int, encrypted: boo
 | `performed` | `bool` | required |
 | `plan` | `BackupPlan` | required |
 | `actions` | `tuple[str, ...]` | `()` |
+
+Defined in the CLI layer; import it from l3io.wp.backup.api.
+
+### `PruneResult`
+
+What a prune did, or in a Dry Run would do (owner decision 83): `directory`, `keep`, `kept` (this Site's Archives left, newest first), `pruned` (one `PrunedArchive` per Archive removed, newest first), `skipped` (each `*.tar.gz` entry that was no candidate for what it is, with the reason), `considered` (Archives read), `matched` (this Site's) and `performed` (`False` in a Dry Run).
+
+```python
+PruneResult(directory: PurePosixPath, keep: int, kept: tuple[PurePosixPath, ...], pruned: tuple[PrunedArchive, ...], skipped: tuple[tuple[PurePosixPath, str], ...], considered: int, matched: int, performed: bool)
+```
+
+Defined in the CLI layer; import it from l3io.wp.backup.api.
+
+### `PrunedArchive`
+
+One Archive a prune removed, or would remove: `path`, `bytes` and `created_at` (its Manifest's).
+
+```python
+PrunedArchive(path: PurePosixPath, bytes: int, created_at: str)
+```
 
 Defined in the CLI layer; import it from l3io.wp.backup.api.
 
@@ -1175,6 +1215,18 @@ Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `member`, `reason`, each holding the argument of the same name.
 
+### `ExtractionWriteError`
+
+Extracting the Archive could not write into its destination: the Site Root, or the directory a laid-down `wp-config.php` goes into. The message names which (`could not write into the Site Root '/var/www/html': Permission denied`). A subclass of `ArchiveWriteError`, so its exit code is unchanged. A restore's target survey now refuses a target its user cannot write before any effect (`TargetNotWritableError`), so this is left for what changes after that check.
+
+```python
+ExtractionWriteError(path: PurePath, reason: str, *, destination: str)
+```
+
+Base: `ArchiveWriteError`. Exit code: `FAILED` (1).
+
+Fields: `path`, `reason`, `destination`, each holding the argument of the same name.
+
 ### `FlagCombinationRejectedError`
 
 AD-25 — restore flags that express no Restore Mode.
@@ -1602,6 +1654,18 @@ Base: `BackupError`. Exit code: `FAILED` (1).
 
 Fields: `cause`, `rollback`, `database`, `snapshot`, `recovery`, each holding the argument of the same name.
 
+### `PruneFailedError`
+
+A prune could not remove some of the Archives it chose (one changed after it was read, or the operating system refused); the others were removed, and each failure was logged (`archive_prune_failed`).
+
+```python
+PruneFailedError(*, failures: tuple[tuple[str, str], ...])
+```
+
+Base: `BackupError`. Exit code: `FAILED` (1).
+
+Fields: `failures` (each `(path, reason)`), holding the argument of the same name.
+
 ### `RootBackupRefusedError`
 
 A backup as root that cannot run as the Site Root's owner (owner decisions 67, 68): the `wpbackup2` command refuses a Site Root owned by root (there is no owner to switch to), and the library refuses any backup running as root (it never switches its host's user; drop privileges first, or use the command). Raised before the Run opens.
@@ -1805,6 +1869,18 @@ TargetConfigMissingError(path: str)
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `path`, each holding the argument of the same name.
+
+### `TargetNotWritableError`
+
+A restore would write where the user it runs as cannot: the Site Root, an existing directory the Archive's files go into, an existing file they replace, a directory `--cleanfirst` clears, or where a laid-down `wp-config.php` is created. Found by the target survey before any effect, a Dry Run too; `--force` does not waive it. The usual cause is an Archive restored by a user other than the Site Root's owner: run the restore as root (in the Docker image, `PUID=0`), and the command switches to the Site Root's owner (owner decision 58).
+
+```python
+TargetNotWritableError(*, paths: tuple[str, ...], uid: int | None)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `paths` (every path found, sorted; the message names the first three) and `uid` (the effective uid checked, `None` when not known), each holding the argument of the same name.
 
 ### `UnboundAdapterError`
 

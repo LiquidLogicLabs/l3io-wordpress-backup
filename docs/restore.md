@@ -546,6 +546,12 @@ The Run Journal's file format is unchanged by the direct load: a journal an
 earlier version left (with its staging steps) is still read, and its undo
 text is the one that version gave.
 
+Where no Safety Snapshot was taken, the undo text says why, as the journal
+records it (`snapshot_skipped`, from 1.1.0): `no Safety Snapshot: not needed:
+the target was empty`, or `no Safety Snapshot: opted out
+(--no-safety-snapshot)`. A journal an earlier version wrote records no reason,
+and says `no Safety Snapshot: none was taken`.
+
 Before completing a cutover, resolution surveys the database the interrupted
 Run was switching to. If it no longer exists or is not a WordPress database,
 nothing is written and the resolution is refused (exit 3 `REFUSED`), naming
@@ -647,6 +653,22 @@ not encrypted, before anything changes, with `ArchiveNotEncryptedError` (a usage
 error, exit 2, the same refusal `verify --authenticate` gives a plain Archive).
 Use it in cron and disaster-recovery runs that only ever restore encrypted
 Archives.
+
+**A target the Run cannot write is refused.** The target survey, before any
+effect and in a Dry Run too, checks that the user the Run runs as (after a
+root start's switch, the Site Root's owner) can write everything the Mode
+would write: the Site Root itself, every existing directory the Archive's files
+go into, every existing file they replace, every directory `--cleanfirst`
+clears, and where a laid-down `wp-config.php` is created. One it cannot is
+refused, exit 3 `REFUSED`, `TargetNotWritableError`, naming the paths and the
+uid; `--force` does not waive it, and nothing is begun, so the next Run needs
+no `--resolve-interrupted-run`. (Before 1.1.0 such a restore passed
+`PREFLIGHT` and `VERIFY`, failed at `EXTRACT` with "could not write archive",
+and left an interrupted Run.) The usual cause is restoring as a user other
+than the Site Root's owner: see [Running as root](#running-as-root). A write
+that still fails during `EXTRACT` (a file changed after the check) names what
+it was writing into, `could not write into the Site Root '<path>'`
+(`ExtractionWriteError`, exit 1).
 
 **Quiesce the Site first.** A restore does not stop the web server, put the
 Site into maintenance or lock its database. Whatever is written to the Site
@@ -1076,6 +1098,19 @@ settings, and its copy in the Archive), and the database client opens
 `--db-tls-ca` during the Run, so both must be readable by the owner, as the
 site's own PHP must read `wp-config.php` anyway.
 
+**Restoring an Archive another user wrote.** The disaster-recovery case: the
+Archive was written by one uid (the old host's), and the new Site Root belongs
+to another. Start the restore as root and it runs as the Site Root's owner,
+so it can write the Site Root and the restored files are the site's:
+
+```
+sudo wpbackup2 restore --wp-dir /var/www/html --archive /backups/wpbak-example-20261111T030000Z.tar.gz
+docker compose run --rm -e PUID=0 backup restore --archive latest   # the Docker sidecar (docs/docker.md)
+```
+
+Run as another non-root user that cannot write the Site Root, the restore is
+refused before any effect (`TargetNotWritableError`, above).
+
 Refused (exit 2 `USAGE`, before the Run opens): a Site Root owned by root,
 which has no owner to switch to (`RootRestoreRefusedError`, or
 `RootBackupRefusedError` for a backup, before anything else is read). A
@@ -1115,6 +1150,9 @@ own `--archive-dir`. A target with no `wp-config.php` cannot be told apart
 from any other and is refused (exit 2); name the Archive then. Safety
 Snapshots, files that are no Archive and Manifests without a readable
 `created_at` never count; a tie goes to the later file name. None found is
-`NoArchiveForSiteError` (exit 2). The choice is logged
+`NoArchiveForSiteError` (exit 2). The file name plays no part: an Archive
+under the default name of 1.1.0 (`wpbak-<site>-<UTC stamp>.tar.gz`), the
+earlier one (`wpbackup2-<db>-<stamp>.tar.gz`) or any name you gave it is
+chosen by its Manifest alike. The choice is logged
 (`archive_latest_selected`) and is the first line of a Dry Run. `--archive`
 stays required: a restore never runs on an Archive nobody named.

@@ -41,7 +41,7 @@
 set -Eeuo pipefail
 umask 077
 
-usage() { echo "usage: $0 mysql|mariadb" >&2; exit 2; }
+usage() { echo "usage: $0 mysql|mysql84|mariadb" >&2; exit 2; }
 [[ $# -eq 1 ]] || usage
 ENGINE=$1
 [[ $ENGINE == mysql || $ENGINE == mysql84 || $ENGINE == mariadb ]] || usage
@@ -107,6 +107,8 @@ PASSPHRASE=$(rand 24); WRONG_PASSPHRASE=$(rand 24)
 DB_NAME="wpdb_$TAG"; DB_USER="wpu_$TAG"
 SENTINEL="l3io-sentinel-$(rand 8)"
 SECRETS=("$DB_ROOT_PW" "$DB_PW" "$WP_ADMIN_PW" "$PASSPHRASE" "$WRONG_PASSPHRASE")
+# The scheduled mode's prune (owner decision 83): this site's newest 3 stay.
+SCHEDULED_KEEP=3
 
 cat >"$L3IO_SCRATCH/db.env" <<EOF
 MYSQL_ROOT_PASSWORD=$DB_ROOT_PW
@@ -135,6 +137,7 @@ EOF
 # logs a warning in a busy loop.
 cat >"$L3IO_SCRATCH/schedule.env" <<EOF
 WPBACKUP_SCHEDULE=* * * * *
+WPBACKUP_KEEP=$SCHEDULED_KEEP
 EOF
 printf '%s\n' '# mounted by tests/sidecar/run.sh' '0 0 1 1 * wpbackup2 doctor' >"$L3IO_SCRATCH/crontab"
 chmod 0644 "$L3IO_SCRATCH/crontab"
@@ -267,6 +270,7 @@ puid_0_keeps_root() { [[ $(img -e PUID=0 "$IMAGE" id -u) == 0 ]]; }
 # The scheduled mode refuses to start (s6 stops the container, non-zero) on an
 # empty or unparsable schedule rather than idling with nothing scheduled.
 schedule_refused() { ! timeout 60 docker run --rm -e "WPBACKUP_SCHEDULE=$1" "$IMAGE"; }
+keep_refused() { ! timeout 60 docker run --rm -e "WPBACKUP_KEEP=$1" "$IMAGE"; }
 check image:subcommands-are-not-executables subcommands_are_not_executables
 check image:one-shot-is-wpbackup2 one_shot_is_wpbackup2
 check image:one-shot-runs-as-33 one_shot_runs_as_33
@@ -274,6 +278,8 @@ check image:puid-pgid-honoured puid_pgid_honoured
 check image:puid-0-keeps-root puid_0_keeps_root
 check image:empty-schedule-refused schedule_refused ''
 check image:bad-schedule-refused schedule_refused 'not a schedule'
+check image:bad-keep-refused keep_refused 'two weeks'
+check image:negative-keep-refused keep_refused '-1'
 
 # ---- stack -----------------------------------------------------------------------
 step stack-up 0 dc up -d --wait --wait-timeout 300
@@ -324,8 +330,37 @@ check A:dryrun-wrote-nothing no_archives
 check A:dryrun-names-the-host printed A-backup-dryrun "from db:3306"
 step A-backup 0 wb backup
 check A:host-logged logged A-backup database_host
-check A:default-target-in-archive-dir printed A-backup "/backups/wpbackup2-$DB_NAME-"
+# Owner decision 82: wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz, <site> the
+# database name when --site-name is not set.
+default_named() { grep -qE "^/backups/wpbak-$DB_NAME-[0-9]{8}T[0-9]{6}Z\.tar\.gz\$" "$LOGS/A-backup.out"; }
+check A:default-name-is-wpbak-db-utc default_named
 step A-verify 0 wb verify --archive "$(head -1 "$LOGS/A-backup.out")"
+# The dump client against this server: client_server_skew (logged as event
+# database_warning, the text in `message`) exactly when the client's family
+# is not the server's (docs/docker.md: which variant to pick).
+skew_logged() { grep -qF '"code": "client_server_skew"' "$LOGS/A-backup.err"; }
+skew_is_an_event_name() { ! grep -qE '"event": "[^"]*older than' "$LOGS/A-backup.err"; }
+server_family=mysql; [[ $ENGINE == mariadb ]] && server_family=mariadb
+if [[ $L3IO_DB_CLIENT == "$server_family" ]]; then
+    no_skew_logged() { ! skew_logged; }
+    check A:no-client-server-skew no_skew_logged
+else
+    check A:client-server-skew-logged skew_logged
+fi
+check A:skew-event-is-a-name skew_is_an_event_name
+# --archive latest chooses by Manifest across the legacy and the new names: a
+# legacy-named Archive written after the default one is the newest (though
+# `wpbackup2-` sorts before `wpbak-`), then a --site-name one newer still.
+sleep 1  # created_at has whole seconds
+LEGACY=/backups/wpbackup2-$DB_NAME-20261103184135.tar.gz
+step A-backup-legacy-name 0 wb backup --archive "$LEGACY"
+step A-latest-legacy 0 wb --whatIf restore --archive latest --mode files
+check A:latest-is-the-legacy-named-archive printed A-latest-legacy "archive latest: $LEGACY"
+sleep 1
+step A-backup-site-name 0 wb backup --site-name "Sidecar Site"
+check A:site-name-names-the-archive printed A-backup-site-name "/backups/wpbak-Sidecar-Site-"
+step A-latest-site-name 0 wb --whatIf restore --archive latest --mode files
+check A:latest-is-the-site-named-archive printed A-latest-site-name "archive latest: $(head -1 "$LOGS/A-backup-site-name.out")"
 step A-backup-dbenv 0 wb_dbenv backup --archive /backups/a2.tar.gz
 step A-verify-dbenv 0 wb verify --archive /backups/a2.tar.gz
 
@@ -528,8 +563,35 @@ step C-backup-after 0 wb backup --archive /backups/c.tar.gz
 # (here every minute) plus the mounted crontab, and runs Supercronic. Within
 # three minutes it must have written a new Archive of this site, owned by 33,
 # that verifies, and the job's own output must be in the container log.
-archives_of_site() { in_backup sh -c "ls -1 /backups/wpbackup2-$DB_NAME-*.tar.gz 2>/dev/null" || true; }
+archives_of_site() { in_backup sh -c "ls -1 /backups/wpbak-$DB_NAME-*.tar.gz 2>/dev/null" || true; }
 scheduler_log() { dc --profile schedule logs --no-color scheduler 2>&1; }
+all_archives() { in_backup sh -c 'ls -1 /backups/*.tar.gz 2>/dev/null | wc -l'; }
+# Another site's Archive in the same directory: no prune may remove it.
+OTHER_SITE=/tmp/wpbackup/other-site
+step S-other-site-backup 0 in_backup sh -c '
+    set -eu
+    mkdir -p "$1"
+    cat >"$1/wp-config.php"
+    echo "<?php" >"$1/index.php"
+    wpbackup2 --log-format json backup --wp-dir "$1" --mode files' sh "$OTHER_SITE" <<'PHP'
+<?php
+define('DB_NAME', 'othersite');
+define('DB_USER', 'u');
+define('DB_PASSWORD', 'p');
+define('DB_HOST', 'db');
+$table_prefix = 'wp_';
+PHP
+OTHER_ARCHIVE=$(tail -1 "$LOGS/S-other-site-backup.out")
+log "another site's Archive: ${OTHER_ARCHIVE:-none}"
+# prune, one-shot: --keep is required; a Dry Run lists and deletes nothing.
+step P-prune-needs-keep 2 wb prune
+COUNT_BEFORE=$(all_archives)
+step P-prune-dryrun 0 wb --whatIf prune --keep 1
+count_is() { [[ $(all_archives) == "$1" ]]; }
+not_printed() { ! printed "$1" "$2"; }
+check P:dryrun-deleted-nothing count_is "$COUNT_BEFORE"
+check P:dryrun-lists-would-prune printed P-prune-dryrun "would prune "
+check P:dryrun-spares-the-other-site not_printed P-prune-dryrun "$OTHER_ARCHIVE"
 BEFORE=$(archives_of_site)
 step S-scheduler-up 0 dc --profile schedule up -d scheduler
 SCHEDULED=
@@ -541,8 +603,20 @@ for _ in $(seq 1 36); do
 done
 scheduler_log >"$LOGS/S-scheduler.log" || true
 log "scheduled Archive: ${SCHEDULED:-none}"
+# The job prunes after its backup: wait for its summary record.
+for _ in $(seq 1 24); do
+    scheduler_log | grep -qF '"event": "prune_completed"' && break
+    sleep 5
+done
+scheduler_log >"$LOGS/S-scheduler.log" || true
+# This site's Archives (every name) are down to SCHEDULED_KEEP; the other
+# site's survives, and so does the scheduled one, the newest.
+check S:prune-ran-after-the-backup grep -qF '"event": "archive_pruned"' "$LOGS/S-scheduler.log"
+check S:pruned-to-keep-plus-the-other-site count_is $((SCHEDULED_KEEP + 1))
+check S:other-sites-archive-survives in_backup test -f "${OTHER_ARCHIVE:-/nonexistent}"
+check S:newest-archive-survives in_backup test -f "${SCHEDULED:-/nonexistent}"
 supercronic_uid() { [[ $(dc --profile schedule exec -T scheduler ps -o uid= -C supercronic | tr -d ' ') == 33 ]]; }
-check S:schedule-lists-the-env-job grep -qF '* * * * * wpbackup2 backup' "$LOGS/S-scheduler.log"
+check S:schedule-lists-the-env-job grep -qF "* * * * * wpbackup2 backup && wpbackup2 prune --keep $SCHEDULED_KEEP" "$LOGS/S-scheduler.log"
 check S:schedule-merges-the-mounted-crontab grep -qF '0 0 1 1 * wpbackup2 doctor' "$LOGS/S-scheduler.log"
 check S:scheduled-backup-wrote-an-archive test -n "$SCHEDULED"
 check S:job-output-in-container-log grep -qF "${SCHEDULED:-no archive}" "$LOGS/S-scheduler.log"

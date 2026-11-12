@@ -5,7 +5,8 @@ creates the Run's ``SecretRegistry``, then dispatches: ``backup`` to
 :func:`l3io.wp.backup.cli.backup.run_backup`, ``restore`` to
 :func:`l3io.wp.backup.cli.restore.run_restore`, ``verify`` to
 :func:`l3io.wp.backup.cli.verify.run_verify` and ``doctor`` to
-:func:`l3io.wp.backup.cli.doctor.run_doctor`, whose drivers open the Run
+:func:`l3io.wp.backup.cli.doctor.run_doctor` (``prune`` to
+:func:`l3io.wp.backup.cli.prune.run_prune`), whose drivers open the Run
 Context (AD-16) with that registry. Anything else is refused rather than
 pretending to act.
 
@@ -62,6 +63,7 @@ from l3io.wp.backup.cli.logging import configure_logging
 from l3io.wp.backup.cli.parser import (
     BACKUP_COMMAND,
     DOCTOR_COMMAND,
+    PRUNE_COMMAND,
     RESTORE_COMMAND,
     VERIFY_COMMAND,
     build_parser,
@@ -165,6 +167,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         RESTORE_COMMAND,
         VERIFY_COMMAND,
         DOCTOR_COMMAND,
+        PRUNE_COMMAND,
     ):
         usage.error(f"{args.action!r} is not implemented in this build")
     configure_logging(args.log_level, args.log_format)
@@ -184,6 +187,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from l3io.wp.backup.cli.doctor import run_doctor
 
                 code = run_doctor(args, secrets=secrets)
+            elif args.action == PRUNE_COMMAND:
+                from l3io.wp.backup.cli.prune import run_prune
+
+                code = run_prune(args, secrets=secrets)
             else:
                 from l3io.wp.backup.cli.verify import run_verify
 

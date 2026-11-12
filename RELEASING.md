@@ -71,12 +71,15 @@ commit.** It is enforced, not remembered:
    asset's sha256 differs. The build is reproducible, so they match.
    Asserted in `tests/contracts/test_workflow_invariants.py`.
 4. Run the gate above.
-5. **The Docker image** (`l3io-wordpress-backup` only; owner decisions 77–80).
+5. **The Docker image** (`l3io-wordpress-backup` only; owner decisions 77–81).
    `docker.yml` starts by itself when a Publish run's `publish to PyPI` job
-   succeeds: it waits until the version installs from PyPI, builds both
+   succeeds: it waits until the version installs from PyPI, then for each
+   variant (the default, MySQL client; `-mariadb`, MariaDB client) builds both
    platforms from that release, scans them, pushes by digest, runs the sidecar
-   suite against the pushed digest on every engine, then tags (`X.Y.Z`; `X.Y`,
-   `X`, `latest` when it is PyPI's latest) and attests. Check that run is green.
+   suite against the pushed digest on the engines that variant is for, then
+   tags and attests: `X.Y.Z` and `X.Y.Z-mariadb`; `X.Y`, `X`, `latest` and
+   `X.Y-mariadb`, `X-mariadb`, `mariadb` when it is PyPI's latest. Check that
+   every leg of that run is green; a failed variant publishes neither.
    To build an existing release (1.0.0, the first image) or rebuild one (a new
    base, a fixed CVE): `gh workflow run docker.yml -f version=X.Y.Z`.
    [docs/docker.md](docs/docker.md) has the details.

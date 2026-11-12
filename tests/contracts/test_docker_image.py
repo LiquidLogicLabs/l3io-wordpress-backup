@@ -16,6 +16,7 @@ import copy
 import json
 import pathlib
 import re
+from collections.abc import Callable
 
 import pytest
 import yaml
@@ -522,3 +523,295 @@ def test_a_registry_off_by_default_without_a_leg_is_reported() -> None:
     doc = copy.deepcopy(_wf())
     doc["env"]["DOCKERHUB_ENABLED"] = "${{ vars.DOCKERHUB_ENABLED || 'false' }}"
     assert registry_findings(doc, _legs())
+
+
+# ---- image variants (owner decision 81): each scanned, attested, smoked -------
+#
+# The variant dimension's one source is docker.yml's `build` matrix (`variant`,
+# `db_client`); the clients it must cover are the Dockerfile's own DB_CLIENT
+# choices (its `case`). From those, every other place that names a variant is
+# checked: build's per-variant digest output, its scan and its push (the
+# client passed, SBOM, provenance), the smoke legs (each variant on at least
+# one engine, a client on its own family's server), the publish legs (suffixed
+# tags, the floating tag, the attestation of that variant's digest, the
+# anonymous pull), ci.yml's `image` job (every client built and smoked) and the
+# Makefile's `image-smoke` legs (the same as docker.yml's smoke legs).
+
+CI_WF = ROOT / ".github" / "workflows" / "ci.yml"
+MAKEFILE = ROOT / "Makefile"
+DIGEST_REF = "needs.build.outputs[format('digest_{0}', matrix.variant)]"
+
+
+def dockerfile_clients(text: str) -> set[str]:
+    """The DB_CLIENT values the Dockerfile's ``case`` accepts."""
+    return set(re.findall(r"^\s*(\w+)\)\s+client=", text, flags=re.M))
+
+
+def _family(client: str) -> str:
+    return "mariadb" if client == "mariadb" else "mysql"
+
+
+def _engine_family(engine: str) -> str:
+    return "mariadb" if engine.startswith("mariadb") else "mysql"
+
+
+def _matrix_legs(matrix: dict) -> list[dict]:
+    """A matrix's legs: the cross product less ``exclude``, plus ``include``."""
+    axes = {k: v for k, v in matrix.items() if k not in {"include", "exclude"}}
+    legs: list[dict] = [{}] if axes else []
+    for key, values in axes.items():
+        legs = [{**leg, key: v} for leg in legs for v in values]
+    for gone in matrix.get("exclude") or []:
+        legs = [leg for leg in legs if any(leg.get(k) != v for k, v in gone.items())]
+    return legs + list(matrix.get("include") or [])
+
+
+def makefile_legs(text: str) -> set[tuple[str, str]]:
+    m = re.search(r"^IMAGE_LEGS \?= (.*)$", text, flags=re.M)
+    if not m:
+        return set()
+    return {tuple(leg.split(":", 1)) for leg in m[1].split()}  # type: ignore[misc]
+
+
+def variant_findings(doc: dict, ci: dict, dockerfile: str, makefile: str) -> list[str]:
+    findings: list[str] = []
+    jobs = doc["jobs"]
+    build = jobs["build"]
+    variants = {
+        leg["variant"]: leg["db_client"]
+        for leg in _matrix_legs(build.get("strategy", {}).get("matrix") or {})
+        if "variant" in leg and "db_client" in leg
+    }
+    if not variants:
+        return ["docker.yml build has no variant matrix"]
+    clients = dockerfile_clients(dockerfile)
+    if not clients:
+        findings.append("the Dockerfile's DB_CLIENT choices could not be read")
+    for client in sorted(clients - set(variants.values())):
+        findings.append(f"DB_CLIENT={client} is built by no variant")
+    for client in sorted(set(variants.values()) - clients):
+        findings.append(
+            f"a variant builds DB_CLIENT={client}, which the Dockerfile refuses"
+        )
+    # build: a digest output per variant, from the push step only.
+    outputs = build.get("outputs") or {}
+    for variant in variants:
+        expr = str(outputs.get(f"digest_{variant}", ""))
+        if (
+            f"matrix.variant == '{variant}'" not in expr
+            or "steps.push.outputs.digest" not in expr
+        ):
+            findings.append(f"build has no digest_{variant} output from its push")
+    steps = build.get("steps") or []
+    scan = [s for s in steps if "trivy" in str(s.get("run", ""))]
+    if not scan or not any(
+        str((s.get("env") or {}).get("DB_CLIENT")) == "${{ matrix.db_client }}"
+        and '--build-arg "DB_CLIENT=$DB_CLIENT"' in s["run"]
+        and "--ignore-unfixed --exit-code 1" in s["run"]
+        for s in scan
+    ):
+        findings.append("build's scan does not build and gate each variant's client")
+    push = [s for s in steps if s.get("id") == "push"]
+    with_ = (push[0].get("with") or {}) if push else {}
+    if "DB_CLIENT=${{ matrix.db_client }}" not in str(with_.get("build-args", "")):
+        findings.append("build's push does not pass the variant's DB_CLIENT")
+    if with_.get("sbom") is not True or "mode=max" not in str(with_.get("provenance")):
+        findings.append("build's push has no SBOM or no max provenance")
+    # smoke: each variant on at least one engine, a client on its own family.
+    smoke = jobs["smoke"]
+    smoke_legs = _matrix_legs(smoke.get("strategy", {}).get("matrix") or {})
+    for variant, client in variants.items():
+        engines = {leg["engine"] for leg in smoke_legs if leg.get("variant") == variant}
+        if not engines:
+            findings.append(f"smoke never runs the {variant} variant")
+        elif _family(client) not in {_engine_family(e) for e in engines}:
+            findings.append(
+                f"smoke never runs the {variant} variant on a {_family(client)} server"
+            )
+    if any(leg.get("variant") not in variants for leg in smoke_legs):
+        findings.append("smoke runs a variant build does not build")
+    if DIGEST_REF not in yaml.safe_dump(smoke, width=10**6):
+        findings.append("smoke does not test each variant's own digest")
+    # publish: per variant, its suffixed tags, attestation and anonymous pull.
+    publish = jobs["publish"]
+    publish_legs = _matrix_legs(publish.get("strategy", {}).get("matrix") or {})
+    published = {leg.get("variant"): leg for leg in publish_legs}
+    for variant in variants:
+        leg = published.get(variant)
+        if leg is None:
+            findings.append(f"publish never tags the {variant} variant")
+            continue
+        suffix, floating = (
+            ("", "latest") if variant == "default" else (f"-{variant}", variant)
+        )
+        if leg.get("suffix") != suffix or leg.get("floating") != floating:
+            findings.append(
+                f"publish tags {variant} as "
+                f"{leg.get('suffix')!r}/{leg.get('floating')!r}"
+            )
+    if set(published) - set(variants):
+        findings.append("publish tags a variant build does not build")
+    if str((publish.get("env") or {}).get("DIGEST")) != "${{ " + DIGEST_REF + " }}":
+        findings.append("publish does not take each variant's own digest")
+    meta = next(
+        (
+            s
+            for s in publish.get("steps") or []
+            if "docker/metadata-action" in str(s.get("uses"))
+        ),
+        {},
+    )
+    tags = str((meta.get("with") or {}).get("tags", "")).strip().splitlines()
+    semver = [t for t in tags if t.startswith("type=semver")]
+    if len(semver) != 3 or not all(
+        t.endswith("suffix=${{ matrix.suffix }}") for t in semver
+    ):
+        findings.append("publish's semver tags do not all carry the variant's suffix")
+    if not any(t.startswith("type=raw,value=${{ matrix.floating }}") for t in tags):
+        findings.append("publish's floating tag is not the variant's")
+    attests = [
+        s
+        for s in publish.get("steps") or []
+        if "attest-build-provenance" in str(s.get("uses"))
+    ]
+    if not attests or any(
+        s["with"].get("subject-digest") != "${{ env.DIGEST }}" for s in attests
+    ):
+        findings.append(
+            "publish does not attest each variant's digest in every registry"
+        )
+    if not any(
+        "anonymously" in str(s.get("name", "")) for s in publish.get("steps") or []
+    ):
+        findings.append("publish does not check each variant's tags pull anonymously")
+    # ci.yml image job: every client built from the checkout and smoked.
+    ci_legs = _matrix_legs(ci["jobs"]["image"].get("strategy", {}).get("matrix") or {})
+    for client in sorted(clients):
+        engines = {
+            leg.get("engine", "") for leg in ci_legs if leg.get("client") == client
+        }
+        if _family(client) not in {_engine_family(e) for e in engines}:
+            findings.append(
+                f"ci.yml image never smokes the {client} client on its own family"
+            )
+    # the Makefile's image-smoke legs are docker.yml's smoke legs.
+    want = {
+        (variants[leg["variant"]], leg["engine"])
+        for leg in smoke_legs
+        if leg.get("variant") in variants
+    }
+    if makefile_legs(makefile) != want:
+        findings.append(
+            f"Makefile IMAGE_LEGS {sorted(makefile_legs(makefile))} != "
+            f"docker.yml smoke {sorted(want)}"
+        )
+    return findings
+
+
+def _variant_inputs() -> tuple[dict, dict, str, str]:
+    return (
+        _wf(),
+        _load(CI_WF),
+        DOCKERFILE.read_text(encoding="utf-8"),
+        MAKEFILE.read_text(encoding="utf-8"),
+    )
+
+
+def test_there_are_variants_to_check() -> None:
+    doc, _ci, dockerfile, _make = _variant_inputs()
+    assert dockerfile_clients(dockerfile) == {"mysql", "mariadb"}
+    assert {
+        leg["variant"]
+        for leg in _matrix_legs(doc["jobs"]["build"]["strategy"]["matrix"])
+    } == {
+        "default",
+        "mariadb",
+    }
+
+
+def test_every_variant_is_scanned_attested_and_smoked() -> None:
+    assert variant_findings(*_variant_inputs()) == []
+
+
+def _drop(job: str, variant: str) -> Callable[[dict, dict, list[str]], None]:
+    def plant(doc: dict, _ci: dict, _text: list[str]) -> None:
+        matrix = doc["jobs"][job]["strategy"]["matrix"]
+        if "variant" in matrix:
+            matrix["variant"] = [v for v in matrix["variant"] if v != variant]
+        matrix["include"] = [
+            i for i in matrix.get("include") or [] if i.get("variant") != variant
+        ]
+
+    return plant
+
+
+def _plant_new_client(_doc: dict, _ci: dict, text: list[str]) -> None:
+    text[0] = text[0].replace(
+        "mariadb) client=mariadb-client ;;",
+        "mariadb) client=mariadb-client ;; \\\n"
+        "      percona) client=percona-server-client ;;",
+    )
+
+
+def _plant_variant_without_output(doc: dict, _ci: dict, _text: list[str]) -> None:
+    doc["jobs"]["build"]["outputs"].pop("digest_mariadb")
+
+
+def _plant_scan_without_client(doc: dict, _ci: dict, _text: list[str]) -> None:
+    for step in doc["jobs"]["build"]["steps"]:
+        if "trivy" in str(step.get("run", "")):
+            step["run"] = step["run"].replace('--build-arg "DB_CLIENT=$DB_CLIENT"', "")
+
+
+def _plant_unsuffixed_tags(doc: dict, _ci: dict, _text: list[str]) -> None:
+    for step in doc["jobs"]["publish"]["steps"]:
+        if "docker/metadata-action" in str(step.get("uses")):
+            step["with"]["tags"] = step["with"]["tags"].replace(
+                ",suffix=${{ matrix.suffix }}", ""
+            )
+
+
+def _plant_mariadb_only_on_mysql(doc: dict, _ci: dict, _text: list[str]) -> None:
+    doc["jobs"]["smoke"]["strategy"]["matrix"]["exclude"] = [
+        {"variant": "mariadb", "engine": "mariadb"}
+    ]
+
+
+def _plant_ci_drops_a_client(_doc: dict, ci: dict, _text: list[str]) -> None:
+    matrix = ci["jobs"]["image"]["strategy"]["matrix"]
+    matrix["include"] = [i for i in matrix["include"] if i.get("client") != "mariadb"]
+
+
+def _plant_makefile_drift(_doc: dict, _ci: dict, text: list[str]) -> None:
+    text[1] = re.sub(
+        r"^(IMAGE_LEGS \?= .*?) mariadb:mariadb", r"\1", text[1], flags=re.M
+    )
+
+
+def _plant_shared_digest(doc: dict, _ci: dict, _text: list[str]) -> None:
+    doc["jobs"]["publish"]["env"]["DIGEST"] = (
+        "${{ needs.build.outputs.digest_default }}"
+    )
+
+
+VARIANT_PLANTS = {
+    "a Dockerfile client no variant builds": _plant_new_client,
+    "a variant without its digest output": _plant_variant_without_output,
+    "a scan that ignores the client": _plant_scan_without_client,
+    "the mariadb variant never smoked": _drop("smoke", "mariadb"),
+    "the mariadb variant never published": _drop("publish", "mariadb"),
+    "a client smoked only on the other family": _plant_mariadb_only_on_mysql,
+    "suffix-less tags (a variant overwrites the default)": _plant_unsuffixed_tags,
+    "every variant published from one digest": _plant_shared_digest,
+    "ci.yml no longer smokes a client": _plant_ci_drops_a_client,
+    "the Makefile's legs drift from docker.yml's": _plant_makefile_drift,
+}
+
+
+@pytest.mark.parametrize("plant", VARIANT_PLANTS.values(), ids=VARIANT_PLANTS.keys())
+def test_a_planted_variant_violation_is_reported(plant) -> None:  # noqa: ANN001
+    doc, ci, dockerfile, makefile = _variant_inputs()
+    assert variant_findings(doc, ci, dockerfile, makefile) == []
+    texts = [dockerfile, makefile]
+    plant(doc, ci, texts)
+    assert variant_findings(doc, ci, texts[0], texts[1])

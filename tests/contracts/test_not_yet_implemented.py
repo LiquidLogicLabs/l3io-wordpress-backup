@@ -222,6 +222,7 @@ ROOT_MODULES: dict[str, str] = {
     "restore": "restore.py",
     "verify": "verify.py",
     "doctor": "doctor.py",
+    "prune": "prune.py",
 }
 #: AD-22's forced exception: the one entry that is never bound.
 FOREVER_UNBOUND = frozenset({"restore --only-appointed-in-asg"})

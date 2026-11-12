@@ -83,6 +83,21 @@ Ctrl-C (`KeyboardInterrupt`) carries `exit_code` `130` and `exit_reason`
 exits 130 and prints one line, no traceback. They are the first and last
 records of every Run.
 
+**A warning from the database library.** `l3io.wp.database` reports what a
+check found as findings, each with a stable `code`. A warning finding (one
+that does not stop the Run, such as `client_server_skew`: the dump client is
+older than the server or of the other family) is logged at `warning` with
+`event` `database_warning`, the finding's `code`, its text in `message`, and
+`operation` and `database`. Select on the code, never on the text:
+
+```sh
+jq -c 'select(.event == "database_warning") | {code, message, operation}' backup.log
+```
+
+The library itself (0.3.5) puts the text in `event`; `wpbackup2`'s logging
+renames the record (`cli/logging.name_database_warnings`), so a Python caller
+that configures its own logging sees the library's form.
+
 Before preflight, a backup logs one `planned_action` record per action it
 plans, in order — `ordinal`, `step`, the rendered `action` line and the step's
 parameters (the collection line adds `exclusion_source` and
@@ -117,6 +132,10 @@ never appear in any of them.
 | `archive_database_unused` | INFO | `--archive-database` was given but the target has its own `wp-config.php`, so it was not used |
 | `archive_directory_not_synced` | WARNING | The destination directory could not be fsynced after the Archive was renamed into place; the Archive is published (`path`, `reason`) |
 | `archive_latest_selected` | INFO | `--archive latest` chose this site's newest Archive (`archive`, `created_at`, `archive_dir`, `considered`, `matched`; owner decision 64) |
+| `archive_pruned` | INFO | `prune` removed one of this site's Archives, or in a Dry Run would (`path`, `bytes`, `created_at`, `performed`; owner decision 83) |
+| `archive_prune_failed` | WARNING | `prune` chose an Archive and left it in place: it changed after it was read, or could not be removed (`path`, `reason`); the command then exits 1 |
+| `archive_prune_skipped` | INFO | `prune` found a `*.tar.gz` entry that is not a regular file (a symlink, a directory) and did not consider it (`path`, `reason`) |
+| `prune_completed` | INFO | A prune finished: `archive_dir`, `keep`, `kept`, `pruned`, `bytes`, `skipped`, `considered`, `matched`, `performed` |
 | `archive_manifest_unread` | DEBUG | `--archive latest` could not read a file's leading Manifest and skips it (`path`, `error`, the class name) |
 | `archive_not_encrypted` | WARNING | A restore was given a passphrase but the Archive is not encrypted; it proceeds (`archive`, `reason`; `--require-encrypted` refuses instead; owner decision 59) |
 | `archive_discarded` | INFO | A staged Archive was removed without being published (`path`, its final name) |
@@ -191,6 +210,7 @@ never appear in any of them.
 | `restore_mode_resolved` | INFO | The restore flags resolved to one Mode (`restore_mode`, `overrides`, `snapshot_policy`, `flags`) |
 | `restore_refused` | ERROR | FR-7 refused a non-empty target (`reason`, `parts`, `found`) |
 | `backup_runs_as_site_owner` | INFO | A backup started as root switched to the uid and gid that own the Site Root, after reading the passphrase and the database credentials (`uid`, `gid`, `user`, `home`; owner decision 67) |
+| `prune_runs_as_site_owner` | INFO | A prune started as root switched to the uid and gid that own the Site Root (`uid`, `gid`, `user`, `home`; as owner decision 67) |
 | `restore_runs_as_site_owner` | INFO | A restore started as root switched to the uid and gid that own the Site Root, after reading what only root may read (`uid`, `gid`, `user`, `home`; owner decision 58) |
 | `run_finished` | INFO, ERROR | A Run ended; see [the record schema](#the-record-schema) |
 | `run_started` | INFO | A Run began; see [the record schema](#the-record-schema) |

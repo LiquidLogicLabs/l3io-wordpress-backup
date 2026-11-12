@@ -87,8 +87,9 @@ __all__ = [
 
 _log = structlog.get_logger(__name__)
 
-#: The Runs that switch (the CLI) or refuse (the library) as root.
-Operation = Literal["backup", "restore"]
+#: The Runs that switch (the CLI) or refuse (the library) as root. ``prune``
+#: (owner decision 83) is part of the backup cycle: refused as a backup is.
+Operation = Literal["backup", "restore", "prune"]
 
 #: Why a root-owned Site Root is refused.
 ROOT_OWNED_SITE_ROOT: Final = (
@@ -134,7 +135,7 @@ def running_as_root() -> bool:
 def _refusal(
     operation: Operation, site_root: Path, reason: str
 ) -> RootBackupRefusedError | RootRestoreRefusedError:
-    if operation == "backup":
+    if operation in ("backup", "prune"):
         return RootBackupRefusedError(site_root=str(site_root), reason=reason)
     return RootRestoreRefusedError(site_root=str(site_root), reason=reason)
 
@@ -224,6 +225,8 @@ def switch_to(
         environ["HOME"] = owner.home
     if operation == "backup":
         _switched("backup_runs_as_site_owner", owner)
+    elif operation == "prune":
+        _switched("prune_runs_as_site_owner", owner)
     else:
         _switched("restore_runs_as_site_owner", owner)
     require_installation_readable(owner, installation)

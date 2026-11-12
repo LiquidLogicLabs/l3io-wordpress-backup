@@ -39,9 +39,10 @@ extendable: an operator's patterns follow the defaults, or replace them when
 the defaults are switched off.
 
 **Always left out, whatever the flags say:** the Archive being written, earlier
-Archives under the default name (`wpbackup2-*.tar.gz`) and staged files a
-killed Run left (`.wpbackup2-*.tar.gz.*.partial`), anywhere under the Site
-Root. A backup run from the docroot, where the default target lands, would
+Archives under the default name (`wpbak-*.tar.gz`, and the name before 1.1.0,
+`wpbackup2-*.tar.gz`) and staged files a killed Run left
+(`.wpbak-*.tar.gz.*.partial`, `.wpbackup2-*.tar.gz.*.partial`), anywhere under
+the Site Root. A backup run from the docroot, where the default target lands, would
 otherwise hold every earlier Archive and double in size each run
 (BL-E002-100; `tests/unit/cli/test_archive_not_collected.py`). They are
 recorded in the Manifest's excluded paths like any other exclusion.

@@ -481,7 +481,11 @@ _PRE_SITE = {None, RestorePhase.PREFLIGHT, RestorePhase.VERIFY, RestorePhase.SNA
 
 def _snapshot(header: JournalHeader) -> str:
     if header.snapshot_path is None:
-        return "no Safety Snapshot: opted out"
+        why = {
+            "opted_out": "opted out (--no-safety-snapshot)",
+            "target_empty": "not needed: the target was empty",
+        }.get(str(header.snapshot_skipped), "none was taken")
+        return f"no Safety Snapshot: {why}"
     return f"restore files from Safety Snapshot {header.snapshot_path}"
 
 

@@ -7,6 +7,87 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Changed: the default Archive name is `wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz` (owner decision 82)
+
+- **The name a backup gives an Archive without `--archive`** was
+  `wpbackup2-<db>-<YYYYmmddHHMMSS>.tar.gz`; it is now
+  `wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz` (UTC, ISO-style, so one site's
+  Archives sort by time). Scripts that match the old name must match the new
+  one too.
+- **`<site>` is the new setting `site_name`**: `--site-name`,
+  `L3IO_WP_BACKUP_SITE_NAME`, or `site_name` in the config file; without it,
+  the database name. Characters outside `A-Z a-z 0-9 . _ -` become `-`; a value
+  with none left is refused (exit 2).
+- **Old Archives keep working.** `restore --archive latest` chooses by each
+  Archive's Manifest, never its name, so `wpbackup2-*` and `wpbak-*` Archives
+  of a site are found alike, and another site's never. Both names are left out
+  of a backup of a Site Root that holds them, and the stale `.partial` sweep
+  removes a killed Run's staged file under either. `--archive` still names any
+  Archive. The Manifest is unchanged: it already records the site (its root and
+  database), and the name is only a label.
+
+### Added: `wpbackup2 prune --keep N`, and pruning in the image (owner decision 83)
+
+- **`wpbackup2 prune --keep N`** deletes this site's older Archives in the
+  Archive directory, keeping the newest N (at least 1) by Manifest
+  `created_at`. "This site's" is the matching `--archive latest` uses, so
+  `wpbak-*`, legacy `wpbackup2-*` and renamed Archives count alike. Never
+  deleted: the newest Archive, Safety Snapshots, another site's Archives,
+  files whose Manifest cannot be read, symlinks and `.partial` files.
+  `--keep` is required (also `L3IO_WP_BACKUP_KEEP`, config key `keep`). It
+  takes the Site Lock, removes each file only if it is still the one read,
+  logs `archive_pruned` per file and `prune_completed`, and `--whatIf` lists
+  without deleting. Started as root it runs as the Site Root's owner.
+- **`api.prune(site, keep=..., archive_dir=None, dry_run=False)`** returns a
+  `PruneResult`; `PruneFailedError` (exit 1) when a chosen Archive could not
+  be removed.
+- **The image prunes after each successful scheduled backup**, keeping 14
+  (`WPBACKUP_KEEP`; `0` disables it; a value that is not a whole number stops
+  the container at start). One-shot runs prune only when asked.
+
+### Added: a MariaDB-client image variant (owner decision 81)
+
+- **`:X.Y.Z-mariadb`, `:X.Y-mariadb`, `:X-mariadb`, `:mariadb`**, built with
+  `DB_CLIENT=mariadb` beside the default (MySQL client) image, on GHCR and
+  Docker Hub. For MariaDB servers: its `mariadb-dump` logs no
+  `client_server_skew`, which the default image's MySQL 8.4 `mysqldump` logs on
+  every dump of a MariaDB server. It does not work against MySQL (8.0 and 8.4:
+  the dump exits 2); use the default image there. The default image is
+  unchanged.
+- Each variant has its own scan, SBOM and provenance, sidecar suite (the
+  `-mariadb` one on MariaDB), attestation and anonymous-pull check.
+  [docs/docker.md](docs/docker.md#which-variant) says which to pick.
+
+### Changed: a restore its user cannot write is refused before any effect (Phase 3)
+
+- **`TargetNotWritableError`, exit 3**, a Dry Run too: the target survey
+  checks that the user the Run runs as can write the Site Root, the existing
+  directories and files the Archive's files go into or replace, every
+  directory `--cleanfirst` clears, and where a laid-down `wp-config.php` goes,
+  and names what it cannot and the uid. Before, such a restore passed
+  `PREFLIGHT` and `VERIFY`, failed at `EXTRACT` with "could not write archive
+  '/var/www/html'", and left an interrupted Run needing
+  `--resolve-interrupted-run`. `--force` does not waive it.
+- **The extraction's own write failure names the Site Root**
+  (`ExtractionWriteError`, a subclass of `ArchiveWriteError`, exit 1
+  unchanged): "could not write into the Site Root '<path>'", not "could not
+  write archive".
+- **The undo text says why there is no Safety Snapshot**: "not needed: the
+  target was empty" or "opted out (--no-safety-snapshot)", recorded in the Run
+  Journal (`snapshot_skipped`). It said "opted out" whatever the reason. A
+  journal an earlier version wrote still reads, and says "none was taken".
+- **Docs:** restoring an Archive another uid wrote (the usual disaster-recovery
+  case) is a restore started as root, `PUID=0` in the image; the command then
+  runs as the Site Root's owner ([docs/restore.md](docs/restore.md#running-as-root),
+  [docs/docker.md](docs/docker.md#restoring-an-archive-another-user-wrote)).
+
+### Fixed: a database warning's log record has an event name
+
+- `l3io.wp.database` logs a warning finding (such as `client_server_skew`)
+  with its text as `event`. `wpbackup2` now logs it as `event`
+  `database_warning`, the finding's `code` kept and the text in `message`, so
+  a log query can select on it ([docs/logging.md](docs/logging.md)).
+
 ### Added: the official Docker image (owner decisions 77–80)
 
 - **`ghcr.io/liquidlogiclabs/l3io-wordpress-backup`** and

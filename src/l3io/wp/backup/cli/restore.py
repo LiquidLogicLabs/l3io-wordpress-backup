@@ -196,11 +196,13 @@ from l3io.wp.backup.domain.archive_format import (
     Integrity,
     Manifest,
     ManifestOrigin,
+    MemberRole,
     OriginKind,
     classify,
     config_member,
     ignore_unknown,
     manifest_from_json,
+    member_relative,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
@@ -224,11 +226,14 @@ from l3io.wp.backup.domain.journal import (
     JOURNALED_CONSTANTS,
     JournalHeader,
     JournalRecord,
+    SnapshotSkipped,
 )
 from l3io.wp.backup.domain.restore import (
     ConfigPolicy,
     RestoreMode,
     RestorePhase,
+    SnapshotPolicy,
+    clears_site_root,
     restores_database,
     restores_files,
 )
@@ -571,6 +576,35 @@ def _ports(
     )
 
 
+def _writes(
+    view: ArchiveView,
+    *,
+    site_root: Path,
+    mode: RestoreMode,
+    relocation: RestoreRelocation,
+    target_config: Path,
+) -> list[Path]:
+    """Every path the Run's ``EXTRACT`` would create or replace (Phase 3).
+
+    The Archive's ``site-root`` members in a Mode that restores files, less
+    the root ``wp-config.php`` (an existing one is kept; a missing one is
+    created, which its directory decides), and a laid-down
+    ``wp-config.php``.
+    """
+    writes: list[Path] = []
+    if restores_files(mode):
+        for member in view.members:
+            located = member_relative(view, member.path)
+            if located is None or located[0] is not MemberRole.SITE_ROOT:
+                continue
+            relative = located[1]
+            if relative and relative != WP_CONFIG_NAME:
+                writes.append(site_root / relative)
+    if relocation.lay_down_config:
+        writes.append(Path(relocation.config_file or target_config))
+    return writes
+
+
 def _surveyor(
     run: RunContext,
     *,
@@ -580,6 +614,7 @@ def _surveyor(
     mode: RestoreMode,
     relocation: RestoreRelocation,
     wordpress_user: str,
+    view: ArchiveView,
 ) -> Callable[[], TargetState]:
     """The target's survey, through query ports only (BL-E003-035).
 
@@ -588,9 +623,19 @@ def _surveyor(
     administrator (owner decision 55, AD-29 as amended), so
     ``TargetState.database`` is ``None`` only for a Mode that does not touch
     it: "not looked at" is never read as "empty". A relocated load database
-    is surveyed as the account that loads it.
+    is surveyed as the account that loads it. Whether the Run's effective
+    user can write what it would write (:func:`_writes`) is surveyed in a
+    Mode that writes files, so ``check_target`` refuses before any effect.
     """
     location = site.database_location()
+    writes = _writes(
+        view,
+        site_root=site_root,
+        mode=mode,
+        relocation=relocation,
+        target_config=target_config,
+    )
+    writes_files = restores_files(mode) or relocation.lay_down_config
 
     def database(
         at: DatabaseLocation | None, query: DatabaseQuery
@@ -623,9 +668,29 @@ def _surveyor(
                 relocation.load_location, run.adapters.restore_database_query
             ),
             load_location=relocation.load_location,
+            unwritable=tuple(
+                PurePosixPath(p)
+                for p in files.unwritable(
+                    site_root, writes, clean=clears_site_root(mode)
+                )
+            )
+            if writes_files
+            else (),
+            effective_uid=os.geteuid(),
         )
 
     return survey
+
+
+def _snapshot_skipped(
+    request: RestoreRequest, plan: RestorePlan
+) -> SnapshotSkipped | None:
+    """Why the plan takes no Safety Snapshot, for the undo text; ``None`` if it does."""
+    if RestorePhase.SNAPSHOT in plan.phases:
+        return None
+    if request.snapshot is SnapshotPolicy.SKIP:
+        return "opted_out"
+    return "target_empty"
 
 
 def _log_plan(plan: RestorePlan, target: TargetState) -> None:
@@ -926,6 +991,7 @@ def drive_restore(
             mode=request.mode,
             relocation=relocation,
             wordpress_user=relocation.cutover_user or db_user,
+            view=view,
         )
         snapshot_dir = _snapshot_dir(request, site_root)
         try:
@@ -988,6 +1054,7 @@ def drive_restore(
             prior_constants=_prior_constants(run, descriptor_file),
             phase_undo=dict(relocation.undo),
             saved_config=saved_config,
+            snapshot_skipped=_snapshot_skipped(request, plan),
         )
         inputs = RestoreInputs(
             site=site,

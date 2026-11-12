@@ -40,7 +40,7 @@ from typing import Final
 import structlog
 
 from l3io.wp.backup.domain.errors import ArchiveWriteError, BackupError
-from l3io.wp.backup.domain.storage_target import DEFAULT_ARCHIVE_NAME_GLOB
+from l3io.wp.backup.domain.storage_target import DEFAULT_ARCHIVE_NAME_GLOBS
 
 __all__ = [
     "PRIVATE_DIR_MODE",
@@ -285,12 +285,13 @@ STAGED_SUFFIX = ".partial"
 def sweep_stale_partials(directory: Path, name: str, *, now: float) -> tuple[Path, ...]:
     """:func:`sweep_stale` over ``directory``'s staged files of Archive ``name``.
 
-    Those of ``name`` itself and of any default-named Archive
-    (``.<name>.<random>.partial``, the store's staging spelling).
+    Those of ``name`` itself and of any default-named Archive, today's
+    ``wpbak-*`` and the legacy ``wpbackup2-*`` (``.<name>.<random>.partial``,
+    the store's staging spelling).
     """
     globs = {
         f".{name}.*{STAGED_SUFFIX}",
-        f".{DEFAULT_ARCHIVE_NAME_GLOB}.*{STAGED_SUFFIX}",
+        *(f".{each}.*{STAGED_SUFFIX}" for each in DEFAULT_ARCHIVE_NAME_GLOBS),
     }
     try:
         candidates = sorted({p for g in globs for p in directory.glob(g)})

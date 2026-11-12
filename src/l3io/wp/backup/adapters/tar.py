@@ -115,6 +115,7 @@ from l3io.wp.backup.domain.errors import (
     ArchiveWriteError,
     BackupError,
     ExtractionRefusedError,
+    ExtractionWriteError,
     ManifestTooLargeError,
     MemberReadRefusedError,
     PassphraseRejectedError,
@@ -1493,7 +1494,8 @@ def extract_archive(
     ``decrypt_payload`` stream members and write none to a destination.
     Members written before a refusal stay written. A ``payload`` that cannot be
     opened is :class:`ArchiveReadError`; any other ``OSError`` while extracting
-    is :class:`ArchiveWriteError` naming ``destination``.
+    is :class:`ExtractionWriteError` naming ``destination`` as what it is (the
+    Site Root, for the ``site-root`` role).
     """
     _check_exclude(exclude)
     require_patched_tarfile()
@@ -1531,7 +1533,14 @@ def extract_archive(
     except (tarfile.TarError, EOFError, zlib.error, gzip.BadGzipFile) as exc:
         raise ArchiveReadError(payload or archive, _reason(exc)) from exc
     except OSError as exc:
-        raise ArchiveWriteError(destination, _reason(exc)) from exc
+        kind = (
+            "the Site Root"
+            if roles == {MemberRole.SITE_ROOT}
+            else "the directory wp-config.php is laid down in"
+            if roles == {MemberRole.CONFIG}
+            else "the extraction directory"
+        )
+        raise ExtractionWriteError(destination, _reason(exc), destination=kind) from exc
     return ExtractResult(
         members=extract.members,
         bytes=extract.bytes,

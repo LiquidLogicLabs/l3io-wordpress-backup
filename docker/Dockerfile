@@ -139,7 +139,8 @@ COPY root/ /
 # directory, so a backup is `wpbackup2 backup` and a restore
 # `wpbackup2 restore --archive latest`, with no flags. PUID/PGID: the base's
 # `abc` user, moved to www-data's ids by default. WPBACKUP_SCHEDULE: the
-# scheduled mode's daily backup (docker/root/usr/local/bin/l3io-wpbackup-crontab).
+# scheduled mode's daily backup, and WPBACKUP_KEEP the prune after each
+# successful one (docker/root/usr/local/bin/l3io-wpbackup-crontab).
 ENV PATH=/opt/wpbackup/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     VIRTUAL_ENV=/opt/wpbackup \
     HOME=/home/wpbackup \
@@ -151,6 +152,7 @@ ENV PATH=/opt/wpbackup/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sb
     PUID=33 \
     PGID=33 \
     WPBACKUP_SCHEDULE="0 3 * * *" \
+    WPBACKUP_KEEP=14 \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
 # The uid/gid that owns the WordPress files: www-data (33) in the official

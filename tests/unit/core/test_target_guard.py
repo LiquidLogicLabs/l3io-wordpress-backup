@@ -15,7 +15,7 @@ does not waive it.
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -406,3 +406,35 @@ def test_routines_without_a_prefixed_table_need_the_waiver() -> None:
     target = dataclasses.replace(EMPTY, database=routines)
     with pytest.raises(NonEmptyTargetError):
         check_target(RestoreMode.DATABASE, OverrideSet.none(), target)
+
+
+# ---- Phase 3: a Site Root the Run cannot write, refused before any effect ----
+
+
+@pytest.mark.parametrize("mode", list(RestoreMode))
+def test_an_unwritable_target_is_refused_naming_the_paths_and_the_uid(
+    mode: RestoreMode,
+) -> None:
+    from l3io.wp.backup.domain.errors import TargetNotWritableError
+
+    target = dataclasses.replace(
+        EMPTY,
+        unwritable=(PurePosixPath("/var/www/html"), PurePosixPath("/var/www/html/x")),
+        effective_uid=33,
+    )
+    waived = OverrideSet(frozenset(Override))
+    if not restores_files(mode):
+        # The survey reports nothing for a Mode that writes no file.
+        check_target(mode, waived, dataclasses.replace(target, unwritable=()))
+        return
+    with pytest.raises(TargetNotWritableError) as caught:
+        check_target(mode, waived, target)  # --force does not waive it
+    error = caught.value
+    assert error.paths == ("/var/www/html", "/var/www/html/x")
+    assert error.uid == 33
+    assert exit_code_for(error) is ExitCode.REFUSED
+    text = str(error)
+    assert "'/var/www/html'" in text
+    assert "uid 33" in text
+    assert "PUID=0" in text
+    assert "nothing was changed" in text

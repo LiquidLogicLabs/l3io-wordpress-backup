@@ -372,3 +372,102 @@ def test_a_mode_000_site_root_is_refused_not_read_as_empty(
         site.chmod(0o755)
     assert caught.value.exit_code is ExitCode.REFUSED
     assert str(site) in str(caught.value)
+
+
+# ---- what an extraction would write, and whether this user can (Phase 3) ------
+
+_AS_ROOT = pytest.mark.skipif(
+    os.geteuid() == 0, reason="root writes whatever the mode bits"
+)
+
+
+@_AS_ROOT
+def test_unwritable_names_a_site_root_this_user_cannot_write(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    root = tmp_path / "www"
+    root.mkdir()
+    root.chmod(0o555)
+    try:
+        found = files.unwritable(root, [root / "index.php"], clean=False)
+    finally:
+        root.chmod(0o755)
+    assert found == (root,)
+
+
+@_AS_ROOT
+def test_unwritable_names_the_existing_directory_a_new_file_goes_into(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    root = tmp_path / "www"
+    uploads = root / "wp-content" / "uploads"
+    uploads.mkdir(parents=True)
+    uploads.chmod(0o555)
+    try:
+        found = files.unwritable(
+            root,
+            [
+                root / "wp-content",
+                uploads,  # an existing directory member needs no write
+                uploads / "2026" / "a.jpg",  # created under uploads
+                root / "index.php",
+            ],
+            clean=False,
+        )
+    finally:
+        uploads.chmod(0o755)
+    assert found == (uploads,)
+
+
+@_AS_ROOT
+def test_unwritable_names_a_file_it_would_overwrite_and_cannot(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    root = tmp_path / "www"
+    root.mkdir()
+    (root / "index.php").write_text("<?php\n", encoding="utf-8")
+    (root / "index.php").chmod(0o444)
+    found = files.unwritable(root, [root / "index.php"], clean=False)
+    # Cleared first, it is removed, not overwritten: its directory decides.
+    cleaned = files.unwritable(root, [root / "index.php"], clean=True)
+    assert found == (root / "index.php",)
+    assert cleaned == ()
+
+
+@_AS_ROOT
+def test_clearing_needs_every_directory_of_the_tree_writable(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    root = tmp_path / "www"
+    plugins = root / "wp-content" / "plugins"
+    plugins.mkdir(parents=True)
+    plugins.chmod(0o555)
+    try:
+        assert files.unwritable(root, [], clean=True) == (plugins,)
+        assert files.unwritable(root, [], clean=False) == ()
+    finally:
+        plugins.chmod(0o755)
+
+
+@_AS_ROOT
+def test_a_file_laid_down_outside_the_site_root_checks_where_it_is_created(
+    files: LocalSiteFiles, tmp_path: Path
+) -> None:
+    root = tmp_path / "www"
+    root.mkdir()
+    above = tmp_path / "config"
+    above.mkdir()
+    above.chmod(0o555)
+    try:
+        found = files.unwritable(root, [above / "new" / "wp-config.php"], clean=False)
+    finally:
+        above.chmod(0o755)
+    assert found == (above,)
+
+
+def test_a_writable_target_has_nothing_to_report(
+    files: LocalSiteFiles, site: Path
+) -> None:
+    members = [site / "wp-config.php", site / "new" / "deep" / "file.txt"]
+    assert files.unwritable(site, members, clean=False) == ()
+    assert files.unwritable(site, members, clean=True) == ()

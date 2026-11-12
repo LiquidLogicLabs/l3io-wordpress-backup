@@ -147,7 +147,7 @@ def test_a_root_backup_runs_as_the_site_owner(
         e for e in _events(done.stderr) if e.get("event") == "backup_runs_as_site_owner"
     ]
     assert (switched["uid"], switched["gid"]) == (OWNER, OWNER)
-    (written,) = backups.glob("wpbackup2-roottest-*.tar.gz")
+    (written,) = backups.glob("wpbak-roottest-*.tar.gz")
     assert (written.stat().st_uid, written.stat().st_gid) == (OWNER, OWNER)
     assert PASSPHRASE not in done.stdout + done.stderr
     # The Run's state (the Site Lock, the Run Journal) is the owner's, where

@@ -1,4 +1,9 @@
-"""Owner decision 64 — ``restore --archive latest``: which Archive is "latest".
+"""Owner decisions 64 and 83 — "this Site's Archives": ``latest`` and ``prune``.
+
+``restore --archive latest`` names the newest of them (:func:`choose_latest`);
+``prune --keep N`` keeps the newest ``N`` and removes the rest
+(:func:`choose_prune`). Both read one ordering, :func:`site_archives`, so
+there is one definition of which Archives are this Site's.
 
 The newest, by its Manifest's ``created_at``, of the Archives in the Archive
 directory **whose Manifest is for this Site**, so a directory shared by
@@ -30,14 +35,18 @@ from datetime import datetime
 from pathlib import PurePosixPath
 
 from l3io.wp.backup.domain.archive_format import Manifest, SourceValue, parse_created_at
-from l3io.wp.backup.domain.errors import NoArchiveForSiteError
+from l3io.wp.backup.domain.errors import NoArchiveForSiteError, UsageError
 from l3io.wp.backup.domain.site import SiteDescriptor
 
 __all__ = [
     "ArchiveSite",
     "LatestCandidate",
     "LatestChoice",
+    "PruneChoice",
+    "SiteArchive",
     "choose_latest",
+    "choose_prune",
+    "site_archives",
 ]
 
 
@@ -121,6 +130,38 @@ def _created(manifest: Manifest) -> datetime | None:
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class SiteArchive:
+    """One of this Site's Archives: its path and its Manifest's ``created_at``."""
+
+    path: PurePosixPath
+    created_at: str
+
+
+def site_archives(
+    candidates: Sequence[LatestCandidate], site: ArchiveSite
+) -> list[SiteArchive]:
+    """``site``'s own backups among ``candidates``, newest first.
+
+    A Safety Snapshot (a Manifest with an ``origin``), an unreadable Manifest,
+    another site's and an unparsable ``created_at`` are left out. Ordered by
+    ``created_at``, a tie by the later file name.
+    """
+    matching: list[tuple[datetime, str, SiteArchive]] = []
+    for candidate in candidates:
+        manifest = candidate.manifest
+        if manifest is None or manifest.origin is not None:
+            continue
+        if ArchiveSite.from_source(manifest.source) != site:
+            continue
+        created = _created(manifest)
+        if created is not None:
+            archive = SiteArchive(path=candidate.path, created_at=manifest.created_at)
+            matching.append((created, candidate.path.name, archive))
+    matching.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [archive for _, _, archive in matching]
+
+
 def choose_latest(
     candidates: Sequence[LatestCandidate],
     site: ArchiveSite,
@@ -131,26 +172,46 @@ def choose_latest(
 
     Raises :class:`NoArchiveForSiteError` when none is.
     """
-    matching: list[tuple[datetime, str, PurePosixPath, str]] = []
-    for candidate in candidates:
-        manifest = candidate.manifest
-        if manifest is None or manifest.origin is not None:
-            continue
-        if ArchiveSite.from_source(manifest.source) != site:
-            continue
-        created = _created(manifest)
-        if created is not None:
-            matching.append(
-                (created, candidate.path.name, candidate.path, manifest.created_at)
-            )
+    matching = site_archives(candidates, site)
     if not matching:
         raise NoArchiveForSiteError(
             directory=directory, considered=len(candidates), site=site.describe()
         )
-    _, _, path, created_at = max(matching, key=lambda item: (item[0], item[1]))
+    newest = matching[0]
     return LatestChoice(
-        path=path,
-        created_at=created_at,
+        path=newest.path,
+        created_at=newest.created_at,
+        considered=len(candidates),
+        matched=len(matching),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PruneChoice:
+    """What ``prune --keep N`` keeps and removes, newest first in each."""
+
+    kept: tuple[PurePosixPath, ...]
+    pruned: tuple[SiteArchive, ...]
+    considered: int
+    matched: int
+
+
+def choose_prune(
+    candidates: Sequence[LatestCandidate], site: ArchiveSite, *, keep: int
+) -> PruneChoice:
+    """Keep ``site``'s newest ``keep`` Archives; the rest of its own are pruned.
+
+    ``keep`` below 1 is a :class:`UsageError`, so the newest is never pruned.
+    Nothing that is not ``site``'s own backup (:func:`site_archives`) is ever
+    in ``pruned``.
+    """
+    if keep < 1:
+        msg = f"keep must be at least 1, not {keep}: the newest archive is never pruned"
+        raise UsageError(msg, arguments=("keep",))
+    matching = site_archives(candidates, site)
+    return PruneChoice(
+        kept=tuple(a.path for a in matching[:keep]),
+        pruned=tuple(matching[keep:]),
         considered=len(candidates),
         matched=len(matching),
     )

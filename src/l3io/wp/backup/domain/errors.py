@@ -56,6 +56,7 @@ __all__ = [
     "DumpFailedError",
     "EnvironmentDrivenTargetError",
     "ExtractionRefusedError",
+    "ExtractionWriteError",
     "FlagCombinationRejectedError",
     "IncompleteInstallError",
     "IncompleteRelocationCredentialsError",
@@ -79,6 +80,7 @@ __all__ = [
     "PreflightFailedError",
     "PrivilegeDropError",
     "ProvisioningFailedError",
+    "PruneFailedError",
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
     "RootBackupRefusedError",
@@ -92,6 +94,7 @@ __all__ = [
     "SiteRootNotFoundError",
     "StoredUrlInvalidError",
     "StoredUrlMissingError",
+    "TargetNotWritableError",
     "UnboundAdapterError",
     "UndefinedConfigFunctionError",
     "UnknownInterruptedRunError",
@@ -469,6 +472,25 @@ class ArchiveWriteError(BackupError):
         self.path = path
         self.reason = reason
         super().__init__(f"could not write archive {str(path)!r}: {reason}")
+
+
+class ExtractionWriteError(ArchiveWriteError):
+    """Extracting the Archive could not write into its destination.
+
+    ``path`` is the directory extracted into, ``reason`` the operating
+    system's reason, ``destination`` what that directory is (``the Site
+    Root``, or the directory a laid-down ``wp-config.php`` goes into). An
+    :class:`ArchiveWriteError`, so the exit code is unchanged; only the
+    message names the right thing.
+    """
+
+    def __init__(self, path: PurePath, reason: str, *, destination: str) -> None:
+        self.path = path
+        self.reason = reason
+        self.destination = destination
+        BackupError.__init__(
+            self, f"could not write into {destination} {str(path)!r}: {reason}"
+        )
 
 
 class ArchiveExistsError(RefusedError):
@@ -1355,6 +1377,52 @@ class ArchiveDirectoryNotWritableError(RefusedError):
             f"Root's owner, {who}, whom a backup started as root runs as; give "
             "that user write access to it, or name another with --archive-dir "
             "or --archive; nothing was changed"
+        )
+
+
+class PruneFailedError(BackupError):
+    """Some Archives a prune chose could not be removed (owner decision 83).
+
+    The others were. ``failures`` holds each ``(path, reason)``; ``exit_code``
+    is ``FAILED``.
+    """
+
+    def __init__(self, *, failures: tuple[tuple[str, str], ...]) -> None:
+        self.failures = failures
+        named = "; ".join(f"{path!r}: {reason}" for path, reason in failures[:3])
+        super().__init__(
+            f"{len(failures)} archive(s) chosen to be pruned were left in place: "
+            f"{named}"
+        )
+
+
+class TargetNotWritableError(RefusedError):
+    """A restore would write where the user it runs as cannot (Phase 3 finding).
+
+    Found by the target survey before any effect, a Dry Run too: the Site
+    Root, an existing directory the Archive's files go into, an existing file
+    they replace, every directory ``--cleanfirst`` clears, or where a
+    laid-down ``wp-config.php`` is created. ``paths`` are those paths, sorted;
+    ``uid`` is the effective uid the check was made for (``None`` when not
+    known). ``--force`` does not waive it.
+    """
+
+    #: How many paths the message names; ``paths`` holds them all.
+    SHOWN: ClassVar[int] = 3
+
+    def __init__(self, *, paths: tuple[str, ...], uid: int | None) -> None:
+        self.paths = paths
+        self.uid = uid
+        named = ", ".join(repr(p) for p in paths[: self.SHOWN])
+        more = len(paths) - self.SHOWN
+        if more > 0:
+            named += f" and {more} more"
+        who = "the user this Run runs as" if uid is None else f"uid {uid}"
+        super().__init__(
+            f"the restore target is not writable by {who}: {named}; run the "
+            "restore as root (in the Docker image, PUID=0), which switches to "
+            "the Site Root's owner, or as that owner, or give "
+            f"{who} write access; nothing was changed"
         )
 
 

@@ -69,6 +69,17 @@ class SiteFilesQuery(Protocol):
         """The bytes of the files under ``site_root`` (ADV-6's snapshot need)."""
         ...
 
+    def unwritable(
+        self, site_root: Path, writes: Iterable[Path], *, clean: bool
+    ) -> tuple[Path, ...]:
+        """What a restore writing ``writes`` could not change, as this user.
+
+        ``writes`` are the absolute paths an extraction (or a lay-down) would
+        create or replace. ``clean`` says ``site_root`` is cleared first.
+        Sorted and without repeats; empty when the restore can write them all.
+        """
+        ...
+
 
 @runtime_checkable
 class SiteFilesCommand(Protocol):

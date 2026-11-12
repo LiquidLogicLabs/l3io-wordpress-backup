@@ -73,6 +73,8 @@ def _sample(annotation: object) -> tuple[str, str, object]:
         return '["x-1"]', '["x-1"]', ["x-1"]
     if SecretStr in kinds:
         return "secret-sample-7f", '"secret-sample-7f"', "secret-sample-7f"
+    if int in kinds:
+        return "7", "7", 7
     return "sample-7f", '"sample-7f"', "sample-7f"
 
 
@@ -165,6 +167,8 @@ def test_the_scope_reaches_what_it_should() -> None:
         "db_tls_ca",
         "passphrase",
         "mode",
+        "site_name",  # owner decision 82
+        "keep",  # owner decision 83
     } <= names
     variables = {v.split(": ")[1] for v in unknown_variables(SRC)} | {
         env_name(n) for n in names

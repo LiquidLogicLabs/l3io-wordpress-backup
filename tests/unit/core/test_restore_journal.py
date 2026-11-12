@@ -382,3 +382,32 @@ def test_each_failure_and_fallback_row_says_what_undoes_it(
         assert text in undo, (text, undo)
     for text in unwanted:
         assert text not in undo, (text, undo)
+
+
+# --------------------------------------------------------------------------
+# Why there is no Safety Snapshot (Phase 3 finding): the undo text says it
+# --------------------------------------------------------------------------
+
+_FILES_STOPPED = (
+    JournalEntry(
+        "phase_started", RestorePhase.EXTRACT, "2026-11-03T00:00:01", "/srv/site", None
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("skipped", "says", "never"),
+    [
+        ("target_empty", "not needed: the target was empty", "opted out"),
+        ("opted_out", "opted out (--no-safety-snapshot)", "was empty"),
+        (None, "none was taken", "opted out"),
+    ],
+    ids=["target-empty", "opted-out", "an-earlier-journal"],
+)
+def test_the_undo_text_states_why_no_safety_snapshot_was_taken(
+    skipped: str | None, says: str, never: str
+) -> None:
+    header = dataclasses.replace(_DIRECT, snapshot_path=None, snapshot_skipped=skipped)
+    undo = incomplete_run_error(JournalRecord(header, _FILES_STOPPED), "/j").undo
+    assert f"no Safety Snapshot: {says}" in undo
+    assert never not in undo

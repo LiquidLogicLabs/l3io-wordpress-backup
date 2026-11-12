@@ -42,10 +42,11 @@ from l3io.wp.backup.adapters.preflight import Diagnosis
 from l3io.wp.backup.adapters.tracing import add_trace_ids
 from l3io.wp.backup.api import errors as _errors
 from l3io.wp.backup.api.errors import *  # noqa: F403 - AD-14: the exception set
-from l3io.wp.backup.api.operations import backup, doctor, restore, verify
+from l3io.wp.backup.api.operations import backup, doctor, prune, restore, verify
 from l3io.wp.backup.cli.backup import BackupResult
 from l3io.wp.backup.cli.logging import configure_logging
 from l3io.wp.backup.cli.output import RunWarning
+from l3io.wp.backup.cli.prune import PrunedArchive, PruneResult
 from l3io.wp.backup.cli.restore_request import RelocationFlags, RestoreOutcome
 from l3io.wp.backup.core.exclusions import ExclusionSet, enumerate_defaults
 from l3io.wp.backup.domain.archive_format import VerificationResult
@@ -81,6 +82,8 @@ __all__: list[str] = [
     "ExplicitCredentialSpec",
     "Override",
     "OverrideSet",
+    "PruneResult",
+    "PrunedArchive",
     "RelocationFlags",
     "RestoreMode",
     "RestoreOutcome",
@@ -95,6 +98,7 @@ __all__: list[str] = [
     "configure_logging",
     "doctor",
     "enumerate_defaults",
+    "prune",
     "restore",
     "verify",
 ]

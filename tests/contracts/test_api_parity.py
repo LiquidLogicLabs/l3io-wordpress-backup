@@ -183,13 +183,13 @@ def _with_subcommand(name: str) -> argparse.ArgumentParser:
 
 
 def test_a_new_subcommand_without_an_api_function_fails() -> None:
-    parser = _with_subcommand("prune")
-    assert _missing(_scope(parser, NOT_YET_IMPLEMENTED), api) == ["prune"]
+    parser = _with_subcommand("rotate")
+    assert _missing(_scope(parser, NOT_YET_IMPLEMENTED), api) == ["rotate"]
 
 
 def test_a_new_subcommand_marked_unbound_passes() -> None:
-    parser = _with_subcommand("prune")
-    not_yet = dict(NOT_YET_IMPLEMENTED) | {"prune": "not yet"}
+    parser = _with_subcommand("rotate")
+    not_yet = dict(NOT_YET_IMPLEMENTED) | {"rotate": "not yet"}
     assert _missing(_scope(parser, not_yet), api) == []
 
 

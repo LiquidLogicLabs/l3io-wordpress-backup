@@ -117,8 +117,9 @@ class Settings(BaseSettings):
     :func:`parse_layered`; nothing here has one of its own. Field types say
     only how a variable or a key is parsed: ``bool`` for a switch, ``list``
     for a repeatable flag (a variable holds a JSON list), ``SecretStr`` for a
-    secret, ``str`` for everything else, which the parser's ``type`` and
-    ``choices`` then check.
+    secret, ``int`` for a count (``keep``: ``keep = 14`` in TOML; the driver
+    refuses one below 1), ``str`` for everything else, which the parser's
+    ``type`` and ``choices`` then check.
     """
 
     model_config = SettingsConfigDict(
@@ -137,6 +138,7 @@ class Settings(BaseSettings):
     wp_config: str | None = None
     archive: str | None = None
     archive_dir: str | None = None
+    site_name: str | None = None
     mode: str | None = None
     # Encryption.
     encrypt_with_passphrase: bool | None = None
@@ -176,6 +178,8 @@ class Settings(BaseSettings):
     new_db_password_file: str | None = None
     # verify.
     authenticate: bool | None = None
+    # prune (owner decision 83): a count, so a TOML file may write it bare.
+    keep: int | None = None
 
     def __repr__(self) -> str:
         """The names set, never a value: four of them are secrets."""

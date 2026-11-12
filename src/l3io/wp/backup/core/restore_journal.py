@@ -211,16 +211,34 @@ def _resolve_hint(header: JournalHeader) -> str:
     return f"resolve with `--resolve-interrupted-run {header.run_id}`"
 
 
+#: Why ``snapshot_path`` is ``None``, as the undo text says it; an earlier
+#: version's journal records no reason.
+_NO_SNAPSHOT: Final = {
+    "opted_out": "opted out (--no-safety-snapshot)",
+    "target_empty": "not needed: the target was empty",
+    None: "none was taken",
+}
+
+
+def _no_snapshot(header: JournalHeader) -> str:
+    return _NO_SNAPSHOT[header.snapshot_skipped]
+
+
+def _snapshot_or_why(header: JournalHeader) -> str:
+    """The Safety Snapshot's path, else ``(none: <why>)``."""
+    return header.snapshot_path or f"(none: {_no_snapshot(header)})"
+
+
 def _snapshot_undo(header: JournalHeader) -> str:
     if header.snapshot_path is None:
-        return "no Safety Snapshot: opted out"
+        return f"no Safety Snapshot: {_no_snapshot(header)}"
     return f"restore files from Safety Snapshot {header.snapshot_path}"
 
 
 def _prior_values(header: JournalHeader) -> str:
     return (
         "the values in prior_constants (DB_PASSWORD: from Safety Snapshot "
-        f"{header.snapshot_path or '(none: opted out)'})"
+        f"{_snapshot_or_why(header)})"
     )
 
 
@@ -295,9 +313,10 @@ def rollback_owed(record: JournalRecord) -> bool:
 
 def _from_snapshot(header: JournalHeader) -> str:
     if header.snapshot_path is None:
+        why = "" if header.snapshot_skipped is None else f" ({_no_snapshot(header)})"
         return (
-            "no Safety Snapshot was taken (opted out, or the database was "
-            "empty): restore the database from another backup, or empty it"
+            f"no Safety Snapshot was taken{why}: restore the database from "
+            "another backup, or empty it"
         )
     return (
         f"restore it from Safety Snapshot {header.snapshot_path}: "
@@ -408,14 +427,14 @@ def _load_undo(step: str | None, header: JournalHeader, *, files_changed: bool) 
         return (
             f"the site now runs on {load}; the previous database {before} is "
             "retained; to go back, restore the database from Safety Snapshot "
-            f"{header.snapshot_path or '(none: opted out)'}"
+            f"{_snapshot_or_why(header)}"
         )
     if step == STEP_LOSER_DROP_STARTED:
         return (
             f"the site runs on {load}; removal of the previous database {before} "
             "was in progress and it may be partly or fully dropped; to go back, "
             "restore the database from Safety Snapshot "
-            f"{header.snapshot_path or '(none: opted out)'}"
+            f"{_snapshot_or_why(header)}"
         )
     if step == STEP_LOSER_DROPPED:
         return f"the site runs on {load}; {before} was dropped, as this Mode names"

@@ -295,3 +295,35 @@ def test_the_journal_directory_is_per_site_and_outside_the_site_root(
     assert journal_directory(one) != journal_directory(two)
     assert not journal_directory(one).is_relative_to(one)
     assert journal_directory(one).parent.name == "snapshots"
+
+
+@pytest.mark.parametrize("skipped", ["target_empty", "opted_out", None])
+def test_why_no_snapshot_was_taken_reads_back(
+    tmp_path: Path, skipped: str | None
+) -> None:
+    import dataclasses
+
+    journal = FileRunJournal(tmp_path / "journal")
+    header = dataclasses.replace(
+        _header(), snapshot_path=None, snapshot_skipped=skipped
+    )  # type: ignore[type-var]
+    journal.begin_run(header)
+    record = FileRunJournal(tmp_path / "journal").incomplete(SITE)
+    assert record is not None
+    assert record.header.snapshot_skipped == skipped
+
+
+def test_a_journal_written_before_the_reason_was_recorded_reads_back(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    journal = _begun(tmp_path)
+    del journal
+    (current,) = (tmp_path / "journal").rglob("current.json")
+    body = json.loads(current.read_text(encoding="utf-8"))
+    del body["header"]["snapshot_skipped"]
+    current.write_text(json.dumps(body), encoding="utf-8")
+    record = FileRunJournal(tmp_path / "journal").incomplete(SITE)
+    assert record is not None
+    assert record.header.snapshot_skipped is None

@@ -228,15 +228,15 @@ def test_every_entry_point_in_all_is_wrapped() -> None:
 def test_an_unwrapped_entry_point_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     """Planted: an undecorated function defined in operations, exported."""
 
-    def prune() -> None:
+    def rotate() -> None:
         pass
 
-    prune.__module__ = operations.__name__
-    monkeypatch.setattr(api, "prune", prune, raising=False)
-    monkeypatch.setattr(api, "__all__", [*api.__all__, "prune"])
+    rotate.__module__ = operations.__name__
+    monkeypatch.setattr(api, "rotate", rotate, raising=False)
+    monkeypatch.setattr(api, "__all__", [*api.__all__, "rotate"])
     entries = _entry_points()
-    assert "prune" in entries
-    assert _unwrapped(entries) == ["prune"]
+    assert "rotate" in entries
+    assert _unwrapped(entries) == ["rotate"]
 
 
 def test_another_wraps_decorator_is_not_the_boundary(
@@ -244,17 +244,17 @@ def test_another_wraps_decorator_is_not_the_boundary(
 ) -> None:
     """Planted: ``functools.wraps`` alone sets ``__wrapped__`` but not the mark."""
 
-    def prune() -> None:
+    def rotate() -> None:
         pass
 
-    @functools.wraps(prune)
+    @functools.wraps(rotate)
     def traced() -> None:
-        prune()
+        rotate()
 
-    prune.__module__ = traced.__module__ = operations.__name__
-    monkeypatch.setattr(api, "prune", traced, raising=False)
-    monkeypatch.setattr(api, "__all__", [*api.__all__, "prune"])
-    assert _unwrapped(_entry_points()) == ["prune"]
+    rotate.__module__ = traced.__module__ = operations.__name__
+    monkeypatch.setattr(api, "rotate", traced, raising=False)
+    monkeypatch.setattr(api, "__all__", [*api.__all__, "rotate"])
+    assert _unwrapped(_entry_points()) == ["rotate"]
 
 
 def test_an_unexported_package_error_is_wrapped(

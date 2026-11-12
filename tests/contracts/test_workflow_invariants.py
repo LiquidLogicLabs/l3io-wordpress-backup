@@ -959,7 +959,11 @@ def test_the_asset_check_hashes_an_asset_github_recorded_no_digest_for(
 #
 # The scope is derived: every `needs.<job>.outputs.<key>` reference that reaches
 # an image name -- an image-naming input of a docker/attest action, or the env of
-# a step that pushes or tags -- and the job it names. Not resolve by name.
+# a step that pushes or tags, or of a job holding one -- and the job it names. Not
+# resolve by name. A matrix job's per-leg output read by index,
+# `needs.<job>.outputs[format('<prefix>{0}', ...)]` (docker.yml's per-variant
+# digests, owner decision 81), reaches every output of that job named
+# `<prefix>...`.
 _NAME_INPUTS = {
     "docker/build-push-action": ("outputs", "tags"),
     "docker/metadata-action": ("images",),
@@ -967,11 +971,30 @@ _NAME_INPUTS = {
 }
 _PUSHING_RUN = ("imagetools create", "docker push", "docker tag")
 _OUTPUT_REF = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
+_INDEXED_REF = re.compile(r"needs\.([\w-]+)\.outputs\[format\('([\w-]*)\{0\}'")
+
+
+def _refs(doc: dict, value: str) -> set[tuple[str, str]]:
+    """The ``(job, output)`` pairs ``value`` reads, an indexed read expanded."""
+    found = {(m[1], m[2]) for m in _OUTPUT_REF.finditer(value)}
+    jobs = doc.get("jobs") or {}
+    for m in _INDEXED_REF.finditer(value):
+        outputs = (jobs.get(m[1]) or {}).get("outputs") or {}
+        found |= {(m[1], key) for key in outputs if key.startswith(m[2])}
+    return found
 
 
 def _name_feeding_outputs(doc: dict) -> set[tuple[str, str]]:
     refs = set()
     for job in (doc.get("jobs") or {}).values():
+        pushes = any(
+            p in str(s.get("run", ""))
+            for s in job.get("steps") or []
+            for p in _PUSHING_RUN
+        )
+        if pushes:
+            for v in (job.get("env") or {}).values():
+                refs |= _refs(doc, str(v))
         for step in job.get("steps") or []:
             uses = str(step.get("uses", ""))
             values = [
@@ -982,7 +1005,8 @@ def _name_feeding_outputs(doc: dict) -> set[tuple[str, str]]:
             ]
             if any(p in str(step.get("run", "")) for p in _PUSHING_RUN):
                 values += [str(v) for v in (step.get("env") or {}).values()]
-            refs |= {(m[1], m[2]) for v in values for m in _OUTPUT_REF.finditer(v)}
+            for v in values:
+                refs |= _refs(doc, v)
     return refs
 
 
@@ -1070,10 +1094,13 @@ def _tagging_run_sink(doc: dict, ref: str) -> None:
 
 def _digest_from_a_run_step(doc: dict) -> None:
     """Attacks the content-addressed exemption: build (which logs in with
-    secrets) now writes its digest output from its own shell."""
+    secrets) now writes its per-variant digest outputs from its own shell."""
     build = doc["jobs"]["build"]
     build["steps"].append({"id": "mine", "run": 'echo "digest=x" >> "$GITHUB_OUTPUT"'})
-    build["outputs"]["digest"] = "${{ steps.mine.outputs.digest }}"
+    digests = [key for key in build["outputs"] if key.startswith("digest")]
+    assert digests, "build has no digest output to attack"
+    for key in digests:
+        build["outputs"][key] = "${{ steps.mine.outputs.digest }}"
 
 
 @pytest.mark.parametrize(

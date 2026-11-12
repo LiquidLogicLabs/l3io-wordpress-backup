@@ -32,6 +32,7 @@ __all__ = [
     "JournalHeader",
     "JournalRecord",
     "ReadOnlyDict",
+    "SnapshotSkipped",
 ]
 
 #: The only ``wp-config.php`` constants a journal may hold. Never a secret.
@@ -39,6 +40,9 @@ JOURNALED_CONSTANTS: Final = frozenset({"DB_NAME", "DB_HOST", "DB_USER"})
 
 #: What a journal entry records.
 JournalEvent = Literal["phase_started", "step_completed", "phase_completed"]
+#: Why a restore took no Safety Snapshot: the operator opted out
+#: (``--no-safety-snapshot``), or every part the Mode changes was empty.
+SnapshotSkipped = Literal["opted_out", "target_empty"]
 
 
 _K = TypeVar("_K")
@@ -93,7 +97,8 @@ class JournalHeader:
     in the record so a journal an earlier version wrote, which named one,
     is read back unchanged. A files-only Mode loads nothing: it records them all
     the same, and the undo text never reads them, since it has no
-    ``LOAD_DUMP`` phase.
+    ``LOAD_DUMP`` phase. ``snapshot_skipped`` says why ``snapshot_path`` is
+    ``None``; a journal an earlier version wrote has no reason (``None``).
     """
 
     run_id: str
@@ -111,6 +116,7 @@ class JournalHeader:
     prior_constants: Mapping[str, str | None]
     phase_undo: Mapping[RestorePhase, str]
     saved_config: str | None
+    snapshot_skipped: SnapshotSkipped | None = None
 
     def __post_init__(self) -> None:
         # Key names only in the message: a refused key's value is never shown.

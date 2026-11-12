@@ -227,8 +227,8 @@ def test_the_default_target_from_the_docroot_is_the_data_directory(
     assert main(["backup", "--wp-dir", str(site)]) == 0
     logs = pipeline_events(caplog)
     archives = Path(os.environ["XDG_DATA_HOME"]) / "l3io-wp-backup" / "archives"
-    (written,) = archives.glob("wpbackup2-wptest-*.tar.gz")
-    assert not list(site.glob("wpbackup2-*"))
+    (written,) = archives.glob("wpbak-wptest-*.tar.gz")
+    assert not list(site.glob("wpbak-*"))
     assert stat.S_IMODE(archives.stat().st_mode) == 0o700
     chosen = _chosen(logs)
     assert chosen["chosen_by"] == "the per-user data directory"
@@ -248,7 +248,7 @@ def test_the_default_target_outside_the_site_is_the_current_directory(
     monkeypatch.chdir(here)
     assert main(["backup", "--wp-dir", str(site)]) == 0
     logs = pipeline_events(caplog)
-    (written,) = here.glob("wpbackup2-wptest-*.tar.gz")
+    (written,) = here.glob("wpbak-wptest-*.tar.gz")
     assert _chosen(logs)["path"] == str(written.resolve())
 
 
@@ -271,7 +271,7 @@ def test_archive_dir_names_the_directory(
         monkeypatch.setenv("L3IO_WP_BACKUP_ARCHIVE_DIR", str(backups))
     assert main(argv) == 0
     logs = pipeline_events(caplog)
-    assert f"publish to file:{backups}/wpbackup2-wptest-" in capsys.readouterr().out
+    assert f"publish to file:{backups}/wpbak-wptest-" in capsys.readouterr().out
     assert _chosen(logs)["chosen_by"] == "--archive-dir"
     assert list(backups.iterdir()) == []
 

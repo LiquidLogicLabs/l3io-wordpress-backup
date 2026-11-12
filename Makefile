@@ -34,8 +34,9 @@
 #   ci.yml, every job and every leg -- lint/types, contracts, test (py3.11-3.14
 #     x mysql80, mysql84, mariadb; the `integration` tests only), unit
 #     (py3.11-3.14; everything else), clean install (py3.11-3.14, which builds
-#     and installs its own wheel), build, image (the official image built for
-#     amd64 from this checkout's wheel, then tests/sidecar/run.sh on mysql and
+#     and installs its own wheel), build, image (each official image variant
+#     built for amd64 from this checkout's wheel, then tests/sidecar/run.sh: the
+#     MySQL-client image on mysql and mariadb, the MariaDB-client one on
 #     mariadb; nothing pushed);
 #
 # THE TWO TEST TIERS (2026-11-09). `test` runs `-m integration`, `unit` runs
@@ -278,18 +279,23 @@ ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
 
 
 # ---- the official image (owner decisions 77-80) -----------------------------
-IMAGE_ENGINES ?= mysql mysql84 mariadb
+# CLIENT:ENGINE, one per leg: the image variant by its DB_CLIENT (owner
+# decision 81), and the server. The same legs as docker.yml's smoke job
+# (tests/contracts/test_docker_image.py): the MariaDB client is not run on
+# MySQL 8.0 or 8.4, where its dump fails.
+IMAGE_LEGS ?= mysql:mysql mysql:mysql84 mysql:mariadb mariadb:mariadb
 TRIVY_IMAGE := $(shell sed -n 's/^  TRIVY_IMAGE: //p' .github/workflows/docker.yml)
 
-image-smoke: ## Build the image from this checkout's wheel; sidecar suite on every engine
+image-smoke: ## Build each image variant from this checkout's wheel; sidecar suite on its engines
 	@set -u; fail=""; \
-	for e in $(IMAGE_ENGINES); do \
-	  echo "== tests/sidecar/run.sh $$e"; \
-	  tests/sidecar/run.sh "$$e" || fail="$$fail $$e"; \
+	for leg in $(IMAGE_LEGS); do \
+	  c=$${leg%%:*}; e=$${leg#*:}; \
+	  echo "== L3IO_DB_CLIENT=$$c tests/sidecar/run.sh $$e"; \
+	  L3IO_DB_CLIENT=$$c tests/sidecar/run.sh "$$e" || fail="$$fail $$leg"; \
 	done; \
 	if [ -n "$$fail" ]; then echo "image-smoke FAILED:$$fail"; exit 1; fi
 
-image-scan: ## Trivy over IMAGE (default: the image-smoke build), docker.yml's policy
+image-scan: ## Trivy over IMAGE (default: the image-smoke MySQL-client build; IMAGE=l3io-wordpress-backup:sidecar-test-mariadb for the other), docker.yml's policy
 	@# The scanner image and the policy are docker.yml's (TRIVY_IMAGE is read
 	@# from it): fixable CRITICAL/HIGH fails, everything CRITICAL/HIGH is listed.
 	@set -eu; img="$${IMAGE:-l3io-wordpress-backup:sidecar-test-mysql}"; \

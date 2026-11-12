@@ -455,7 +455,7 @@ def test_the_default_archive_name_is_in_the_current_directory(
     monkeypatch.chdir(here)
     assert main(["backup", "--wp-dir", str(root)]) == 0
     (archive,) = list(here.iterdir())
-    assert archive.name.startswith("wpbackup2-wptest-")
+    assert archive.name.startswith("wpbak-wptest-")
 
 
 def test_a_stated_wp_config_is_used(tmp_path: Path, cli_site: tuple[Path, Any]) -> None:

@@ -9,7 +9,10 @@ ghcr.io/liquidlogiclabs/l3io-wordpress-backup:<tag>
 docker.io/ravensorb/l3io-wordpress-backup:<tag>
 ```
 
-Both public, the same digest in each.
+Both public, the same digest in each. Two variants, by dump client (owner
+decision 81): the default (`1`, `latest`), with MySQL's client, and the
+MariaDB-client one (`1-mariadb`, `mariadb`). [Which variant](#which-variant)
+says which to pick.
 
 ## What is in it
 
@@ -18,7 +21,7 @@ Both public, the same digest in each.
 | Base | `ghcr.io/linuxserver/baseimage-ubuntu:resolute` (Ubuntu 26.04, s6-overlay) | by digest (`BASE_IMAGE` build-arg) |
 | `l3io-wordpress-backup` | the PyPI release named by `VERSION` | `==VERSION`, asserted after the install |
 | Python | Ubuntu 26.04's `python3` (3.14) | the base |
-| Dump/load client | Ubuntu's `mysql-client` 8.4 | the base's archive |
+| Dump/load client | Ubuntu's `mysql-client` 8.4; the `-mariadb` variant: `mariadb-client` 11.8 | the base's archive (`DB_CLIENT` build-arg) |
 | `age`, `age-plugin-batchpass` | 1.3.2, built with Go 1.27.4 | module hash `h1:r6RSZ…` asserted; Go image by digest |
 | Supercronic | 0.2.51 | SHA-256 per architecture (amd64, arm64) |
 
@@ -48,20 +51,30 @@ image (`FROM` it, install `php-cli php-mysql` and a checksummed `wp-cli.phar`).
 restarts Supercronic if it exits, and a failed job is in the container log with
 its exit status, which a container health state would not say more clearly.
 
-## One image for MySQL and MariaDB
+## Which variant
 
-One image, with MySQL's 8.4 client. Proven with the full sidecar suite
-(`tests/sidecar/run.sh`, every asserted step and check) against:
+**MariaDB servers: the `-mariadb` variant** (`:1-mariadb`). **MySQL servers:
+the default** (`:1`). One build-arg, `DB_CLIENT`, is the only difference;
+Ubuntu's `mysql-client` and `mariadb-client` conflict, so an image carries one.
 
-| Server | MySQL 8.4 client (the image) | MariaDB 11.8 client |
+The default image's MySQL 8.4 `mysqldump` dumps a MariaDB server too, but logs
+WARNING `database_warning` with `code` `client_server_skew` on every dump (a
+client of the other family). The `-mariadb` variant's `mariadb-dump` does not.
+Its dump fails against MySQL, so it is never the image for a MySQL server.
+Proven with the full sidecar suite (`tests/sidecar/run.sh`, every asserted
+step and check, which also asserts the skew warning appears exactly when the
+client's family is not the server's):
+
+| Server | default (MySQL 8.4 client) | `-mariadb` (MariaDB 11.8 client) |
 |---|---|---|
-| `mysql:8.0` | passes | **fails**: the first backup's dump exits 2 (`client_server_skew`: a MariaDB `mysqldump` against MySQL 8.0) |
-| `mysql:8.4` | passes | not run (the 8.0 failure decided it) |
-| `mariadb:11.4` | passes (`mysqldump` with `--column-statistics=0`, l3io-wordpress-database 0.3.5) | passes |
+| `mysql:8.0` | passes | **fails**: the first backup's dump exits 2 (`client_server_skew`) |
+| `mysql:8.4` | passes | **fails**: the first backup's dump exits 2 (`client_server_skew`), measured 2026-11-11 |
+| `mariadb:11.4` | passes, with `client_server_skew` (`mysqldump` with `--column-statistics=0`, l3io-wordpress-database 0.3.5) | passes, no warning |
 
-So no per-family tags. `DB_CLIENT=mariadb` still builds a MariaDB-client image
-for anyone who wants one (`docker buildx build --build-arg DB_CLIENT=mariadb`);
-it is not published.
+The release pipeline runs each variant's suite on the servers it is for: the
+default on all three, the `-mariadb` variant on MariaDB
+(`tests/contracts/test_docker_image.py` holds the two in step with the
+Dockerfile's `DB_CLIENT` choices).
 
 ## Two modes
 
@@ -75,6 +88,7 @@ schedule stops the container at start (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`).
 | Variable | Default | Meaning |
 |---|---|---|
 | `WPBACKUP_SCHEDULE` | `0 3 * * *` | one cron expression for `wpbackup2 backup`; empty to schedule only the file below |
+| `WPBACKUP_KEEP` | `14` | after each **successful** scheduled backup, `wpbackup2 prune --keep N`: this site's newest N Archives in `/backups` stay, older ones of this site are deleted (owner decision 83; two weeks of nightly backups). `0` disables pruning. Not a whole number: the container stops at start |
 | `WPBACKUP_CRONTAB` | `/etc/l3io-wp-backup/crontab` | a crontab appended as written, when it exists (named explicitly, it must exist) |
 | `TZ` | UTC | the schedule's time zone |
 
@@ -87,8 +101,15 @@ and the Site Lock refuses a second Run on the same site anyway. Avoid an
 impossible date (`0 0 31 2 *`): Supercronic 0.2.51 accepts it and then logs a
 warning in a busy loop.
 
+The prune follows the `WPBACKUP_SCHEDULE` job only (`<expr> wpbackup2 backup
+&& wpbackup2 prune --keep N`), so a failed backup deletes nothing; jobs in a
+mounted crontab are run as written. It deletes only Archives whose Manifest
+is this site's: another site's Archives in the same volume, Safety Snapshots
+and files that are no Archive are never touched.
+
 **One-shot (any other command).** `docker run IMAGE backup` is `wpbackup2
-backup`; `docker run IMAGE wpbackup2 backup` is the same. The first argument
+backup`; `docker run IMAGE wpbackup2 backup` is the same. A one-shot run never
+prunes unless asked: `docker run IMAGE prune --keep 14`. The first argument
 runs as a command only when it names an executable on PATH (`sh`, `sleep`);
 `tests/sidecar/run.sh` checks that no `wpbackup2` subcommand does. No s6 starts.
 
@@ -107,6 +128,27 @@ as root unless told to:
 `docker compose exec backup wpbackup2 ...` into a scheduled container runs as
 root (the container's user) unless `-u 33` is given; `wpbackup2` then reads its
 credentials as root and switches to the Site Root's owner, as above.
+
+### Restoring an Archive another user wrote
+
+The usual disaster-recovery case: the Archive in `/backups` was written by one
+uid (the old host's), and the Site Root (`/var/www/html`, the new
+`wordpress` container's volume) belongs to another (33 in the official
+image). Run the restore with `PUID=0`: `wpbackup2` starts as root, reads the
+Archive and the passphrase, then switches to the uid and gid that own the
+Site Root for the rest of the Run (owner decisions 58 and 67), so the restored
+files are the site's:
+
+```
+docker compose run --rm -e PUID=0 backup restore --archive latest
+docker compose exec -u 0 backup wpbackup2 restore --archive latest   # into the running sidecar
+```
+
+Run as a uid that cannot write the Site Root (the default 33 against a Site
+Root owned by 1000, say), the restore is refused before it changes anything,
+a Dry Run too: exit 3, `TargetNotWritableError`, naming the path and the uid.
+A Site Root owned by root has no owner to switch to and is refused (exit 2);
+`chown -R 33:33` it first.
 
 ## Writable paths
 
@@ -135,9 +177,14 @@ for `PUID`/`PGID` and s6 writes under `/run`.
 
 ## Tags
 
-`X.Y.Z` on every build; `X.Y`, `X` and `latest` only when `X.Y.Z` is PyPI's latest
-release, so rebuilding an older release never moves them backwards. One build,
-one digest, pushed to every enabled registry.
+| | default | MariaDB client |
+|---|---|---|
+| every build | `X.Y.Z` | `X.Y.Z-mariadb` |
+| PyPI's latest release only | `X.Y`, `X`, `latest` | `X.Y-mariadb`, `X-mariadb`, `mariadb` |
+
+The floating tags move only when `X.Y.Z` is PyPI's latest release, so
+rebuilding an older release never moves them backwards. One build per variant,
+one digest each, pushed to every enabled registry.
 
 ## Release pipeline
 
@@ -151,13 +198,16 @@ one digest, pushed to every enabled registry.
    value.
 2. **credentials**: each enabled registry's login is present (below), before
    anything is built.
-3. **build**: each platform built and scanned (Trivy, below), then both pushed
-   **by digest only**, with an SBOM and `mode=max` provenance.
-4. **smoke**: `tests/sidecar/run.sh` against that digest, pulled from the
-   registry, on `mysql:8.0`, `mysql:8.4` and `mariadb:11.4`.
-5. **publish**: the tags applied to the tested digest in every registry; a
-   GitHub build-provenance attestation (Sigstore) pushed beside it; then every
-   published tag must pull anonymously (the image is public, owner decision 80).
+3. **build**, once per variant: each platform built and scanned (Trivy,
+   below), then both pushed **by digest only**, with an SBOM and `mode=max`
+   provenance.
+4. **smoke**: `tests/sidecar/run.sh` against each variant's digest, pulled from
+   the registry: the default on `mysql:8.0`, `mysql:8.4` and `mariadb:11.4`, the
+   `-mariadb` variant on `mariadb:11.4`.
+5. **publish**, once per variant: its tags applied to its tested digest in every
+   registry; a GitHub build-provenance attestation (Sigstore) pushed beside it;
+   then every published tag must pull anonymously (the image is public, owner
+   decision 80).
 
 **Registries**, configured as the family's image releases are
 (`LiquidLogicLabs/markdown-mermaidjs-to-pdf`'s `release.yml`), by repository
@@ -192,8 +242,9 @@ The older workflows (`ci.yml`, `publish.yml`, `release.yml`,
 `security-audit.yml`) are tag-pinned by the family convention; that is not
 covered here.
 
-**Local proof:** `make image-smoke` (the image from this checkout's wheel, every
-engine), `make image-scan`, `make image-resolve` (the `resolve` and `credentials` jobs for real
+**Local proof:** `make image-smoke` (each variant from this checkout's wheel, on
+the engines docker.yml smokes it on: `IMAGE_LEGS`), `make image-scan` (`IMAGE=`
+to scan the other variant), `make image-resolve` (the `resolve` and `credentials` jobs for real
 under act: both registries, GHCR alone, and the configurations that must fail), `make ci-dryrun` (every job's
 refs, the Docker Hub path included). Multi-arch builds, pushes and attestations
 are GitHub-only.

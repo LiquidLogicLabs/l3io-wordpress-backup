@@ -175,7 +175,7 @@ from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.secret import Secret
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import (
-    DEFAULT_ARCHIVE_NAME_GLOB,
+    DEFAULT_ARCHIVE_NAME_GLOBS,
     LATEST,
     StorageTarget,
     default_archive_name,
@@ -258,11 +258,12 @@ DRY_RUN_TRAILER: Final = (
     "disk or a file that cannot be read"
 )
 
-#: Names this package gives its own Archives: the default name, and the
-#: store's staged ``.<name>.<random>.partial`` beside it.
+#: Names this package gives its own Archives: the default names, today's
+#: ``wpbak-*`` and the legacy ``wpbackup2-*`` (owner decision 82), and the
+#: store's staged ``.<name>.<random>.partial`` beside each.
 _OWN_ARCHIVE_GLOBS: Final = (
-    DEFAULT_ARCHIVE_NAME_GLOB,
-    f".{DEFAULT_ARCHIVE_NAME_GLOB}.*.partial",
+    *DEFAULT_ARCHIVE_NAME_GLOBS,
+    *(f".{each}.*.partial" for each in DEFAULT_ARCHIVE_NAME_GLOBS),
 )
 
 
@@ -324,7 +325,9 @@ class BackupRequest:
     ``scope`` has no default (AD-5). ``credentials`` is the backup-owned spec,
     never a database type (ADR-0015); ``None`` means ``wp-config.php``.
     ``target=None`` means the default Archive name in ``archive_dir``, else
-    in :func:`default_archive_directory` (owner decision 60).
+    in :func:`default_archive_directory` (owner decision 60); ``site_name``
+    is that name's ``<site>`` part, the database name when ``None`` (owner
+    decision 82).
     ``dry_run`` selects the no-op command adapters (AD-4) when the driver
     opens the Run; ``extra_tools`` reaches preflight through the plan.
     ``db_tls`` is ``--db-tls``/``--db-tls-ca`` (owner decision 56; ``None``
@@ -346,6 +349,7 @@ class BackupRequest:
     extra_tools: tuple[ToolRequirement, ...] = ()
     archive_dir: Path | None = None
     db_tls: DbTls = field(default_factory=DbTls)
+    site_name: str | None = None
     target_chosen_by: str = field(default="--archive", compare=False)
 
 
@@ -862,7 +866,8 @@ def _target(
     """
     if request.target is not None:
         return request.target, request.target_chosen_by, False
-    name = default_archive_name(site.db_name, run.clock.now())
+    site_name = site.db_name if request.site_name is None else request.site_name
+    name = default_archive_name(site_name, run.clock.now())
     directory, chosen_by = _archive_directory(request, site_root)
     target = storage_target_from_cli(str(directory / name))
     return target, chosen_by, chosen_by == _DATA_DIRECTORY
@@ -1084,6 +1089,7 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         extra_tools=extra_tools,
         archive_dir=None if args.archive_dir is None else Path(args.archive_dir),
         db_tls=db_tls_setting(args.db_tls, args.db_tls_ca),
+        site_name=args.site_name,
         target_chosen_by=_chosen_by(origins.get("archive")),
     )
     if origins.get("db_password") == "command line":

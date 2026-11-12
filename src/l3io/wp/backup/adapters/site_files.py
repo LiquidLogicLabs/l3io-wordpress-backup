@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import time
 import unicodedata
+from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from typing import Final
 
@@ -119,6 +121,60 @@ class LocalSiteFiles:
                 except OSError:
                     continue
         return total
+
+    def unwritable(
+        self, site_root: Path, writes: Iterable[Path], *, clean: bool
+    ) -> tuple[Path, ...]:
+        """What a restore could not write, as the effective user (Phase 3).
+
+        Checked with ``os.access(..., effective_ids=True)``, so the answer is
+        the effective user's (after the root-to-owner switch, the owner's):
+
+        - ``site_root``: write and search, always;
+        - ``clean``: every directory under it, which the clear empties;
+        - each path in ``writes``: an existing regular file is opened for
+          writing, so it must be writable (unless cleared first); an existing
+          directory needs nothing; anything else is created in its nearest
+          existing ancestor, which must allow write and search.
+
+        Symlinks are never followed (``lstat``); the walk does not descend
+        into a symlinked directory. A path that cannot be examined counts as
+        not writable. Not covered: a file swapped in after this check
+        (``EXTRACT`` reports that as :class:`ExtractionWriteError`).
+        """
+        found: set[Path] = set()
+
+        def dir_ok(path: Path) -> bool:
+            return os.access(path, os.W_OK | os.X_OK, effective_ids=True)
+
+        if not dir_ok(site_root):
+            found.add(site_root)
+        if clean:
+            for directory, dirs, _files in os.walk(site_root):
+                for name in dirs:
+                    sub = Path(directory) / name
+                    if not sub.is_symlink() and not dir_ok(sub):
+                        found.add(sub)
+        for path in writes:
+            try:
+                info = os.lstat(path)
+            except FileNotFoundError:
+                info = None
+            except OSError:
+                found.add(path)
+                continue
+            if info is not None and stat.S_ISDIR(info.st_mode):
+                continue
+            if info is not None and stat.S_ISREG(info.st_mode):
+                if not clean and not os.access(path, os.W_OK, effective_ids=True):
+                    found.add(path)
+                continue
+            parent = path.parent
+            while not parent.exists() and parent != parent.parent:
+                parent = parent.parent
+            if not dir_ok(parent):
+                found.add(parent)
+        return tuple(sorted(found))
 
     def clean(self, site_root: Path, *, keep: frozenset[PurePosixPath]) -> int:
         """Remove every top-level entry of ``site_root`` not in ``keep``.

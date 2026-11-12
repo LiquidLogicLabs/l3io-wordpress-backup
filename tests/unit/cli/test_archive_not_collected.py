@@ -101,13 +101,15 @@ def test_the_default_name_and_its_staged_file_match_the_skipped_globs(
     )
 
     name = default_archive_name("db", datetime(2026, 11, 7, tzinfo=UTC))
-    assert fnmatch.fnmatchcase(name, _OWN_ARCHIVE_GLOBS[0])
+    assert any(fnmatch.fnmatchcase(name, g) for g in _OWN_ARCHIVE_GLOBS)
     staged = LocalArchiveStore(verify=lambda _path: None).stage(
         StorageTarget(scheme="file", path=PurePosixPath(tmp_path / name))
     )
     try:
         assert staged.staged_path is not None
-        assert fnmatch.fnmatchcase(staged.staged_path.name, _OWN_ARCHIVE_GLOBS[1])
+        assert any(
+            fnmatch.fnmatchcase(staged.staged_path.name, g) for g in _OWN_ARCHIVE_GLOBS
+        )
     finally:
         staged.discard()
 
@@ -151,7 +153,7 @@ def test_a_second_default_backup_from_the_site_root_does_not_hold_the_first(
     leftover.write_bytes(b"a killed run's staged file")
     argv = ["backup", "--wp-dir", ".", "--mode", "files", "--archive-dir", "."]
     assert main(argv) == 0
-    written = sorted(set(site.glob("wpbackup2-rtdb-*.tar.gz")) - {earlier})
+    written = sorted(set(site.glob("wpbak-rtdb-*.tar.gz")) - {earlier})
     assert len(written) == 1
     with tarfile.open(written[0]) as outer:
         member = outer.extractfile(PAYLOAD_MEMBER)

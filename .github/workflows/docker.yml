@@ -42,8 +42,22 @@
 # the first run fails there until an owner makes the package public
 # (RELEASING.md); every later run proves it still is.
 #
-# TAGS. `X.Y.Z` always; `X.Y`, `X` and `latest` only when X.Y.Z is PyPI's latest
-# release, so rebuilding an older release never moves them backwards.
+# VARIANTS (owner decision 81). Each release is built twice from the same
+# Dockerfile, as a matrix over `variant` -- the one list is build's matrix;
+# smoke and publish carry the same variants, which
+# tests/contracts/test_docker_image.py asserts against the Dockerfile's
+# DB_CLIENT choices:
+#   default  DB_CLIENT=mysql   (MySQL 8.4 client; dumps MySQL and MariaDB)
+#   mariadb  DB_CLIENT=mariadb (MariaDB client; for MariaDB servers, no
+#            client_server_skew warning; its dump fails against MySQL 8.0
+#            and 8.4, so it is smoked on MariaDB only)
+# Each variant has its own scan, digest, sidecar suite, tags, SBOM and
+# provenance, attestation and anonymous-pull check.
+#
+# TAGS. Per variant, with its suffix (`-mariadb`, or none): `X.Y.Z<suffix>`
+# always; `X.Y<suffix>`, `X<suffix>` and the floating tag (`latest` for the
+# default variant, `mariadb` for the MariaDB one) only when X.Y.Z is PyPI's
+# latest release, so rebuilding an older release never moves them backwards.
 #
 # SCAN POLICY. Trivy (container image, pinned by digest -- no third-party
 # action) over both platforms BEFORE anything is pushed: fixable CRITICAL or
@@ -222,8 +236,10 @@ jobs:
 
   build:
     # Scan, then push by digest only: no tag moves until `smoke` has passed on
-    # the pushed digest.
-    name: build · scan · push by digest
+    # the pushed digest. One leg per variant: its digest leaves the job as
+    # `digest_<variant>` (a matrix job's outputs are merged across legs, and an
+    # empty one sets nothing, so each leg sets only its own).
+    name: build · scan · push by digest · ${{ matrix.variant }}
     runs-on: ubuntu-latest
     needs: [resolve, credentials]
     # ACT_DRYRUN: set only by `make ci-dryrun` (always with --dryrun), where no
@@ -235,8 +251,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { variant: default, db_client: mysql }
+          - { variant: mariadb, db_client: mariadb }
     outputs:
-      digest: ${{ steps.push.outputs.digest }}
+      digest_default: ${{ matrix.variant == 'default' && steps.push.outputs.digest || '' }}
+      digest_mariadb: ${{ matrix.variant == 'mariadb' && steps.push.outputs.digest || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -262,18 +285,21 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           REVISION: ${{ needs.resolve.outputs.revision }}
+          VARIANT: ${{ matrix.variant }}
+          DB_CLIENT: ${{ matrix.db_client }}
         run: |
           set -euo pipefail
           for platform in ${DOCKER_PLATFORMS//,/ }; do
-            tag="l3io-wordpress-backup:scan-${platform#linux/}"
+            tag="l3io-wordpress-backup:scan-$VARIANT-${platform#linux/}"
             docker buildx build --load --platform "$platform" \
               --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
+              --build-arg "DB_CLIENT=$DB_CLIENT" \
               -f "$DOCKER_FILE" -t "$tag" docker
             trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
                         -v trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE" image --quiet "$@" "$tag"; }
-            echo "== $platform: every CRITICAL/HIGH, fixed or not (reported)"
+            echo "== $VARIANT $platform: every CRITICAL/HIGH, fixed or not (reported)"
             trivy --severity CRITICAL,HIGH --exit-code 0
-            echo "== $platform: fixable CRITICAL/HIGH (fatal)"
+            echo "== $VARIANT $platform: fixable CRITICAL/HIGH (fatal)"
             trivy --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
           done
 
@@ -288,24 +314,33 @@ jobs:
           build-args: |
             VERSION=${{ needs.resolve.outputs.version }}
             REVISION=${{ needs.resolve.outputs.revision }}
+            DB_CLIENT=${{ matrix.db_client }}
           sbom: true
           provenance: mode=max
           outputs: type=image,"name=${{ needs.resolve.outputs.names }}",push-by-digest=true,name-canonical=true,push=true
 
   smoke:
-    # The sidecar suite against the digest just pushed, pulled from the
-    # registry, on each engine the image claims (docs/docker.md).
-    name: sidecar suite · ${{ matrix.engine }}
+    # The sidecar suite against each variant's digest just pushed, pulled from
+    # the registry, on each engine that variant claims (docs/docker.md). Only
+    # when build pushed (IMAGE_BUILD_MODE push); a variant without its digest
+    # fails the leg.
+    name: sidecar suite · ${{ matrix.variant }} · ${{ matrix.engine }}
     runs-on: ubuntu-latest
     needs: [resolve, build]
-    if: needs.build.outputs.digest != '' || vars.ACT_DRYRUN == '1'
+    if: (needs.build.result == 'success' && (vars.IMAGE_BUILD_MODE || 'push') == 'push') || vars.ACT_DRYRUN == '1'
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
       matrix:
+        variant: [default, mariadb]
         engine: [mysql, mysql84, mariadb]
+        exclude:
+          # The MariaDB client is for MariaDB servers: against MySQL 8.0 and
+          # 8.4 the first backup's dump exits 2 (docs/docker.md).
+          - { variant: mariadb, engine: mysql }
+          - { variant: mariadb, engine: mysql84 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -326,12 +361,17 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: run tests/sidecar/run.sh against the pushed digest
         env:
-          IMAGE: ${{ needs.resolve.outputs.primary }}@${{ needs.build.outputs.digest }}
+          PRIMARY: ${{ needs.resolve.outputs.primary }}
+          DIGEST: ${{ needs.build.outputs[format('digest_{0}', matrix.variant)] }}
           ENGINE: ${{ matrix.engine }}
-        run: tests/sidecar/run.sh "$ENGINE"
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGEST" ] || { echo "::error::build pushed no digest for the $VARIANT variant"; exit 1; }
+          IMAGE="$PRIMARY@$DIGEST" tests/sidecar/run.sh "$ENGINE"
 
   publish:
-    name: tag · attest
+    name: tag · attest · ${{ matrix.variant }}
     runs-on: ubuntu-latest
     needs: [resolve, build, smoke]
     permissions:
@@ -339,7 +379,21 @@ jobs:
       packages: write
       id-token: write       # Sigstore signing of the attestation
       attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { variant: default, suffix: "", floating: latest }
+          - { variant: mariadb, suffix: "-mariadb", floating: mariadb }
+    env:
+      DIGEST: ${{ needs.build.outputs[format('digest_{0}', matrix.variant)] }}
     steps:
+      - name: the variant's digest
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGEST" ] || { echo "::error::build pushed no digest for the $VARIANT variant"; exit 1; }
       - name: log in to the primary registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -361,14 +415,13 @@ jobs:
           images: ${{ needs.resolve.outputs.names }}
           flavor: latest=false
           tags: |
-            type=semver,pattern={{version}},value=v${{ needs.resolve.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.latest == 'true' }}
-            type=semver,pattern={{major}},value=v${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.latest == 'true' }}
-            type=raw,value=latest,enable=${{ needs.resolve.outputs.latest == 'true' }}
+            type=semver,pattern={{version}},value=v${{ needs.resolve.outputs.version }},suffix=${{ matrix.suffix }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.latest == 'true' }},suffix=${{ matrix.suffix }}
+            type=semver,pattern={{major}},value=v${{ needs.resolve.outputs.version }},enable=${{ needs.resolve.outputs.latest == 'true' }},suffix=${{ matrix.suffix }}
+            type=raw,value=${{ matrix.floating }},enable=${{ needs.resolve.outputs.latest == 'true' }}
       - name: tag the tested digest in every registry
         env:
           NAMES: ${{ needs.resolve.outputs.names }}
-          DIGEST: ${{ needs.build.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           set -euo pipefail
@@ -385,7 +438,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.REGISTRY_NAME }}/${{ env.REGISTRY_ORG }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ needs.build.outputs.digest }}
+          subject-digest: ${{ env.DIGEST }}
           push-to-registry: true
       - name: attest build provenance (Docker Hub)
         if: env.DOCKERHUB_ENABLED == 'true'
@@ -393,7 +446,7 @@ jobs:
         with:
           # Docker Hub's attestation subject is named index.docker.io/<repo>.
           subject-name: index.docker.io/${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ needs.build.outputs.digest }}
+          subject-digest: ${{ env.DIGEST }}
           push-to-registry: true
       - name: every published tag pulls anonymously
         # Public is the owner's decision (80). A first GHCR push is private

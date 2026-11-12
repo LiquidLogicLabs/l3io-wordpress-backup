@@ -181,3 +181,95 @@ def test_a_record_from_a_thread_without_the_run_context_is_still_redacted(
     assert SECRET not in err
     (line,) = [e for e in _lines(err) if e["logger"] == "drainer"]
     assert "run_id" not in line  # documented: a raw thread does not inherit it
+
+
+# ---- a dependency's warning finding gets a stable event name (Phase 3 finding) --
+#
+# l3io-wordpress-database 0.3.5 logs each warning finding of a Verdict with the
+# finding's free text as `event` (``mysqldump ... is older than ...``) and the
+# stable name in `code`. The chain renames it: `event` is DATABASE_WARNING_EVENT,
+# the text moves to `message`, `code` stays.
+
+_SKEW_TEXT = (
+    "mysqldump 8.4.6 is older than, or a different family from, mariadb 11.4.12"
+)
+
+
+def _database_warning(record: dict[str, object]) -> None:
+    from l3io.wp.backup.cli.logging import DATABASE_WARNING_EVENT
+
+    assert record["event"] == DATABASE_WARNING_EVENT
+    assert record["code"] == "client_server_skew"
+    assert record["message"] == _SKEW_TEXT
+    assert record["level"] == "warning"
+    assert record["logger"] == "l3io.wp.database"
+
+
+def test_a_database_warning_finding_has_a_stable_event_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    structlog.get_logger("l3io.wp.database").warning(
+        event=_SKEW_TEXT, code="client_server_skew", operation="dump", database="db"
+    )
+    (line,) = _lines(capsys.readouterr().err)
+    _database_warning(line)
+    assert (line["operation"], line["database"]) == ("dump", "db")
+
+
+def test_the_database_librarys_own_warning_record_is_renamed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Through the library's own emitter, so a change of its shape shows here."""
+    from types import SimpleNamespace
+
+    from l3io.wp.database import _observe
+    from l3io.wp.database.verdict import Code, Finding, Verdict
+
+    configure_logging("INFO", "json")
+    verdict = Verdict("dump", (Finding(Code.CLIENT_SERVER_SKEW, _SKEW_TEXT),))
+    _observe._complete(  # noqa: SLF001
+        "dump",
+        SimpleNamespace(database="db"),
+        "succeeded",
+        0.0,
+        {_observe.VERDICT_KEY: verdict},
+    )
+    lines = _lines(capsys.readouterr().err)
+    (warning,) = [line for line in lines if line["level"] == "warning"]
+    _database_warning(warning)
+    assert all(line["event"] != _SKEW_TEXT for line in lines)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"event": "dump_readiness", "code": "x"},  # already a name: untouched
+        {"event": "free text here"},  # no code: not a finding
+    ],
+)
+def test_other_records_keep_their_event(
+    fields: dict[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    configure_logging("INFO", "json")
+    structlog.get_logger("l3io.wp.database").warning(**fields)
+    (line,) = _lines(capsys.readouterr().err)
+    assert line["event"] == fields["event"]
+    assert "message" not in line
+
+
+def test_another_loggers_free_text_with_a_code_is_untouched(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    structlog.get_logger("l3io.wp.backup.x").warning(event="some text", code="c")
+    (line,) = _lines(capsys.readouterr().err)
+    assert line["event"] == "some text"
+
+
+def test_the_database_warning_event_is_documented() -> None:
+    from l3io.wp.backup.cli.logging import DATABASE_WARNING_EVENT
+
+    doc = Path(__file__).resolve().parents[3] / "docs" / "logging.md"
+    assert f'"{DATABASE_WARNING_EVENT}"' in doc.read_text(encoding="utf-8")
+    assert f"`{DATABASE_WARNING_EVENT}`" in doc.read_text(encoding="utf-8")

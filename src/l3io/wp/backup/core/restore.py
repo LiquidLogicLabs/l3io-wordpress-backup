@@ -65,7 +65,11 @@ from l3io.wp.backup.domain.database import (
     EnsureOutcome,
     LoadResult,
 )
-from l3io.wp.backup.domain.errors import ArchiveHasNoDumpError, RefusedError
+from l3io.wp.backup.domain.errors import (
+    ArchiveHasNoDumpError,
+    RefusedError,
+    TargetNotWritableError,
+)
 from l3io.wp.backup.domain.flag_map import FlagCombination, authorizing_combination
 from l3io.wp.backup.domain.journal import JournalHeader
 from l3io.wp.backup.domain.preflight import ToolRequirement, merge_requirements
@@ -316,7 +320,9 @@ class TargetState:
     :func:`check_target` reads nothing else. ``site_root_wordpress`` says
     the Site Root holds one of :data:`WORDPRESS_MARKERS` (owner decision
     57); ``False``, the default, keeps FR-7's refusal for a non-empty Site
-    Root.
+    Root. ``unwritable`` are the paths the Run would write and its user,
+    ``effective_uid``, cannot (``SiteFilesQuery.unwritable``); empty when
+    the Mode writes no file or every one is writable.
     """
 
     site_root_empty: bool
@@ -328,6 +334,8 @@ class TargetState:
     load_target: DatabaseTargetState | None
     load_location: DatabaseLocation | None
     site_root_wordpress: bool = False
+    unwritable: tuple[PurePosixPath, ...] = ()
+    effective_uid: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,8 +708,16 @@ def check_target(
 
     First, a relocation's load database holding tables is refused whatever
     the overrides (:class:`RelocationTargetNotEmptyError`, owner decision
-    73).
+    73), and so is a target the Run's user cannot write
+    (:class:`TargetNotWritableError`, ``--force`` or not): found here, before
+    any effect, rather than as a failed ``EXTRACT`` that leaves an
+    interrupted Run.
     """
+    if target.unwritable:
+        raise TargetNotWritableError(
+            paths=tuple(str(p) for p in target.unwritable),
+            uid=target.effective_uid,
+        )
     load = target.load_target
     if (
         restores_database(mode)
