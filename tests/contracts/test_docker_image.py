@@ -815,3 +815,79 @@ def test_a_planted_variant_violation_is_reported(plant) -> None:  # noqa: ANN001
     texts = [dockerfile, makefile]
     plant(doc, ci, texts)
     assert variant_findings(doc, ci, texts[0], texts[1])
+
+
+# ---- the image's variables and the CLI's settings (owner decisions 60, 84) ----
+
+DOCKER_ROOT = ROOT / "docker" / "root"
+CRONTAB = DOCKER_ROOT / "usr" / "local" / "bin" / "l3io-wpbackup-crontab"
+_SETTING_VAR = re.compile(r"\bL3IO_WP_BACKUP_[A-Z0-9_]*[A-Z0-9]\b(?!\*)")
+
+
+def _image_texts() -> dict[str, str]:
+    """The Dockerfile's ENV instructions and every file the image copies in."""
+    env = [
+        ins
+        for ins in _instructions(DOCKERFILE.read_text(encoding="utf-8"))
+        if ins.upper().startswith("ENV ")
+    ]
+    texts = {"docker/Dockerfile (ENV)": "\n".join(env)}
+    for path in sorted(DOCKER_ROOT.rglob("*")):
+        if path.is_file():
+            texts[str(path.relative_to(ROOT))] = path.read_text(encoding="utf-8")
+    return texts
+
+
+def image_variable_findings(texts: dict[str, str]) -> list[str]:
+    """Every ``L3IO_WP_BACKUP_*`` name the image sets or reads is a setting's.
+
+    ``wpbackup2`` reads every ``L3IO_WP_BACKUP_*`` variable as a setting and
+    warns ``unknown_setting_variable`` on each Run for one it does not know,
+    so the image's own knobs are ``WPBACKUP_*``.
+    """
+    from l3io.wp.backup.cli.settings import CONFIG_VAR, Settings, env_name
+
+    known = {env_name(name) for name in Settings.model_fields} | {CONFIG_VAR}
+    return [
+        f"{where}: {name} is not a wpbackup2 setting"
+        for where, text in texts.items()
+        for name in sorted(set(_SETTING_VAR.findall(text)))
+        if name not in known
+    ]
+
+
+def schedule_rule_findings(crontab: str) -> list[str]:
+    """The scheduled prune can pass every retention rule the CLI has."""
+    import dataclasses
+
+    from l3io.wp.backup.core.retention import RetentionPolicy
+
+    findings: list[str] = []
+    for field in dataclasses.fields(RetentionPolicy):
+        variable = f"WPBACKUP_{field.name.upper()}"
+        flag = "--" + field.name.replace("_", "-")
+        if variable not in crontab or flag not in crontab:
+            findings.append(f"the scheduler does not map {variable} to {flag}")
+    return findings
+
+
+def test_the_image_sets_only_known_settings_and_maps_every_rule() -> None:
+    texts = _image_texts()
+    assert any("WPBACKUP_KEEP_DAILY" in t for t in texts.values())  # scope
+    assert image_variable_findings(texts) == []
+    assert schedule_rule_findings(CRONTAB.read_text(encoding="utf-8")) == []
+
+
+def test_a_planted_image_variable_violation_is_reported() -> None:
+    texts = _image_texts()
+    texts["docker/root/etc/later/run"] = "export L3IO_WP_BACKUP_KEEP_HOURLY=24\n"
+    texts["docker/Dockerfile (ENV)"] += " L3IO_WP_BACKUP_KEEPS=3"
+    assert image_variable_findings(texts) == [
+        "docker/Dockerfile (ENV): L3IO_WP_BACKUP_KEEPS is not a wpbackup2 setting",
+        "docker/root/etc/later/run: L3IO_WP_BACKUP_KEEP_HOURLY is not a "
+        "wpbackup2 setting",
+    ]
+    crontab = CRONTAB.read_text(encoding="utf-8").replace("--keep-yearly", "--k-y")
+    assert schedule_rule_findings(crontab) == [
+        "the scheduler does not map WPBACKUP_KEEP_YEARLY to --keep-yearly"
+    ]

@@ -107,8 +107,10 @@ PASSPHRASE=$(rand 24); WRONG_PASSPHRASE=$(rand 24)
 DB_NAME="wpdb_$TAG"; DB_USER="wpu_$TAG"
 SENTINEL="l3io-sentinel-$(rand 8)"
 SECRETS=("$DB_ROOT_PW" "$DB_PW" "$WP_ADMIN_PW" "$PASSPHRASE" "$WRONG_PASSPHRASE")
-# The scheduled mode's prune (owner decision 83): this site's newest 3 stay.
-SCHEDULED_KEEP=3
+# The scheduled mode's prune (owner decisions 83, 84): one daily, the image's
+# weekly and monthly tiers off. Every Archive of the run is of one UTC day (or
+# two, across midnight), so exactly one of this site's stays: the newest.
+SCHEDULED_KEEP_DAILY=1
 
 cat >"$L3IO_SCRATCH/db.env" <<EOF
 MYSQL_ROOT_PASSWORD=$DB_ROOT_PW
@@ -137,7 +139,9 @@ EOF
 # logs a warning in a busy loop.
 cat >"$L3IO_SCRATCH/schedule.env" <<EOF
 WPBACKUP_SCHEDULE=* * * * *
-WPBACKUP_KEEP=$SCHEDULED_KEEP
+WPBACKUP_KEEP_DAILY=$SCHEDULED_KEEP_DAILY
+WPBACKUP_KEEP_WEEKLY=0
+WPBACKUP_KEEP_MONTHLY=0
 EOF
 printf '%s\n' '# mounted by tests/sidecar/run.sh' '0 0 1 1 * wpbackup2 doctor' >"$L3IO_SCRATCH/crontab"
 chmod 0644 "$L3IO_SCRATCH/crontab"
@@ -270,7 +274,14 @@ puid_0_keeps_root() { [[ $(img -e PUID=0 "$IMAGE" id -u) == 0 ]]; }
 # The scheduled mode refuses to start (s6 stops the container, non-zero) on an
 # empty or unparsable schedule rather than idling with nothing scheduled.
 schedule_refused() { ! timeout 60 docker run --rm -e "WPBACKUP_SCHEDULE=$1" "$IMAGE"; }
-keep_refused() { ! timeout 60 docker run --rm -e "WPBACKUP_KEEP=$1" "$IMAGE"; }
+keep_refused() { ! timeout 60 docker run --rm -e "$1=$2" "$IMAGE"; }
+# The image's default retention (owner decision 84): the job the defaults build.
+default_retention_job() {
+    local job
+    job=$(img "$IMAGE" sh -c 'l3io-wpbackup-crontab "$TMPDIR/c" >/dev/null && cat "$TMPDIR/c"')
+    echo "default job: $job"
+    [[ $job == "0 3 * * * wpbackup2 backup && wpbackup2 prune --keep-daily 7 --keep-weekly 4 --keep-monthly 6" ]]
+}
 check image:subcommands-are-not-executables subcommands_are_not_executables
 check image:one-shot-is-wpbackup2 one_shot_is_wpbackup2
 check image:one-shot-runs-as-33 one_shot_runs_as_33
@@ -278,8 +289,11 @@ check image:puid-pgid-honoured puid_pgid_honoured
 check image:puid-0-keeps-root puid_0_keeps_root
 check image:empty-schedule-refused schedule_refused ''
 check image:bad-schedule-refused schedule_refused 'not a schedule'
-check image:bad-keep-refused keep_refused 'two weeks'
-check image:negative-keep-refused keep_refused '-1'
+check image:bad-keep-refused keep_refused WPBACKUP_KEEP 'two weeks'
+check image:negative-keep-refused keep_refused WPBACKUP_KEEP '-1'
+check image:bad-keep-daily-refused keep_refused WPBACKUP_KEEP_DAILY 'seven'
+check image:bad-keep-yearly-refused keep_refused WPBACKUP_KEEP_YEARLY '1.5'
+check image:default-retention-is-7-4-6 default_retention_job
 
 # ---- stack -----------------------------------------------------------------------
 step stack-up 0 dc up -d --wait --wait-timeout 300
@@ -583,15 +597,20 @@ $table_prefix = 'wp_';
 PHP
 OTHER_ARCHIVE=$(tail -1 "$LOGS/S-other-site-backup.out")
 log "another site's Archive: ${OTHER_ARCHIVE:-none}"
-# prune, one-shot: --keep is required; a Dry Run lists and deletes nothing.
-step P-prune-needs-keep 2 wb prune
+# prune, one-shot: a rule is required (the image's WPBACKUP_KEEP_* feed only
+# the schedule); a Dry Run lists and deletes nothing.
+step P-prune-needs-a-rule 2 wb prune
 COUNT_BEFORE=$(all_archives)
 step P-prune-dryrun 0 wb --whatIf prune --keep 1
+step P-prune-dryrun-daily 0 wb --whatIf prune --keep-daily 1
 count_is() { [[ $(all_archives) == "$1" ]]; }
 not_printed() { ! printed "$1" "$2"; }
+check P:needs-a-rule-says-so grep -qF 'at least one retention rule' "$LOGS/P-prune-needs-a-rule.err"
 check P:dryrun-deleted-nothing count_is "$COUNT_BEFORE"
 check P:dryrun-lists-would-prune printed P-prune-dryrun "would prune "
 check P:dryrun-spares-the-other-site not_printed P-prune-dryrun "$OTHER_ARCHIVE"
+check P:dryrun-daily-says-why printed P-prune-dryrun-daily "daily: not the newest of its day"
+check P:dryrun-daily-keeps-one printed P-prune-dryrun-daily "; kept 1 (--keep-daily 1)"
 BEFORE=$(archives_of_site)
 step S-scheduler-up 0 dc --profile schedule up -d scheduler
 SCHEDULED=
@@ -609,14 +628,15 @@ for _ in $(seq 1 24); do
     sleep 5
 done
 scheduler_log >"$LOGS/S-scheduler.log" || true
-# This site's Archives (every name) are down to SCHEDULED_KEEP; the other
+# This site's Archives (every name) are down to the day's newest; the other
 # site's survives, and so does the scheduled one, the newest.
 check S:prune-ran-after-the-backup grep -qF '"event": "archive_pruned"' "$LOGS/S-scheduler.log"
-check S:pruned-to-keep-plus-the-other-site count_is $((SCHEDULED_KEEP + 1))
+check S:pruned-says-why grep -qF 'daily: not the newest of its day' "$LOGS/S-scheduler.log"
+check S:pruned-to-one-daily-plus-the-other-site count_is 2
 check S:other-sites-archive-survives in_backup test -f "${OTHER_ARCHIVE:-/nonexistent}"
 check S:newest-archive-survives in_backup test -f "${SCHEDULED:-/nonexistent}"
 supercronic_uid() { [[ $(dc --profile schedule exec -T scheduler ps -o uid= -C supercronic | tr -d ' ') == 33 ]]; }
-check S:schedule-lists-the-env-job grep -qF "* * * * * wpbackup2 backup && wpbackup2 prune --keep $SCHEDULED_KEEP" "$LOGS/S-scheduler.log"
+check S:schedule-lists-the-env-job grep -qF "* * * * * wpbackup2 backup && wpbackup2 prune --keep-daily $SCHEDULED_KEEP_DAILY" "$LOGS/S-scheduler.log"
 check S:schedule-merges-the-mounted-crontab grep -qF '0 0 1 1 * wpbackup2 doctor' "$LOGS/S-scheduler.log"
 check S:scheduled-backup-wrote-an-archive test -n "$SCHEDULED"
 check S:job-output-in-container-log grep -qF "${SCHEDULED:-no archive}" "$LOGS/S-scheduler.log"

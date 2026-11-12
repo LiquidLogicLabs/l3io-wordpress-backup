@@ -117,9 +117,11 @@ class Settings(BaseSettings):
     :func:`parse_layered`; nothing here has one of its own. Field types say
     only how a variable or a key is parsed: ``bool`` for a switch, ``list``
     for a repeatable flag (a variable holds a JSON list), ``SecretStr`` for a
-    secret, ``int`` for a count (``keep``: ``keep = 14`` in TOML; the driver
-    refuses one below 1), ``str`` for everything else, which the parser's
-    ``type`` and ``choices`` then check.
+    secret, ``int`` for a count (``keep`` and the ``keep_*`` tiers:
+    ``keep_daily = 7`` in TOML; ``core/retention.RetentionPolicy`` refuses one
+    below 1, which an ``int`` skips the parser's ``type``),
+    ``str`` for everything else, which the parser's ``type`` and ``choices``
+    then check.
     """
 
     model_config = SettingsConfigDict(
@@ -178,8 +180,12 @@ class Settings(BaseSettings):
     new_db_password_file: str | None = None
     # verify.
     authenticate: bool | None = None
-    # prune (owner decision 83): a count, so a TOML file may write it bare.
+    # prune (owner decisions 83, 84): counts, so a TOML file may write them bare.
     keep: int | None = None
+    keep_daily: int | None = None
+    keep_weekly: int | None = None
+    keep_monthly: int | None = None
+    keep_yearly: int | None = None
 
     def __repr__(self) -> str:
         """The names set, never a value: four of them are secrets."""

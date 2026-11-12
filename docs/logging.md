@@ -132,10 +132,11 @@ never appear in any of them.
 | `archive_database_unused` | INFO | `--archive-database` was given but the target has its own `wp-config.php`, so it was not used |
 | `archive_directory_not_synced` | WARNING | The destination directory could not be fsynced after the Archive was renamed into place; the Archive is published (`path`, `reason`) |
 | `archive_latest_selected` | INFO | `--archive latest` chose this site's newest Archive (`archive`, `created_at`, `archive_dir`, `considered`, `matched`; owner decision 64) |
-| `archive_pruned` | INFO | `prune` removed one of this site's Archives, or in a Dry Run would (`path`, `bytes`, `created_at`, `performed`; owner decision 83) |
+| `archive_kept` | DEBUG | `prune` keeps one of this site's Archives (`path`, `created_at`, `reasons`: the rules that keep it, of `newest`, `daily`, `weekly`, `monthly`, `yearly`; owner decision 84) |
+| `archive_pruned` | INFO | `prune` removed one of this site's Archives, or in a Dry Run would (`path`, `bytes`, `created_at`, `performed`, `reasons`: why each rule given lets it go; owner decisions 83, 84) |
 | `archive_prune_failed` | WARNING | `prune` chose an Archive and left it in place: it changed after it was read, or could not be removed (`path`, `reason`); the command then exits 1 |
 | `archive_prune_skipped` | INFO | `prune` found a `*.tar.gz` entry that is not a regular file (a symlink, a directory) and did not consider it (`path`, `reason`) |
-| `prune_completed` | INFO | A prune finished: `archive_dir`, `keep`, `kept`, `pruned`, `bytes`, `skipped`, `considered`, `matched`, `performed` |
+| `prune_completed` | INFO | A prune finished: `archive_dir`, `rules` (each rule given, by setting name), `kept`, `pruned`, `bytes`, `skipped`, `considered`, `matched`, `performed`, and `kept_archives` / `pruned_archives` (each `path`, `created_at`, `reasons`) |
 | `archive_manifest_unread` | DEBUG | `--archive latest` could not read a file's leading Manifest and skips it (`path`, `error`, the class name) |
 | `archive_not_encrypted` | WARNING | A restore was given a passphrase but the Archive is not encrypted; it proceeds (`archive`, `reason`; `--require-encrypted` refuses instead; owner decision 59) |
 | `archive_discarded` | INFO | A staged Archive was removed without being published (`path`, its final name) |

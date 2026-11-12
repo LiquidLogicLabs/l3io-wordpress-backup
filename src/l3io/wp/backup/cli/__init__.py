@@ -155,6 +155,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 aws_secret_id=args.db_credentials_aws_secret_id,
                 aws_region=args.db_credentials_aws_region,
             )
+        elif args.action == PRUNE_COMMAND:
+            from l3io.wp.backup.core.retention import RetentionPolicy
+
+            # Owner decision 84: at least one rule, each at least 1.
+            RetentionPolicy(
+                keep=args.keep,
+                keep_daily=args.keep_daily,
+                keep_weekly=args.keep_weekly,
+                keep_monthly=args.keep_monthly,
+                keep_yearly=args.keep_yearly,
+            )
     except UsageError as exc:
         usage.error(str(exc))
     unavailable = not_yet_implemented(args.action, vars(args))

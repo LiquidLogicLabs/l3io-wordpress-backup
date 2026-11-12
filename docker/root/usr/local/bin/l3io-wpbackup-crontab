@@ -7,10 +7,15 @@
 #   WPBACKUP_SCHEDULE  one cron expression; the line `<expr> wpbackup2 backup`.
 #                      The image sets "0 3 * * *" (daily at 03:00 in TZ, UTC
 #                      by default). Set it empty to schedule only the file.
-#   WPBACKUP_KEEP      after each SUCCESSFUL scheduled backup, `wpbackup2 prune
-#                      --keep N` (owner decision 83): this site's newest N
-#                      Archives stay. The image sets 14; 0 disables pruning. A
-#                      value that is not a whole number stops the container.
+#   WPBACKUP_KEEP_DAILY, WPBACKUP_KEEP_WEEKLY, WPBACKUP_KEEP_MONTHLY,
+#   WPBACKUP_KEEP_YEARLY, WPBACKUP_KEEP
+#                      after each SUCCESSFUL scheduled backup, `wpbackup2 prune`
+#                      with --keep-daily N, --keep-weekly N, --keep-monthly N,
+#                      --keep-yearly N and --keep N, each only when set and not
+#                      0 (owner decisions 83, 84). The image sets 7 daily, 4
+#                      weekly, 6 monthly; yearly and keep are unset. All unset,
+#                      empty or 0: no prune. A value that is not a whole number
+#                      (at most 9 digits) stops the container.
 #   WPBACKUP_CRONTAB   a crontab file appended as written (default
 #                      /etc/l3io-wp-backup/crontab, used when it exists).
 #
@@ -24,16 +29,26 @@ die() { echo "l3io-wpbackup-crontab: $*" >&2; exit 2; }
 out=$1
 file=${WPBACKUP_CRONTAB:-/etc/l3io-wp-backup/crontab}
 
-keep=${WPBACKUP_KEEP:-0}
-[[ $keep =~ ^[0-9]+$ ]] || die "WPBACKUP_KEEP must be a whole number (0 disables pruning), not '$keep'"
-keep=$((10#$keep))
+# Each rule: its variable and its flag, in the order the flags are written.
+rules=""
+for rule in KEEP:--keep KEEP_DAILY:--keep-daily KEEP_WEEKLY:--keep-weekly \
+    KEEP_MONTHLY:--keep-monthly KEEP_YEARLY:--keep-yearly; do
+    name=WPBACKUP_${rule%%:*}
+    value=${!name:-0}
+    [[ $value =~ ^0*[0-9]{1,9}$ ]] ||
+        die "$name must be a whole number (0 or unset: that rule is not used), not '$value'"
+    value=$((10#$value))
+    if (( value > 0 )); then
+        rules+=" ${rule#*:} $value"
+    fi
+done
 
 : >"$out"
 if [[ -n ${WPBACKUP_SCHEDULE:-} ]]; then
     [[ $WPBACKUP_SCHEDULE != *$'\n'* ]] || die "WPBACKUP_SCHEDULE must be one cron expression"
-    if (( keep > 0 )); then
+    if [[ -n $rules ]]; then
         # `&&`: a failed backup prunes nothing.
-        printf '%s wpbackup2 backup && wpbackup2 prune --keep %d\n' "$WPBACKUP_SCHEDULE" "$keep" >>"$out"
+        printf '%s wpbackup2 backup && wpbackup2 prune%s\n' "$WPBACKUP_SCHEDULE" "$rules" >>"$out"
     else
         printf '%s wpbackup2 backup\n' "$WPBACKUP_SCHEDULE" >>"$out"
     fi

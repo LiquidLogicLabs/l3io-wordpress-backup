@@ -1,10 +1,14 @@
-"""Owner decision 83 — ``wpbackup2 prune --keep N``: retention of this Site's Archives.
+"""Owner decisions 83, 84 — ``wpbackup2 prune``: retention of this Site's Archives.
 
 **What it removes.** Only Archives in the Archive directory (``--archive-dir``,
 else the directory a backup writes to by default) whose Manifest is this
 Site's, by the one definition ``--archive latest`` uses
 (``core/archive_choice.site_archives``): any name, ``wpbak-*`` and the legacy
-``wpbackup2-*`` alike. The newest ``keep`` (at least 1) stay; the rest go.
+``wpbackup2-*`` alike. What the retention rules keep stays and the rest go:
+``--keep N`` (the newest N) and the tiers ``--keep-daily``, ``--keep-weekly``,
+``--keep-monthly``, ``--keep-yearly`` (the newest of each of the last N UTC
+days, ISO weeks, months, years that have one; ``core/retention.py``). At
+least one rule is given, each at least 1; an Archive kept by any rule stays.
 
 **Never removed:** the newest Archive; a Safety Snapshot (its Manifest has an
 ``origin``); another site's Archive; a file whose Manifest cannot be read or
@@ -16,9 +20,12 @@ INFO ``archive_prune_skipped`` with the reason.
 **How.** A Run, holding the Site Lock, so it never races a backup of the Site.
 Each removal is one ``unlinkat`` after the file is checked to be the one read
 (``adapters/archive_dir.delete_archive``) and logs INFO ``archive_pruned``
-(``path``, ``bytes``, ``created_at``, ``performed``); ``prune_completed``
-carries the totals. A Dry Run (``--whatIf``) lists the same and removes
-nothing (``performed`` ``false``). A file that changed or could not be removed
+(``path``, ``bytes``, ``created_at``, ``performed``, and ``reasons``: why
+each rule lets it go); each Archive kept logs DEBUG ``archive_kept``
+(``path``, ``created_at``, ``reasons``: the rules that keep it).
+``prune_completed`` carries the totals, the ``rules`` and both lists. A Dry
+Run (``--whatIf``) lists the same and removes nothing (``performed``
+``false``). A file that changed or could not be removed
 logs WARNING ``archive_prune_failed`` and the rest go on; the command then
 exits ``FAILED``.
 
@@ -52,6 +59,7 @@ from l3io.wp.backup.core.archive_choice import (
     LatestCandidate,
     choose_prune,
 )
+from l3io.wp.backup.core.retention import RetentionPolicy
 from l3io.wp.backup.domain.errors import (
     PruneFailedError,
     SiteRootNotFoundError,
@@ -62,6 +70,7 @@ from l3io.wp.backup.ports.lock import SiteLock
 from l3io.wp.backup.ports.tracing import Tracer
 
 __all__ = [
+    "KeptArchive",
     "PruneRequest",
     "PruneResult",
     "PrunedArchive",
@@ -75,10 +84,10 @@ _log = structlog.get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class PruneRequest:
-    """What a prune needs: the Site, how many to keep, where to look."""
+    """What a prune needs: the Site, what to keep, where to look."""
 
     site_root: Path
-    keep: int
+    policy: RetentionPolicy
     archive_dir: Path | None = None
     wp_config: Path | None = None
     dry_run: bool = False
@@ -86,27 +95,46 @@ class PruneRequest:
 
 @dataclass(frozen=True, slots=True)
 class PrunedArchive:
-    """One Archive a prune removed, or in a Dry Run would remove."""
+    """One Archive a prune removed, or in a Dry Run would remove.
+
+    ``reasons``: for each rule given, why it does not keep this Archive
+    (``"daily: not the newest of its day"``).
+    """
 
     path: PurePosixPath
     bytes: int
     created_at: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class KeptArchive:
+    """One of this Site's Archives a prune left, and the rules that keep it.
+
+    ``reasons`` name the rules: ``"newest"`` (``--keep``), ``"daily"``,
+    ``"weekly"``, ``"monthly"``, ``"yearly"``.
+    """
+
+    path: PurePosixPath
+    created_at: str
+    reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class PruneResult:
-    """What a prune did (owner decision 83).
+    """What a prune did (owner decisions 83, 84).
 
-    ``kept`` are this Site's Archives left, newest first; ``pruned`` those
-    removed (in a Dry Run, those that would be: ``performed`` is ``False``),
-    newest first; ``skipped`` the ``*.tar.gz`` entries that were no candidate
+    ``policy`` is the rules applied. ``kept`` are this Site's Archives left,
+    newest first, each with the rules that keep it; ``pruned`` those removed
+    (in a Dry Run, those that would be: ``performed`` is ``False``), newest
+    first, each with why; ``skipped`` the ``*.tar.gz`` entries that were no candidate
     for what they are (path, reason). ``considered`` is how many Archives
     were read, ``matched`` how many are this Site's.
     """
 
     directory: PurePosixPath
-    keep: int
-    kept: tuple[PurePosixPath, ...]
+    policy: RetentionPolicy
+    kept: tuple[KeptArchive, ...]
     pruned: tuple[PrunedArchive, ...]
     skipped: tuple[tuple[PurePosixPath, str], ...]
     considered: int
@@ -139,13 +167,8 @@ def drive_prune(
     ``environ`` resolves an environment-driven ``wp-config.php`` (the official
     image's ``getenv_docker()``), as the backup driver's does. Refused as root
     (the library never switches users; the CLI root has switched by now).
+    The request's :class:`RetentionPolicy` refused a bad rule when it was made.
     """
-    if request.keep < 1:
-        msg = (
-            f"keep must be at least 1, not {request.keep}: the newest archive is "
-            "never pruned"
-        )
-        raise UsageError(msg, arguments=("keep",))
     privileges.require_not_root(request.site_root, operation="prune")
     try:
         site_root = Path(request.site_root).resolve(strict=True)
@@ -175,8 +198,15 @@ def drive_prune(
         choice = choose_prune(
             [LatestCandidate(path=f.path, manifest=f.manifest) for f in files],
             ArchiveSite.from_descriptor(site),
-            keep=request.keep,
+            policy=request.policy,
         )
+        for kept in choice.kept:
+            _log.debug(
+                "archive_kept",
+                path=str(kept.path),
+                created_at=kept.created_at,
+                reasons=list(kept.reasons),
+            )
         pruned: list[PrunedArchive] = []
         failures: list[tuple[str, str]] = []
         for chosen in choice.pruned:
@@ -194,16 +224,23 @@ def drive_prune(
                 bytes=archive.size,
                 created_at=chosen.created_at,
                 performed=not run.dry_run,
+                reasons=list(chosen.reasons),
             )
             pruned.append(
                 PrunedArchive(
-                    path=chosen.path, bytes=archive.size, created_at=chosen.created_at
+                    path=chosen.path,
+                    bytes=archive.size,
+                    created_at=chosen.created_at,
+                    reasons=chosen.reasons,
                 )
             )
         result = PruneResult(
             directory=PurePosixPath(directory),
-            keep=request.keep,
-            kept=choice.kept,
+            policy=request.policy,
+            kept=tuple(
+                KeptArchive(path=k.path, created_at=k.created_at, reasons=k.reasons)
+                for k in choice.kept
+            ),
             pruned=tuple(pruned),
             skipped=tuple((s.path, s.reason) for s in skipped),
             considered=choice.considered,
@@ -213,7 +250,7 @@ def drive_prune(
         _log.info(
             "prune_completed",
             archive_dir=str(directory),
-            keep=request.keep,
+            rules=request.policy.settings(),
             kept=len(result.kept),
             pruned=len(result.pruned),
             bytes=sum(p.bytes for p in result.pruned),
@@ -221,6 +258,22 @@ def drive_prune(
             considered=result.considered,
             matched=result.matched,
             performed=result.performed,
+            kept_archives=[
+                {
+                    "path": str(k.path),
+                    "created_at": k.created_at,
+                    "reasons": [*k.reasons],
+                }
+                for k in result.kept
+            ],
+            pruned_archives=[
+                {
+                    "path": str(p.path),
+                    "created_at": p.created_at,
+                    "reasons": [*p.reasons],
+                }
+                for p in result.pruned
+            ],
         )
         if failures:
             raise PruneFailedError(failures=tuple(failures))
@@ -228,17 +281,27 @@ def drive_prune(
 
 
 def summary_lines(result: PruneResult) -> list[str]:
-    """What ``prune`` prints on stdout: each Archive removed, then the totals."""
+    """What ``prune`` prints on stdout: each Archive kept and removed, then totals.
+
+    ``kept <path> (created <t>): daily, weekly`` for each kept, newest first;
+    ``pruned <path> (<n> bytes, created <t>): <why>; <why>`` for each removed
+    (``would prune`` in a Dry Run); then one line of totals and the rules.
+    """
     verb = "pruned" if result.performed else "would prune"
     lines = [
-        f"{verb} {p.path} ({p.bytes} bytes, created {p.created_at})"
+        f"kept {k.path} (created {k.created_at}): {', '.join(k.reasons)}"
+        for k in result.kept
+    ]
+    lines += [
+        f"{verb} {p.path} ({p.bytes} bytes, created {p.created_at}): "
+        f"{'; '.join(p.reasons)}"
         for p in result.pruned
     ]
     total = sum(p.bytes for p in result.pruned)
     lines.append(
         f"{verb} {len(result.pruned)} of this site's {result.matched} archives "
-        f"in {result.directory} ({total} bytes); kept the newest {len(result.kept)} "
-        f"(--keep {result.keep})"
+        f"in {result.directory} ({total} bytes); kept {len(result.kept)} "
+        f"({result.policy.describe()})"
     )
     return lines
 
@@ -250,10 +313,19 @@ def run_prune(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
     process switches to the Site Root's owner, who must be able to write the
     Archive directory, before the Run opens (owner decision 67's rule).
     """
+    # A count below 1 is refused whatever its spelling: a typed one by the
+    # parser's ``type``, a variable's or a key's (an ``int``) by the policy.
+    policy = RetentionPolicy(
+        keep=args.keep,
+        keep_daily=args.keep_daily,
+        keep_weekly=args.keep_weekly,
+        keep_monthly=args.keep_monthly,
+        keep_yearly=args.keep_yearly,
+    )
     owner = privileges.owner_to_run_as(Path(args.wp_dir), operation="prune")
     request = PruneRequest(
         site_root=Path(args.wp_dir),
-        keep=args.keep,
+        policy=policy,
         archive_dir=None if args.archive_dir is None else Path(args.archive_dir),
         wp_config=None if args.wp_config is None else Path(args.wp_config),
         dry_run=bool(args.what_if),

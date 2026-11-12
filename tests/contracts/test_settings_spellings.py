@@ -169,6 +169,10 @@ def test_the_scope_reaches_what_it_should() -> None:
         "mode",
         "site_name",  # owner decision 82
         "keep",  # owner decision 83
+        "keep_daily",  # owner decision 84
+        "keep_weekly",
+        "keep_monthly",
+        "keep_yearly",
     } <= names
     variables = {v.split(": ")[1] for v in unknown_variables(SRC)} | {
         env_name(n) for n in names

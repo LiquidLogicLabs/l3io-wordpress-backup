@@ -51,7 +51,7 @@ today.
 ``public_boundary``: a package exception passes through unchanged, and any
 other ``Exception`` arrives as ``UnexpectedError`` from the original.
 
-Pruning is FR-17 (v1.1): the CLI has no prune operation, so neither has this.
+``prune`` is ``wpbackup2 prune`` (owner decisions 83, 84).
 """
 
 from __future__ import annotations
@@ -95,6 +95,7 @@ from l3io.wp.backup.cli.restore_request import (
 )
 from l3io.wp.backup.cli.verify import VerifyRequest, drive_verify
 from l3io.wp.backup.core.exclusions import ExclusionSet
+from l3io.wp.backup.core.retention import RetentionPolicy
 from l3io.wp.backup.domain.archive_format import VerificationResult
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import CredentialSpec
@@ -432,27 +433,43 @@ def doctor(
 def prune(
     site: str | os.PathLike[str],
     *,
-    keep: int,
+    keep: int | None = None,
+    keep_daily: int | None = None,
+    keep_weekly: int | None = None,
+    keep_monthly: int | None = None,
+    keep_yearly: int | None = None,
     archive_dir: str | os.PathLike[str] | None = None,
     wp_config: str | os.PathLike[str] | None = None,
     dry_run: bool = False,
 ) -> PruneResult:
-    """Delete this Site's older Archives, keeping the newest ``keep`` (decision 83).
+    """Delete this Site's older Archives, keeping what the rules keep (83, 84).
 
-    As ``wpbackup2 prune``: only Archives in ``archive_dir`` (``None``: the
-    directory the CLI's backup writes to by default) whose Manifest is this
-    Site's count; Safety Snapshots, other sites' Archives, unreadable files,
-    symlinks and ``.partial`` files are never deleted. ``keep`` has no default
-    and must be at least 1 (``UsageError``), so the newest always stays.
-    ``dry_run=True`` deletes nothing and returns what would go. Takes the
-    Site Lock. A file chosen but not removable raises ``PruneFailedError``
-    after the others are removed; a process running as root is refused
-    (``RootBackupRefusedError``).
+    As ``wpbackup2 prune``: ``keep`` keeps the newest N; ``keep_daily``,
+    ``keep_weekly``, ``keep_monthly``, ``keep_yearly`` each keep the newest
+    Archive of each of the last N UTC days, ISO weeks, months or years that
+    have one. An Archive kept by any rule stays, the newest always. At least
+    one rule must be given and each must be at least 1 (``UsageError``,
+    before anything is read).
+
+    Only Archives in ``archive_dir`` (``None``: the directory the CLI's backup
+    writes to by default) whose Manifest is this Site's count; Safety
+    Snapshots, other sites' Archives, unreadable files, symlinks and
+    ``.partial`` files are never deleted. ``dry_run=True`` deletes nothing and
+    returns what would go. Takes the Site Lock. A file chosen but not
+    removable raises ``PruneFailedError`` after the others are removed; a
+    process running as root is refused (``RootBackupRefusedError``).
     """
+    policy = RetentionPolicy(
+        keep=keep,
+        keep_daily=keep_daily,
+        keep_weekly=keep_weekly,
+        keep_monthly=keep_monthly,
+        keep_yearly=keep_yearly,
+    )
     return drive_prune(
         PruneRequest(
             site_root=Path(site),
-            keep=keep,
+            policy=policy,
             archive_dir=None if archive_dir is None else Path(archive_dir),
             wp_config=None if wp_config is None else Path(wp_config),
             dry_run=dry_run,

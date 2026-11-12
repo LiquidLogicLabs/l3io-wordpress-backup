@@ -1,9 +1,10 @@
-"""Owner decisions 64 and 83 — "this Site's Archives": ``latest`` and ``prune``.
+"""Owner decisions 64, 83, 84 — "this Site's Archives": ``latest`` and ``prune``.
 
 ``restore --archive latest`` names the newest of them (:func:`choose_latest`);
-``prune --keep N`` keeps the newest ``N`` and removes the rest
-(:func:`choose_prune`). Both read one ordering, :func:`site_archives`, so
-there is one definition of which Archives are this Site's.
+``prune`` keeps those its retention rules keep (``core/retention.py``) and
+removes the rest (:func:`choose_prune`). Both read one ordering,
+:func:`site_archives`, so there is one definition of which Archives are this
+Site's.
 
 The newest, by its Manifest's ``created_at``, of the Archives in the Archive
 directory **whose Manifest is for this Site**, so a directory shared by
@@ -34,12 +35,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePosixPath
 
+from l3io.wp.backup.core.retention import RetentionPolicy, apply_retention
 from l3io.wp.backup.domain.archive_format import Manifest, SourceValue, parse_created_at
-from l3io.wp.backup.domain.errors import NoArchiveForSiteError, UsageError
+from l3io.wp.backup.domain.errors import NoArchiveForSiteError
 from l3io.wp.backup.domain.site import SiteDescriptor
 
 __all__ = [
     "ArchiveSite",
+    "ChosenArchive",
     "LatestCandidate",
     "LatestChoice",
     "PruneChoice",
@@ -132,10 +135,14 @@ def _created(manifest: Manifest) -> datetime | None:
 
 @dataclass(frozen=True, slots=True)
 class SiteArchive:
-    """One of this Site's Archives: its path and its Manifest's ``created_at``."""
+    """One of this Site's Archives: its path and its Manifest's ``created_at``.
+
+    ``created_at`` as the Manifest writes it; ``created`` parsed, in UTC.
+    """
 
     path: PurePosixPath
     created_at: str
+    created: datetime
 
 
 def site_archives(
@@ -156,7 +163,9 @@ def site_archives(
             continue
         created = _created(manifest)
         if created is not None:
-            archive = SiteArchive(path=candidate.path, created_at=manifest.created_at)
+            archive = SiteArchive(
+                path=candidate.path, created_at=manifest.created_at, created=created
+            )
             matching.append((created, candidate.path.name, archive))
     matching.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [archive for _, _, archive in matching]
@@ -187,31 +196,60 @@ def choose_latest(
 
 
 @dataclass(frozen=True, slots=True)
-class PruneChoice:
-    """What ``prune --keep N`` keeps and removes, newest first in each."""
+class ChosenArchive:
+    """One of this Site's Archives a prune keeps or removes, and why.
 
-    kept: tuple[PurePosixPath, ...]
-    pruned: tuple[SiteArchive, ...]
+    Kept: ``reasons`` are the rules that keep it (``("daily", "monthly")``).
+    Removed: one reason per rule given (``"daily: not the newest of its day"``).
+    """
+
+    path: PurePosixPath
+    created_at: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PruneChoice:
+    """What ``prune`` keeps and removes, newest first in each."""
+
+    kept: tuple[ChosenArchive, ...]
+    pruned: tuple[ChosenArchive, ...]
     considered: int
     matched: int
 
 
 def choose_prune(
-    candidates: Sequence[LatestCandidate], site: ArchiveSite, *, keep: int
+    candidates: Sequence[LatestCandidate],
+    site: ArchiveSite,
+    *,
+    policy: RetentionPolicy,
 ) -> PruneChoice:
-    """Keep ``site``'s newest ``keep`` Archives; the rest of its own are pruned.
+    """Keep what ``policy`` keeps of ``site``'s Archives; the rest of its own go.
 
-    ``keep`` below 1 is a :class:`UsageError`, so the newest is never pruned.
-    Nothing that is not ``site``'s own backup (:func:`site_archives`) is ever
-    in ``pruned``.
+    A :class:`RetentionPolicy` has at least one rule, each at least 1, so the
+    newest is always kept. Nothing that is not ``site``'s own backup
+    (:func:`site_archives`) is ever in ``pruned``. Ties are broken by the
+    later path, which in one directory is :func:`site_archives`' later name.
     """
-    if keep < 1:
-        msg = f"keep must be at least 1, not {keep}: the newest archive is never pruned"
-        raise UsageError(msg, arguments=("keep",))
     matching = site_archives(candidates, site)
+    by_name = {str(a.path): a for a in matching}
+    kept: list[ChosenArchive] = []
+    pruned: list[ChosenArchive] = []
+    for verdict in apply_retention(
+        [(a.created, str(a.path)) for a in matching], policy
+    ):
+        archive = by_name[verdict.name]
+        if verdict.kept_by:
+            kept.append(
+                ChosenArchive(archive.path, archive.created_at, verdict.kept_by)
+            )
+        else:
+            pruned.append(
+                ChosenArchive(archive.path, archive.created_at, verdict.pruned_because)
+            )
     return PruneChoice(
-        kept=tuple(a.path for a in matching[:keep]),
-        pruned=tuple(matching[keep:]),
+        kept=tuple(kept),
+        pruned=tuple(pruned),
         considered=len(candidates),
         matched=len(matching),
     )

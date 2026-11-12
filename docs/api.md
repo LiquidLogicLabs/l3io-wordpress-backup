@@ -392,23 +392,27 @@ Returns: `tuple[str, ...]`.
 
 ### `prune`
 
-Owner decision 83: delete this Site's older Archives, keeping the newest `keep`, as `wpbackup2 prune --keep N` does. Only Archives in `archive_dir` (`None`: the directory the CLI's backup writes to by default) whose Manifest is this Site's count, by the matching `restore --archive latest` uses; a Safety Snapshot, another site's Archive, a file whose Manifest cannot be read, a symlink and a `.partial` file are never deleted. `keep` has no default and must be at least 1, so the newest always stays. `dry_run=True` deletes nothing and returns what would go. Takes the Site Lock. Each deletion is logged (`archive_pruned`).
+Owner decisions 83 and 84: delete this Site's older Archives, keeping what the retention rules keep, as `wpbackup2 prune` does. `keep` keeps the newest N; `keep_daily`, `keep_weekly`, `keep_monthly` and `keep_yearly` each keep the newest Archive of each of the last N UTC days, ISO weeks, months or years that have one ([how retention works](docker.md#how-retention-works)). An Archive kept by any rule stays, and the newest always does. At least one rule must be given and each must be at least 1; otherwise `UsageError` before anything is read. Only Archives in `archive_dir` (`None`: the directory the CLI's backup writes to by default) whose Manifest is this Site's count, by the matching `restore --archive latest` uses; a Safety Snapshot, another site's Archive, a file whose Manifest cannot be read, a symlink and a `.partial` file are never deleted. `dry_run=True` deletes nothing and returns what would go. Takes the Site Lock. Each deletion is logged (`archive_pruned`, with `reasons`), each Archive kept at DEBUG (`archive_kept`, with the rules that keep it).
 
 ```python
-prune(site: str | os.PathLike[str], *, keep: int, archive_dir: str | os.PathLike[str] | None = None, wp_config: str | os.PathLike[str] | None = None, dry_run: bool = False) -> PruneResult
+prune(site: str | os.PathLike[str], *, keep: int | None = None, keep_daily: int | None = None, keep_weekly: int | None = None, keep_monthly: int | None = None, keep_yearly: int | None = None, archive_dir: str | os.PathLike[str] | None = None, wp_config: str | os.PathLike[str] | None = None, dry_run: bool = False) -> PruneResult
 ```
 
 | Parameter | Type | Default |
 |---|---|---|
 | `site` | `str \| os.PathLike[str]` | required |
-| `keep` | `int` | required |
+| `keep` | `int \| None` | `None` |
+| `keep_daily` | `int \| None` | `None` |
+| `keep_weekly` | `int \| None` | `None` |
+| `keep_monthly` | `int \| None` | `None` |
+| `keep_yearly` | `int \| None` | `None` |
 | `archive_dir` | `str \| os.PathLike[str] \| None` | `None` |
 | `wp_config` | `str \| os.PathLike[str] \| None` | `None` |
 | `dry_run` | `bool` | `False` |
 
 Returns: `PruneResult`.
 
-Raises: `UsageError` (`keep` below 1, a missing Archive directory), `SiteLockedError`, `PruneFailedError` (a chosen Archive could not be removed; the others were), `RootBackupRefusedError` (running as root), and `UnexpectedError`, with the original on `__cause__`, for any defect.
+Raises: `UsageError` (no rule, a rule below 1, a missing Archive directory), `SiteLockedError`, `PruneFailedError` (a chosen Archive could not be removed; the others were), `RootBackupRefusedError` (running as root), and `UnexpectedError`, with the original on `__cause__`, for any defect.
 
 ### `Diagnosis`
 
@@ -503,23 +507,41 @@ Defined in the CLI layer; import it from l3io.wp.backup.api.
 
 ### `PruneResult`
 
-What a prune did, or in a Dry Run would do (owner decision 83): `directory`, `keep`, `kept` (this Site's Archives left, newest first), `pruned` (one `PrunedArchive` per Archive removed, newest first), `skipped` (each `*.tar.gz` entry that was no candidate for what it is, with the reason), `considered` (Archives read), `matched` (this Site's) and `performed` (`False` in a Dry Run).
+What a prune did, or in a Dry Run would do (owner decisions 83, 84): `directory`, `policy` (the `RetentionPolicy` applied), `kept` (one `KeptArchive` per Archive of this Site's left, newest first, with the rules that keep it), `pruned` (one `PrunedArchive` per Archive removed, newest first, with why), `skipped` (each `*.tar.gz` entry that was no candidate for what it is, with the reason), `considered` (Archives read), `matched` (this Site's) and `performed` (`False` in a Dry Run).
 
 ```python
-PruneResult(directory: PurePosixPath, keep: int, kept: tuple[PurePosixPath, ...], pruned: tuple[PrunedArchive, ...], skipped: tuple[tuple[PurePosixPath, str], ...], considered: int, matched: int, performed: bool)
+PruneResult(directory: PurePosixPath, policy: RetentionPolicy, kept: tuple[KeptArchive, ...], pruned: tuple[PrunedArchive, ...], skipped: tuple[tuple[PurePosixPath, str], ...], considered: int, matched: int, performed: bool)
 ```
 
 Defined in the CLI layer; import it from l3io.wp.backup.api.
 
 ### `PrunedArchive`
 
-One Archive a prune removed, or would remove: `path`, `bytes` and `created_at` (its Manifest's).
+One Archive a prune removed, or would remove: `path`, `bytes`, `created_at` (its Manifest's) and `reasons`, one per rule given, saying why that rule does not keep it (`"daily: not the newest of its day"`, `"weekly: older than the newest 4 weeks that have an archive"`, `"newest: not among the newest 14"`).
 
 ```python
-PrunedArchive(path: PurePosixPath, bytes: int, created_at: str)
+PrunedArchive(path: PurePosixPath, bytes: int, created_at: str, reasons: tuple[str, ...])
 ```
 
 Defined in the CLI layer; import it from l3io.wp.backup.api.
+
+### `KeptArchive`
+
+One of this Site's Archives a prune left: `path`, `created_at` (its Manifest's) and `reasons`, the rules that keep it: `"newest"` (`keep`), `"daily"`, `"weekly"`, `"monthly"`, `"yearly"`.
+
+```python
+KeptArchive(path: PurePosixPath, created_at: str, reasons: tuple[str, ...])
+```
+
+Defined in the CLI layer; import it from l3io.wp.backup.api.
+
+### `RetentionPolicy`
+
+The retention rules a prune applies (owner decision 84): `keep`, `keep_daily`, `keep_weekly`, `keep_monthly`, `keep_yearly`, each `None` (not used) or at least 1, at least one given; otherwise `UsageError` naming the setting(s). `rules()` returns the rules given with their counts, `settings()` them by setting name (`{"keep_daily": 7}`), `describe()` them as flags (`--keep-daily 7 --keep-weekly 4`). `prune` builds one from its arguments; `PruneResult.policy` is the one applied.
+
+```python
+RetentionPolicy(keep: int | None = None, keep_daily: int | None = None, keep_weekly: int | None = None, keep_monthly: int | None = None, keep_yearly: int | None = None)
+```
 
 ### `BackupScope`
 

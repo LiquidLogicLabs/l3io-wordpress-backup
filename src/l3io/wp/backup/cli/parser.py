@@ -281,7 +281,8 @@ def build_parser() -> CliParser:
         _command(
             subparsers,
             PRUNE_COMMAND,
-            "Delete this site's older archives, keeping the newest --keep N",
+            "Delete this site's older archives, keeping what --keep N and the "
+            "--keep-daily/-weekly/-monthly/-yearly tiers keep",
         )
     )
     for command, command_parser in subparsers.choices.items():
@@ -861,18 +862,28 @@ def _add_doctor(doctor: argparse.ArgumentParser) -> None:
 
 
 def _keep(text: str) -> int:
-    """``--keep``: a whole number of at least 1 (owner decision 83)."""
+    """``--keep`` and the tiers: a whole number of at least 1 (decisions 83, 84)."""
     try:
         value = int(text, 10)
     except ValueError:
         value = 0
     if value < 1 or not text.strip().isdigit():
         msg = (
-            f"invalid count {text!r}: a whole number of at least 1 (the newest "
-            "archive is never pruned)"
+            f"invalid count {text!r}: a whole number of at least 1 (leave the "
+            "rule out to not use it; the newest archive is never pruned)"
         )
         raise argparse.ArgumentTypeError(msg)
     return value
+
+
+#: The tiers of owner decision 84: ``--keep-<tier>``, its unit, and the unit
+#: as the help describes it.
+_TIERS: Final = (
+    ("daily", "day", "UTC day"),
+    ("weekly", "week", "ISO week (Monday to Sunday, UTC)"),
+    ("monthly", "month", "calendar month (UTC)"),
+    ("yearly", "year", "calendar year (UTC)"),
+)
 
 
 def _add_prune(prune: argparse.ArgumentParser) -> None:
@@ -885,14 +896,28 @@ def _add_prune(prune: argparse.ArgumentParser) -> None:
         "--keep",
         metavar="N",
         type=_keep,
-        required=True,
+        default=None,
         help=(
-            "How many of this site's newest archives to keep (at least 1); its "
-            "older ones in --archive-dir are deleted. Only archives whose "
-            "manifest is this site's count; safety snapshots, other sites' "
-            "archives and unreadable files are never deleted"
+            "Keep this site's newest N archives (at least 1). At least one of "
+            "--keep and the --keep-<tier> rules is required; an archive kept by "
+            "any rule stays, the newest always, and this site's others in "
+            "--archive-dir are deleted. Only archives whose manifest is this "
+            "site's count; safety snapshots, other sites' archives and "
+            "unreadable files are never deleted"
         ),
     )
+    for tier, unit, bucket in _TIERS:
+        prune.add_argument(
+            f"--keep-{tier}",
+            metavar="N",
+            type=_keep,
+            default=None,
+            help=(
+                f"Keep the newest archive of each {bucket}, for the N most "
+                f"recent {unit}s that have one (at least 1), by Manifest "
+                "created_at"
+            ),
+        )
     prune.add_argument(
         "--archive-dir",
         metavar="DIR",

@@ -46,9 +46,10 @@ from l3io.wp.backup.api.operations import backup, doctor, prune, restore, verify
 from l3io.wp.backup.cli.backup import BackupResult
 from l3io.wp.backup.cli.logging import configure_logging
 from l3io.wp.backup.cli.output import RunWarning
-from l3io.wp.backup.cli.prune import PrunedArchive, PruneResult
+from l3io.wp.backup.cli.prune import KeptArchive, PrunedArchive, PruneResult
 from l3io.wp.backup.cli.restore_request import RelocationFlags, RestoreOutcome
 from l3io.wp.backup.core.exclusions import ExclusionSet, enumerate_defaults
+from l3io.wp.backup.core.retention import RetentionPolicy
 from l3io.wp.backup.domain.archive_format import VerificationResult
 from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.credentials import (
@@ -80,6 +81,7 @@ __all__: list[str] = [
     "ExclusionPolicy",
     "ExclusionSet",
     "ExplicitCredentialSpec",
+    "KeptArchive",
     "Override",
     "OverrideSet",
     "PruneResult",
@@ -87,6 +89,7 @@ __all__: list[str] = [
     "RelocationFlags",
     "RestoreMode",
     "RestoreOutcome",
+    "RetentionPolicy",
     "RunWarning",
     "Secret",
     "SiteDescriptor",

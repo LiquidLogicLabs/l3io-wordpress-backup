@@ -174,10 +174,16 @@ PUID=0 backup restore --archive latest`. `wpbackup2` then runs as the Site
 Root's owner ([docs/docker.md](docs/docker.md#restoring-an-archive-another-user-wrote)).
 
 After each successful scheduled backup the image prunes this site's older
-Archives, keeping the newest 14 (`WPBACKUP_KEEP`; `0` disables it). By hand,
-anywhere: `wpbackup2 prune --keep 14` (`--whatIf` lists what it would delete).
-Only Archives whose Manifest is this site's are ever deleted, never another
-site's, a Safety Snapshot or a file that is no Archive.
+Archives with tiered retention: the newest of each of the last 7 days, 4 ISO
+weeks and 6 months that have one (`WPBACKUP_KEEP_DAILY`, `_WEEKLY`, `_MONTHLY`;
+also `WPBACKUP_KEEP_YEARLY` and `WPBACKUP_KEEP` for the newest N; all unset or
+`0` disables pruning). An Archive kept by any rule stays, and the newest always
+does: [how retention works](docs/docker.md#how-retention-works). By hand,
+anywhere: `wpbackup2 prune --keep-daily 7 --keep-weekly 4 --keep-monthly 6`,
+or `--keep 14` for the newest 14 (`--whatIf` lists what it would delete, and
+which rule keeps each Archive). Only Archives whose Manifest is this site's
+are ever deleted, never another site's, a Safety Snapshot or a file that is no
+Archive.
 
 To schedule from the host instead (cron or a systemd timer), run the one-shot
 form, `docker compose run --rm backup backup`, and put the service in a
@@ -267,7 +273,8 @@ positional arguments:
     restore             Perform a WordPress restore
     verify              Check an archive without touching a site
     doctor              Report whether this host is ready to back up and restore
-    prune               Delete this site's older archives, keeping the newest --keep N
+    prune               Delete this site's older archives, keeping what --keep N and the --keep-
+                        daily/-weekly/-monthly/-yearly tiers keep
 
 options:
   -h, --help            Show this help message and exit
@@ -587,10 +594,11 @@ exit codes:
 
 ```text
 $ wpbackup2 prune --help
-usage: wpbackup2 prune [-h] [--config PATH] --wp-dir WP_DIR --keep N [--archive-dir DIR]
+usage: wpbackup2 prune [-h] [--config PATH] --wp-dir WP_DIR [--keep N] [--keep-daily N]
+                       [--keep-weekly N] [--keep-monthly N] [--keep-yearly N] [--archive-dir DIR]
                        [--wp-config PATH] [--whatIf]
 
-Delete this site's older archives, keeping the newest --keep N
+Delete this site's older archives, keeping what --keep N and the --keep-daily/-weekly/-monthly/-yearly tiers keep
 
 Every option can also be set as an L3IO_WP_BACKUP_<NAME> variable
 (--wp-dir is L3IO_WP_BACKUP_WP_DIR) or as a key in a TOML config file
@@ -603,10 +611,19 @@ options:
                        backup/config.toml). A file holding a secret must be readable by its owner
                        only
   --wp-dir WP_DIR      Path to the root of the WordPress directory whose archives are pruned
-  --keep N             How many of this site's newest archives to keep (at least 1); its older
-                       ones in --archive-dir are deleted. Only archives whose manifest is this
-                       site's count; safety snapshots, other sites' archives and unreadable files
-                       are never deleted
+  --keep N             Keep this site's newest N archives (at least 1). At least one of --keep and
+                       the --keep-<tier> rules is required; an archive kept by any rule stays, the
+                       newest always, and this site's others in --archive-dir are deleted. Only
+                       archives whose manifest is this site's count; safety snapshots, other
+                       sites' archives and unreadable files are never deleted
+  --keep-daily N       Keep the newest archive of each UTC day, for the N most recent days that
+                       have one (at least 1), by Manifest created_at
+  --keep-weekly N      Keep the newest archive of each ISO week (Monday to Sunday, UTC), for the N
+                       most recent weeks that have one (at least 1), by Manifest created_at
+  --keep-monthly N     Keep the newest archive of each calendar month (UTC), for the N most recent
+                       months that have one (at least 1), by Manifest created_at
+  --keep-yearly N      Keep the newest archive of each calendar year (UTC), for the N most recent
+                       years that have one (at least 1), by Manifest created_at
   --archive-dir DIR    Directory holding the archives (default: the one a backup writes to by
                        default)
   --wp-config PATH     Use this wp-config.php instead of searching for it

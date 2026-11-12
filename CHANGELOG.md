@@ -41,9 +41,41 @@ owner asked for, which a commit subject cannot hold.
 - **`api.prune(site, keep=..., archive_dir=None, dry_run=False)`** returns a
   `PruneResult`; `PruneFailedError` (exit 1) when a chosen Archive could not
   be removed.
-- **The image prunes after each successful scheduled backup**, keeping 14
-  (`WPBACKUP_KEEP`; `0` disables it; a value that is not a whole number stops
-  the container at start). One-shot runs prune only when asked.
+- **The image prunes after each successful scheduled backup**, with the
+  tiered defaults below (`WPBACKUP_KEEP` keeps the newest N when set; a value
+  that is not a whole number stops the container at start). One-shot runs
+  prune only when asked.
+
+### Added: tiered retention in `prune` (owner decision 84)
+
+- **`--keep-daily N`, `--keep-weekly N`, `--keep-monthly N`,
+  `--keep-yearly N`**: each keeps the newest of this site's Archives per UTC
+  day, ISO week (Monday to Sunday; a week across 31 December is one week),
+  month or year, over the last N of them that have an Archive. They combine
+  with `--keep N` and with each other: an Archive kept by any rule stays, the
+  newest always. At least one rule is required (exit 2 otherwise); each is at
+  least 1. Nothing is copied: a nightly Archive that is the last of its week
+  and month stays as the weekly and the monthly after the daily window passes
+  ([docs/docker.md](docs/docker.md#how-retention-works)).
+- **Three spellings each**: `L3IO_WP_BACKUP_KEEP_DAILY` (and `_WEEKLY`,
+  `_MONTHLY`, `_YEARLY`), config keys `keep_daily` and so on;
+  `api.prune(..., keep_daily=..., keep_weekly=..., keep_monthly=...,
+  keep_yearly=...)`, and `keep` is now optional there too.
+- **What a prune says**: `archive_pruned` carries `reasons` (why each rule
+  lets the Archive go), `archive_kept` (DEBUG) the rules that keep each one,
+  and `prune_completed` the `rules` and both lists. stdout lists each Archive
+  kept with its rules, each deleted with why, then the totals.
+  `PruneResult.keep` is now `policy` (an `api.RetentionPolicy`), `kept` holds
+  `api.KeptArchive` values, and `PrunedArchive` has `reasons`.
+- **The image's default retention is 7 daily, 4 weekly, 6 monthly**
+  (`WPBACKUP_KEEP_DAILY=7`, `WPBACKUP_KEEP_WEEKLY=4`,
+  `WPBACKUP_KEEP_MONTHLY=6`; `WPBACKUP_KEEP_YEARLY` unset), replacing the flat
+  `WPBACKUP_KEEP=14`, which is now unset by default and still keeps the
+  newest N when set. The scheduled job passes only the rules set and not `0`;
+  all unset or `0` disables pruning.
+- The bucketing is this package's own (no maintained library fits):
+  [ADR-0029](docs/adr/0029-tiered-retention-bucketing.md) records the
+  libraries evaluated.
 
 ### Added: a MariaDB-client image variant (owner decision 81)
 

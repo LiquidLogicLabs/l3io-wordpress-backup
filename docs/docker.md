@@ -88,28 +88,86 @@ schedule stops the container at start (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`).
 | Variable | Default | Meaning |
 |---|---|---|
 | `WPBACKUP_SCHEDULE` | `0 3 * * *` | one cron expression for `wpbackup2 backup`; empty to schedule only the file below |
-| `WPBACKUP_KEEP` | `14` | after each **successful** scheduled backup, `wpbackup2 prune --keep N`: this site's newest N Archives in `/backups` stay, older ones of this site are deleted (owner decision 83; two weeks of nightly backups). `0` disables pruning. Not a whole number: the container stops at start |
+| `WPBACKUP_KEEP_DAILY` | `7` | after each **successful** scheduled backup, `wpbackup2 prune --keep-daily N`: the newest Archive of each of the last N UTC days that have one ([how retention works](#how-retention-works); owner decision 84) |
+| `WPBACKUP_KEEP_WEEKLY` | `4` | `--keep-weekly N`: the newest of each of the last N ISO weeks (Monday to Sunday, UTC) that have one |
+| `WPBACKUP_KEEP_MONTHLY` | `6` | `--keep-monthly N`: the newest of each of the last N months that have one |
+| `WPBACKUP_KEEP_YEARLY` | unset | `--keep-yearly N`: the newest of each of the last N years that have one |
+| `WPBACKUP_KEEP` | unset | `--keep N`: this site's newest N Archives (owner decision 83) |
 | `WPBACKUP_CRONTAB` | `/etc/l3io-wp-backup/crontab` | a crontab appended as written, when it exists (named explicitly, it must exist) |
 | `TZ` | UTC | the schedule's time zone |
+
+Each `WPBACKUP_KEEP*` rule is passed to the prune only when it is set and not
+`0`; the prune keeps what any of them keeps. **All of them unset, empty or `0`
+disables pruning** (set `WPBACKUP_KEEP_DAILY=0 WPBACKUP_KEEP_WEEKLY=0
+WPBACKUP_KEEP_MONTHLY=0` to turn the defaults off). A value that is not a whole
+number (at most 9 digits) stops the container at start. To keep only the
+newest N instead: `WPBACKUP_KEEP=14` and the three tiers `0`.
 
 The image's own variables are `WPBACKUP_*`, not `L3IO_WP_BACKUP_*`: `wpbackup2`
 reads every `L3IO_WP_BACKUP_*` variable as a setting and logs WARNING
 `unknown_setting_variable` on every Run for one it does not know.
+`tests/contracts/test_docker_image.py` checks that every `L3IO_WP_BACKUP_*`
+name the image sets or reads is a `wpbackup2` setting, and that the scheduler
+maps every retention rule.
 
 Supercronic does not start a job again while its previous run is still going,
 and the Site Lock refuses a second Run on the same site anyway. Avoid an
 impossible date (`0 0 31 2 *`): Supercronic 0.2.51 accepts it and then logs a
 warning in a busy loop.
 
-The prune follows the `WPBACKUP_SCHEDULE` job only (`<expr> wpbackup2 backup
-&& wpbackup2 prune --keep N`), so a failed backup deletes nothing; jobs in a
-mounted crontab are run as written. It deletes only Archives whose Manifest
-is this site's: another site's Archives in the same volume, Safety Snapshots
-and files that are no Archive are never touched.
+The prune follows the `WPBACKUP_SCHEDULE` job only (by default `0 3 * * *
+wpbackup2 backup && wpbackup2 prune --keep-daily 7 --keep-weekly 4
+--keep-monthly 6`), so a failed backup deletes nothing; jobs in a mounted
+crontab are run as written. It deletes only Archives whose Manifest is this
+site's: another site's Archives in the same volume, Safety Snapshots and files
+that are no Archive are never touched.
+
+### How retention works
+
+The grandfather-father-son model, as restic's `forget` applies it (owner
+decision 84; [ADR-0029](adr/0029-tiered-retention-bucketing.md)). Each rule
+looks at this site's Archives newest first, by the `created_at` their Manifest
+records (UTC), and keeps:
+
+- `--keep-daily N`: the newest Archive of each of the last N **UTC days** that
+  have one;
+- `--keep-weekly N`: the newest of each of the last N **ISO weeks** (Monday to
+  Sunday; Thu 31 Dec 2026 and Fri 1 Jan 2027 are one week, 2026-W53);
+- `--keep-monthly N` and `--keep-yearly N`: the same per calendar month and
+  year;
+- `--keep N`: the newest N.
+
+A day, week, month or year with no Archive does not count, so a gap reaches
+further back instead of losing coverage. An Archive kept by **any** rule
+stays; the newest always does. Everything else of this site's is deleted.
+Nothing is copied or renamed: one nightly Archive can be the daily, the weekly
+and the monthly at once, and each rule keeps it for as long as that rule
+reaches.
+
+**Promotion, with the defaults (7 daily, 4 weekly, 6 monthly) and nightly
+backups.** The backup of Sunday 31 August 2025:
+
+| On | Kept by | Why |
+|---|---|---|
+| 31 Aug – 6 Sep | daily, weekly, monthly | one of the last 7 days; the newest of its week (2025-W35) and of August |
+| 7 – 21 Sep | weekly, monthly | 7 newer days now; W35 is still one of the last 4 weeks |
+| 22 Sep – 31 Jan 2026 | monthly | W39 starts: W35 is the fifth week; August is still one of the last 6 months |
+| 1 Feb 2026 | — (deleted) | February is the seventh month with an Archive |
+
+Monday 1 September's backup is never the newest of its week or month by the
+time the daily window passes it, so it is deleted on 8 September. With
+nightly backups the defaults hold 13 to 15 Archives at any time: the 7 newest
+days, the Sundays of the weeks before them, and the last days of the months
+before those (fewer when one Archive is kept by two rules).
+
+`wpbackup2 --whatIf prune ...` lists every Archive it would keep with the
+rules that keep it, and every one it would delete with why; each Run logs
+`archive_pruned` with `reasons` (and `archive_kept` at DEBUG).
 
 **One-shot (any other command).** `docker run IMAGE backup` is `wpbackup2
 backup`; `docker run IMAGE wpbackup2 backup` is the same. A one-shot run never
-prunes unless asked: `docker run IMAGE prune --keep 14`. The first argument
+prunes unless asked: `docker run IMAGE prune --keep-daily 7 --keep-weekly 4
+--keep-monthly 6` (the `WPBACKUP_KEEP_*` variables feed the schedule only). The first argument
 runs as a command only when it names an executable on PATH (`sh`, `sleep`);
 `tests/sidecar/run.sh` checks that no `wpbackup2` subcommand does. No s6 starts.
 
