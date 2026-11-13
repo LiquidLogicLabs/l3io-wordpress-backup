@@ -7,6 +7,8 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+## 1.1.0 — 2026-11-12
+
 ### Changed: the default Archive name is `wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz` (owner decision 82)
 
 - **The name a backup gives an Archive without `--archive`** was
