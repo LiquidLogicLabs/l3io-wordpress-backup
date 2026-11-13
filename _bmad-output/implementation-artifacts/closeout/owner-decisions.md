@@ -163,3 +163,9 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **The setting:** `archive_subdir`, as a CLI flag, an `L3IO_WP_BACKUP_*` variable and a config key, with UTC tokens `{site}`, `{yyyy}`, `{mm}`, `{dd}` (e.g. `{site}/{yyyy}/{mm}`).
     - **Discovery:** `--archive latest` and `prune` search the Archive directory recursively, still matching by Manifest, so a layout change never strands Archives. Prune removes the subfolders it empties.
     - **Rejected:** per-tier folders.
+87. **The image never changes ownership of anything (owner, 2026-11-13).** It does not touch backups, state, snapshots, temp folders or site files; ownership is the operator's responsibility.
+    - **Which user:** the image runs as the user it is given: `PUID`/`PGID` (when started as root it drops to them) or Docker's `--user` (it runs as that user directly, in both scheduled and one-shot mode).
+    - **Failure:** a folder that user cannot read or write is refused up front with a clear message naming the path, the uid and gid, and the fix (e.g. `chown`), which the operator applies.
+    - **Removed:** every runtime `lsiown`/`chown` in the entrypoint and the s6 init. The image's own internal runtime folders are created so that any uid can use them, with no chown at start.
+    - **Unchanged:** the CLI's own root-to-Site-Root-owner switch (decisions 58/67), which changes no ownership.
+    - **Release:** 1.1.1, with the Phase-3b docs fix (the unwritable-target example exits 4 when `wp-config.php` is unreadable) and a look at the slow Safety Snapshot.
