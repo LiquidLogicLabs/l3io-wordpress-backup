@@ -14,8 +14,8 @@
 #               mysql-client and mariadb-client conflict, so one image carries
 #               one; docs/docker.md records which servers each was proven against.
 #   BASE_IMAGE  the base, pinned by digest: linuxserver's public Ubuntu base (s6
-#               overlay, PUID/PGID through the `abc` user). An internal build from
-#               the family's l3io base is this one line.
+#               overlay for the scheduled mode started as root). An internal
+#               build from the family's l3io base is this one line.
 #   REVISION    the source commit, for the OCI label.
 #
 # The `wheels` build context is for tests/sidecar/run.sh ONLY: given
@@ -25,10 +25,21 @@
 #
 # Writable at run time: $XDG_STATE_HOME (/var/lib/wpbackup/state: the Site Lock,
 # the Run Journal, Safety Snapshots; a volume), $TMPDIR (/tmp/wpbackup: the Run's
-# workspace and the plaintext Dump; a tmpfs), /backups (the Archives; a volume).
+# workspace, the plaintext Dump and the scheduled mode's crontab; a tmpfs),
+# /backups (the Archives; a volume). Nothing else is written by wpbackup2 or
+# Supercronic, so a container started with --user can have a read-only root
+# filesystem (docs/docker.md; the s6 path, started as root, writes /run and
+# /etc/passwd).
+#
+# Ownership (owner decision 87): nothing in the image changes the owner of
+# anything at run time; it runs as PUID:PGID or Docker's --user and refuses a
+# folder that user cannot use (l3io-wpbackup-entrypoint). The two operator-data
+# folders are built owned by 33:33 so that a new named volume, which copies
+# them, starts usable by the default user.
 #
 # No HEALTHCHECK: a one-shot run has nothing to probe, and in the scheduled mode
-# s6 restarts Supercronic if it dies; a job's failure is in the container log
+# s6 restarts Supercronic if it dies (started with --user, there is no s6: the
+# container exits with it, for its restart policy); a job's failure is in the container log
 # (and in its exit status there), not a container health state.
 
 ARG BASE_IMAGE=ghcr.io/linuxserver/baseimage-ubuntu:resolute-fe408847-ls32@sha256:2607002007f92888e46e60c981fbdf315a39e56018bb9ce651dd72ec1376c7a0
@@ -137,8 +148,10 @@ COPY root/ /
 
 # The sidecar's settings (owner decision 60): the Site Root and the Archive
 # directory, so a backup is `wpbackup2 backup` and a restore
-# `wpbackup2 restore --archive latest`, with no flags. PUID/PGID: the base's
-# `abc` user, moved to www-data's ids by default. WPBACKUP_SCHEDULE: the
+# `wpbackup2 restore --archive latest`, with no flags. PUID/PGID are not set
+# here: unset, a container started as root runs as 33:33 (www-data), and a
+# container started with --user can tell that it was not asked for another
+# user (l3io-wpbackup-entrypoint). WPBACKUP_SCHEDULE: the
 # scheduled mode's daily backup; the WPBACKUP_KEEP_* tiers the prune after
 # each successful one (owner decision 84: 7 daily, 4 weekly, 6 monthly;
 # WPBACKUP_KEEP_YEARLY and WPBACKUP_KEEP unset; see
@@ -151,21 +164,28 @@ ENV PATH=/opt/wpbackup/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sb
     L3IO_AGE_PASSPHRASE_BACKEND=auto \
     L3IO_WP_BACKUP_WP_DIR=/var/www/html \
     L3IO_WP_BACKUP_ARCHIVE_DIR=/backups \
-    PUID=33 \
-    PGID=33 \
     WPBACKUP_SCHEDULE="0 3 * * *" \
     WPBACKUP_KEEP_DAILY=7 \
     WPBACKUP_KEEP_WEEKLY=4 \
     WPBACKUP_KEEP_MONTHLY=6 \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
-# The uid/gid that owns the WordPress files: www-data (33) in the official
-# image. These are the build-time owners; PUID/PGID move them at start.
+# Operator data, the state and the Archives: owned by www-data (33), the
+# default user and the owner of the WordPress files in the official image, and
+# private. A new named volume copies this; any other user's mount is the
+# operator's to own (nothing chowns it at start).
+# The image's own runtime folders, usable by any uid with no chown at start:
+# TMPDIR is sticky and world-writable like /tmp (each Run's workspace and the
+# schedule's folder are private, 0700, under it); HOME is root's and
+# read-only, since nothing the image runs writes to it.
 RUN set -eu; \
     mkdir -p /home/wpbackup /var/lib/wpbackup/state /backups /tmp/wpbackup /etc/l3io-wp-backup; \
-    chown 33:33 /home/wpbackup /var/lib/wpbackup/state /backups /tmp/wpbackup; \
-    chmod 0700 /home/wpbackup /var/lib/wpbackup/state /backups /tmp/wpbackup; \
+    chown 33:33 /var/lib/wpbackup/state /backups; \
+    chmod 0700 /var/lib/wpbackup/state /backups; \
+    chmod 1777 /tmp/wpbackup; \
+    chmod 0755 /home/wpbackup; \
     chmod 0755 /usr/local/bin/l3io-wpbackup-entrypoint /usr/local/bin/l3io-wpbackup-crontab \
+      /usr/local/bin/l3io-wpbackup-scheduler \
       /etc/s6-overlay/s6-rc.d/init-wpbackup-config/run /etc/s6-overlay/s6-rc.d/svc-wpbackup-schedule/run; \
     wpbackup2 --version; age --version; supercronic -version; \
     (mysqldump --version || mariadb-dump --version)

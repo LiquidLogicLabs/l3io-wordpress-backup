@@ -665,7 +665,15 @@ uid; `--force` does not waive it, and nothing is begun, so the next Run needs
 no `--resolve-interrupted-run`. (Before 1.1.0 such a restore passed
 `PREFLIGHT` and `VERIFY`, failed at `EXTRACT` with "could not write archive",
 and left an interrupted Run.) The usual cause is restoring as a user other
-than the Site Root's owner: see [Running as root](#running-as-root). A write
+than the Site Root's owner: see [Running as root](#running-as-root). The
+refusal says how to fix it and that wpbackup2 never changes ownership (owner
+decision 87): ownership is the operator's. It needs a user that can read the
+site's `wp-config.php` and the Archive: a user that cannot read the config (a
+`0640` file of another user's, say) is refused earlier, exit 4
+`CREDENTIALS`, since the config is read first. The Archive, the state
+directory, `TMPDIR` and `--snapshot-dir` are checked before the Run opens
+too: exit 3, `PathNotAccessibleError`, naming the path, the uid and gid, the
+owner, group and mode found, and the fix. A write
 that still fails during `EXTRACT` (a file changed after the check) names what
 it was writing into, `could not write into the Site Root '<path>'`
 (`ExtractionWriteError`, exit 1).
@@ -1108,8 +1116,16 @@ sudo wpbackup2 restore --wp-dir /var/www/html --archive /backups/wpbak-example-2
 docker compose run --rm -e PUID=0 backup restore --archive latest   # the Docker sidecar (docs/docker.md)
 ```
 
+The restored files are the site's because the Run runs as the Site Root's
+owner; nothing's ownership is changed (owner decision 87). The state directory
+must be that owner's too (in the Docker image, the state volume:
+[docs/docker.md](docker.md#ownership)), otherwise the restore is refused
+before it opens (exit 3, `PathNotAccessibleError`, with the fix).
+
 Run as another non-root user that cannot write the Site Root, the restore is
-refused before any effect (`TargetNotWritableError`, above).
+refused before any effect: exit 3 (`TargetNotWritableError`, above) when that
+user can read the site's `wp-config.php` and the Archive, exit 4
+(`CREDENTIALS`) when it cannot read the config, which is read first.
 
 Refused (exit 2 `USAGE`, before the Run opens): a Site Root owned by root,
 which has no owner to switch to (`RootRestoreRefusedError`, or

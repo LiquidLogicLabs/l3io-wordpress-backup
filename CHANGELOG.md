@@ -7,6 +7,69 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+1.1.1.
+
+### Changed: the image never changes ownership; it runs as the user it is given (owner decision 87)
+
+- **No ownership changes at start.** The image no longer re-owns anything:
+  the scheduled mode's `lsiown -R` of `XDG_STATE_HOME`, `TMPDIR`, `HOME` and
+  the top of the Archive directory, and the one-shot mode's same changes for
+  `PUID:PGID`, are gone. A one-shot with another `PUID` used to re-own a
+  shared state volume (Safety Snapshots, journals, locks), and the next normal
+  Run then failed (exit 7, `SiteLockLocationError`). **Operators must own their
+  mounts**: the Archive and state folders must be the user's the image runs as.
+  New named volumes are built `33:33 0700`, the default user's, so the default
+  setup needs nothing; a volume or bind mount of another owner needs a
+  `chown -R` by the operator, once (docs/docker.md, Ownership).
+- **Which user.** Started as root: `PUID:PGID` (33:33 when unset) for both
+  modes, one-shot and scheduled (Supercronic and every job), with `setpriv`
+  (no longer the base's `abc` user); `PUID=0` stays root, and `wpbackup2` runs
+  a backup, restore or prune as the Site Root's owner itself (owner decisions
+  58, 67). Started with Docker's `--user` (compose `user:`): that user, **in
+  the scheduled mode too** (refused before), without s6; add `init: true`.
+  `PUID`/`PGID` naming another user under `--user` are refused (exit 2): a
+  container not started as root cannot switch.
+- **`PUID`/`PGID` are no longer set in the image's environment** (unset means
+  33:33 as before), so a `--user` container can tell that no other user was
+  asked for.
+- **Refused up front, never fixed.** The scheduled mode checks, at start and
+  as the jobs' user, the state directory, `TMPDIR` and the Archive directory
+  (write) and the Site Root and its `wp-config.php` (read); a folder it cannot
+  use stops the container (exit 3, or s6's stop when started as root) with the
+  path, the uid and gid, the owner, group and mode found, and the fix, rather
+  than failing every night.
+- **`wpbackup2` checks the same before every Run** (any install, not only the
+  image), a Dry Run too: the state directory (`backup`, `restore`, `prune`),
+  `TMPDIR` when set (`backup`, `restore`; Python would otherwise fall back to
+  another temporary directory silently), the Archive directory (`backup`,
+  `prune`), a backup's Site Root, a restore's `--snapshot-dir`, and the
+  Archive a `restore` or `verify` opens. Refused with the new
+  `PathNotAccessibleError`, **exit 3**, whose message names the path, the
+  effective `uid:gid`, the owner, group and mode, and the fix, and says that
+  wpbackup2 never changes ownership. Before, the same cases failed later and
+  less clearly: an unwritable state directory as exit 7
+  (`SiteLockLocationError`), an Archive the user may not read as exit 2
+  (`ArchiveNotFoundError`, "does not exist or is unreadable").
+- **The image's own folders need no chown:** `TMPDIR` (`/tmp/wpbackup`) is
+  built `1777` (sticky, like `/tmp`), and the scheduled crontab moved into it
+  (`wpbackup-schedule-<uid>/`, `0700`; it was `/run/wpbackup`); `HOME` is
+  root's and read-only (nothing writes it). A container started with `--user`
+  runs on a read-only root filesystem in both modes, with a tmpfs at
+  `/tmp/wpbackup`.
+- **What the base image still does** (linuxserver's s6 init, root starts of
+  the scheduled mode only): re-numbers its `abc` user and re-owns the top of
+  `/app`, `/config` and `/defaults`, which this image does not use; do not
+  mount anything there.
+
+### Fixed: the docs' unwritable-restore-target example
+
+- A restore as a user that is not the Site Root's owner exits **4**
+  (`CREDENTIALS`), not 3, when that user cannot read the site's
+  `wp-config.php` (a `0640` file of the owner's): the config is read first.
+  Exit 3 (`TargetNotWritableError`) needs a user that can read the config
+  and the Archive but not write the Site Root. docs/docker.md and
+  docs/restore.md now say so; `PUID=0` remains the fix.
+
 ## 1.1.0 — 2026-11-12
 
 ### Changed: the default Archive name is `wpbak-<site>-<YYYYMMDDTHHMMSSZ>.tar.gz` (owner decision 82)

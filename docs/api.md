@@ -1904,6 +1904,18 @@ Base: `RefusedError`. Exit code: `REFUSED` (3).
 
 Fields: `paths` (every path found, sorted; the message names the first three) and `uid` (the effective uid checked, `None` when not known), each holding the argument of the same name.
 
+### `PathNotAccessibleError`
+
+A path the Run needs is not readable or writable by the user it runs as (owner decision 87). The `wpbackup2` command checks, before the Run opens and a Dry Run too, after any switch to the Site Root's owner: the per-user state directory (write; `backup`, `restore`, `prune`), `TMPDIR` when it is set (write; `backup`, `restore`), the Archive directory (write; `backup`, `prune`), a backup's Site Root (read), a restore's `--snapshot-dir` (write), and the Archive a `restore` or `verify` opens (read; it was `ArchiveNotFoundError`, exit 2, when permission was denied). A path not made yet is checked at its nearest existing folder, where it would be made. wpbackup2 never changes ownership: the message names the path, the effective `uid:gid`, the owner, group and mode found, and the fix (`chown -R uid:gid` on the host folder or volume, or run as the owner: `PUID`/`PGID` or `--user` in the Docker image). Nothing was changed.
+
+```python
+PathNotAccessibleError(*, path: str, role: str, access: Literal["read", "write"], uid: int, gid: int, checked: str, owner_uid: int | None, owner_gid: int | None, mode: int | None)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `path` (the path needed), `role` (what it is, e.g. `state directory`), `access`, `uid` and `gid` (the effective ids), `checked` (the path examined: the path itself, its nearest existing folder, or the first folder above it the user cannot enter), `owner_uid`, `owner_gid` and `mode` (`checked`'s; `None` when it could not be examined), each holding the argument of the same name.
+
 ### `UnboundAdapterError`
 
 A port whose real implementation has not landed was called. A defect.

@@ -117,6 +117,7 @@ from l3io.wp.backup.adapters.lock import APP_NAME
 from l3io.wp.backup.adapters.phase import phase
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import privileges
+from l3io.wp.backup.cli.access import require_run_access
 from l3io.wp.backup.cli.adapter_sets import (
     dry_run_adapters,
     real_adapters,
@@ -1124,6 +1125,13 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         privileges.switch_to(owner, environ=os.environ, operation="backup")
         site_root = Path(request.site_root).resolve()
         privileges.require_writable(_archive_directory(request, site_root)[0], owner)
+    # Owner decision 87: as the user the Run runs as, before it opens.
+    require_run_access(
+        environ=os.environ,
+        workspace=True,
+        archive_dir=_archive_directory(request, Path(request.site_root).resolve())[0],
+        site_root=Path(request.site_root),
+    )
     planned: list[str] = []
     try:
         result = drive_backup(

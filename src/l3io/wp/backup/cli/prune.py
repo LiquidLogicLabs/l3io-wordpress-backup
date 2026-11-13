@@ -63,6 +63,7 @@ from l3io.wp.backup.adapters.database import (
 )
 from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import privileges
+from l3io.wp.backup.cli.access import require_run_access
 from l3io.wp.backup.cli.adapter_sets import real_site_lock
 from l3io.wp.backup.cli.backup import NO_ENVIRONMENT, default_archive_directory
 from l3io.wp.backup.cli.context import RunContext, join_or_open
@@ -359,6 +360,12 @@ def run_prune(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
         privileges.switch_to(owner, environ=os.environ, operation="prune")
         site_root = Path(request.site_root).resolve()
         privileges.require_writable(_directory(request, site_root), owner)
+    # Owner decision 87: as the user the Run runs as, before it opens.
+    require_run_access(
+        environ=os.environ,
+        workspace=False,
+        archive_dir=_directory(request, Path(request.site_root).resolve()),
+    )
     result = drive_prune(request, ctx=None, secrets=secrets, environ=os.environ)
     emit_result("\n".join(summary_lines(result)))
     return ExitCode.OK

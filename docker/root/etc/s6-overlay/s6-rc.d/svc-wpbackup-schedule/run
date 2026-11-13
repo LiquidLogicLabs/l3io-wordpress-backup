@@ -1,6 +1,5 @@
 #!/usr/bin/with-contenv bash
 # shellcheck shell=bash
-# Scheduled mode: Supercronic, as abc (PUID:PGID). --passthrough-logs hands each
-# job's output to the container log unchanged, so wpbackup2's own log lines
-# (--log-format json for a collector) are what `docker logs` shows.
-exec s6-setuidgid abc supercronic -passthrough-logs /run/wpbackup/crontab
+# Scheduled mode: Supercronic, as PUID:PGID (l3io-wpbackup-scheduler exec;
+# PUID=0 stays root), on the crontab init-wpbackup-config built.
+exec l3io-wpbackup-scheduler exec

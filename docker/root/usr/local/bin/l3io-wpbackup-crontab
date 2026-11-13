@@ -66,6 +66,6 @@ supercronic -test "$out" >/dev/null 2>&1 || {
     supercronic -test "$out" >&2 || true
     die "the crontab does not parse"
 }
-echo "l3io-wpbackup-crontab: scheduled jobs (as uid ${PUID:-33}):"
+echo "l3io-wpbackup-crontab: scheduled jobs (as uid $(id -u):$(id -g)):"
 # shellcheck disable=SC2001  # one prefix per line of a multi-line value
 sed 's/^/  /' <<<"$jobs"

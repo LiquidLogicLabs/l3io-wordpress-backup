@@ -121,8 +121,13 @@ MariaDB too, but logs `client_server_skew` on every dump; the `-mariadb`
 variant does not, and does not work against MySQL
 ([docs/docker.md](docs/docker.md#which-variant)). By default
 it is a scheduler: a daily `wpbackup2 backup` at 03:00 (`WPBACKUP_SCHEDULE`, in
-`TZ`), run as uid/gid 33 (www-data, `PUID`/`PGID` to change), each job's output
-in the container log. Given a command, it runs that once instead.
+`TZ`), run as uid/gid 33 (www-data; `PUID`/`PGID`, or compose `user:`, to
+change), each job's output in the container log. Given a command, it runs that
+once instead. **The image never changes the owner of anything you mount**: the
+Archive and state folders must be that user's (new named volumes, as below,
+are 33's already). A folder it cannot use stops the scheduler at start, and
+any Run, with the path, its owner and mode, and the `chown` to run
+([docs/docker.md](docs/docker.md#ownership)).
 
 ```yaml
 services:
@@ -178,7 +183,8 @@ docker compose run --rm backup restore --archive latest
 An Archive written by another uid than the one owning `/var/www/html` (a
 restore onto a new host) needs root to start: `docker compose run --rm -e
 PUID=0 backup restore --archive latest`. `wpbackup2` then runs as the Site
-Root's owner ([docs/docker.md](docs/docker.md#restoring-an-archive-another-user-wrote)).
+Root's owner, so the restored files are the site's; the state volume must be
+that owner's too ([docs/docker.md](docs/docker.md#restoring-an-archive-another-user-wrote)).
 
 After each successful scheduled backup the image prunes this site's older
 Archives with tiered retention: the newest of each of the last 7 days, 4 ISO

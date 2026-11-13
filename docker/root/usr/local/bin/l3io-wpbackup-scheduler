@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# l3io-wpbackup-scheduler check|prepare|exec|run
+#
+# The scheduled mode's steps (owner decisions 78, 87), each as the user the
+# scheduled jobs run as:
+#
+#   check    the folders a scheduled backup and prune need, as that user:
+#            the state directory and TMPDIR (write), the Archive directory
+#            (write) and the Site Root (read, and its wp-config.php). Every
+#            one it cannot use is named, with its owner, group and mode and
+#            the fix, and the step fails (exit 3): the container stops at
+#            start rather than failing every night. Nothing is changed:
+#            wpbackup2 never changes ownership.
+#   prepare  check, then build and test the crontab (l3io-wpbackup-crontab)
+#            in this user's own folder, $TMPDIR/wpbackup-schedule-<uid>.
+#   exec     exec Supercronic on that crontab.
+#   run      prepare, then exec: the scheduled mode of a container started as
+#            a non-root user (Docker --user), which has no s6.
+#
+# Started as root (the s6 path: init-wpbackup-config runs `prepare`,
+# svc-wpbackup-schedule `exec`), each step first re-runs itself as PUID:PGID
+# (33:33 when unset) with setpriv. PUID=0 stays root: the jobs then run
+# wpbackup2 as root, which runs a backup or prune as the Site Root's owner
+# (owner decisions 58, 67), so `check` is made as that owner.
+#
+# Folders are the image's settings: L3IO_WP_BACKUP_ARCHIVE_DIR,
+# L3IO_WP_BACKUP_WP_DIR, XDG_STATE_HOME and TMPDIR. A job of a mounted crontab
+# that names other folders by flag is checked by wpbackup2 when it runs.
+set -Eeuo pipefail
+
+me=l3io-wpbackup-scheduler
+die() { echo "$me: $*" >&2; exit 2; }
+
+step=${1:-}
+case $step in
+    check | prepare | exec | run) ;;
+    *) die "usage: $me check|prepare|exec|run" ;;
+esac
+
+if [[ $(id -u) == 0 ]]; then
+    puid=${PUID:-33}
+    pgid=${PGID:-33}
+    [[ $puid =~ ^[0-9]+$ && $pgid =~ ^[0-9]+$ ]] || die "PUID and PGID must be numeric ids"
+    if [[ $puid != 0 ]]; then
+        exec setpriv --reuid="$puid" --regid="$pgid" --clear-groups -- "$0" "$@"
+    fi
+fi
+
+uid=$(id -u)
+gid=$(id -g)
+schedule_dir=${TMPDIR:-/tmp}/wpbackup-schedule-$uid
+crontab=$schedule_dir/crontab
+
+# ---- check ----------------------------------------------------------------------
+failed=0
+
+# The nearest path at or above $1 that exists (or that this user can see).
+nearest() {
+    local p=$1
+    while [[ ! -e $p && $p != / ]]; do p=$(dirname -- "$p"); done
+    printf '%s' "$p"
+}
+
+# refuse WHAT PATH ACCESS CHECKED [WHY]
+refuse() {
+    local what=$1 path=$2 access=$3 checked=$4 why=${5:-} owner mode at="" verb=readable
+    [[ $access == write ]] && verb=writable
+    owner=$(stat -c '%u:%g' -- "$checked" 2>/dev/null) || owner="?:?"
+    mode=$(stat -c '%a' -- "$checked" 2>/dev/null) || mode=0
+    [[ $checked == "$path" ]] || at="checked at $checked, "
+    echo "$me: the $what $path is not $verb by uid $uid:$gid (${at}owned by $owner, mode $(printf '%04d' "$mode"))${why:+; $why}." >&2
+    echo "  wpbackup2 never changes ownership; fix it, then start the container again:" >&2
+    echo "    give $uid:$gid $access access, e.g. chown -R $uid:$gid on the host folder or volume mounted at $path" >&2
+    if [[ ${owner%%:*} != 0 && ${owner%%:*} != "$uid" && $owner != "?:?" ]]; then
+        echo "    or run as its owner: PUID=${owner%%:*} PGID=${owner#*:} (or --user $owner)" >&2
+    fi
+    failed=1
+}
+
+need_write() {  # WHAT DIR
+    local checked
+    checked=$(nearest "$2")
+    [[ -d $checked && -w $checked && -x $checked ]] || refuse "$1" "$2" write "$checked"
+}
+
+check() {
+    local state site checked
+    state=${XDG_STATE_HOME:-${HOME:?}/.local/state}/l3io-wp-backup
+    if [[ -e $state && ! -O $state ]]; then
+        refuse "state directory" "$state" write "$state" \
+            "wpbackup2 keeps its state only in a directory the user it runs as owns"
+    else
+        need_write "state directory" "$state"
+    fi
+    need_write "temporary directory (TMPDIR)" "${TMPDIR:-/tmp}"
+    if [[ -n ${L3IO_WP_BACKUP_ARCHIVE_DIR:-} ]]; then
+        need_write "Archive directory" "$L3IO_WP_BACKUP_ARCHIVE_DIR"
+    fi
+    site=${L3IO_WP_BACKUP_WP_DIR:-}
+    if [[ -n $site ]]; then
+        if [[ -d $site ]]; then
+            [[ -r $site && -x $site ]] || refuse "Site Root" "$site" read "$site"
+            if [[ -e $site/wp-config.php && ! -r $site/wp-config.php ]]; then
+                refuse "site's wp-config.php" "$site/wp-config.php" read "$site/wp-config.php"
+            fi
+        else
+            checked=$(nearest "$site")
+            if [[ -x $checked ]]; then
+                echo "$me: the Site Root $site is not there yet; each scheduled backup checks it" >&2
+            else
+                refuse "Site Root" "$site" read "$checked"
+            fi
+        fi
+    fi
+    if (( failed )); then
+        echo "$me: the scheduled mode was not started" >&2
+        exit 3
+    fi
+}
+
+# As root (PUID=0): the check is the Site Root owner's, whom wpbackup2 runs as.
+check_as_runner() {
+    local site=${L3IO_WP_BACKUP_WP_DIR:-} owner
+    if [[ $uid == 0 && -n $site && -d $site ]]; then
+        owner=$(stat -c '%u:%g' -- "$site")
+        if [[ ${owner%%:*} == 0 ]]; then
+            echo "$me: PUID=0 runs each backup as the Site Root's owner, and the Site Root $site is owned by root (wpbackup2 refuses it); set PUID/PGID to the site's user, or give the site's files to it" >&2
+            exit 3
+        fi
+        setpriv --reuid="${owner%%:*}" --regid="${owner#*:}" --clear-groups -- "$0" check
+        return
+    fi
+    check
+}
+
+prepare() {
+    check_as_runner
+    if [[ ! -d $schedule_dir ]]; then
+        mkdir -m 0700 -- "$schedule_dir"
+    fi
+    [[ -O $schedule_dir && ! -L $schedule_dir ]] ||
+        die "$schedule_dir is not uid $uid's own folder; remove it, or point TMPDIR elsewhere"
+    l3io-wpbackup-crontab "$crontab"
+}
+
+start() {
+    [[ -f $crontab ]] || die "no crontab at $crontab: run '$me prepare' first"
+    # -passthrough-logs: each job's output reaches the container log
+    # unchanged, so wpbackup2's own log lines (--log-format json for a
+    # collector) are what `docker logs` shows.
+    exec supercronic -passthrough-logs "$crontab"
+}
+
+case $step in
+    check) check_as_runner ;;
+    prepare) prepare ;;
+    exec) start ;;
+    run)
+        prepare
+        start
+        ;;
+esac

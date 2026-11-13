@@ -2,8 +2,12 @@
 # Smoke run of the official image (docker/Dockerfile) as a Docker sidecar
 # beside the official WordPress image, in both of its modes: one-shot
 # (`docker compose exec backup wpbackup2 ...`) and scheduled (Supercronic under
-# s6, a crontab firing every minute that must produce an Archive). Not part of
-# the pytest suite; ci.yml's `image` job and docker.yml's smoke job run it.
+# s6 when started as root, and directly when started as 33:33 with a read-only
+# root; a crontab firing every minute must produce an Archive in each). It also
+# checks that nothing re-owns the shared volumes (owner decision 87): another
+# PUID is refused, with the fix, and the state and Archives keep their owner.
+# Not part of the pytest suite; ci.yml's `image` job and docker.yml's smoke job
+# run it.
 #
 #   tests/sidecar/run.sh mysql      # mysql:8.0
 #   tests/sidecar/run.sh mysql84    # mysql:8.4
@@ -268,13 +272,32 @@ subcommands_are_not_executables() {
 }
 one_shot_is_wpbackup2() { [[ $(img "$IMAGE" --version) == "wpbackup2 "* ]]; }
 one_shot_runs_as_33() { [[ $(img "$IMAGE" id -u):$(img "$IMAGE" id -g) == 33:33 ]]; }
+# Owner decision 87: PUID:PGID is who runs; nothing is re-owned for it (the
+# image's state folder stays 33:33 0700).
 puid_pgid_honoured() {
     local got
-    got=$(img -e PUID=1234 -e PGID=1234 "$IMAGE" sh -c 'echo "$(id -u):$(id -g) $(stat -c %u:%g "$XDG_STATE_HOME")"')
+    got=$(img -e PUID=1234 -e PGID=1234 "$IMAGE" sh -c 'echo "$(id -u):$(id -g) $(stat -c %u:%g:%a "$XDG_STATE_HOME")"')
     echo "PUID=PGID=1234: $got"
-    [[ $got == "1234:1234 1234:1234" ]]
+    [[ $got == "1234:1234 33:33:700" ]]
 }
 puid_0_keeps_root() { [[ $(img -e PUID=0 "$IMAGE" id -u) == 0 ]]; }
+# Docker's --user: that user, directly; PUID/PGID naming another is refused.
+user_flag_honoured() { [[ $(img --user 1234:1234 "$IMAGE" id -u):$(img --user 1234:1234 "$IMAGE" id -g) == 1234:1234 ]]; }
+user_flag_puid_mismatch_refused() {
+    local out rc=0
+    out=$(img --user 33:33 -e PUID=1000 "$IMAGE" --version 2>&1) || rc=$?
+    echo "rc=$rc: $out"
+    [[ $rc == 2 && $out == *"cannot switch users"* ]]
+}
+# A scheduled start whose user cannot use the image's own data folders (33:33
+# 0700, no volume) stops at start with the fix, as root (s6) and as --user.
+scheduled_start_refused() {
+    local out rc=0
+    out=$(timeout 60 docker run --rm "$@" "$IMAGE" 2>&1) || rc=$?
+    echo "rc=$rc"
+    grep -E 'is not (writable|readable)|never changes ownership|not started' <<<"$out" || true
+    [[ $rc != 0 && $out == *"wpbackup2 never changes ownership"* && $out == *"/var/lib/wpbackup/state"* ]]
+}
 # The scheduled mode refuses to start (s6 stops the container, non-zero) on an
 # empty or unparsable schedule rather than idling with nothing scheduled.
 schedule_refused() { ! timeout 60 docker run --rm -e "WPBACKUP_SCHEDULE=$1" "$IMAGE"; }
@@ -291,6 +314,10 @@ check image:one-shot-is-wpbackup2 one_shot_is_wpbackup2
 check image:one-shot-runs-as-33 one_shot_runs_as_33
 check image:puid-pgid-honoured puid_pgid_honoured
 check image:puid-0-keeps-root puid_0_keeps_root
+check image:user-flag-honoured user_flag_honoured
+check image:user-flag-puid-mismatch-refused user_flag_puid_mismatch_refused
+check image:scheduled-other-puid-refused-at-start scheduled_start_refused -e PUID=1234 -e PGID=1234
+check image:scheduled-user-flag-refused-at-start scheduled_start_refused --user 1234:1234
 check image:empty-schedule-refused schedule_refused ''
 check image:bad-schedule-refused schedule_refused 'not a schedule'
 check image:bad-keep-refused keep_refused WPBACKUP_KEEP 'two weeks'
@@ -577,8 +604,9 @@ step C-backup-after 0 wb backup --archive /backups/c.tar.gz
 
 # ---- the scheduled mode ------------------------------------------------------------
 # The image's default command, as the README's compose example runs it: s6
-# moves `abc` to PUID:PGID (33:33), builds the crontab from WPBACKUP_SCHEDULE
-# (here every minute) plus the mounted crontab, and runs Supercronic. Within
+# starts, the folders are checked and the crontab is built from
+# WPBACKUP_SCHEDULE (here every minute) plus the mounted crontab, as PUID:PGID
+# (33:33), and Supercronic runs as PUID:PGID. Within
 # three minutes it must have written a new Archive of this site, owned by 33,
 # that verifies, and the job's own output must be in the container log.
 # Every Archive under /backups, flat or in subfolders (owner decision 86).
@@ -684,6 +712,61 @@ step S-latest-nested 0 wb --whatIf restore --archive latest --mode files
 check S:latest-is-the-nested-scheduled-archive printed S-latest-nested "archive latest: ${SCHEDULED:-none}"
 step S-prune-nested-dryrun 0 wb --whatIf prune --keep 1
 check S:prune-keeps-the-nested-newest printed S-prune-nested-dryrun "kept ${SCHEDULED:-none} "
+
+# ---- the scheduled mode as a non-root user (owner decision 87) ----------------------
+# `user: "33:33"`, read-only root, no s6: the entrypoint checks the folders,
+# builds the crontab under the TMPDIR tmpfs and execs Supercronic as 33:33. It
+# must write a new Archive, which verifies, owned by 33.
+user_scheduler_log() { dc --profile schedule logs --no-color scheduler-user 2>&1; }
+BEFORE=$(archives_of_site)
+step U-scheduler-user-up 0 dc --profile schedule up -d scheduler-user
+USER_SCHEDULED=
+for _ in $(seq 1 36); do
+    USER_SCHEDULED=$(comm -13 <(sort <<<"$BEFORE") <(archives_of_site | sort) | head -1)
+    [[ -n $USER_SCHEDULED ]] && user_scheduler_log | grep -qF "$USER_SCHEDULED" && break
+    sleep 5
+done
+user_scheduler_log >"$LOGS/U-scheduler-user.log" || true
+dc --profile schedule exec -T scheduler-user ps -eo uid=,comm= >"$LOGS/U-processes.txt" 2>&1 || true
+log "user-scheduled Archive: ${USER_SCHEDULED:-none}"
+supercronic_uid_user() { [[ $(dc --profile schedule exec -T scheduler-user ps -o uid= -C supercronic | tr -d ' ') == 33 ]]; }
+no_s6() { ! grep -qE 's6-svscan|s6-supervise' "$LOGS/U-processes.txt"; }
+check U:user-scheduled-backup-wrote-an-archive test -n "$USER_SCHEDULED"
+check U:job-output-in-container-log grep -qF "${USER_SCHEDULED:-no archive}" "$LOGS/U-scheduler-user.log"
+check U:supercronic-runs-as-33 supercronic_uid_user
+check U:no-s6 no_s6
+check U:crontab-under-tmpdir grep -qF 'scheduled jobs (as uid 33:33)' "$LOGS/U-scheduler-user.log"
+step U-scheduler-user-stop 0 dc --profile schedule stop -t 30 scheduler-user
+if [[ -n $USER_SCHEDULED ]]; then
+    NEWEST=$(archives_of_site | awk -F/ '{print $NF "\t" $0}' | sort | tail -1 | cut -f2)
+    [[ -n $NEWEST ]] && USER_SCHEDULED=$NEWEST
+    check U:archive-owned-by-33 owned_by_33 "$USER_SCHEDULED"
+    step U-verify-user-scheduled 0 wb verify --archive "$USER_SCHEDULED"
+fi
+
+# ---- another PUID against the shared volumes (owner decision 87) --------------------
+# The incident this replaces: a one-shot with PUID=12345 re-owned the shared
+# state volume, and the next normal Run failed. Now a one-shot and a scheduled
+# start as another PUID are refused with the fix, the state and Archives keep
+# every owner and mode, and the normal Run afterwards works.
+volumes_tree() { in_backup sh -c 'find /var/lib/wpbackup/state /backups -printf "%u:%g %m %p\n" | sort'; }
+volumes_unchanged() { [[ $(volumes_tree) == "$VOLUMES_BEFORE" ]]; }
+volumes_owned_by_33() { [[ -z $(in_backup find /var/lib/wpbackup/state /backups ! -uid 33 -print -quit) ]]; }
+VOLUMES_BEFORE=$(volumes_tree)
+printf '%s\n' "$VOLUMES_BEFORE" | awk '{print $1, $2}' | sort | uniq -c >"$LOGS/X-volumes-owners-before.txt"
+step X-oneshot-other-puid 3 dc --profile tools run --rm -T -e PUID=12345 -e PGID=12345 oneshot backup
+check X:oneshot-says-never-changes-ownership grep -qF 'wpbackup2 never changes ownership' "$LOGS/X-oneshot-other-puid.err"
+check X:oneshot-names-the-state-folder grep -qF "/var/lib/wpbackup/state" "$LOGS/X-oneshot-other-puid.err"
+check X:oneshot-names-the-uid grep -qF "by uid 12345:12345" "$LOGS/X-oneshot-other-puid.err"
+check X:oneshot-left-volumes-unchanged volumes_unchanged
+step X-scheduled-other-puid '*' timeout 120 docker compose -f "$HERE/compose.yaml" -p "$PROJECT" --profile "$ENGINE" \
+    --profile tools run --rm -T -e PUID=12345 -e PGID=12345 oneshot
+check X:scheduled-other-puid-stopped test "$LAST_RC" != 0
+check X:scheduled-says-not-started grep -qF 'the scheduled mode was not started' "$LOGS/X-scheduled-other-puid.out" "$LOGS/X-scheduled-other-puid.err"
+check X:scheduled-left-volumes-unchanged volumes_unchanged
+step X-backup-after 0 wb backup
+step X-verify-after 0 wb verify --archive "$(head -1 "$LOGS/X-backup-after.out")"
+check X:volumes-still-33 volumes_owned_by_33
 
 # ---- report -----------------------------------------------------------------------
 {

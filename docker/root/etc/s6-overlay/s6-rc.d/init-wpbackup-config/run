@@ -1,18 +1,11 @@
 #!/usr/bin/with-contenv bash
 # shellcheck shell=bash
-# Scheduled mode, once at start, as root, after the base's init-adduser has
-# moved `abc` to PUID:PGID (33:33 by default): give the image's own writable
-# directories to abc, then build and check the crontab Supercronic runs. A
-# failure here stops the container (S6_BEHAVIOUR_IF_STAGE2_FAILS=2), so a bad
-# schedule is reported at start, not at the first missed backup.
+# Scheduled mode, once at start, when the container started as root (the s6
+# path; l3io-wpbackup-entrypoint). As PUID:PGID (33:33 by default; PUID=0
+# stays root): check the folders the scheduled jobs need, then build and check
+# the crontab Supercronic runs (l3io-wpbackup-scheduler prepare). Nothing's
+# owner is changed (owner decision 87). A failure here stops the container
+# (S6_BEHAVIOUR_IF_STAGE2_FAILS=2), so a folder the jobs cannot use, or a bad
+# schedule, is reported at start, not at the first missed backup.
 set -Eeuo pipefail
-
-# The tool's state and workspace and the home directory: the image's own, so
-# recursively. The Archive directory is usually a volume holding Archives: its
-# top level only.
-lsiown -R abc:abc "${XDG_STATE_HOME:?}" "${TMPDIR:?}" "${HOME:?}"
-lsiown abc:abc "${L3IO_WP_BACKUP_ARCHIVE_DIR:-/backups}"
-
-mkdir -p /run/wpbackup
-l3io-wpbackup-crontab /run/wpbackup/crontab
-lsiown -R abc:abc /run/wpbackup
+exec l3io-wpbackup-scheduler prepare

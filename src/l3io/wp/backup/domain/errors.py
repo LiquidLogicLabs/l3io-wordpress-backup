@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import PurePath
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Final, Literal
 
 from l3io.wp.backup.domain.exit_codes import ExitCode
 
@@ -76,6 +76,7 @@ __all__ = [
     "PassphraseRequiredError",
     "PassphraseTooShortError",
     "PassphraseUnavailableError",
+    "PathNotAccessibleError",
     "PayloadDamagedError",
     "PreflightFailedError",
     "PrivilegeDropError",
@@ -1422,7 +1423,78 @@ class TargetNotWritableError(RefusedError):
             f"the restore target is not writable by {who}: {named}; run the "
             "restore as root (in the Docker image, PUID=0), which switches to "
             "the Site Root's owner, or as that owner, or give "
-            f"{who} write access; nothing was changed"
+            f"{who} write access (for example with chown -R on the Site Root); "
+            f"{NEVER_CHANGES_OWNERSHIP}; nothing was changed"
+        )
+
+
+#: What every refusal over a path's owner or mode says (owner decision 87).
+NEVER_CHANGES_OWNERSHIP: Final = "wpbackup2 never changes ownership"
+
+
+class PathNotAccessibleError(RefusedError):
+    """A path the Run needs is not readable or writable by its user (decision 87).
+
+    Checked by the ``wpbackup2`` command before the Run opens, a Dry Run too,
+    after any switch to the Site Root's owner: the Archive directory (write,
+    for a backup or a prune), the Archive (read, for a restore or a verify),
+    the per-user state directory (write), ``TMPDIR`` when it is set (write),
+    a restore's ``--snapshot-dir`` (write) and a backup's Site Root (read).
+    Nothing is changed: ownership is the operator's to fix, and the message
+    says how. ``path`` is the path needed and ``checked`` the one examined:
+    the path itself, its nearest existing ancestor when it does not exist
+    yet (where it would be made), or the first folder above it the user
+    cannot enter. ``role`` names what it is, ``access`` is ``"read"`` or
+    ``"write"``; ``uid`` and ``gid`` are the Run's effective ids; ``owner_uid``,
+    ``owner_gid`` and ``mode`` are ``checked``'s (``None`` when it could not be
+    examined).
+    """
+
+    def __init__(
+        self,
+        *,
+        path: str,
+        role: str,
+        access: Literal["read", "write"],
+        uid: int,
+        gid: int,
+        checked: str,
+        owner_uid: int | None,
+        owner_gid: int | None,
+        mode: int | None,
+    ) -> None:
+        self.path = path
+        self.role = role
+        self.access = access
+        self.uid = uid
+        self.gid = gid
+        self.checked = checked
+        self.owner_uid = owner_uid
+        self.owner_gid = owner_gid
+        self.mode = mode
+        verb = "readable" if access == "read" else "writable"
+        me = f"{uid}:{gid}"
+        where = "" if checked == path else f"checked at {checked!r}, "
+        if owner_uid is None or owner_gid is None or mode is None:
+            facts = f"{where}whose owner could not be read"
+        else:
+            facts = f"{where}owned by {owner_uid}:{owner_gid}, mode {mode:04o}"
+        if owner_uid == uid:
+            fixes = [f"give its owner, {me}, {access} access to it with chmod"]
+        else:
+            fixes = [
+                f"give {me} {access} access to it (for example chown -R {me} on "
+                "the host folder or volume mounted there)"
+            ]
+        if owner_uid not in (None, 0, uid):
+            owner = f"{owner_uid}:{owner_gid}"
+            fixes.append(
+                f"run wpbackup2 as {owner} (in the Docker image, PUID={owner_uid} "
+                f"PGID={owner_gid}, or --user {owner})"
+            )
+        super().__init__(
+            f"the {role} {path!r} is not {verb} by uid {me} ({facts}); "
+            f"{NEVER_CHANGES_OWNERSHIP}: {', or '.join(fixes)}; nothing was changed"
         )
 
 

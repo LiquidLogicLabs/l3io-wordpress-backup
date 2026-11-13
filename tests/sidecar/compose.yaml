@@ -102,8 +102,8 @@ services:
     depends_on:
       wordpress: {condition: service_healthy}
 
-  # The scheduled mode, the image's default (no command): s6 starts Supercronic
-  # as PUID:PGID (33:33). Started by run.sh's schedule phase only.
+  # The scheduled mode, the image's default (no command), started as root: s6
+  # starts Supercronic as PUID:PGID (33:33). Started by run.sh's schedule phase.
   scheduler:
     profiles: [schedule]
     image: ${L3IO_SIDECAR_IMAGE:?}
@@ -118,6 +118,43 @@ services:
       - ${L3IO_SCRATCH:?}/crontab:/etc/l3io-wp-backup/crontab:ro
     tmpfs:
       - /tmp/wpbackup:mode=0700,uid=33,gid=33
+    networks: [backend]
+
+  # The scheduled mode started as a non-root user (owner decision 87): no s6,
+  # Supercronic runs directly as 33:33, on a read-only root filesystem whose
+  # only writable folder of its own is the TMPDIR tmpfs (sticky, any uid).
+  # Started by run.sh's user-schedule phase.
+  scheduler-user:
+    profiles: [schedule]
+    image: ${L3IO_SIDECAR_IMAGE:?}
+    user: "33:33"
+    init: true
+    read_only: true
+    env_file:
+      - ${L3IO_SCRATCH:?}/wp.env
+      - ${L3IO_SCRATCH:?}/backup.env
+      - ${L3IO_SCRATCH:?}/schedule.env
+    volumes:
+      - ${L3IO_SCRATCH:?}/html:/var/www/html
+      - backups:/backups
+      - state:/var/lib/wpbackup/state
+    tmpfs:
+      - /tmp/wpbackup:mode=1777
+    networks: [backend]
+
+  # A container started as root against the shared volumes, for the
+  # ownership steps (`docker compose run --rm -e PUID=... oneshot ...`): it
+  # must never re-own them, only refuse what PUID:PGID cannot use.
+  oneshot:
+    profiles: [tools]
+    image: ${L3IO_SIDECAR_IMAGE:?}
+    env_file:
+      - ${L3IO_SCRATCH:?}/wp.env
+      - ${L3IO_SCRATCH:?}/backup.env
+    volumes:
+      - ${L3IO_SCRATCH:?}/html:/var/www/html
+      - backups:/backups
+      - state:/var/lib/wpbackup/state
     networks: [backend]
 
   # One-shot tools, run with `docker compose run --rm`.

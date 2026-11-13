@@ -26,9 +26,7 @@ DOCKERFILE = ROOT / "docker" / "Dockerfile"
 DOCKER_WF = ROOT / ".github" / "workflows" / "docker.yml"
 PUBLISH_WF = ROOT / ".github" / "workflows" / "publish.yml"
 LEGS = ROOT / ".github" / "act-dryrun-legs.json"
-ENTRYPOINT = (
-    ROOT / "docker" / "root" / "usr" / "local" / "bin" / "l3io-wpbackup-entrypoint"
-)
+DOCKER_ROOT = ROOT / "docker" / "root"
 SKIP_PARTS = {".git", ".venv", "node_modules", "legacy", "_bmad", "_bmad-output"}
 
 SHA_PIN = re.compile(r"^[0-9a-f]{40}$")
@@ -155,46 +153,184 @@ def test_a_planted_compose_violation_is_reported() -> None:
 
 
 # ---- the image runs as uid/gid 33 by default ----------------------------------
+# Owner decision 87: PUID/PGID are not set in ENV, so a container started with
+# --user can tell an asked-for user from the image's default; every script that
+# defaults them says 33; the operator-data folders are built owned by 33:33.
+
+_ID_DEFAULT = re.compile(r"\$\{(PUID|PGID):-([0-9]+)\}")
 
 
-def uid_findings(dockerfile: str, entrypoint: str) -> list[str]:
+def uid_findings(dockerfile: str, scripts: dict[str, str]) -> list[str]:
     findings = []
     env = " ".join(i for i in _instructions(dockerfile) if i.upper().startswith("ENV "))
     for var in ("PUID", "PGID"):
-        if not re.search(rf"\b{var}=33\b", env):
-            findings.append(f"the Dockerfile does not set ENV {var}=33")
-        if f"${{{var}:-33}}" not in entrypoint:
-            findings.append(f"the entrypoint's {var} default is not 33")
+        if re.search(rf"\b{var}=", env):
+            findings.append(f"the Dockerfile sets ENV {var}")
+        defaults = [
+            (where, value)
+            for where, text in scripts.items()
+            for name, value in _ID_DEFAULT.findall(text)
+            if name == var
+        ]
+        if not defaults:
+            findings.append(f"no image script defaults {var}")
+        findings.extend(
+            f"{where}: {var} defaults to {value}, not 33"
+            for where, value in defaults
+            if value != "33"
+        )
     if "chown 33:33" not in dockerfile:
-        findings.append("the image's writable directories are not built owned by 33:33")
+        findings.append("the image's data directories are not built owned by 33:33")
     return findings
 
 
+def runtime_scripts(root: pathlib.Path) -> dict[str, str]:
+    """Every file under ``root`` (the tree the Dockerfile copies to ``/``)."""
+    return {
+        str(path.relative_to(root)): path.read_text(encoding="utf-8")
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
 def test_the_image_runs_as_33_by_default() -> None:
-    assert (
-        uid_findings(
-            DOCKERFILE.read_text(encoding="utf-8"),
-            ENTRYPOINT.read_text(encoding="utf-8"),
-        )
-        == []
-    )
+    scripts = runtime_scripts(DOCKER_ROOT)
+    assert "usr/local/bin/l3io-wpbackup-entrypoint" in scripts  # scope
+    assert uid_findings(DOCKERFILE.read_text(encoding="utf-8"), scripts) == []
 
 
 @pytest.mark.parametrize(
     ("old", "new"),
     [
-        ("PUID=33", "PUID=911"),
-        ("PGID=33", "PGID=1000"),
+        (
+            "L3IO_WP_BACKUP_ARCHIVE_DIR=/backups \\",
+            "PUID=33 \\\n    L3IO_WP_BACKUP_ARCHIVE_DIR=/backups \\",
+        ),
+        (
+            "L3IO_WP_BACKUP_ARCHIVE_DIR=/backups \\",
+            "PGID=33 \\\n    L3IO_WP_BACKUP_ARCHIVE_DIR=/backups \\",
+        ),
         ("chown 33:33", "chown 911:911"),
     ],
 )
 def test_a_planted_uid_change_is_reported(old: str, new: str) -> None:
     text = DOCKERFILE.read_text(encoding="utf-8")
     assert old in text
-    findings = uid_findings(
-        text.replace(old, new), ENTRYPOINT.read_text(encoding="utf-8")
-    )
-    assert findings
+    assert uid_findings(text.replace(old, new), runtime_scripts(DOCKER_ROOT))
+
+
+@pytest.mark.parametrize("var", ["PUID", "PGID"])
+def test_a_planted_script_default_is_reported(var: str) -> None:
+    scripts = runtime_scripts(DOCKER_ROOT)
+    scripts["etc/s6-overlay/s6-rc.d/init-later/run"] = f"id=${{{var}:-911}}\n"
+    findings = uid_findings(DOCKERFILE.read_text(encoding="utf-8"), scripts)
+    assert findings == [
+        f"etc/s6-overlay/s6-rc.d/init-later/run: {var} defaults to 911, not 33"
+    ]
+
+
+# ---- nothing in the image changes ownership at run time (owner decision 87) ----
+# Every file under docker/root is copied to / and runs (or is read by s6) at run
+# time, so none may change an owner, a group or a tree's mode: no chown,
+# lsiown, chgrp, setfacl, usermod/groupmod (`usermod -u` re-owns a home
+# directory), recursive chmod or `install -o/-g`. Whole-line comments and quoted
+# literals (a message naming the operator's fix) are not code, except on a line
+# that runs a string (`sh -c`, `eval`, ...). The Dockerfile's build-time
+# `chown 33:33` is not run time.
+#
+# Not covered: the base image's own init (LSIO's init-adduser re-owns /app,
+# /config and /defaults, which this image never uses; docs/docker.md), a
+# command assembled from variables (`$cmd -R ...`), and wpbackup2's own mode
+# tightening of files it creates.
+
+_OWNERSHIP_CHANGE = re.compile(
+    r"\b(chown|lsiown|chgrp|setfacl|usermod|groupmod)\b"
+    r"|\bchmod\s+(-[A-Za-z]*R|--recursive)\b"
+    r"|\binstall\b.*\s(-[A-Za-z]*[og]\b|--owner|--group)"
+)
+
+
+_QUOTED = re.compile(r"\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'")
+_RUNS_TEXT = re.compile(r"\b(sh|bash|su|setpriv|s6-setuidgid)\b.*\s-c\b|\beval\b")
+
+
+def _code(line: str) -> str:
+    """``line`` without its quoted literals (a message naming the operator's
+    fix, ``chown -R 33:33 ...``), unless the line runs a string as code."""
+    return line if _RUNS_TEXT.search(line) else _QUOTED.sub('""', line)
+
+
+def ownership_findings(scripts: dict[str, str]) -> list[str]:
+    return [
+        f"{where}:{number}: {line.strip()}"
+        for where, text in scripts.items()
+        for number, line in enumerate(text.splitlines(), start=1)
+        if not line.lstrip().startswith("#") and _OWNERSHIP_CHANGE.search(_code(line))
+    ]
+
+
+def test_the_scope_is_what_the_dockerfile_copies_to_root() -> None:
+    copies = [
+        i
+        for i in _instructions(DOCKERFILE.read_text(encoding="utf-8"))
+        if i.upper().startswith("COPY ") and "--from" not in i
+    ]
+    assert copies == ["COPY root/ /"]
+    scripts = runtime_scripts(DOCKER_ROOT)
+    assert "usr/local/bin/l3io-wpbackup-entrypoint" in scripts
+    assert "etc/s6-overlay/s6-rc.d/init-wpbackup-config/run" in scripts
+
+
+def test_no_image_script_changes_ownership() -> None:
+    assert ownership_findings(runtime_scripts(DOCKER_ROOT)) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'lsiown -R abc:abc "$XDG_STATE_HOME"',
+        "chown 33:33 /backups",
+        'chown -R "$PUID:$PGID" /var/lib/wpbackup/state',
+        "chgrp -R www-data /backups",
+        "chmod -R 0700 /backups",
+        "chmod --recursive go-rwx /tmp/wpbackup",
+        "install -d -m 0700 -o 33 /run/wpbackup",
+        "install -d --owner=abc /run/wpbackup",
+        "usermod -o -u 1000 abc",
+        "[ -d /backups ] && find /backups -exec chown 33 {} +",
+        "sh -c 'chown -R 33:33 /backups'",
+        'eval "lsiown abc:abc $dir"',
+    ],
+)
+def test_a_planted_ownership_change_is_reported(line: str) -> None:
+    scripts = runtime_scripts(DOCKER_ROOT)
+    entry = "usr/local/bin/l3io-wpbackup-entrypoint"
+    scripts[entry] += f"\n{line}\n"
+    assert len(ownership_findings(scripts)) == 1
+
+
+def test_comments_and_single_modes_are_not_findings() -> None:
+    scripts = {
+        "x": "# no lsiown or chown here\n"
+        "  # chmod -R in a comment\n"
+        'mkdir -m 0700 -- "$d"\nchmod 0755 /x\n'
+        'echo "  give it access, e.g. chown -R 33:33 /backups" >&2\n'
+    }
+    assert ownership_findings(scripts) == []
+
+
+def test_a_planted_file_anywhere_under_root_is_in_scope(tmp_path: pathlib.Path) -> None:
+    """The scope is the tree, not a list: a new s6 service is examined too."""
+    import shutil
+
+    copy = tmp_path / "root"
+    shutil.copytree(DOCKER_ROOT, copy)
+    planted = copy / "etc" / "s6-overlay" / "s6-rc.d" / "init-zz-fixup" / "run"
+    planted.parent.mkdir(parents=True)
+    planted.write_text("#!/bin/sh\nlsiown -R abc:abc /backups\n", encoding="utf-8")
+    assert ownership_findings(runtime_scripts(copy)) == [
+        "etc/s6-overlay/s6-rc.d/init-zz-fixup/run:2: lsiown -R abc:abc /backups"
+    ]
 
 
 # ---- docker.yml: pins, triggers, gates ----------------------------------------
@@ -819,7 +955,6 @@ def test_a_planted_variant_violation_is_reported(plant) -> None:  # noqa: ANN001
 
 # ---- the image's variables and the CLI's settings (owner decisions 60, 84) ----
 
-DOCKER_ROOT = ROOT / "docker" / "root"
 CRONTAB = DOCKER_ROOT / "usr" / "local" / "bin" / "l3io-wpbackup-crontab"
 _SETTING_VAR = re.compile(r"\bL3IO_WP_BACKUP_[A-Z0-9_]*[A-Z0-9]\b(?!\*)")
 

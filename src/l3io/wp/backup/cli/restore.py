@@ -67,6 +67,7 @@ from typing import BinaryIO, Final
 
 import structlog
 
+from l3io.wp.backup.adapters.access import archive_open_error
 from l3io.wp.backup.adapters.archive_dir import list_archives
 from l3io.wp.backup.adapters.config_writer import refuse_uncarriable
 from l3io.wp.backup.adapters.crypto import build_payload_cipher
@@ -102,6 +103,7 @@ from l3io.wp.backup.adapters.tar import (
     decrypt_payload,
 )
 from l3io.wp.backup.cli import privileges
+from l3io.wp.backup.cli.access import require_run_access
 from l3io.wp.backup.cli.adapter_sets import (
     dry_run_adapters,
     real_adapters,
@@ -205,7 +207,6 @@ from l3io.wp.backup.domain.backup_scope import BackupScope
 from l3io.wp.backup.domain.database import DatabaseLocation, DatabaseTargetState
 from l3io.wp.backup.domain.errors import (
     ArchiveNotEncryptedError,
-    ArchiveNotFoundError,
     ArchiveWriteError,
     BackupError,
     ConfigWriteFailedError,
@@ -335,7 +336,7 @@ def _bind_archive(
             reader = os.fdopen(os.dup(opened.fileno()), "rb")
             reader.seek(0)
     except OSError as exc:
-        raise ArchiveNotFoundError(source) from exc
+        raise archive_open_error(source, exc) from exc
     try:
         # ADV-S02-02: refuse before the copy what the workspace cannot hold.
         need = os.fstat(reader.fileno()).st_size
@@ -1460,7 +1461,7 @@ def _open_archive(archive: StorageTarget) -> BinaryIO:
     try:
         return path.open("rb")
     except OSError as exc:
-        raise ArchiveNotFoundError(path) from exc
+        raise archive_open_error(path, exc) from exc
 
 
 def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
@@ -1602,6 +1603,10 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
         # Owner decision 58: everything only root may read has been read.
         privileges.drop_to_site_owner(
             Path(args.wp_dir), environ=os.environ, operation="restore"
+        )
+        # Owner decision 87: as the user the Run runs as, before it opens.
+        require_run_access(
+            environ=os.environ, workspace=True, snapshot_dir=request.snapshot_dir
         )
         try:
             outcome = drive_restore(

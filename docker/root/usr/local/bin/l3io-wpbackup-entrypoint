@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# The official image's entrypoint (owner decision 77). Two modes:
+# The official image's entrypoint (owner decisions 77, 87). Two modes:
 #
-#   (no command) or `schedule`  Scheduled, the default: the base image's s6
-#                               init (/init) starts, init-adduser moves `abc` to
-#                               PUID:PGID, init-wpbackup-config builds the
-#                               crontab (l3io-wpbackup-crontab) and
-#                               svc-wpbackup-schedule runs Supercronic as abc.
-#   anything else               One-shot, without s6: `docker run IMAGE backup`
-#                               is `wpbackup2 backup`, and so is
+#   (no command) or `schedule`  Scheduled, the default: Supercronic runs the
+#                               crontab l3io-wpbackup-crontab builds.
+#   anything else               One-shot: `docker run IMAGE backup` is
+#                               `wpbackup2 backup`, and so is
 #                               `docker run IMAGE wpbackup2 backup`. The first
 #                               argument is run as a command only when it names
 #                               an executable on PATH (`sh`, `sleep`); otherwise
@@ -15,37 +12,55 @@
 #                               that no wpbackup2 subcommand names an executable
 #                               in the image.
 #
-# Users, one-shot. Started as root (the image's default), the command runs as
-# PUID:PGID (33:33 by default, www-data in the official `wordpress` image);
-# PUID=0 keeps root, and wpbackup2 then runs a backup or restore as the Site
-# Root's owner itself (owner decisions 58, 67). Started as any other user
-# (`user: "33:33"`, read-only root filesystems), it runs as that user.
+# Which user (owner decision 87). The image never changes the owner of
+# anything: it runs as the user it is given, and a folder that user cannot
+# use is refused with the fix, which is the operator's to apply.
+#
+#   Started as root (the default)  PUID:PGID, 33:33 (www-data in the official
+#                                  `wordpress` image) when unset. One-shot: the
+#                                  command runs as PUID:PGID (setpriv). Scheduled:
+#                                  the base image's s6 init (/init) starts;
+#                                  init-wpbackup-config checks the folders and
+#                                  builds the crontab, and svc-wpbackup-schedule
+#                                  runs Supercronic, both as PUID:PGID
+#                                  (l3io-wpbackup-scheduler). PUID=0 keeps root;
+#                                  wpbackup2 then runs a backup, restore or
+#                                  prune as the Site Root's owner itself (owner
+#                                  decisions 58, 67).
+#   Started as another user        Docker's --user (compose `user:`): that user,
+#                                  in both modes, without s6 (it needs root):
+#                                  the scheduled mode runs
+#                                  `l3io-wpbackup-scheduler run`, which checks,
+#                                  builds the crontab and execs Supercronic.
+#                                  PUID/PGID, when set, must name that user:
+#                                  a container not started as root cannot switch.
 set -Eeuo pipefail
 
-if [[ $# == 0 || $1 == schedule ]]; then
-    [[ $(id -u) == 0 ]] || {
-        echo "l3io-wpbackup-entrypoint: the scheduled mode starts as root (it drops to PUID:PGID); remove 'user:' or run a one-shot command" >&2
-        exit 2
-    }
-    exec /init
-fi
+die() { echo "l3io-wpbackup-entrypoint: $*" >&2; exit 2; }
 
-if [[ $(id -u) == 0 ]]; then
+schedule=0
+[[ $# == 0 || $1 == schedule ]] && schedule=1
+uid=$(id -u)
+gid=$(id -g)
+
+if [[ $uid == 0 ]]; then
     puid=${PUID:-33}
     pgid=${PGID:-33}
-    [[ $puid =~ ^[0-9]+$ && $pgid =~ ^[0-9]+$ ]] || {
-        echo "l3io-wpbackup-entrypoint: PUID and PGID must be numeric ids" >&2
-        exit 2
-    }
+    [[ $puid =~ ^[0-9]+$ && $pgid =~ ^[0-9]+$ ]] || die "PUID and PGID must be numeric ids"
+    # The s6 init and every script after it read these from the environment.
+    export PUID=$puid PGID=$pgid
+    if (( schedule )); then
+        exec /init
+    fi
     if [[ $puid != 0 ]]; then
-        # As init-wpbackup-config does for the scheduled mode: the image's own
-        # directories recursively, the Archive directory's top level only; and
-        # only what PUID:PGID does not own already.
-        for d in "${XDG_STATE_HOME:?}" "${TMPDIR:?}" "${HOME:?}"; do
-            [[ -d $d ]] && lsiown -R "$puid:$pgid" "$d"
-        done
-        [[ -d ${L3IO_WP_BACKUP_ARCHIVE_DIR:-/backups} ]] && lsiown "$puid:$pgid" "${L3IO_WP_BACKUP_ARCHIVE_DIR:-/backups}"
         exec setpriv --reuid="$puid" --regid="$pgid" --clear-groups -- "$0" "$@"
+    fi
+else
+    if [[ -n ${PUID:-} && $PUID != "$uid" ]] || [[ -n ${PGID:-} && $PGID != "$gid" ]]; then
+        die "the container runs as uid $uid:$gid (Docker --user or compose user:), but PUID/PGID ask for ${PUID:-$uid}:${PGID:-$gid}; a container not started as root cannot switch users. Unset PUID/PGID, set them to $uid:$gid, or start the container as root (no --user) so it runs as PUID:PGID"
+    fi
+    if (( schedule )); then
+        exec l3io-wpbackup-scheduler run
     fi
 fi
 

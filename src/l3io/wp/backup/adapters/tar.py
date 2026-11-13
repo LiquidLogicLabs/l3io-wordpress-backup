@@ -73,6 +73,7 @@ from typing import IO, BinaryIO, Final, Literal, cast
 
 import structlog
 
+from l3io.wp.backup.adapters.access import archive_open_error
 from l3io.wp.backup.adapters.phase import PhaseKey, PhaseRecord, join_phase, phase
 from l3io.wp.backup.core.backup import BackupStep
 from l3io.wp.backup.core.verify import verify_probe
@@ -110,7 +111,6 @@ from l3io.wp.backup.domain.archive_format import (
     pending_payload,
 )
 from l3io.wp.backup.domain.errors import (
-    ArchiveNotFoundError,
     ArchiveReadError,
     ArchiveWriteError,
     BackupError,
@@ -748,7 +748,7 @@ def _open(path: Path) -> BinaryIO:
     try:
         return cast("BinaryIO", path.open("rb"))
     except OSError as exc:
-        raise ArchiveNotFoundError(path) from exc
+        raise archive_open_error(path, exc) from exc
 
 
 def _reason(exc: BaseException) -> str:
@@ -1114,7 +1114,8 @@ def verify_archive(path: Path) -> VerificationResult:
     format fields are ``None`` when the Archive could not be classified. A
     failed verification marks the phase ``failed`` with
     ``VERIFICATION_FAILED`` though it returns rather than raises. A missing or
-    unreadable file raises :class:`ArchiveNotFoundError`.
+    unreadable file raises :class:`ArchiveNotFoundError`; one this user may not
+    read, :class:`~l3io.wp.backup.domain.errors.PathNotAccessibleError`.
     """
     return verify_archive_view(path)[1]
 
