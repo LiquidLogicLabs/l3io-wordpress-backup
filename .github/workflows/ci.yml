@@ -273,6 +273,13 @@ jobs:
           WP_CLI_SHA512: "be928f6b8ca1e8dfb9d2f4b75a13aa4aee0896f8a9a0a1c45cd5d2c98605e6172e6d014dda2e27f88c98befc16c040cbb2bd1bfa121510ea5cdf5f6a30fe8832"
         run: |
           sudo apt-get update -qq
+          # GitHub's ubuntu runner ships a MySQL SERVER package. Installing
+          # mysql-client upgrades the shared MySQL packages with it, and on
+          # 2026-11-12 (8.4.13) the server's postinst failed and took every
+          # database leg down before a test ran. The database is the service
+          # container; the runner needs only the client, so the preinstalled
+          # server is removed first. A no-op where none is installed (act).
+          sudo apt-get purge -y -qq 'mysql-server*' >/dev/null 2>&1 || true
           sudo apt-get install -y --no-install-recommends mysql-client php-cli php-mysql php-zip
           # Pinned and checksummed (2026-10-27). The gh-pages "latest" phar moved under
           # every run, and story E007-S01-004 makes this version the supported minimum.
