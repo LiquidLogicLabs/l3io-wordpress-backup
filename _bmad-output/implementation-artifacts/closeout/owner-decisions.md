@@ -169,3 +169,8 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Removed:** every runtime `lsiown`/`chown` in the entrypoint and the s6 init. The image's own internal runtime folders are created so that any uid can use them, with no chown at start.
     - **Unchanged:** the CLI's own root-to-Site-Root-owner switch (decisions 58/67), which changes no ownership.
     - **Release:** 1.1.1, with the Phase-3b docs fix (the unwritable-target example exits 4 when `wp-config.php` is unreadable) and a look at the slow Safety Snapshot.
+88. **Inner payload gzip level: 6 by default, configurable (owner, 2026-11-13).**
+    - **The setting:** `compression_level`, as `--compression-level`, `L3IO_WP_BACKUP_COMPRESSION_LEVEL` and a config key, an integer from 1 to 9.
+    - **Scope:** it sets the inner payload stream's level for backups and Safety Snapshots alike. It was Python's implicit 9, which nobody had chosen.
+    - **Format:** the outer layer stays at level 0 (decision 21) and the Archive format is unchanged.
+    - **Release:** 1.1.1.
