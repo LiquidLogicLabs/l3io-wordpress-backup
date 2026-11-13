@@ -7,7 +7,7 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
-1.1.1.
+## 1.1.1 — 2026-11-13
 
 ### Changed: faster backups and Safety Snapshots; new setting `compression_level` (owner decision 88)
 
