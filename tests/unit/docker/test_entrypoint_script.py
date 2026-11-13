@@ -273,6 +273,7 @@ def test_a_user_scheduled_start_runs_supercronic_without_s6_or_a_switch(
     assert after == before
 
 
+@AS_ROOT
 def test_a_user_one_shot_runs_as_that_user(image: Image) -> None:
     result = image.run("l3io-wpbackup-entrypoint", "prune", "--keep", "3")
     assert result.returncode == 0, result.stderr

@@ -21,6 +21,7 @@ built wheel's base install finds no ``opentelemetry.sdk``.
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import tomllib
 from collections.abc import Iterator
@@ -114,11 +115,17 @@ def test_nothing_in_the_package_imports_the_sdk_or_an_exporter() -> None:
 
 def test_a_planted_dependency_is_reported(tmp_path: Path) -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
+    # The anchor is the real base-dependency line, whatever its floor is; each
+    # plant must land, or the test would check a pyproject with fewer
+    # violations than it claims (a floor bump once made one plant a no-op).
+    api_line = re.search(r'^\s*"opentelemetry-api[^"]*",$', text, re.MULTILINE)
+    assert api_line is not None, "the base opentelemetry-api line moved"
+    assert "otel = [\n" in text, "the otel extra moved"
     planted = tmp_path / "pyproject.toml"
     planted.write_text(
         text.replace(
-            '"opentelemetry-api>=1.40,<2",',
-            '"opentelemetry-sdk>=1.40,<2",\n  "opentelemetry_exporter_OTLP>=1",',
+            api_line.group(0),
+            '  "opentelemetry-sdk>=1.40,<2",\n  "opentelemetry_exporter_OTLP>=1",',
             1,
         ).replace(
             "otel = [\n",
