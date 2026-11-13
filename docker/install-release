@@ -1,0 +1,93 @@
+#!/bin/sh
+# install-release [--dry-run] PYTHON VERSION
+#
+# Install l3io-wordpress-backup==VERSION from the index into the environment
+# PYTHON, wheels only. THE one resolver invocation for a release: the image's
+# venv stage (docker/Dockerfile) runs it to install, and docker.yml's `resolve`
+# job runs it with --dry-run, with the same uv (the Dockerfile's UV_IMAGE), to
+# wait until the release installs. tests/contracts/test_release_install.py
+# asserts both run this file and nothing else installs the release.
+#
+# WHY IT RETRIES. PyPI's simple index is served through a CDN, and an edge can
+# serve a project page from before the upload for minutes after it (docker.yml
+# run 43501774937: `resolve` saw 1.1.1, then both builds were told "there is no
+# version of l3io-wordpress-backup==1.1.1", and a rerun minutes later again).
+# So a missing-version answer is retried with --refresh, with backoff, until
+# INSTALL_RELEASE_TIMEOUT seconds have passed; then it fails, saying so. Any
+# other failure (the network after uv's own retries, a Python the release does
+# not support, a wheel missing) fails at once with uv's exit status: it is not
+# the CDN, and waiting would only hide it. A release that does not exist fails
+# the same way as one the CDN never caught up on: at the bound, by name.
+#
+# Environment (each a whole number of seconds unless noted):
+#   INSTALL_RELEASE_TIMEOUT    the bound on the whole wait (600)
+#   INSTALL_RELEASE_SUCCESSES  consecutive successes required (1); a missing
+#                              version in between starts the count again
+#   INSTALL_RELEASE_DELAY      the first retry's wait (10); doubled each retry
+#   INSTALL_RELEASE_MAX_DELAY  the longest wait between tries (60)
+#   INSTALL_RELEASE_INTERVAL   the wait after a success when more are required (15)
+set -eu
+
+PACKAGE=l3io-wordpress-backup
+NAME='[A-Za-z0-9._-]+'
+MISSING="there is no version of $NAME==|$NAME was not found in the package registry|only ${NAME}[^ ]* is available"
+
+die() { echo "install-release: $*" >&2; exit 2; }
+whole() { case "$2" in '' | *[!0-9]*) die "$1 must be a whole number, not '$2'" ;; esac; }
+
+dry_run=
+if [ "${1:-}" = --dry-run ]; then dry_run=--dry-run; shift; fi
+[ "$#" -eq 2 ] || die "usage: install-release [--dry-run] PYTHON VERSION"
+python=$1 version=$2
+[ -n "$version" ] || die "VERSION is empty"
+
+timeout=${INSTALL_RELEASE_TIMEOUT:-600}
+need=${INSTALL_RELEASE_SUCCESSES:-1}
+delay=${INSTALL_RELEASE_DELAY:-10}
+max_delay=${INSTALL_RELEASE_MAX_DELAY:-60}
+interval=${INSTALL_RELEASE_INTERVAL:-15}
+whole INSTALL_RELEASE_TIMEOUT "$timeout"
+whole INSTALL_RELEASE_SUCCESSES "$need"
+whole INSTALL_RELEASE_DELAY "$delay"
+whole INSTALL_RELEASE_MAX_DELAY "$max_delay"
+whole INSTALL_RELEASE_INTERVAL "$interval"
+[ "$need" -ge 1 ] || die "INSTALL_RELEASE_SUCCESSES must be at least 1"
+
+out=$(mktemp)
+trap 'rm -f "$out"' EXIT
+start=$(date +%s)
+attempt=0
+ok=0
+while :; do
+    attempt=$((attempt + 1))
+    rc=0
+    # $dry_run unquoted: empty, or the one word --dry-run.
+    # shellcheck disable=SC2086
+    uv pip install --python "$python" --no-build --refresh $dry_run "$PACKAGE==$version" >"$out" 2>&1 || rc=$?
+    cat "$out"
+    if [ "$rc" -eq 0 ]; then
+        ok=$((ok + 1))
+        [ "$ok" -lt "$need" ] || exit 0
+        echo "install-release: attempt $attempt: $PACKAGE==$version resolves ($ok of $need consecutive)"
+        wait=$interval next="checking again"
+    else
+        # uv wraps its message to the terminal's width: join the lines first.
+        # A page from before the upload says one of three things: no such
+        # version, no such project, or only older versions.
+        if ! tr -s ' \n' '  ' <"$out" | grep -Eq "$MISSING"; then
+            echo "install-release: attempt $attempt failed (uv exit $rc), and not for a missing version: not retried" >&2
+            exit "$rc"
+        fi
+        ok=0
+        wait=$delay next="retrying with --refresh"
+        delay=$((delay * 2))
+        [ "$delay" -le "$max_delay" ] || delay=$max_delay
+    fi
+    elapsed=$(($(date +%s) - start))
+    if [ $((elapsed + wait)) -gt "$timeout" ]; then
+        echo "install-release: $PACKAGE==$version did not install from the index ${need} time(s) in a row within ${timeout}s ($attempt attempts, ${elapsed}s): the release does not exist there, or the index's CDN is still serving a page from before it" >&2
+        exit 1
+    fi
+    echo "install-release: attempt $attempt: $next in ${wait}s (${elapsed}s of ${timeout}s used)"
+    sleep "$wait"
+done

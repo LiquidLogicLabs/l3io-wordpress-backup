@@ -160,18 +160,46 @@ jobs:
         if: steps.release.outputs.build == 'true'
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          # PyPI's CDN can serve a page from before the upload for minutes, edge
+          # by edge (run 43501774937: pip here saw 1.1.1, then uv in both builds
+          # did not). So the wait is the build's own install, --dry-run:
+          # docker/install-release with the Dockerfile's uv, a fresh
+          # environment, no cache; three consecutive successes within 20
+          # minutes. The build retries too (bounded): another runner can reach
+          # another edge. tests/contracts/test_release_install.py.
+          INSTALL_RELEASE_TIMEOUT: 1200
+          INSTALL_RELEASE_SUCCESSES: 3
+          UV_NO_CACHE: 1
+          UV_PYTHON_DOWNLOADS: never
         run: |
           set -euo pipefail
-          # PyPI's CDN can lag the upload by minutes: wait up to 30.
-          for i in $(seq 1 60); do
-            if python3 -m pip download -q --no-deps --only-binary :all: -d "$RUNNER_TEMP/pypi" \
-                 "l3io-wordpress-backup==$VERSION" 2>/dev/null; then
-              echo "l3io-wordpress-backup $VERSION is on PyPI"; break
+          # The uv the image builds with: the Dockerfile's UV_IMAGE, by digest.
+          uv_image=$(sed -n 's/^ARG UV_IMAGE=//p' "$DOCKER_FILE")
+          [ -n "$uv_image" ] || { echo "::error::no ARG UV_IMAGE in $DOCKER_FILE"; exit 1; }
+          cid=$(docker create "$uv_image" /uv)
+          mkdir -p "$RUNNER_TEMP/uv"
+          docker cp "$cid:/uv" "$RUNNER_TEMP/uv/uv"
+          docker rm "$cid" >/dev/null
+          export PATH="$RUNNER_TEMP/uv:$PATH"
+          uv --version
+          uv venv -q --python python3 "$RUNNER_TEMP/release-venv"
+          sh docker/install-release --dry-run "$RUNNER_TEMP/release-venv" "$VERSION" || {
+            echo "::error::l3io-wordpress-backup $VERSION did not install from PyPI $INSTALL_RELEASE_SUCCESSES times in a row within ${INSTALL_RELEASE_TIMEOUT}s"
+            exit 1
+          }
+          echo "l3io-wordpress-backup $VERSION installs from PyPI"
+          # The JSON API is behind the same CDN: its latest release counts only
+          # once it lists this one (else a stale page would leave the floating
+          # tags where they were, and the run green).
+          for i in $(seq 1 40); do
+            if newest=$(curl -fsS https://pypi.org/pypi/l3io-wordpress-backup/json \
+                 | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(3) if sys.argv[1] not in d["releases"] else print(d["info"]["version"])' "$VERSION"); then
+              break
             fi
-            [ "$i" = 60 ] && { echo "::error::l3io-wordpress-backup $VERSION never became installable from PyPI"; exit 1; }
-            sleep 30
+            [ "$i" = 40 ] && { echo "::error::PyPI's JSON API never listed $VERSION"; exit 1; }
+            echo "PyPI's JSON API does not list $VERSION yet (try $i of 40); again in 15s"
+            sleep 15
           done
-          newest=$(curl -fsS https://pypi.org/pypi/l3io-wordpress-backup/json | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])')
           echo "PyPI's latest release: $newest"
           if [ "$newest" = "$VERSION" ]; then echo "latest=true"; else echo "latest=false"; fi >> "$GITHUB_OUTPUT"
 

@@ -7,6 +7,27 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Fixed: image builds wait for PyPI's CDN (1.1.2)
+
+- **The 1.1.1 image builds failed** with "there is no version of
+  l3io-wordpress-backup==1.1.1" about a minute after the PyPI upload, and the
+  MariaDB variant again on a rerun minutes later (docker.yml run
+  43501774937): PyPI's CDN served those runners a project page from before the
+  upload. The workflow's wait had passed, because it checked with `pip
+  download` while the build installs with `uv`.
+- **One install, used twice.** `docker/install-release` is now the only way
+  the image installs the release, and docker.yml's `resolve` job waits by
+  running the same script with `--dry-run`, with the uv the Dockerfile pins,
+  no cache and `--refresh`, until it succeeds three times in a row (at most
+  20 minutes).
+- **The build retries, bounded.** A "no such version" answer is retried with
+  backoff (10 s doubling to 60 s, each retry logged) for at most 10 minutes;
+  any other failure fails at once. A version that does not exist still fails,
+  naming the version and the bound.
+- The `latest` decision now waits until PyPI's JSON API lists the release, so
+  a stale page cannot leave the floating tags behind while the run succeeds.
+- Nothing changes in the image or in `wpbackup2`.
+
 ## 1.1.1 — 2026-11-13
 
 ### Changed: faster backups and Safety Snapshots; new setting `compression_level` (owner decision 88)

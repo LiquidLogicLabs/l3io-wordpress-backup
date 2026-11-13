@@ -60,15 +60,21 @@ RUN apt-get update \
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never VIRTUAL_ENV=
 # Wheels only (--no-build): every dependency, the family included (owner
-# decision 76), installs from PyPI as published.
-RUN --mount=type=bind,from=wheels,target=/wheels set -eu; \
+# decision 76), installs from PyPI as published. The release is installed by
+# install-release (bind-mounted, so not in the image): the one resolver
+# invocation, which docker.yml's `resolve` job also runs (--dry-run) to wait
+# for the release; it retries, bounded, while PyPI's CDN still serves a page
+# from before the upload.
+RUN --mount=type=bind,from=wheels,target=/wheels \
+    --mount=type=bind,source=install-release,target=/usr/local/bin/install-release \
+    set -eu; \
     test -n "${VERSION:-}" || { echo "--build-arg VERSION=<release> is required" >&2; exit 2; }; \
     uv venv -q --python /usr/bin/python3 /opt/wpbackup; \
     if ls /wheels/*.whl >/dev/null 2>&1; then \
       echo "TEST BUILD: installing $(cd /wheels && echo *.whl), not the PyPI release"; \
       uv pip install --python /opt/wpbackup --no-build /wheels/*.whl; \
     else \
-      uv pip install --python /opt/wpbackup --no-build "l3io-wordpress-backup==${VERSION}"; \
+      sh /usr/local/bin/install-release /opt/wpbackup "$VERSION"; \
     fi; \
     /opt/wpbackup/bin/python -c "import importlib.metadata as m, sys; v = m.version('l3io-wordpress-backup'); print('l3io-wordpress-backup', v, '/ l3io-wordpress-database', m.version('l3io-wordpress-database')); sys.exit(0 if v == sys.argv[1] else f'installed {v}, VERSION says {sys.argv[1]}')" "$VERSION"; \
     /opt/wpbackup/bin/wpbackup2 --version

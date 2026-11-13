@@ -178,6 +178,9 @@ test = [
   "PyYAML>=6.0,<7",
   # test_version_single_source compares PEP 440 ordering for the sentinel.
   "packaging>=25.0",
+  # tests/contracts/test_shell_scripts.py runs ShellCheck over every shell
+  # script; a pinned wheel, because act's runner image has no shellcheck.
+  "shellcheck-py>=0.11.0.1,<0.12",
 ]
 dev = [
   { include-group = "test" },

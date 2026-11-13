@@ -398,10 +398,9 @@ def gate_findings(doc: dict, publish: dict) -> list[str]:
     resolve = "\n".join(s.get("run", "") for s in jobs["resolve"].get("steps") or [])
     if f'select(.name == "{pypi_job}")' not in resolve:
         findings.append(f"resolve does not check the Publish run's {pypi_job!r} job")
-    if (
-        "pip download" not in resolve
-        or '"l3io-wordpress-backup==$VERSION"' not in resolve
-    ):
+    # How it waits (the image build's own install, --dry-run) is
+    # tests/contracts/test_release_install.py.
+    if "install-release --dry-run" not in resolve or '"$VERSION"' not in resolve:
         findings.append("resolve does not wait for the version to install from PyPI")
 
     def closure(name: str) -> set[str]:
@@ -457,7 +456,7 @@ def _plant_tag_before_smoke(doc: dict) -> None:
 
 def _plant_no_pypi_wait(doc: dict) -> None:
     for step in doc["jobs"]["resolve"]["steps"]:
-        if "pip download" in step.get("run", ""):
+        if "install-release --dry-run" in step.get("run", ""):
             step["run"] = "true"
 
 
