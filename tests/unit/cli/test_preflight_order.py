@@ -113,6 +113,7 @@ def _backup(ctx: RunContext, site: Path, final: Path, preflight: object) -> obje
             exclusion=INCLUDE_EVERYTHING,
             origin=None,
             preflight=preflight,  # type: ignore[arg-type]
+            compression_level=6,
         )
 
 
@@ -203,6 +204,7 @@ def test_a_bound_root_preflight_completes_before_the_first_command(
             origin=None,
             extra_tools=(age,),
             preflight=preflight,
+            compression_level=6,
         )
     assert events[:2] == [f"dump:{DUMP_REQUIREMENT.name}", "binary:age"]
     assert len(events) > 2, "no command was called"

@@ -102,6 +102,7 @@ every night ([Ownership](#ownership)).
 | `WPBACKUP_KEEP` | unset | `--keep N`: this site's newest N Archives (owner decision 83) |
 | `WPBACKUP_CRONTAB` | `/etc/l3io-wp-backup/crontab` | a crontab appended as written, when it exists (named explicitly, it must exist) |
 | `L3IO_WP_BACKUP_ARCHIVE_SUBDIR` | unset (flat) | `wpbackup2`'s own `--archive-subdir` setting, read by every `backup`, scheduled or one-shot: the subfolder of `/backups` the Archive goes in, e.g. `{site}/{yyyy}` ([Archive subfolders](#archive-subfolders); owner decision 86) |
+| `L3IO_WP_BACKUP_COMPRESSION_LEVEL` | unset (6) | `wpbackup2`'s own `--compression-level` setting, passed through as is: the gzip level of each Archive's payload, and of a restore's Safety Snapshot, from 1 (fastest) to 9 (smallest); outside 1–9 every `backup` and `restore` exits 2 (owner decision 88) |
 | `TZ` | UTC | the schedule's time zone |
 
 Each `WPBACKUP_KEEP*` rule is passed to the prune only when it is set and not

@@ -93,6 +93,13 @@ the name's timestamp), such as `{site}/{yyyy}/{mm}`; missing folders are made
 `0700`. Unset, the Archive directory stays flat. `--archive latest` and `prune`
 search the Archive directory and its subfolders (up to 6 levels, never through
 a symlinked folder), so changing the layout strands no Archive.
+The Archive's payload is gzip at level 6 unless `--compression-level N`
+(`L3IO_WP_BACKUP_COMPRESSION_LEVEL`, `compression_level`) sets 1 (fastest) to
+9 (smallest); `restore --compression-level` sets the Safety Snapshot's. Before
+1.1.1 it was always 9: on a 1.1 GiB test site, level 6 wrote the Archive
+1.7 times faster for 0.2% more bytes, level 1 2.7 times faster for 5.6% more.
+The Archive format is the same at every level, so any version reads any of
+them.
 Without `--archive` or `archive_dir`, the Archive goes into the current
 directory, or into the per-user data directory
 (`~/.local/share/l3io-wp-backup/archives`) when the current directory is
@@ -324,10 +331,10 @@ usage: wpbackup2 backup [-h] [--config PATH] [--wp-dir WP_DIR] [--archive-dir DI
                         [--archive ARCHIVE] [--site-name NAME] [--archive-subdir TEMPLATE]
                         [--wp-config PATH] [--mode {files,db,all}] [--encrypt-with-passphrase]
                         [--passphrase SECRET] [--exclude PATTERN] [--no-default-excludes]
-                        [--list-default-excludes] [--db-credentials-aws-secret-id ID]
-                        [--db-credentials-aws-region REGION] [--db-user USER]
-                        [--db-password SECRET] [--db-tls {required,verify-ca,verify-identity}]
-                        [--db-tls-ca FILE]
+                        [--compression-level N] [--list-default-excludes]
+                        [--db-credentials-aws-secret-id ID] [--db-credentials-aws-region REGION]
+                        [--db-user USER] [--db-password SECRET]
+                        [--db-tls {required,verify-ca,verify-identity}] [--db-tls-ca FILE]
 
 Perform a WordPress backup
 
@@ -371,6 +378,9 @@ options:
   --exclude PATTERN     Leave matching paths out of the archive (repeatable)
   --no-default-excludes
                         Do not apply the default exclusion set
+  --compression-level N
+                        Gzip level of the archive's payload, 1 (fastest) to 9 (smallest) (default:
+                        6). The archive format is the same at every level
   --list-default-excludes
                         Print the default exclusion set and exit without backing up (needs no
                         --wp-dir; takes no other backup flag)
@@ -409,7 +419,7 @@ usage: wpbackup2 restore [-h] [--config PATH] --wp-dir WP_DIR --archive ARCHIVE
                          [--drop-database] [--force] [--whatIf] [--wp-config PATH]
                          [--overwrite-wp-config] [--reset-existing-db-user] [--no-safety-snapshot]
                          [--require-encrypted] [--passphrase SECRET] [--snapshot-dir PATH]
-                         [--archive-database USER@HOST[:PORT]/NAME]
+                         [--compression-level N] [--archive-database USER@HOST[:PORT]/NAME]
                          [--db-tls {required,verify-ca,verify-identity}] [--db-tls-ca FILE]
                          [--admin-tls {required,verify-ca,verify-identity}] [--admin-tls-ca FILE]
                          [--resolve-interrupted-run RUN_ID] [--admin-user USER]
@@ -480,6 +490,9 @@ restore options:
   --snapshot-dir PATH   Directory to write the Safety Snapshot to (default: the per-user state
                         directory). Refused inside the Site Root or the wp-config.php directory; a
                         directory a web server serves from elsewhere is not detected
+  --compression-level N
+                        Gzip level of the Safety Snapshot's payload, 1 (fastest) to 9 (smallest)
+                        (default: 6). The archive format is the same at every level
   --archive-database USER@HOST[:PORT]/NAME
                         When the target has no wp-config.php and the archive is not encrypted:
                         confirm the database the archive's config names (user, host, port and name

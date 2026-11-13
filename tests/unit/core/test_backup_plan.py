@@ -16,6 +16,7 @@ from l3io.wp.backup.core.backup import (
     build_backup_plan,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -51,6 +52,7 @@ def test_all_runs_every_step_in_order_without_encryption() -> None:
         exclusion_source="none",
         exclusion_patterns=(),
         required_tools=(DUMP_REQUIREMENT,),
+        compression_level=6,
     )
 
 
@@ -167,3 +169,38 @@ def test_extra_tools_follow_the_plans_own_deduplicated_stricter_wins() -> None:
     assert plan.required_tools[1].minimum_version == (1, 2)
     assert plan.exclusion_source == "custom"
     assert plan.exclusion_patterns == ("*.log",)
+
+
+@pytest.mark.parametrize("level", [1, 6, 9])
+def test_the_plan_carries_the_payload_level(level: int) -> None:
+    """Owner decision 88: the level is planned, so a Dry Run shows what a Run writes."""
+    plan = build_backup_plan(
+        SITE,
+        BackupScope.FILES,
+        TARGET,
+        encrypted=False,
+        compression_level=level,
+        **NO_EXCLUSIONS,
+    )
+    assert plan.compression_level == level
+
+
+def test_the_plan_defaults_to_level_6() -> None:
+    plan = build_backup_plan(
+        SITE, BackupScope.FILES, TARGET, encrypted=False, **NO_EXCLUSIONS
+    )
+    assert plan.compression_level == 6
+
+
+@pytest.mark.parametrize("level", [0, 10, True, 6.0])
+def test_the_plan_refuses_a_level_outside_1_to_9(level: object) -> None:
+    with pytest.raises(UsageError) as caught:
+        build_backup_plan(
+            SITE,
+            BackupScope.FILES,
+            TARGET,
+            encrypted=False,
+            compression_level=level,  # type: ignore[arg-type]
+            **NO_EXCLUSIONS,
+        )
+    assert caught.value.arguments == ("compression_level",)

@@ -86,6 +86,7 @@ def _write(site: Path, workspace: Path) -> tuple[io.BytesIO, Manifest]:
         cipher=None,
         manifest_builder=_builder,
         workspace=workspace,
+        compression_level=6,
     )
     return out, manifest
 
@@ -127,6 +128,7 @@ def test_just_over_the_cap_is_refused_with_nothing_written(
             cipher=None,
             manifest_builder=_builder,
             workspace=workspace,
+            compression_level=6,
         )
     refused = caught.value
     assert (refused.size, refused.limit) == (bound, bound - 1)

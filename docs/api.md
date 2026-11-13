@@ -223,10 +223,13 @@ as WordPress connects (owner decision 56). A process running as root is
 refused with `RootBackupRefusedError` before the Site is read: the library
 never switches its host's user; drop privileges to the Site Root's owner
 first, or use the `wpbackup2` command, which switches to it (owner decisions
-67, 68).
+67, 68). `compression_level` is the payload's gzip level, from 1 (fastest) to
+9 (smallest), as `--compression-level`; 6 by default, where it was always 9
+before 1.1.1 (owner decision 88). The Archive format is the same at every
+level.
 
 ```python
-backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, db_tls: DbTls | None = None) -> BackupResult
+backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarget | str | os.PathLike[str], wp_config: str | os.PathLike[str] | None = None, credentials: CredentialSpec | None = None, exclusion: ExclusionPolicy | None = None, encrypt: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, db_tls: DbTls | None = None, compression_level: int = 6) -> BackupResult
 ```
 
 | Parameter | Type | Default |
@@ -243,10 +246,11 @@ backup(site: str | os.PathLike[str], *, scope: BackupScope, target: StorageTarge
 | `dry_run` | `bool` | `False` |
 | `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
 | `db_tls` | `DbTls \| None` | `None` |
+| `compression_level` | `int` | `6` |
 
 Returns: `BackupResult`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature; `UsageError` naming `scope`, before anything runs, when `scope` is not a `BackupScope` (a string such as `"all"` included).
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature; `UsageError` naming `scope`, before anything runs, when `scope` is not a `BackupScope` (a string such as `"all"` included); `UsageError` naming `compression_level`, before anything runs, when it is not an `int` from 1 to 9 (a `bool` included).
 
 ### `verify`
 
@@ -316,6 +320,8 @@ too; [ADR-0027](adr/0027-restore-into-an-environment-driven-database.md)).
 `admin` is used only when the database does not exist yet or the WordPress
 account lacks the rights (owner decision 55); without one such a restore
 raises `AdminCredentialsRequiredError` before anything changes.
+`compression_level` is the Safety Snapshot's payload gzip level, 1 to 9, as
+`restore --compression-level`; 6 by default (owner decision 88).
 
 **Forwarding user input.** `mode` and `overrides` are values, not the CLI's
 flag-combination table (AD-25): `RestoreMode.ALL_CLEAN` clears the Site Root
@@ -327,7 +333,7 @@ the operator spell out flag by flag, so it should check that input against
 what those users may authorize.
 
 ```python
-restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, db_tls: DbTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None) -> RestoreOutcome
+restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.PathLike[str], mode: RestoreMode, overrides: OverrideSet, snapshot: SnapshotPolicy, config_policy: ConfigPolicy, snapshot_dir: str | os.PathLike[str] | None = None, admin: CredentialSpec | None = None, db_tls: DbTls | None = None, archive_database: str | None = None, reset_existing_db_user: bool = False, relocation: RelocationFlags | None = None, require_encrypted: bool = False, allow_unencrypted: bool = False, passphrase: Secret | str | None = None, prompt: Callable[[str], str] | None = None, resolve_run_id: str | None = None, dry_run: bool = False, on_warning: Callable[[RunWarning], None] | None = None, compression_level: int = 6) -> RestoreOutcome
 ```
 
 | Parameter | Type | Default |
@@ -351,10 +357,11 @@ restore(site_root: str | os.PathLike[str], *, archive: StorageTarget | str | os.
 | `resolve_run_id` | `str \| None` | `None` |
 | `dry_run` | `bool` | `False` |
 | `on_warning` | `Callable[[RunWarning], None] \| None` | `None` |
+| `compression_level` | `int` | `6` |
 
 Returns: `RestoreOutcome`.
 
-Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature; `UsageError` naming the parameter, before anything runs, when `mode`, `overrides`, `snapshot` or `config_policy` is not of its type (an `OverrideSet` must waive `Override` members only).
+Raises: a `BackupError` subclass (below) for every failure the package recognises; `UnexpectedError`, with the original on `__cause__`, for any other `Exception`; `TypeError`, before anything runs, for arguments that do not fit the signature; `UsageError` naming the parameter, before anything runs, when `mode`, `overrides`, `snapshot` or `config_policy` is not of its type (an `OverrideSet` must waive `Override` members only), or `compression_level` is not an `int` from 1 to 9.
 
 ### `doctor`
 

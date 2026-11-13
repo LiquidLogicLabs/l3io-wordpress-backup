@@ -101,7 +101,8 @@ that configures its own logging sees the library's form.
 Before preflight, a backup logs one `planned_action` record per action it
 plans, in order — `ordinal`, `step`, the rendered `action` line and the step's
 parameters (the collection line adds `exclusion_source` and
-`exclusion_patterns`) — in a real Run and in a Dry Run alike.
+`exclusion_patterns`, the `WRITE_ARCHIVE` line `compression_level`) — in a
+real Run and in a Dry Run alike.
 
 ## Failures
 
@@ -149,7 +150,7 @@ never appear in any of them.
 | `archive_target_in_site_root` | WARNING | A backup writes its Archive inside the Site Root, where the web server may serve it; it proceeds (`path`, `site_root`; owner decision 60) |
 | `archive_unauthenticated` | WARNING | A restore proceeds from an unencrypted Archive, whose checksums prove consistency, not authenticity (`integrity`, `archive`) |
 | `backup_completed` | INFO | A backup finished (`path`, `format_version`, `members` by kind, `bytes`, `performed` — `false` in a Dry Run) |
-| `backup_started` | INFO | A backup's plan begins executing (`backup_scope`) |
+| `backup_started` | INFO | A backup's plan begins executing (`backup_scope`, and `compression_level`, the payload's gzip level; owner decision 88). A restore's Safety Snapshot logs it too |
 | `command_failed` | ERROR | A command failed, or was interrupted by Ctrl-C (`exit_code` `130`, `exit_reason` `INTERRUPTED`); see [Failures](#failures) (`error`, `message`, `exit_code`, `exit_reason`) |
 | `config_files_read` | INFO | The settings files read, in order, before the Run (`paths`; owner decision 60) |
 | `config_directory_not_synced` | WARNING | The directory of a written `wp-config.php` could not be fsynced after the rename; the file has changed (`path`, `reason`) |

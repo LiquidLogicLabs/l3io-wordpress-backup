@@ -11,6 +11,8 @@ with no default, so a real Run and a Dry Run plan the same set) and
 ``required_tools``, the tools preflight checks before the first effect (AD-13):
 the plan's own — :data:`DUMP_REQUIREMENT` when it dumps — followed by the
 caller's ``extra_tools``, de-duplicated by name, the stricter minimum winning.
+It also carries ``compression_level``, the payload's gzip level (owner
+decision 88), which ``WRITE_ARCHIVE`` writes at and a Dry Run shows.
 """
 
 from __future__ import annotations
@@ -20,6 +22,10 @@ from enum import StrEnum
 from typing import assert_never
 
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.compression import (
+    DEFAULT_COMPRESSION_LEVEL,
+    check_compression_level,
+)
 from l3io.wp.backup.domain.preflight import ToolRequirement, merge_requirements
 from l3io.wp.backup.domain.site import SiteDescriptor
 from l3io.wp.backup.domain.storage_target import StorageTarget
@@ -58,6 +64,7 @@ class BackupPlan:
     exclusion_source: str
     exclusion_patterns: tuple[str, ...]
     required_tools: tuple[ToolRequirement, ...]
+    compression_level: int
 
 
 def build_backup_plan(
@@ -69,6 +76,7 @@ def build_backup_plan(
     exclusion_source: str,
     exclusion_patterns: tuple[str, ...],
     extra_tools: tuple[ToolRequirement, ...] = (),
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL,
 ) -> BackupPlan:
     """The plan for backing ``site`` up to ``target``.
 
@@ -78,9 +86,11 @@ def build_backup_plan(
     ``encrypted`` is true. Every scope writes, verifies and publishes a full
     Archive. ``required_tools`` is derived from the steps, then
     ``extra_tools`` (a requirement the plan cannot derive from its own inputs,
-    such as the passphrase backend).
+    such as the passphrase backend). ``compression_level`` is the payload's
+    gzip level, 1-9 (owner decision 88); another value is ``UsageError``.
     """
     del site  # No scope's plan depends on the Site yet; the executor reads it.
+    check_compression_level(compression_level)
     steps: list[BackupStep]
     match scope:
         case BackupScope.FILES:
@@ -102,4 +112,5 @@ def build_backup_plan(
         exclusion_source=exclusion_source,
         exclusion_patterns=tuple(exclusion_patterns),
         required_tools=merge_requirements(own, extra_tools),
+        compression_level=compression_level,
     )

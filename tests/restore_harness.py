@@ -737,6 +737,7 @@ def joined_snapshot(
                 restore_mode=harness.mode.value,
                 run_id=ctx.run_id,
             ),
+            compression_level=6,
         )
         return snapshot_result(
             PurePosixPath(result.path),

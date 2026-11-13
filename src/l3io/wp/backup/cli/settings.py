@@ -48,10 +48,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Literal, get_args
+from typing import TYPE_CHECKING, Annotated, Final, Literal, get_args
 
 import platformdirs
-from pydantic import SecretStr, ValidationError
+from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -60,6 +60,10 @@ from pydantic_settings import (
 )
 
 from l3io.wp.backup.adapters.lock import APP_NAME
+from l3io.wp.backup.domain.compression import (
+    MAX_COMPRESSION_LEVEL,
+    MIN_COMPRESSION_LEVEL,
+)
 from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.secret import Secret
 
@@ -120,6 +124,9 @@ class Settings(BaseSettings):
     secret, ``int`` for a count (``keep`` and the ``keep_*`` tiers:
     ``keep_daily = 7`` in TOML; ``core/retention.RetentionPolicy`` refuses one
     below 1, which an ``int`` skips the parser's ``type``),
+    a bounded ``int`` for ``compression_level`` (its bounds are the domain's,
+    the ones the parser's ``type`` checks, so a variable or a key outside
+    them is refused here; owner decision 88),
     ``str`` for everything else, which the parser's ``type`` and ``choices``
     then check.
     """
@@ -150,6 +157,10 @@ class Settings(BaseSettings):
     # What a backup collects.
     exclude: list[str] | None = None
     no_default_excludes: bool | None = None
+    # The payload's gzip level, for a backup and a Safety Snapshot (decision 88).
+    compression_level: (
+        Annotated[int, Field(ge=MIN_COMPRESSION_LEVEL, le=MAX_COMPRESSION_LEVEL)] | None
+    ) = None
     # The WordPress account, and the database connections' TLS.
     db_user: str | None = None
     db_password: SecretStr | None = None
@@ -187,6 +198,15 @@ class Settings(BaseSettings):
     keep_weekly: int | None = None
     keep_monthly: int | None = None
     keep_yearly: int | None = None
+
+    @field_validator("compression_level", mode="before")
+    @classmethod
+    def _not_a_bool(cls, value: object) -> object:
+        """``compression_level = true`` is refused, not read as level 1."""
+        if isinstance(value, bool):
+            msg = "Input should be a whole number, not a boolean"
+            raise ValueError(msg)  # noqa: TRY004 - pydantic reports ValueError
+        return value
 
     def __repr__(self) -> str:
         """The names set, never a value: four of them are secrets."""

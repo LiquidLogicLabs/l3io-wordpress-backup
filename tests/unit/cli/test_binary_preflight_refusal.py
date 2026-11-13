@@ -117,6 +117,7 @@ def _run(site: Path, final: Path) -> tuple[list[str], PreflightFailedError | Non
                 origin=None,
                 extra_tools=(AGE,),
                 preflight=BinaryPreflight(cwd=ctx.workspace),
+                compression_level=6,
             )
     except PreflightFailedError as failed:
         return events, failed

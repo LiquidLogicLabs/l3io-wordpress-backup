@@ -65,6 +65,12 @@ when it stages, which a Dry Run replaces. The choice is logged (INFO
 target the operator put inside the Site Root is written, with WARNING
 ``archive_target_in_site_root``: the web server may serve it.
 
+**The payload's gzip level (owner decision 88).** ``--compression-level``
+(its variable, its config key; ``compression_level`` in the library) is planned
+(``BackupPlan.compression_level``), logged on ``backup_started`` and named in
+the Dry Run's ``write Archive`` line, and ``WRITE_ARCHIVE`` writes at it; 6
+unless set. A Safety Snapshot is written at its restore's level.
+
 **The database host (owner decision 54).** Logged as INFO ``database_host``
 and named in the Dry Run's ``dump`` line; no confirmation is asked. A
 ``DB_HOST`` that cannot be right (an unresolved PHP expression, a malformed
@@ -167,6 +173,7 @@ from l3io.wp.backup.domain.archive_format import (
 )
 from l3io.wp.backup.domain.archive_subdir import resolve_archive_subdir
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.compression import DEFAULT_COMPRESSION_LEVEL
 from l3io.wp.backup.domain.credentials import CredentialSpec, ResolvedCredentialSpec
 from l3io.wp.backup.domain.errors import (
     ArchiveExistsError,
@@ -344,7 +351,8 @@ class BackupRequest:
     the ``archive_target_chosen`` record (the flag, or the library's
     parameter). ``credentials`` is a ``ResolvedCredentialSpec`` only when the
     CLI, started as root, resolved them before it switched (owner decision
-    67).
+    67). ``compression_level`` is the payload's gzip level, 1-9 (owner
+    decision 88).
     """
 
     site_root: Path
@@ -361,6 +369,7 @@ class BackupRequest:
     site_name: str | None = None
     target_chosen_by: str = field(default="--archive", compare=False)
     archive_subdir: str | None = None
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL
 
 
 #: Under the per-user data directory: where a default Archive goes when the
@@ -428,11 +437,13 @@ def plan_backup(
     cipher: PayloadCipher | None,
     exclusion: ExclusionPolicy,
     extra_tools: tuple[ToolRequirement, ...],
+    compression_level: int,
 ) -> BackupPlan:
     """The root's one planning path: the plan a Run and a Dry Run both execute.
 
     The exclusion set planned is the policy's own, the same object the writer
-    is handed, so a real Run and a Dry Run plan the same set.
+    is handed, so a real Run and a Dry Run plan the same set; so is the
+    payload's ``compression_level``.
     """
     return build_backup_plan(
         site,
@@ -442,6 +453,7 @@ def plan_backup(
         exclusion_source=exclusion.source,
         exclusion_patterns=tuple(exclusion.patterns),
         extra_tools=extra_tools,
+        compression_level=compression_level,
     )
 
 
@@ -509,6 +521,9 @@ def plan_actions(
                 "exclusion_source": plan.exclusion_source,
                 "exclusion_patterns": list(plan.exclusion_patterns),
             }
+        elif step is BackupStep.WRITE_ARCHIVE:
+            text = f"write Archive (payload gzip level {plan.compression_level})"
+            fields = {"compression_level": plan.compression_level}
         elif step is BackupStep.PUBLISH:
             text = f"publish to {plan.target.scheme}:{plan.target.path}"
             fields = {"path": str(plan.target.path)}
@@ -593,7 +608,11 @@ def execute_backup_plan(
     if dumps != (database is not None):
         msg = "the plan's DUMP step and the database binding disagree"
         raise UsageError(msg, arguments=())
-    _log.info("backup_started", backup_scope=plan.scope.value)
+    _log.info(
+        "backup_started",
+        backup_scope=plan.scope.value,
+        compression_level=plan.compression_level,
+    )
     if cipher is not None:
         cipher.check()
     dump_path = workspace / DUMP_RELATIVE
@@ -642,6 +661,7 @@ def execute_backup_plan(
                     cipher=cipher,
                     manifest_builder=build_manifest,
                     workspace=workspace,
+                    compression_level=plan.compression_level,
                 )
             elif step is BackupStep.VERIFY:
                 performed = _publish(staged)
@@ -716,19 +736,27 @@ def backup(
     cipher: PayloadCipher | None,
     exclusion: ExclusionPolicy,
     origin: ManifestOrigin | None,
+    compression_level: int,
     extra_tools: tuple[ToolRequirement, ...] = (),
     preflight: Preflight | None = None,
 ) -> BackupResult:
     """Back ``site`` up to ``target`` inside ``ctx``; never opens a Run.
 
     Every keyword without a default is required: a Safety Snapshot states its
-    encryption, exclusion and origin, never inherits them by omission. The
+    encryption, exclusion, origin and payload gzip level, never inherits them
+    by omission. The
     final-name check and preflight (AD-13) — both queries — run before the
     first command adapter is called. ``preflight=None`` binds the roots' one
     ``RootPreflight`` (``cli.preflight.root_preflight``).
     """
     plan = plan_backup(
-        site, scope, target, cipher=cipher, exclusion=exclusion, extra_tools=extra_tools
+        site,
+        scope,
+        target,
+        cipher=cipher,
+        exclusion=exclusion,
+        extra_tools=extra_tools,
+        compression_level=compression_level,
     )
     adapters = ctx.adapters
     if adapters.archive_store_query.exists(target):
@@ -833,6 +861,7 @@ def drive_backup(
             cipher=request.cipher,
             exclusion=request.exclusion,
             extra_tools=request.extra_tools,
+            compression_level=request.compression_level,
         )
         actions = plan_actions(plan, site=site, credential_source=credentials.source)
         _log_plan(actions)
@@ -862,6 +891,7 @@ def drive_backup(
             cipher=request.cipher,
             exclusion=request.exclusion,
             origin=None,
+            compression_level=request.compression_level,
             extra_tools=request.extra_tools,
             preflight=root_preflight(run, site, credential_source=credentials.source),
         )
@@ -1116,6 +1146,7 @@ def run_backup(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode
         site_name=args.site_name,
         target_chosen_by=_chosen_by(origins.get("archive")),
         archive_subdir=args.archive_subdir,
+        compression_level=args.compression_level,
     )
     if origins.get("db_password") == "command line":
         note_password_on_command_line("--db-password")

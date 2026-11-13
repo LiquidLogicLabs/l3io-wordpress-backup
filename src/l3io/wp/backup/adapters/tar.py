@@ -15,9 +15,12 @@ parent, so a directory swapped for a symlink mid-walk fails the backup rather
 than leading it outside the tree.
 
 **Writing.** :func:`write_archive` works in three steps: the gzip payload into
-the workspace, then (with a cipher) the encrypted payload beside it, then the
-outer tar into ``out`` — the Manifest first, then the payload — inside a gzip
-stream at compression level :data:`OUTER_COMPRESSLEVEL` (0: stored blocks), so
+the workspace (a :class:`gzip.GzipFile` at the Run's ``compression_level``,
+6 unless set, around a ``w|`` tar; owner decision 88: ``tarfile``'s own
+``w|gz`` always deflates at 9 and, on Python 3.11, takes no level), then
+(with a cipher) the encrypted payload beside it, then the outer tar into
+``out`` — the Manifest first, then the payload — inside a gzip stream at
+compression level :data:`OUTER_COMPRESSLEVEL` (0: stored blocks), so
 the ``.tar.gz`` name is true and ``tar xzf`` reads it, while nothing is
 compressed twice (owner decision 21, BL-E002-032; ADR-0024 amendment).
 Each copy is a fixed-size chunked stream, so memory is bounded independent of
@@ -109,6 +112,10 @@ from l3io.wp.backup.domain.archive_format import (
     member_relative,
     parse_created_at,
     pending_payload,
+)
+from l3io.wp.backup.domain.compression import (
+    DEFAULT_COMPRESSION_LEVEL,
+    check_compression_level,
 )
 from l3io.wp.backup.domain.errors import (
     ArchiveReadError,
@@ -522,15 +529,26 @@ def _write_payload(
     members: Iterable[ArchiveMemberSource],
     *,
     seal: Callable[[tuple[ManifestMember, ...]], tuple[bytes, float]] | None,
+    compression_level: int,
 ) -> tuple[tuple[ManifestMember, ...], _HashingWriter]:
     """Write the gzip inner tar; ``seal`` gives the inner Manifest and its mtime.
 
-    The inner Manifest is written last.
+    The inner Manifest is written last. The gzip stream is deflated at
+    ``compression_level`` (owner decision 88); its header names no path and
+    carries the time it is written, as ``tarfile``'s ``w|gz`` header did.
     """
     ordered = sorted(members, key=lambda member: _ROLE_ORDER[member.role])
     with destination.open("xb") as raw:
         hashed = _HashingWriter(raw)
-        with tarfile.open(fileobj=cast("IO[bytes]", hashed), mode="w|gz") as inner:
+        with (
+            gzip.GzipFile(
+                filename="",
+                mode="wb",
+                fileobj=cast("IO[bytes]", hashed),
+                compresslevel=compression_level,
+            ) as compressed,
+            tarfile.open(fileobj=cast("IO[bytes]", compressed), mode="w|") as inner,
+        ):
             index = tuple(_add(inner, member) for member in ordered)
             if seal is not None:
                 _add_inner_manifest(inner, seal(index))
@@ -587,6 +605,7 @@ def write_archive(
     *,
     workspace: Path,
     cipher: PayloadCipher | None,
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL,
 ) -> Manifest:
     """Write one v1 Archive into ``out`` and return its Manifest (ADR-0024).
 
@@ -598,8 +617,11 @@ def write_archive(
     ADR-0024 amendment), which the outer one then equals less the encrypted
     payload's size and sha256. Any failure removes the payload files from
     ``workspace``; an ``OSError`` or ``tarfile`` error is re-raised as
-    :class:`ArchiveWriteError`.
+    :class:`ArchiveWriteError`. The payload is deflated at
+    ``compression_level`` before it is encrypted; a level outside 1-9 is
+    :class:`UsageError` before anything is written (owner decision 88).
     """
+    check_compression_level(compression_level)
     plain = workspace / PAYLOAD_MEMBER
     sealed = workspace / ENCRYPTED_PAYLOAD_MEMBER
     writing = plain
@@ -617,7 +639,10 @@ def write_archive(
 
     try:
         index, hashed = _write_payload(
-            plain, members, seal=None if cipher is None else seal
+            plain,
+            members,
+            seal=None if cipher is None else seal,
+            compression_level=compression_level,
         )
         payload, name = plain, PAYLOAD_MEMBER
         if cipher is not None:
@@ -706,6 +731,7 @@ class TarArchiveWriter:
         cipher: PayloadCipher | None,
         manifest_builder: ManifestBuilder,
         workspace: Path,
+        compression_level: int,
     ) -> Manifest:
         """Collect ``site_root`` (if any) and write the Archive into ``out``."""
         collection: SiteRootCollection | None = None
@@ -728,7 +754,12 @@ class TarArchiveWriter:
         _refuse_oversized_manifest(build, members, encrypted=cipher is not None)
         with phase(BackupStep.WRITE_ARCHIVE.value) as record:
             manifest = write_archive(
-                out, build, members, workspace=workspace, cipher=cipher
+                out,
+                build,
+                members,
+                workspace=workspace,
+                cipher=cipher,
+                compression_level=compression_level,
             )
             record.bytes = manifest.payload.size
         return manifest

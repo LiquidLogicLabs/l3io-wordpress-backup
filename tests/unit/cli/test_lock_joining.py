@@ -117,6 +117,7 @@ def test_backup_inside_the_run_acquires_nothing(
             cipher=None,
             exclusion=INCLUDE_EVERYTHING,
             origin=None,
+            compression_level=6,
         )
     assert recorder.events == before
 

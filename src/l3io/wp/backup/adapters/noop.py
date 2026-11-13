@@ -434,9 +434,10 @@ class NoopArchiveWriter:
         cipher: PayloadCipher | None,
         manifest_builder: ManifestBuilder,
         workspace: Path,
+        compression_level: int,
     ) -> Manifest:
         """The Manifest of an empty index; nothing is read or written."""
-        del out, dump, config, exclusion, workspace
+        del out, dump, config, exclusion, workspace, compression_level
         if site_root is not None:
             with phase(BackupStep.COLLECT_SITE_ROOT.value) as record:
                 record.skip()

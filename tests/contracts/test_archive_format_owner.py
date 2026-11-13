@@ -184,6 +184,7 @@ def test_every_backup_scope_writes_v1(tmp_path: Path, scope: BackupScope) -> Non
         cipher=None,
         manifest_builder=_manifest_builder(scope, dump=dumps),
         workspace=workspace,
+        compression_level=6,
     )
     archive.write_bytes(out.getvalue())
     index = TarArchiveProbe().member_index(target)

@@ -9,6 +9,28 @@ owner asked for, which a commit subject cannot hold.
 
 1.1.1.
 
+### Changed: faster backups and Safety Snapshots; new setting `compression_level` (owner decision 88)
+
+- **The payload is gzip level 6 by default, not 9.** The inner payload was
+  written by Python's `tarfile` at its implicit level 9, which nobody had
+  chosen; it is now level 6. On a 1.1 GiB test site (WordPress core five
+  times, a 150 MiB SQL-like file, 406 MiB of incompressible media), writing
+  the Archive took 52-54 s instead of 88 s (1.7 times faster) for 0.2% more
+  bytes. A restore's Safety Snapshot, written the same way, gains the same.
+- **New setting `compression_level`**: `--compression-level N`,
+  `L3IO_WP_BACKUP_COMPRESSION_LEVEL` and the `compression_level` config key,
+  on `backup` (the Archive) and `restore` (its Safety Snapshot); the
+  library's `backup(compression_level=)` and `restore(compression_level=)`.
+  A whole number from 1 (fastest: 2.7 times faster than 9 on the site above,
+  5.6% more bytes) to 9 (smallest, the old behaviour). Any other value is a
+  usage error (exit 2) before the Run starts. The level is logged on
+  `backup_started` and the `WRITE_ARCHIVE` `planned_action`, and the Dry
+  Run's `write Archive` line names it.
+- **Unchanged:** the Archive format (`format_version` 1; nothing records the
+  level, and every version reads every level), the outer stream's level 0
+  (decision 21), and the order: the payload is compressed, then encrypted.
+  The image passes `L3IO_WP_BACKUP_COMPRESSION_LEVEL` through as is.
+
 ### Changed: the image never changes ownership; it runs as the user it is given (owner decision 87)
 
 - **No ownership changes at start.** The image no longer re-owns anything:

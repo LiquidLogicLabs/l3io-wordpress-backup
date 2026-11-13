@@ -102,12 +102,15 @@ class ArchiveWriterCommand(Protocol):
         cipher: PayloadCipher | None,
         manifest_builder: ManifestBuilder,
         workspace: Path,
+        compression_level: int,
     ) -> Manifest:
         """Write one Archive into ``out``; its Manifest.
 
         ``site_root`` is ``None`` for a ``database`` scope and ``dump`` for
         ``files``. ``workspace`` is the Run's private directory, where the
         payload is staged before it is copied into ``out``.
+        ``compression_level`` is the payload's gzip level, 1-9 (owner
+        decision 88); it has no default, so no writer falls back to one.
         """
         ...
 

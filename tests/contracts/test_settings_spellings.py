@@ -29,7 +29,7 @@ import ast
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import get_args
+from typing import Annotated, get_args, get_origin
 
 import pytest
 from pydantic import SecretStr
@@ -65,8 +65,15 @@ def _options(parser: argparse.ArgumentParser) -> dict[str, set[str]]:
 
 
 def _sample(annotation: object) -> tuple[str, str, object]:
-    """A value for a field: as a variable, as a TOML literal, and as loaded."""
-    kinds = get_args(annotation)
+    """A value for a field: as a variable, as a TOML literal, and as loaded.
+
+    A constrained field (``Annotated[int, Field(ge=1, le=9)]``) is sampled as
+    its base type; ``7`` is inside every bound a setting has today.
+    """
+    kinds = tuple(
+        get_args(kind)[0] if get_origin(kind) is Annotated else kind
+        for kind in get_args(annotation)
+    )
     if bool in kinds:
         return "true", "true", True
     if list[str] in kinds:
@@ -174,6 +181,7 @@ def test_the_scope_reaches_what_it_should() -> None:
         "keep_monthly",
         "keep_yearly",
         "archive_subdir",  # owner decision 86
+        "compression_level",  # owner decision 88
     } <= names
     variables = {v.split(": ")[1] for v in unknown_variables(SRC)} | {
         env_name(n) for n in names

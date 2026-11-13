@@ -40,6 +40,7 @@ from l3io.wp.backup.domain.archive_format import (
     SkippedLink,
 )
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.compression import DEFAULT_COMPRESSION_LEVEL
 from l3io.wp.backup.domain.credentials import CredentialSpec, ResolvedCredentialSpec
 from l3io.wp.backup.domain.database import DatabaseLocation
 from l3io.wp.backup.domain.errors import (
@@ -480,8 +481,10 @@ class RestoreRequest:
     ``archive.path``; the root closes it. ``notes`` are lines the root adds
     to the outcome's (``--archive latest``'s choice). ``admin`` is a
     ``ResolvedCredentialSpec`` only when the CLI, started as root, resolved
-    the administrator before it switched users (owner decision 71). No field
-    carries an ``l3io.wp.database`` type (ADR-0015 amendment).
+    the administrator before it switched users (owner decision 71).
+    ``compression_level`` is the Safety Snapshot's payload gzip level, 1-9
+    (owner decision 88). No field carries an ``l3io.wp.database`` type
+    (ADR-0015 amendment).
     """
 
     site_root: Path
@@ -511,6 +514,7 @@ class RestoreRequest:
     #: ``restore_mode_resolved`` (FR-6, BL-E003-013); ``None`` for a library
     #: call, which passes the Mode itself.
     mode_flags: str | None = None
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL
 
     def __post_init__(self) -> None:
         if not self.opted_out_by:

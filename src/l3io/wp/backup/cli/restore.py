@@ -1086,6 +1086,7 @@ def drive_restore(
                     restore_mode=request.mode.value,
                     run_id=run.run_id,
                 ),
+                compression_level=request.compression_level,
             )
             taken.append(
                 snapshot_result(
@@ -1594,6 +1595,7 @@ def run_restore(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCod
             ),
             archive_handle=handle,
             notes=notes,
+            compression_level=args.compression_level,
         )
         if privileges.running_as_root():
             # Owner decision 71: a configured administrator (an AWS profile in

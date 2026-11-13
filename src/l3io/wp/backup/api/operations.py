@@ -98,6 +98,10 @@ from l3io.wp.backup.core.exclusions import ExclusionSet
 from l3io.wp.backup.core.retention import RetentionPolicy
 from l3io.wp.backup.domain.archive_format import VerificationResult
 from l3io.wp.backup.domain.backup_scope import BackupScope
+from l3io.wp.backup.domain.compression import (
+    DEFAULT_COMPRESSION_LEVEL,
+    check_compression_level,
+)
 from l3io.wp.backup.domain.credentials import CredentialSpec
 from l3io.wp.backup.domain.errors import UsageError, VerificationFailedError
 from l3io.wp.backup.domain.preflight import ToolRequirement
@@ -187,6 +191,7 @@ def backup(
     dry_run: bool = False,
     on_warning: WarningSink | None = None,
     db_tls: DbTls | None = None,
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL,
 ) -> BackupResult:
     """Back up the Site whose root is ``site``; returns what was published.
 
@@ -207,8 +212,12 @@ def backup(
     decision 60). ``db_tls`` requires TLS on the database connections, as
     ``--db-tls``/``--db-tls-ca``; ``None`` requires none (owner decision 56).
     A ``scope`` that is not a ``BackupScope`` is refused (``UsageError``).
+    ``compression_level`` is the payload's gzip level, 1 (fastest) to 9
+    (smallest), as ``--compression-level`` (owner decision 88); another value
+    is refused (``UsageError``) before anything is read.
     """
     _require(scope, BackupScope, "scope")
+    check_compression_level(compression_level)
     registry = _registry()
     cipher: PayloadCipher | None = None
     extra_tools: tuple[ToolRequirement, ...] = ()
@@ -244,6 +253,7 @@ def backup(
         extra_tools=extra_tools,
         db_tls=DbTls() if db_tls is None else db_tls,
         target_chosen_by="target",
+        compression_level=compression_level,
     )
     return drive_backup(
         request,
@@ -323,6 +333,7 @@ def restore(
     resolve_run_id: str | None = None,
     dry_run: bool = False,
     on_warning: WarningSink | None = None,
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL,
 ) -> RestoreOutcome:
     """Restore ``archive`` into the Site at ``site_root``; returns what was done.
 
@@ -341,8 +352,12 @@ def restore(
     never switches its host's user, as the CLI does (owner decision 58).
     A ``mode``, ``overrides``, ``snapshot`` or ``config_policy`` of the wrong
     type is refused (``UsageError`` naming the parameter) before any effect.
+    ``compression_level`` is the Safety Snapshot's payload gzip level, 1 to
+    9, as ``restore --compression-level`` (owner decision 88); another value
+    is refused (``UsageError``) before any effect.
     """
     _require(mode, RestoreMode, "mode")
+    check_compression_level(compression_level)
     _require_overrides(overrides)
     _require(snapshot, SnapshotPolicy, "snapshot")
     _require(config_policy, ConfigPolicy, "config_policy")
@@ -393,6 +408,7 @@ def restore(
         opted_out_by=SNAPSHOT_SKIPPED_BY,
         require_encrypted=require_encrypted,
         allow_unencrypted=allow_unencrypted,
+        compression_level=compression_level,
     )
     outcome = drive_restore(
         request,

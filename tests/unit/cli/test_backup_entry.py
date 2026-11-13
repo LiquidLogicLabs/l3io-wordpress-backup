@@ -63,6 +63,7 @@ def _snapshot(
         cipher=None,
         exclusion=INCLUDE_EVERYTHING,
         origin=origin,
+        compression_level=6,
     )
 
 

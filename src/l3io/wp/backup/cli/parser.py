@@ -59,6 +59,12 @@ from l3io.wp.backup.domain.archive_subdir import (
     ARCHIVE_TREE_DEPTH,
     archive_subdir_problem,
 )
+from l3io.wp.backup.domain.compression import (
+    DEFAULT_COMPRESSION_LEVEL,
+    MAX_COMPRESSION_LEVEL,
+    MIN_COMPRESSION_LEVEL,
+    compression_level_problem,
+)
 from l3io.wp.backup.domain.exit_codes import DESCRIPTIONS, ExitCode
 from l3io.wp.backup.domain.storage_target import (
     sanitise_site_name,
@@ -159,6 +165,36 @@ def _archive_subdir(text: str) -> str:
     if problem is not None:
         raise argparse.ArgumentTypeError(problem)
     return text
+
+
+def _compression_level(text: str) -> int:
+    """``--compression-level``: a whole number from 1 to 9 (owner decision 88)."""
+    digits = text.strip()
+    whole = digits.isascii() and digits.removeprefix("-").isdigit()
+    value: object = int(digits, 10) if whole else text
+    problem = compression_level_problem(value)
+    if problem is not None:
+        msg = f"invalid level: {problem}"
+        raise argparse.ArgumentTypeError(msg)
+    return int(digits, 10)
+
+
+def _add_compression_level(
+    parser: argparse.ArgumentParser | argparse._ArgumentGroup, *, what: str
+) -> None:
+    """``--compression-level``, the same on ``backup`` and ``restore``."""
+    parser.add_argument(
+        "--compression-level",
+        metavar="N",
+        type=_compression_level,
+        default=DEFAULT_COMPRESSION_LEVEL,
+        help=(
+            f"Gzip level of {what}'s payload, {MIN_COMPRESSION_LEVEL} (fastest) "
+            f"to {MAX_COMPRESSION_LEVEL} (smallest) (default: "
+            f"{DEFAULT_COMPRESSION_LEVEL}). The archive format is the same at "
+            "every level"
+        ),
+    )
 
 
 def exit_code_epilog() -> str:
@@ -541,6 +577,7 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Do not apply the default exclusion set",
     )
+    _add_compression_level(backup, what="the archive")
     backup.add_argument(
         "--list-default-excludes",
         action="store_true",
@@ -708,6 +745,7 @@ def _add_restore(restore: argparse.ArgumentParser) -> None:
             "detected"
         ),
     )
+    _add_compression_level(options, what="the Safety Snapshot")
     options.add_argument(
         "--archive-database",
         metavar="USER@HOST[:PORT]/NAME",
