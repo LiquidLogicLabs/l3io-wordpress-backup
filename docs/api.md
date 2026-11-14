@@ -2101,6 +2101,28 @@ Base: `BackupError`. Exit code: `VERIFICATION_FAILED` (8).
 
 Fields: `result`, `archive`, each holding the argument of the same name.
 
+### `WorkFactorTooHighError`
+
+The encrypted payload's scrypt work factor is above what this host decrypts,
+so it was refused before any work was done (1.1.2).
+
+The `age` header names the work factor (log2), and the decrypting backend has
+a fixed ceiling: 22 for the `l3io-age-passphrase` binder (0.1.3) and for stock
+`age`. `wpbackup2` 1.1.2 and later write 18, so an Archive they wrote does
+not exceed it. Nothing says the payload is damaged, so this is not
+`PayloadDamagedError` and not a verification failure: decrypt the payload with
+the tool that encrypted it. Logged first as ERROR `member_decryption_failed`
+with `reason` `work_factor_too_high`. Database's `WorkFactorTooHighError`
+(`l3io-wordpress-database` 0.3.6) is the cause.
+
+```python
+WorkFactorTooHighError(*, scheme: str)
+```
+
+Base: `RefusedError`. Exit code: `REFUSED` (3).
+
+Fields: `scheme`, holding the argument of the same name (`age`).
+
 ### `WorkspaceNotRemovedError`
 
 The Run's workspace survived its removal, and may hold a plaintext Dump.

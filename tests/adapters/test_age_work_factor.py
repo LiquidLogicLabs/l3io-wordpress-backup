@@ -12,15 +12,14 @@ and an Archive written while the host was busy got a weak work factor. Seen in
 Each test drives :class:`PassphraseCipher` (the binder backend) in a child
 process that, for its first seconds, runs about 0.5 ms in every 100 ms, so any
 wall-clock measurement it takes is over a hundred times too long (log2: about
-7) whatever the host's speed. The binder that fixes this is not released yet:
-until then these tests are strict xfails on 0.1.2 and below, and must pass on
-anything newer.
+7) whatever the host's speed. ``l3io-age-passphrase`` 0.1.3 fixes the work
+factor (encrypt at 18, decrypt up to 22) and is this package's floor, so both
+tests are required.
 """
 
 from __future__ import annotations
 
 import contextlib
-import importlib.metadata
 import os
 import re
 import signal
@@ -30,7 +29,6 @@ import time
 from pathlib import Path
 
 import pytest
-from packaging.version import Version
 
 pytest.importorskip("l3io.wp.database")
 
@@ -42,14 +40,6 @@ STOCK_AGE = Path(__file__).parents[1] / "data" / "age" / "stock-age-p-wf18.age"
 #: Stock ``age -p``'s scrypt work factor, which the fixed binder writes too.
 WORK_FACTOR = 18
 _STANZA = re.compile(rb"^-> scrypt \S+ (\d+)$", re.MULTILINE)
-#: The last binder release with the load-dependent work factor.
-_UNFIXED = Version("0.1.2")
-
-pytestmark = pytest.mark.xfail(
-    Version(importlib.metadata.version("l3io-age-passphrase")) <= _UNFIXED,
-    reason="l3io-age-passphrase <= 0.1.2 times scrypt on the wall clock",
-    strict=True,
-)
 
 _CHILD = r"""
 import io, os, resource, sys

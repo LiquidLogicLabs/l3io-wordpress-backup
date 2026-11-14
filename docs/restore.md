@@ -148,7 +148,7 @@ backup logs its host (owner decision 51): no confirmation flag is asked for.
 | 0    | `OK`                  | it completed (a Dry Run: its plan completed without a refusal)                              |
 | 1    | `FAILED`              | something failed, including a database load the report does not call restored, and a load whose automatic rollback failed (`RollbackFailedError`) |
 | 2    | `USAGE`               | the flags express no Restore Mode, `--archive` is missing, or `--overwrite-wp-config` is given with a Mode that restores no files |
-| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a relocation (`--new-db-*`) that would rewrite a `DB_*` read from the environment, a `DB_*` that is another PHP expression, an `--overwrite-wp-config` whose Archive's file does not define `getenv_docker()` for the target's definitions |
+| 3    | `REFUSED`             | a check refused: a non-empty target, an incomplete earlier Run, an unreadable Site Root, an unconfirmed Archive database, a missing Dump, an encrypted Archive with no passphrase, a snapshot that could not be made, a relocation (`--new-db-*`) that would rewrite a `DB_*` read from the environment, a `DB_*` that is another PHP expression, an `--overwrite-wp-config` whose Archive's file does not define `getenv_docker()` for the target's definitions, an encrypted payload whose scrypt work factor is above this host's limit (`WorkFactorTooHighError`) |
 | 4    | `CREDENTIALS`         | the database does not exist yet or the WordPress account cannot log in or lacks a right on it, and no administrator credentials are configured (`AdminCredentialsRequiredError`, naming what is missing); or a credential source is unusable |
 | 5    | `UNREACHABLE`         | the database server cannot be reached                                                       |
 | 7    | `NOT_READY`           | a tool the plan needs is absent or too old, an optional extra is not installed or the installation is incomplete (`IncompleteInstallError`), the Site Lock's state directory is unusable, or the database's load check, run as the WordPress account, could not run (`LoadReadinessError`, naming that account's credential source) |
@@ -634,21 +634,27 @@ place of a newer one, is genuine, so it passes. Detecting that needs a record
 kept outside the Archive, such as the name or checksum of the latest backup,
 which this package does not keep.
 
-**A good Archive refused on a busy host (`l3io-age-passphrase` 0.1.2 and
-earlier).** Those releases of the encryption binder let `age` pick the
-passphrase's scrypt work factor by timing a small scrypt run, and refuse any
-file whose work factor is more than 4 above what that timing suggests. On a
-heavily loaded host the timing runs long, so `verify --authenticate` or a
-restore's `VERIFY` can refuse an intact Archive with `PayloadDamagedError`
-(exit 8, ERROR `member_decryption_failed` with `reason` `corrupt`) although the
-structural check passed. Nothing in the Archive is wrong: run the same command
-again on an idle host, or decrypt the payload with stock `age -d`. The other side of the same defect: an Archive *written*
-on a busy host may have a low work factor, so its passphrase is cheaper to
-guess. The work factor is the last field of the payload's `age` header line
-`-> scrypt <salt> <log_n>`, readable without the passphrase, for example with
+**The scrypt work factor, and Archives written by 1.1.1 and earlier.** The
+`l3io-age-passphrase` binder up to 0.1.2 let `age` pick the passphrase's
+scrypt work factor by timing a small scrypt run, and refused any file whose
+work factor was more than 4 above what that timing suggested. On a heavily
+loaded host the timing ran long, so `verify --authenticate` or a restore's
+`VERIFY` could refuse an intact Archive as `PayloadDamagedError` (exit 8,
+ERROR `member_decryption_failed` with `reason` `corrupt`). From 1.1.2
+(`l3io-age-passphrase` 0.1.3) the work factor is fixed: `wpbackup2` encrypts
+at 18, as stock `age -p` does, and decrypts anything up to 22 however busy the
+host, so that false refusal is gone. A payload above 22, which
+1.1.2 never writes, is refused as `WorkFactorTooHighError` (exit 3, `reason`
+`work_factor_too_high`), not reported as damaged; stock `age` refuses it too.
+
+The other side of the old defect remains in Archives already written: one
+*written* by 1.1.1 or earlier on a busy host may have a low work factor, so
+its passphrase is cheaper to guess. Re-take any backup that matters with
+1.1.2 or later. The work factor is the last field of the payload's `age`
+header line `-> scrypt <salt> <log_n>`, readable without the passphrase, for
+example with
 `tar -xzOf <archive> payload.tar.gz.age | head -c 200 | grep -a '^-> scrypt'`;
-stock `age -p` uses 18. Re-encrypt (take a new backup of) any Archive whose
-value is well below that, once a fixed binder is installed.
+anything well below 18 is worth replacing.
 
 **Encryption protects file contents only.** `manifest.json` is never
 encrypted: the Site Root path, the database name, every file path and size and

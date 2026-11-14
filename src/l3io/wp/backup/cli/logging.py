@@ -7,9 +7,8 @@ a root handler (``tests/contracts/test_logging_configured_once.py``).
 
 The chain (:func:`processor_chain`), in order: ``merge_contextvars`` first, so
 the Run ID and a caller's own ``correlation_id`` reach every record;
-``add_log_level``; ``add_logger_name``; :func:`name_database_warnings`; an
-ISO-8601 UTC ``timestamp`` ending in
-``Z``; ``format_exc_info``; the ``trace_processors`` slot (Epic 6 fills it with
+``add_log_level``; ``add_logger_name``; an ISO-8601 UTC ``timestamp`` ending
+in ``Z``; ``format_exc_info``; the ``trace_processors`` slot (Epic 6 fills it with
 ``add_trace_ids``; the CLI passes ``()``); E002-S01-006's redaction, as
 ``adapters.redaction.redact_open_runs`` (the open Run's ``redact_event``); the
 renderer. Redaction sits after every enrichment and just before the renderer,
@@ -21,21 +20,19 @@ one root handler on stderr, so ``l3io.wp.config`` takes no ``structlog``
 dependency (AD-2). ``l3io.wp.database`` logs through ``structlog`` and is
 covered by the same configuration.
 
-**A database warning's event name.** ``l3io.wp.database`` (0.3.5) logs each
-warning finding of a check with the finding's text as ``event`` and its stable
-code in ``code`` (``client_server_skew``). :func:`name_database_warnings`
-renames such a record: ``event`` becomes :data:`DATABASE_WARNING_EVENT`, the
-text moves to ``message``, ``code`` is kept, so ``event`` is always a name a
-log query can select on (docs/logging.md).
+**A database warning's event name.** ``l3io.wp.database`` (0.3.6) logs each
+warning finding of a check with its stable code as ``event`` (and in
+``code``), the text in ``message``. Up to 1.1.1 this chain renamed 0.3.5's
+free-text records to ``database_warning``; with 0.3.6 as the floor that is
+redundant and gone (docs/logging.md).
 """
 
 from __future__ import annotations
 
 import logging
-import re
 import sys
-from collections.abc import MutableMapping, Sequence
-from typing import Any, Final, Literal
+from collections.abc import Sequence
+from typing import Final, Literal
 
 import structlog
 from structlog.typing import Processor
@@ -43,12 +40,10 @@ from structlog.typing import Processor
 from l3io.wp.backup.adapters.redaction import redact_open_runs
 
 __all__ = [
-    "DATABASE_WARNING_EVENT",
     "DRY_RUN_KEY",
     "RUN_ID_KEY",
     "configure_logging",
     "configured_format",
-    "name_database_warnings",
     "processor_chain",
     "reset_logging",
 ]
@@ -62,35 +57,6 @@ RUN_ID_KEY: Final = "l3io_run_id"
 DRY_RUN_KEY: Final = "l3io_dry_run"
 
 _configured: list[Literal["console", "json"]] = []
-
-#: The ``event`` of a warning finding ``l3io.wp.database`` logged as free text.
-DATABASE_WARNING_EVENT: Final = "database_warning"
-_DATABASE_LOGGER: Final = "l3io.wp.database"
-#: An event that is already a name: lower snake case.
-_EVENT_NAME: Final = re.compile(r"[a-z][a-z0-9_]*")
-
-
-def name_database_warnings(
-    _logger: object, _method: str, event_dict: MutableMapping[str, Any]
-) -> MutableMapping[str, Any]:
-    """Give a database finding logged as free text a stable ``event`` name.
-
-    Only a record of the ``l3io.wp.database`` logger (after
-    ``add_logger_name``) carrying a ``code`` and an ``event`` that is not
-    already a lower-snake name: its ``event`` becomes
-    :data:`DATABASE_WARNING_EVENT` and the text moves to ``message``.
-    """
-    event = event_dict.get("event")
-    if (
-        event_dict.get("logger") == _DATABASE_LOGGER
-        and "code" in event_dict
-        and isinstance(event, str)
-        and not _EVENT_NAME.fullmatch(event)
-        and "message" not in event_dict
-    ):
-        event_dict["message"] = event
-        event_dict["event"] = DATABASE_WARNING_EVENT
-    return event_dict
 
 
 def configured_format() -> Literal["console", "json"] | None:
@@ -114,7 +80,6 @@ def processor_chain(
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.stdlib.add_logger_name,
-        name_database_warnings,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.format_exc_info,
         *trace_processors,

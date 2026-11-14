@@ -380,11 +380,14 @@ check A:host-logged logged A-backup database_host
 default_named() { grep -qE "^/backups/wpbak-$DB_NAME-[0-9]{8}T[0-9]{6}Z\.tar\.gz\$" "$LOGS/A-backup.out"; }
 check A:default-name-is-wpbak-db-utc default_named
 step A-verify 0 wb verify --archive "$(head -1 "$LOGS/A-backup.out")"
-# The dump client against this server: client_server_skew (logged as event
-# database_warning, the text in `message`) exactly when the client's family
+# The dump client against this server: client_server_skew (its event and code since
+# l3io-wordpress-database 0.3.6, the text in `message`) exactly when the client's family
 # is not the server's (docs/docker.md: which variant to pick).
 skew_logged() { grep -qF '"code": "client_server_skew"' "$LOGS/A-backup.err"; }
-skew_is_an_event_name() { ! grep -qE '"event": "[^"]*older than' "$LOGS/A-backup.err"; }
+skew_is_an_event_name() {
+    ! grep -qE '"event": "[^"]*older than' "$LOGS/A-backup.err" &&
+        { ! skew_logged || grep -qF '"event": "client_server_skew"' "$LOGS/A-backup.err"; }
+}
 server_family=mysql; [[ $ENGINE == mariadb ]] && server_family=mariadb
 if [[ $L3IO_DB_CLIENT == "$server_family" ]]; then
     no_skew_logged() { ! skew_logged; }
@@ -655,14 +658,16 @@ SCHEDULED=
 for _ in $(seq 1 36); do
     SCHEDULED=$(comm -13 <(sort <<<"$BEFORE") <(archives_of_site | sort) | head -1)
     # The backup prints the Archive's path when it is complete.
-    [[ -n $SCHEDULED ]] && scheduler_log | grep -qF "$SCHEDULED" && break
+    # Captured first: under pipefail, `scheduler_log | grep -q` is
+    # false when grep exits before `docker compose logs` has written it all.
+    [[ -n $SCHEDULED ]] && grep -qF "$SCHEDULED" <<<"$(scheduler_log)" && break
     sleep 5
 done
 scheduler_log >"$LOGS/S-scheduler.log" || true
 log "scheduled Archive: ${SCHEDULED:-none}"
 # The job prunes after its backup: wait for its summary record.
 for _ in $(seq 1 24); do
-    scheduler_log | grep -qF '"event": "prune_completed"' && break
+    grep -qF '"event": "prune_completed"' <<<"$(scheduler_log)" && break
     sleep 5
 done
 scheduler_log >"$LOGS/S-scheduler.log" || true
@@ -723,7 +728,7 @@ step U-scheduler-user-up 0 dc --profile schedule up -d scheduler-user
 USER_SCHEDULED=
 for _ in $(seq 1 36); do
     USER_SCHEDULED=$(comm -13 <(sort <<<"$BEFORE") <(archives_of_site | sort) | head -1)
-    [[ -n $USER_SCHEDULED ]] && user_scheduler_log | grep -qF "$USER_SCHEDULED" && break
+    [[ -n $USER_SCHEDULED ]] && grep -qF "$USER_SCHEDULED" <<<"$(user_scheduler_log)" && break
     sleep 5
 done
 user_scheduler_log >"$LOGS/U-scheduler-user.log" || true

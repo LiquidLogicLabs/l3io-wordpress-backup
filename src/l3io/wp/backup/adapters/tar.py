@@ -129,6 +129,7 @@ from l3io.wp.backup.domain.errors import (
     PayloadDamagedError,
     RunTerminated,
     VerificationFailedError,
+    WorkFactorTooHighError,
 )
 from l3io.wp.backup.domain.exclusion import ExcludedEntry
 from l3io.wp.backup.domain.storage_target import StorageTarget, parse_storage_target
@@ -1594,10 +1595,10 @@ def decrypt_payload(
     ``destination``. An ``OSError`` reading the Archive is
     :class:`ArchiveReadError`, one writing ``destination``
     :class:`ArchiveWriteError` (BL-E002-049). A view that
-    is not encrypted raises ``ValueError``. A wrong passphrase or a damaged
-    stream is logged first as ERROR
+    is not encrypted raises ``ValueError``. A wrong passphrase, a damaged
+    stream or a work factor above the limit is logged first as ERROR
     ``member_decryption_failed`` with the payload's name and ``reason``
-    (``wrong_passphrase`` or ``corrupt``).
+    (``wrong_passphrase``, ``corrupt`` or ``work_factor_too_high``).
     """
     if not view.encrypted or view.payload is None:
         msg = "decrypt_payload needs an encrypted v1 view"
@@ -1620,13 +1621,18 @@ def decrypt_payload(
             writes = _WriteSide(writer)
             cipher.decrypt(io.BufferedReader(reads), cast("IO[bytes]", writes))
             writes.flush()
-    except (PassphraseRejectedError, PayloadDamagedError) as exc:
+    except (
+        PassphraseRejectedError,
+        PayloadDamagedError,
+        WorkFactorTooHighError,
+    ) as exc:
         destination.unlink(missing_ok=True)
-        reason = (
-            "wrong_passphrase"
-            if isinstance(exc, PassphraseRejectedError)
-            else "corrupt"
-        )
+        if isinstance(exc, PassphraseRejectedError):
+            reason = "wrong_passphrase"
+        elif isinstance(exc, WorkFactorTooHighError):
+            reason = "work_factor_too_high"
+        else:
+            reason = "corrupt"
         _log.error("member_decryption_failed", member=view.payload.name, reason=reason)
         raise
     except (tarfile.TarError, EOFError, zlib.error, gzip.BadGzipFile) as exc:

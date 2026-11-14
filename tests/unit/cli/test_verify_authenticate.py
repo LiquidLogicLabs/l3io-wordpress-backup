@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import tarfile
 import uuid
@@ -42,6 +43,7 @@ from l3io.wp.backup.domain.errors import (
     PassphraseRejectedError,
     PassphraseRequiredError,
     PayloadDamagedError,
+    WorkFactorTooHighError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from tests.conftest import (
@@ -299,6 +301,39 @@ def test_a_forged_encrypted_payload_fails_authenticate(
     decrypt = [r for r in records if r.get("event") == "member_decryption_failed"]
     assert [r["reason"] for r in decrypt] == ["corrupt"]
     assert out == ""
+
+
+@pytest.mark.usefixtures("no_terminal")
+def test_a_work_factor_above_the_limit_is_refused_not_damaged(
+    sealed: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    passphrase: str,
+) -> None:
+    """An intact payload whose scrypt log_n (23) exceeds the decrypt limit (22).
+
+    The binder refuses it before running scrypt, so this is quick.
+    """
+
+    def raise_work_factor(payload: bytes) -> bytes:
+        raised, count = re.subn(
+            rb"^(-> scrypt \S+) \d+$", rb"\g<1> 23", payload, count=1, flags=re.M
+        )
+        assert count == 1
+        return raised
+
+    raised = forge_archive(sealed, tmp_path / "wf23.tar.gz", raise_work_factor)
+    monkeypatch.setenv(PASSPHRASE_ENV, passphrase)
+    code, out, err, records = _verify(capsys, raised, "--authenticate")
+    assert code == ExitCode.REFUSED
+    assert out == ""
+    assert "work factor" in err
+    assert "damaged or tampered with" not in err
+    failed = [r for r in records if r.get("event") == "command_failed"]
+    assert [r["error"] for r in failed] == [WorkFactorTooHighError.__name__]
+    decrypt = [r for r in records if r.get("event") == "member_decryption_failed"]
+    assert [r["reason"] for r in decrypt] == ["work_factor_too_high"]
 
 
 def test_the_two_authentication_failures_are_distinct() -> None:

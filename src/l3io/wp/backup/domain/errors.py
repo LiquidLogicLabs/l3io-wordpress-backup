@@ -109,6 +109,7 @@ __all__ = [
     "UnsupportedStorageSchemeError",
     "UsageError",
     "VerificationFailedError",
+    "WorkFactorTooHighError",
     "WpCliConfigFoundError",
     "WpCliFailedError",
     "WpCliOutputUnrecognisedError",
@@ -889,6 +890,29 @@ class PayloadDamagedError(BackupError):
         if field is not None:
             message += f" (the Manifest's {field} differs from the authenticated copy)"
         super().__init__(message)
+
+
+class WorkFactorTooHighError(RefusedError):
+    """The payload's scrypt work factor is above what this host will decrypt.
+
+    Database's ``WorkFactorTooHighError`` (0.3.6): the ``age`` header asks
+    for more scrypt work than the decrypting backend accepts (the binder,
+    0.1.3, and stock ``age`` both stop at log2 22), so it is refused before
+    any work is done. Nothing says the payload is damaged, so this is not
+    :class:`PayloadDamagedError`, and it is not a verification failure: it
+    is ``REFUSED``, a fixed limit declining an input, with nothing changed.
+    ``wpbackup2`` 1.1.2 and later write 18, so an Archive it wrote does not
+    reach it. ``scheme`` names the encryption (``age``).
+    """
+
+    def __init__(self, *, scheme: str) -> None:
+        self.scheme = scheme
+        super().__init__(
+            "refused: the encrypted payload's scrypt work factor is above this "
+            "host's limit (log2 22), so it was not decrypted; the payload is not "
+            "known to be damaged. wpbackup2 writes 18: decrypt it with the tool "
+            "that encrypted it"
+        )
 
 
 class ArchiveNotEncryptedError(UsageError):

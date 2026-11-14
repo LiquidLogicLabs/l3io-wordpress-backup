@@ -60,7 +60,7 @@ the default** (`:1`). One build-arg, `DB_CLIENT`, is the only difference;
 Ubuntu's `mysql-client` and `mariadb-client` conflict, so an image carries one.
 
 The default image's MySQL 8.4 `mysqldump` dumps a MariaDB server too, but logs
-WARNING `database_warning` with `code` `client_server_skew` on every dump (a
+WARNING `client_server_skew` (its `event` and `code`) on every dump (a
 client of the other family). The `-mariadb` variant's `mariadb-dump` does not.
 Its dump fails against MySQL, so it is never the image for a MySQL server.
 Proven with the full sidecar suite (`tests/sidecar/run.sh`, every asserted

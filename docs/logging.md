@@ -86,17 +86,19 @@ records of every Run.
 **A warning from the database library.** `l3io.wp.database` reports what a
 check found as findings, each with a stable `code`. A warning finding (one
 that does not stop the Run, such as `client_server_skew`: the dump client is
-older than the server or of the other family) is logged at `warning` with
-`event` `database_warning`, the finding's `code`, its text in `message`, and
-`operation` and `database`. Select on the code, never on the text:
+older than the server or of the other family) is logged at `warning` with the
+code as `event` and in `code`, its text in `message`, and `operation` and
+`database`. Select on the code, never on the text:
 
 ```sh
-jq -c 'select(.event == "database_warning") | {code, message, operation}' backup.log
+jq -c 'select(.event == "client_server_skew") | {code, message, operation}' backup.log
 ```
 
-The library itself (0.3.5) puts the text in `event`; `wpbackup2`'s logging
-renames the record (`cli/logging.name_database_warnings`), so a Python caller
-that configures its own logging sees the library's form.
+Each database operation also logs `operation_completed` at `info`. These are
+the library's own records (`l3io-wordpress-database` 0.3.6 and later), the
+same for a Python caller that configures its own logging. From 1.1.0 to 1.1.1,
+`wpbackup2` renamed 0.3.5's free-text records to `event` `database_warning`;
+1.1.2 logs the library's names as they are.
 
 Before preflight, a backup logs one `planned_action` record per action it
 plans, in order — `ordinal`, `step`, the rendered `action` line and the step's
@@ -198,7 +200,7 @@ never appear in any of them.
 | `load_database_drop_failed` | ERROR | After a failure, dropping the relocated database this Run created failed; the original error is raised (`database`, `error_type`) |
 | `load_database_dropped` | WARNING | After a failure, the relocated database this Run created was dropped (`database`) |
 | `manifest_value_unknown` | WARNING | A Manifest field held a value this version does not know; it reads as absent (`field`, `value`) |
-| `member_decryption_failed` | ERROR | Decrypting the payload failed (`member`, `reason` `wrong_passphrase` or `corrupt`) |
+| `member_decryption_failed` | ERROR | Decrypting the payload failed (`member`, `reason` `wrong_passphrase`, `corrupt`, or `work_factor_too_high`: the payload's scrypt work factor is above the backend's limit, `WorkFactorTooHighError`, exit 3) |
 | `on_warning_failed` | ERROR | A library caller's `on_warning` sink raised on a notice given after the Safety Snapshot was taken; the restore continues (`code`, `error`) |
 | `passphrase_below_encryption_floor` | WARNING | A restore's passphrase is shorter than the encryption floor and also encrypts the Safety Snapshot (`minimum`) |
 | `passphrase_ignored` | WARNING | `L3IO_WP_BACKUP_PASSPHRASE` is set but encryption was not requested (`variable`) |

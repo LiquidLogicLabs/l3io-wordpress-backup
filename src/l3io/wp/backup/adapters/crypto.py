@@ -15,8 +15,10 @@ distinct: a passphrase that cannot open the payload is
 :class:`PassphraseRejectedError`, a damaged, truncated or non-age stream is
 :class:`PayloadDamagedError`. Both are ``VERIFICATION_FAILED`` (Shawn,
 2026-11-03): ``age`` authenticates every chunk, so either means the payload
-could not be authenticated. A passphrase or backend database refuses as
-invalid is :class:`EncryptionConfigError` (``USAGE``). No message carries
+could not be authenticated. A payload whose scrypt work factor is above the
+backend's limit is :class:`WorkFactorTooHighError` (``REFUSED``): refused
+before any work, not known to be damaged. A passphrase or backend database
+refuses as invalid is :class:`EncryptionConfigError` (``USAGE``). No message carries
 database's text, and none carries the passphrase.
 """
 
@@ -34,6 +36,7 @@ from l3io.wp.backup.domain.errors import (
     PassphraseRejectedError,
     PayloadDamagedError,
     UsageError,
+    WorkFactorTooHighError,
 )
 from l3io.wp.backup.domain.preflight import ToolRequirement
 from l3io.wp.backup.domain.secret import Secret, as_secret
@@ -54,7 +57,8 @@ _BINDER_MODULE: Final = "l3io_age_passphrase"
 _AGE_MINIMUM: Final = (1, 3)
 _NEEDED_FOR: Final = "the encrypted payload (ENCRYPT, VERIFY)"
 _REGISTRY_SOURCE: Final = "passphrase"
-#: The encryption a :class:`PassphraseRejectedError` names (``scheme``).
+#: The encryption a :class:`PassphraseRejectedError` or
+#: :class:`WorkFactorTooHighError` names (``scheme``).
 _SCHEME: Final = "age"
 
 
@@ -193,6 +197,9 @@ class PassphraseCipher:
                 InvalidArgumentsError,
                 MissingDependencyError,
             )
+            from l3io.wp.database.errors import (
+                WorkFactorTooHighError as DatabaseWorkFactorTooHighError,
+            )
         except ImportError as exc:
             raise IncompleteInstallError(_DISTRIBUTION) from exc
         try:
@@ -203,6 +210,8 @@ class PassphraseCipher:
             raise EncryptionConfigError from exc
         except DecryptionError as exc:
             raise PassphraseRejectedError(scheme=_SCHEME) from exc
+        except DatabaseWorkFactorTooHighError as exc:
+            raise WorkFactorTooHighError(scheme=_SCHEME) from exc
         except CorruptDumpError as exc:
             raise PayloadDamagedError from exc
 

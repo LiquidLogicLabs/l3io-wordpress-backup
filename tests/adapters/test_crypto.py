@@ -41,6 +41,7 @@ from l3io.wp.backup.domain.errors import (
     IncompleteInstallError,
     PassphraseRejectedError,
     PayloadDamagedError,
+    WorkFactorTooHighError,
 )
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from l3io.wp.backup.domain.preflight import ToolRequirement
@@ -135,6 +136,42 @@ def test_a_damaged_stream_is_damaged_not_rejected(
     assert caught.value.exit_code is ExitCode.VERIFICATION_FAILED
     assert caught.value.field is None
     assert not isinstance(caught.value, (DecryptionError, CorruptDumpError))
+
+
+def test_a_work_factor_refusal_is_its_own_error(
+    passphrase: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Database's ``WorkFactorTooHighError``, injected: refused, not damaged."""
+    from l3io.wp.database import encryption
+    from l3io.wp.database.errors import CorruptDumpError
+    from l3io.wp.database.errors import WorkFactorTooHighError as Injected
+
+    injected = Injected("never-shown-text")
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise injected
+
+    monkeypatch.setattr(encryption, "decrypt", refuse)
+    with pytest.raises(WorkFactorTooHighError) as caught:
+        _decrypt(PassphraseCipher(passphrase), b"")
+    assert caught.value.__cause__ is injected
+    assert caught.value.exit_code is ExitCode.REFUSED
+    assert caught.value.scheme == "age"
+    assert not isinstance(caught.value, PayloadDamagedError)
+    assert not isinstance(caught.value, (Injected, CorruptDumpError))
+    assert "never-shown-text" not in str(caught.value)
+    assert passphrase not in str(caught.value)
+
+
+def test_a_real_work_factor_above_22_is_refused(passphrase: str) -> None:
+    """The binder (0.1.3) decrypts up to log_n 22; 23 is refused before scrypt."""
+    sealed = (
+        PROJECT_ROOT / "tests" / "data" / "age" / "stock-age-p-wf18.age"
+    ).read_bytes()
+    raised = sealed.replace(b" 18\n", b" 23\n", 1)
+    assert raised != sealed
+    with pytest.raises(WorkFactorTooHighError):
+        _decrypt(PassphraseCipher(passphrase), raised)
 
 
 # --------------------------------------------------------------------------

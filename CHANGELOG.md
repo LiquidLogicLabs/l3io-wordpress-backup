@@ -7,6 +7,42 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Fixed: a busy host no longer refuses good Archives or weakens new ones (1.1.2)
+
+- **Dependency floors raised**: `l3io-age-passphrase>=0.1.3,<0.2` and
+  `l3io-wordpress-database[encryption]>=0.3.6,<0.4` (the `aws` extra too). The
+  binder up to 0.1.2 chose the scrypt work factor by timing the host, so on a
+  loaded host `verify --authenticate` and a restore's `VERIFY` could refuse an
+  intact Archive as damaged (exit 8), and a backup could encrypt at log2 11-14
+  instead of 18. 0.1.3 encrypts at 18 and decrypts up to 22, whatever the load.
+- **Re-take backups that matter.** An Archive written by 1.1.1 or earlier on a
+  busy host may carry a low work factor (its passphrase is cheaper to guess);
+  docs/restore.md shows how to read it without the passphrase.
+- **New error `WorkFactorTooHighError`** (exit 3, `REFUSED`; exported from
+  `l3io.wp.backup.api`): a payload whose work factor is above the backend's
+  limit (1.1.2 writes 18, so not one it wrote) is refused before any work, with
+  `member_decryption_failed` `reason` `work_factor_too_high`. It maps
+  database 0.3.6's `WorkFactorTooHighError`; it was reported as damaged
+  (`PayloadDamagedError`, exit 8) before. Not a verification failure: nothing
+  says the payload is damaged; decrypt it with the tool that wrote it.
+- The two busy-host tests (`tests/adapters/test_age_work_factor.py`) are now
+  required, no longer expected failures.
+- **Sidecar suite: the scheduled-job waits no longer miss their record.**
+  `tests/sidecar/run.sh` waited with `docker compose logs … | grep -q` under
+  `pipefail`, which is false whenever grep exits before the logs are all
+  written; with a longer log the wait missed the first job, and the next
+  minute's prune removed the Archive it then checked
+  (`S:newest-archive-survives`, 3 of 6 local runs). The log is captured first.
+
+### Changed: database warnings log the library's own event names (1.1.2)
+
+- `l3io-wordpress-database` 0.3.6 logs a warning finding with its code as
+  `event` (`client_server_skew`), the text in `message`, and each operation's
+  end as `operation_completed`. The rename to `event` `database_warning` that
+  1.1.0 added is removed as redundant: **a log query on
+  `.event == "database_warning"` must select on the code instead**
+  (`.event == "client_server_skew"`, or `.code`, which is unchanged).
+
 ### Fixed: image builds wait for PyPI's CDN (1.1.2)
 
 - **The 1.1.1 image builds failed** with "there is no version of
