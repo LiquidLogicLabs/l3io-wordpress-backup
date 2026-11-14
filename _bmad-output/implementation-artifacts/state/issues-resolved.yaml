@@ -5953,3 +5953,14 @@ resolved:
   resolved_at: '2026-11-11T01:37:09Z'
   ref: 485681b
   note: 'Family on PyPI: l3io-wordpress-config 0.1.7, l3io-age-passphrase 0.1.2, l3io-wordpress-database 0.3.5; backup resolves them from pypi.org only (e4ee267, test_dependencies_from_pypi.py), makes them required (485681b, decision 76) and released 1.0.0 to PyPI (tag v1.0.0, publish run 42904345406); clean install from PyPI verified.'
+- key: BL-E008-032
+  epic: '008'
+  sprint: ''
+  title: "post-v1 (owner-deferred, 2026-11-07): --overwrite-wp-config copies the target's DB_* with get()/set(), which quotes PHP expressions (e.g. Docker image getenv_docker(...)) into string literals; ask l3io-wordpress-config for a copy-define-source-verbatim API and use it. v1: documented in --overwrite-wp-config help and docs/restore.md"
+  source: config agent report (l3io-wordpress-config 0.1.4, 2026-11-07)
+  severity: Medium
+  status: resolved
+  resolution: fixed
+  resolved_at: '2026-11-14T18:24:54Z'
+  ref: 1531fbf
+  note: "Owner decision 48: --overwrite-wp-config carries the target's DB_* as source text via l3io-wordpress-config set_source() (0.1.6), so getenv_docker() survives; an Archive config not defining getenv_docker() is refused (UndefinedConfigFunctionError; declares_function from config 0.1.7). Released in 1.1.0; sidecar phase C proves it on the official image."

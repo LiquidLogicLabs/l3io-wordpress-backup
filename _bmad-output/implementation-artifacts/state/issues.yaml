@@ -48,13 +48,6 @@ backlog:
   source: owner-decision (E006 closure 5)
   severity: Low
   status: backlog
-- key: BL-E008-032
-  epic: '008'
-  sprint: ''
-  title: "post-v1 (owner-deferred, 2026-11-07): --overwrite-wp-config copies the target's DB_* with get()/set(), which quotes PHP expressions (e.g. Docker image getenv_docker(...)) into string literals; ask l3io-wordpress-config for a copy-define-source-verbatim API and use it. v1: documented in --overwrite-wp-config help and docs/restore.md"
-  source: config agent report (l3io-wordpress-config 0.1.4, 2026-11-07)
-  severity: Medium
-  status: backlog
 - key: BL-E002-122
   epic: '002'
   sprint: ''
