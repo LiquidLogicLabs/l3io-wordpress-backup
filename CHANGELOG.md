@@ -7,6 +7,8 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+## 1.1.3 — 2026-11-14
+
 ### Fixed: release-gate and wording fixes
 
 - **`make ci-dryrun` now fails when any dry-run leg fails.** It counted failed legs but always exited 0, so `make ci` and `make preflight` would have passed a dry run in which every leg failed. A contract test runs the real recipe with a stub `act` and catches the old recipe (planted).
