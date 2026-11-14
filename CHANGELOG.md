@@ -7,6 +7,8 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+## 1.1.2 — 2026-11-14
+
 ### Fixed: a busy host no longer refuses good Archives or weakens new ones (1.1.2)
 
 - **Dependency floors raised**: `l3io-age-passphrase>=0.1.3,<0.2` and
