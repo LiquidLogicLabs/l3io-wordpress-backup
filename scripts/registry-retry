@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# registry-retry [--] COMMAND [ARG...]
+#
+# Run COMMAND; if it fails and its output shows a transient registry error,
+# run it again, with backoff, a bounded number of times. Any other failure
+# fails at once with COMMAND's exit status: it is not the registry, and
+# retrying would only hide it. docker.yml's `build` job runs every
+# `docker buildx build`, `docker buildx imagetools inspect` and Trivy run
+# through this; tests/contracts/test_docker_image.py asserts that, and
+# tests/unit/docker/test_registry_retry_script.py what is retried.
+#
+# WHY. docker.yml run 43573435626 (1.1.2, attempt 1): the mariadb build failed
+# loading the base image's arm64 config from GHCR, "429 Too Many Requests",
+# though logged in; the rerun passed. A registry's rate limit or a 5xx clears
+# on its own, so the run must not fail for it.
+#
+# Transient, matched case-insensitively anywhere in COMMAND's output (stdout
+# and stderr, which are merged): HTTP 429 ("429 Too Many Requests", the OCI
+# error code TOOMANYREQUESTS), HTTP 500/502/503/504 by their status text, and
+# "connection reset by peer". COMMAND is retried only when it failed: the
+# output of a run that succeeded is never matched. Being idempotent is
+# COMMAND's business: a build is (its cache), a push by digest is (content
+# addressed), a scan is. COMMAND must not read stdin: a retry would find it
+# already consumed (`docker buildx build -f -` would build nothing).
+#
+# Environment (whole numbers):
+#   REGISTRY_RETRY_ATTEMPTS   tries in all, the first included (4)
+#   REGISTRY_RETRY_DELAY      seconds before the first retry (30); doubled
+#                             each retry
+#   REGISTRY_RETRY_MAX_DELAY  the longest wait between tries (120)
+set -euo pipefail
+
+TRANSIENT='429 Too Many Requests|toomanyrequests|500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Time-?out|connection reset by peer'
+
+die() { echo "registry-retry: $*" >&2; exit 2; }
+whole() { case "$2" in '' | *[!0-9]*) die "$1 must be a whole number, not '$2'" ;; esac; }
+
+attempts=${REGISTRY_RETRY_ATTEMPTS:-4}
+delay=${REGISTRY_RETRY_DELAY:-30}
+max_delay=${REGISTRY_RETRY_MAX_DELAY:-120}
+whole REGISTRY_RETRY_ATTEMPTS "$attempts"
+whole REGISTRY_RETRY_DELAY "$delay"
+whole REGISTRY_RETRY_MAX_DELAY "$max_delay"
+[ "$attempts" -ge 1 ] || die "REGISTRY_RETRY_ATTEMPTS must be at least 1"
+
+[ "${1:-}" != -- ] || shift
+[ "$#" -ge 1 ] || die "usage: registry-retry [--] COMMAND [ARG...]"
+
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+attempt=0
+while :; do
+    attempt=$((attempt + 1))
+    set +e
+    "$@" 2>&1 | tee "$log"
+    rc=${PIPESTATUS[0]}
+    set -e
+    [ "$rc" -ne 0 ] || exit 0
+    if ! grep -Eqi "$TRANSIENT" "$log"; then
+        echo "registry-retry: attempt $attempt of $attempts failed (exit $rc), and not with a transient registry error: not retried" >&2
+        exit "$rc"
+    fi
+    if [ "$attempt" -ge "$attempts" ]; then
+        echo "registry-retry: attempt $attempt of $attempts failed (exit $rc) with a transient registry error; giving up" >&2
+        exit "$rc"
+    fi
+    echo "registry-retry: attempt $attempt of $attempts failed (exit $rc) with a transient registry error: $(grep -Eoi "$TRANSIENT" "$log" | head -n 1); retrying in ${delay}s" >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+    [ "$delay" -le "$max_delay" ] || delay=$max_delay
+done

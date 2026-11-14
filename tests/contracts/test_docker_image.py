@@ -446,8 +446,10 @@ def _plant_ungated_build(doc: dict) -> None:
 
 def _plant_local_wheels(doc: dict) -> None:
     for _, step in _steps(doc):
-        if "docker/build-push-action" in str(step.get("uses")):
-            step["with"]["build-contexts"] = "wheels=dist"
+        if "push=true" in str(step.get("run")):
+            step["run"] = step["run"].replace(
+                "--sbom=true", "--sbom=true --build-context wheels=dist"
+            )
 
 
 def _plant_tag_before_smoke(doc: dict) -> None:
@@ -484,6 +486,108 @@ def test_least_privilege() -> None:
             assert name in {"build", "publish"}, name
         if "id-token" in perms or "attestations" in perms:
             assert name == "publish", name
+
+
+# ---- registry operations retry transient errors (run 43573435626) -----------
+#
+# The 1.1.2 mariadb build failed on a 429 from GHCR while loading its base
+# image's metadata; a rerun passed. Every command in a workflow `run:` that
+# pulls or pushes through BuildKit or Trivy -- `docker build`, `docker buildx
+# build`, `imagetools inspect`, a `docker run` of $TRIVY_IMAGE -- must run
+# through scripts/registry-retry (what it retries:
+# tests/unit/docker/test_registry_retry_script.py), and no workflow may build
+# with docker/build-push-action, which no wrapper can retry. The scope is every
+# workflow file and every step's `run:`, continuation lines joined; a command is
+# covered when the wrapper precedes it on its logical line. Not covered:
+# registry traffic inside scripts a step calls (tests/sidecar/run.sh), and
+# `imagetools create` / `docker manifest inspect` in docker.yml's publish job.
+
+WORKFLOWS_DIR = ROOT / ".github" / "workflows"
+RETRY = "scripts/registry-retry"
+REGISTRY_COMMAND = re.compile(
+    r"\bdocker\s+(?:buildx\s+)?build\b|\bimagetools\s+inspect\b|\$\{?TRIVY_IMAGE\b"
+)
+
+
+def _logical_lines(run: str) -> list[str]:
+    return re.sub(r"\\\n", " ", run).splitlines()
+
+
+def retry_findings(workflows: dict[str, dict]) -> list[str]:
+    findings = []
+    for wf, doc in workflows.items():
+        for job_name, job in (doc.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                where = f"{wf} {job_name}/{step.get('name') or step.get('id')}"
+                if str(step.get("uses", "")).startswith("docker/build-push-action"):
+                    findings.append(f"{where}: docker/build-push-action cannot retry")
+                for line in _logical_lines(str(step.get("run", ""))):
+                    for m in REGISTRY_COMMAND.finditer(line):
+                        if RETRY not in line[: m.start()]:
+                            findings.append(
+                                f"{where}: `{m[0]}` does not run through {RETRY}"
+                            )
+    return findings
+
+
+def _workflows() -> dict[str, dict]:
+    return {p.name: _load(p) for p in sorted(WORKFLOWS_DIR.glob("*.yml"))}
+
+
+def test_every_registry_command_runs_through_the_retry() -> None:
+    workflows = _workflows()
+    # The scope holds what the rule is for: docker.yml's build job's builds,
+    # push, read-back and scans.
+    build = "\n".join(
+        str(s.get("run", "")) for s in workflows["docker.yml"]["jobs"]["build"]["steps"]
+    )
+    assert len(REGISTRY_COMMAND.findall(build)) >= 4
+    assert retry_findings(workflows) == []
+    script = ROOT / RETRY
+    assert script.is_file()
+    assert script.stat().st_mode & 0o111, f"{RETRY} is not executable"
+
+
+def _plant_unwrapped_push(wfs: dict[str, dict]) -> None:
+    for step in wfs["docker.yml"]["jobs"]["build"]["steps"]:
+        if step.get("id") == "push":
+            step["run"] = step["run"].replace(
+                f"{RETRY} docker buildx build", "docker buildx build"
+            )
+
+
+def _plant_unwrapped_trivy(wfs: dict[str, dict]) -> None:
+    for step in wfs["docker.yml"]["jobs"]["build"]["steps"]:
+        step["run"] = str(step.get("run", "")).replace(
+            f"{RETRY} docker run", "docker run"
+        )
+
+
+def _plant_build_in_another_workflow(wfs: dict[str, dict]) -> None:
+    wfs["ci.yml"]["jobs"]["later"] = {
+        "steps": [{"name": "b", "run": "set -eu\ndocker build \\\n  -t x .\n"}]
+    }
+
+
+def _plant_build_push_action(wfs: dict[str, dict]) -> None:
+    wfs["docker.yml"]["jobs"]["build"]["steps"].append(
+        {"uses": "docker/build-push-action@" + "a" * 40, "with": {"push": True}}
+    )
+
+
+RETRY_PLANTS = {
+    "the push build without the retry": _plant_unwrapped_push,
+    "Trivy without the retry": _plant_unwrapped_trivy,
+    "a build in another workflow": _plant_build_in_another_workflow,
+    "docker/build-push-action again": _plant_build_push_action,
+}
+
+
+@pytest.mark.parametrize("plant", RETRY_PLANTS.values(), ids=RETRY_PLANTS.keys())
+def test_a_planted_retry_violation_is_reported(plant) -> None:  # noqa: ANN001
+    workflows = copy.deepcopy(_workflows())
+    plant(workflows)
+    assert retry_findings(workflows)
 
 
 # ---- registries: each enabled one has its login, its credential check, a leg ----
@@ -747,10 +851,14 @@ def variant_findings(doc: dict, ci: dict, dockerfile: str, makefile: str) -> lis
     ):
         findings.append("build's scan does not build and gate each variant's client")
     push = [s for s in steps if s.get("id") == "push"]
-    with_ = (push[0].get("with") or {}) if push else {}
-    if "DB_CLIENT=${{ matrix.db_client }}" not in str(with_.get("build-args", "")):
+    push_run = str(push[0].get("run", "")) if push else ""
+    push_env = (push[0].get("env") or {}) if push else {}
+    if (
+        str(push_env.get("DB_CLIENT")) != "${{ matrix.db_client }}"
+        or '--build-arg "DB_CLIENT=$DB_CLIENT"' not in push_run
+    ):
         findings.append("build's push does not pass the variant's DB_CLIENT")
-    if with_.get("sbom") is not True or "mode=max" not in str(with_.get("provenance")):
+    if "--sbom=true" not in push_run or '--provenance="mode=max' not in push_run:
         findings.append("build's push has no SBOM or no max provenance")
     # smoke: each variant on at least one engine, a client on its own family.
     smoke = jobs["smoke"]
@@ -892,6 +1000,12 @@ def _plant_variant_without_output(doc: dict, _ci: dict, _text: list[str]) -> Non
     doc["jobs"]["build"]["outputs"].pop("digest_mariadb")
 
 
+def _plant_push_without_sbom(doc: dict, _ci: dict, _text: list[str]) -> None:
+    for step in doc["jobs"]["build"]["steps"]:
+        if step.get("id") == "push":
+            step["run"] = step["run"].replace("--sbom=true", "--sbom=false")
+
+
 def _plant_scan_without_client(doc: dict, _ci: dict, _text: list[str]) -> None:
     for step in doc["jobs"]["build"]["steps"]:
         if "trivy" in str(step.get("run", "")):
@@ -933,6 +1047,7 @@ VARIANT_PLANTS = {
     "a Dockerfile client no variant builds": _plant_new_client,
     "a variant without its digest output": _plant_variant_without_output,
     "a scan that ignores the client": _plant_scan_without_client,
+    "a push without its SBOM": _plant_push_without_sbom,
     "the mariadb variant never smoked": _drop("smoke", "mariadb"),
     "the mariadb variant never published": _drop("publish", "mariadb"),
     "a client smoked only on the other family": _plant_mariadb_only_on_mysql,

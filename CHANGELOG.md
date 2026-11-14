@@ -7,6 +7,26 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### CI: image builds tolerate registry rate limits
+
+- **The 1.1.2 MariaDB image build failed** loading its base image from GHCR
+  with "429 Too Many Requests", though logged in (docker.yml run 43573435626,
+  attempt 1); a rerun passed.
+- **Registry errors are retried, bounded.** Every build, the push, its
+  read-back and each Trivy scan in docker.yml's `build` job run through
+  `scripts/registry-retry`: a 429, a 500/502/503/504 or a connection reset is
+  retried with backoff (30 s doubling to 120 s, at most 4 tries, each retry
+  logged); any other failure fails at once. The push is a `docker buildx
+  build` run step now (docker/build-push-action cannot be retried), with the
+  same SBOM, max provenance and builder ID, pushed by digest.
+- **What is pushed is what was scanned, checked.** The push reuses the scan
+  builds' cache on the same builder, so nothing is pulled or built again;
+  after the push, each platform's layers are read back from the registry and
+  must equal the scanned image's, or the job fails and the digest goes
+  nowhere. No build cache is kept between runs: a rebuild still takes a new
+  base and new package fixes.
+- Nothing changes in the image or in `wpbackup2`.
+
 ## 1.1.2 — 2026-11-14
 
 ### Fixed: a busy host no longer refuses good Archives or weakens new ones (1.1.2)

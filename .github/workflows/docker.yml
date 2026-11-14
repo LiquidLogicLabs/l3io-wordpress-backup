@@ -64,6 +64,20 @@
 # HIGH fails the run (`--ignore-unfixed`); unfixed ones are listed, not fatal,
 # since no rebuild can remove them.
 #
+# SCANNED IS PUSHED. The push build runs on the same BuildKit builder as the
+# scan builds, so every step is a cache hit and nothing is pulled or built
+# again. That is checked, not assumed: after the push, each platform's pushed
+# layers (rootfs diff_ids, read back from the registry) must equal the scanned
+# image's, or the job fails and the digest goes nowhere. No cache outlives
+# the job (no type=gha/registry cache): a rebuild must take a new base and new
+# package fixes, and a cache from an earlier run would serve the old ones.
+#
+# REGISTRY ERRORS. Every build, the push, the read-back and Trivy run through
+# scripts/registry-retry: a 429 (run 43573435626: GHCR, though logged in), a
+# 5xx or a connection reset is retried, bounded, with backoff; any other
+# failure fails at once (tests/unit/docker/test_registry_retry_script.py;
+# that the steps use it, tests/contracts/test_docker_image.py).
+#
 # act: every job as a dry run (make ci-dryrun), and the `resolve` job for real
 # (make image-resolve: PyPI, the registries, the credential refusals). build,
 # smoke and publish push to registries and sign with OIDC, so they never run
@@ -319,11 +333,11 @@ jobs:
           set -euo pipefail
           for platform in ${DOCKER_PLATFORMS//,/ }; do
             tag="l3io-wordpress-backup:scan-$VARIANT-${platform#linux/}"
-            docker buildx build --load --platform "$platform" \
+            scripts/registry-retry docker buildx build --load --platform "$platform" \
               --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
               --build-arg "DB_CLIENT=$DB_CLIENT" \
               -f "$DOCKER_FILE" -t "$tag" docker
-            trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            trivy() { scripts/registry-retry docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
                         -v trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE" image --quiet "$@" "$tag"; }
             echo "== $VARIANT $platform: every CRITICAL/HIGH, fixed or not (reported)"
             trivy --severity CRITICAL,HIGH --exit-code 0
@@ -334,18 +348,44 @@ jobs:
       - name: push every platform, by digest only, with SBOM and provenance
         id: push
         if: env.IMAGE_BUILD_MODE == 'push'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: docker
-          file: ${{ env.DOCKER_FILE }}
-          platforms: ${{ env.DOCKER_PLATFORMS }}
-          build-args: |
-            VERSION=${{ needs.resolve.outputs.version }}
-            REVISION=${{ needs.resolve.outputs.revision }}
-            DB_CLIENT=${{ matrix.db_client }}
-          sbom: true
-          provenance: mode=max
-          outputs: type=image,"name=${{ needs.resolve.outputs.names }}",push-by-digest=true,name-canonical=true,push=true
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          REVISION: ${{ needs.resolve.outputs.revision }}
+          VARIANT: ${{ matrix.variant }}
+          DB_CLIENT: ${{ matrix.db_client }}
+          NAMES: ${{ needs.resolve.outputs.names }}
+          PRIMARY: ${{ needs.resolve.outputs.primary }}
+        run: |
+          set -euo pipefail
+          meta="$RUNNER_TEMP/push-$VARIANT.json" image="$RUNNER_TEMP/pushed-$VARIANT.json"
+          # The scan builds' cache, on this job's builder: nothing is rebuilt.
+          # builder-id as docker/build-push-action set it (this run, this attempt).
+          scripts/registry-retry docker buildx build --platform "$DOCKER_PLATFORMS" \
+            --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
+            --build-arg "DB_CLIENT=$DB_CLIENT" \
+            --sbom=true \
+            --provenance="mode=max,builder-id=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
+            --output "type=image,\"name=$NAMES\",push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file "$meta" \
+            -f "$DOCKER_FILE" docker
+          digest=$(jq -r '."containerimage.digest" // empty' "$meta")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::the push recorded no digest ('$digest')"; exit 1; }
+          # Scanned is pushed: each platform's layers, read back from the
+          # registry, are the scanned image's.
+          scripts/registry-retry sh -c 'docker buildx imagetools inspect "$1" --format "{{json .Image}}" > "$2"' \
+            sh "$PRIMARY@$digest" "$image"
+          for platform in ${DOCKER_PLATFORMS//,/ }; do
+            tag="l3io-wordpress-backup:scan-$VARIANT-${platform#linux/}"
+            scanned=$(docker image inspect --format '{{json .RootFS.Layers}}' "$tag" | jq -c .)
+            pushed=$(jq -c --arg p "$platform" 'if has("rootfs") then . else .[$p] end | .rootfs.diff_ids' "$image")
+            if [ "$pushed" = null ] || [ "$pushed" != "$scanned" ]; then
+              echo "::error::$PRIMARY@$digest $platform is not the image scanned as $tag (layers $pushed, scanned $scanned)"
+              exit 1
+            fi
+            echo "$platform: the pushed layers are the scanned layers ($(jq length <<<"$pushed"))"
+          done
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          echo "pushed $digest to $NAMES"
 
   smoke:
     # The sidecar suite against each variant's digest just pushed, pulled from

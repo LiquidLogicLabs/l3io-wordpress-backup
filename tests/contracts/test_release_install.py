@@ -78,9 +78,13 @@ def install_script(dockerfile: str) -> tuple[str, str] | None:
 
 
 def build_context(doc: dict) -> str | None:
+    """The context the build job's push builds: the last word of its
+    ``docker buildx build ... -f "$DOCKER_FILE" <context>``."""
     for step in doc["jobs"]["build"]["steps"]:
-        if "docker/build-push-action" in str(step.get("uses")):
-            return str(step["with"]["context"])
+        run = str(step.get("run", ""))
+        if "push=true" in run:
+            m = re.search(r'-f "\$DOCKER_FILE" (\S+)\s*$', run, flags=re.M)
+            return m[1] if m else None
     return None
 
 

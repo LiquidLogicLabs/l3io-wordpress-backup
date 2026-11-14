@@ -969,7 +969,7 @@ _NAME_INPUTS = {
     "docker/metadata-action": ("images",),
     "actions/attest": ("subject-name",),
 }
-_PUSHING_RUN = ("imagetools create", "docker push", "docker tag")
+_PUSHING_RUN = ("imagetools create", "docker push", "docker tag", "push=true")
 _OUTPUT_REF = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
 _INDEXED_REF = re.compile(r"needs\.([\w-]+)\.outputs\[format\('([\w-]*)\{0\}'")
 
@@ -1010,14 +1010,37 @@ def _name_feeding_outputs(doc: dict) -> set[tuple[str, str]]:
     return refs
 
 
+_DIGEST_ASSIGN = re.compile(r"^\s*digest=", re.M)
+_DIGEST_GUARD = '[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] ||'
+_DIGEST_WRITE = """printf 'digest=%s\\n' "$digest" >> "$GITHUB_OUTPUT\""""
+
+
+def _writes_only_a_checked_digest(step: dict) -> bool:
+    """A `run:` step (docker.yml's push, which retries) whose one output is
+    ``digest``, assigned once, then refused unless it is ``sha256:`` and 64 hex
+    digits, then written. Textual: the exact guard and write lines, in that
+    order, and no other write to GITHUB_OUTPUT."""
+    run = str(step.get("run", ""))
+    writes = [line.strip() for line in run.splitlines() if "GITHUB_OUTPUT" in line]
+    assigns = [m.start() for m in _DIGEST_ASSIGN.finditer(run)]
+    guard = run.find(_DIGEST_GUARD)
+    return (
+        writes == [_DIGEST_WRITE]
+        and len(assigns) == 1
+        and assigns[0] < guard < run.find(_DIGEST_WRITE)
+    )
+
+
 def _content_addressed(job: dict, key: str) -> bool:
-    """An output taken only from docker/build-push-action (the digest): a hash
-    the registry computed cannot hold a secret's value. Anything a `run:` step
-    writes can, so it stays in scope."""
+    """An output that is only a digest: from docker/build-push-action, or from
+    a `run:` step that writes nothing but a checked digest. A hash the registry
+    computed cannot hold a secret's value. Anything else a `run:` step writes
+    can, so it stays in scope."""
     ids = re.findall(r"steps\.([\w-]+)\.outputs", str((job.get("outputs") or {})[key]))
     by_id = {s.get("id"): s for s in job.get("steps") or []}
     return bool(ids) and all(
         str(by_id.get(i, {}).get("uses", "")).startswith("docker/build-push-action")
+        or _writes_only_a_checked_digest(by_id.get(i, {}))
         for i in ids
     )
 
@@ -1103,6 +1126,29 @@ def _digest_from_a_run_step(doc: dict) -> None:
         build["outputs"][key] = "${{ steps.mine.outputs.digest }}"
 
 
+def _push_step(doc: dict) -> dict:
+    (push,) = (s for s in doc["jobs"]["build"]["steps"] if s.get("id") == "push")
+    return push
+
+
+def _push_digest_unchecked(doc: dict) -> None:
+    push = _push_step(doc)
+    assert _DIGEST_GUARD in push["run"], "the push has no digest check to attack"
+    push["run"] = push["run"].replace(_DIGEST_GUARD, "true ||")
+
+
+def _push_writes_more(doc: dict) -> None:
+    push = _push_step(doc)
+    push["run"] += 'echo "names=$NAMES" >> "$GITHUB_OUTPUT"\n'
+
+
+def _push_digest_reassigned(doc: dict) -> None:
+    push = _push_step(doc)
+    push["run"] = push["run"].replace(
+        _DIGEST_WRITE, f'digest="$NAMES"\n{_DIGEST_WRITE}'
+    )
+
+
 @pytest.mark.parametrize(
     "plant",
     [
@@ -1110,12 +1156,18 @@ def _digest_from_a_run_step(doc: dict) -> None:
         lambda d: _another_job_names_the_image(d, _metadata_sink),
         lambda d: _another_job_names_the_image(d, _tagging_run_sink),
         _digest_from_a_run_step,
+        _push_digest_unchecked,
+        _push_writes_more,
+        _push_digest_reassigned,
     ],
     ids=[
         "secret-back-in-resolve",
         "another-job-via-metadata",
         "another-job-via-run",
         "digest-written-by-a-run-step",
+        "push-digest-unchecked",
+        "push-writes-another-output",
+        "push-digest-reassigned-after-the-check",
     ],
 )
 def test_the_secret_in_a_name_job_rule_rejects_a_planted_violation(
