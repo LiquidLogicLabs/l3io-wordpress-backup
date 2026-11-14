@@ -174,3 +174,7 @@ Each is implemented after all are collected, then the item is resolved with the 
     - **Scope:** it sets the inner payload stream's level for backups and Safety Snapshots alike. It was Python's implicit 9, which nobody had chosen.
     - **Format:** the outer layer stays at level 0 (decision 21) and the Archive format is unchanged.
     - **Release:** 1.1.1.
+89. **Fleet rollout (owner, 2026-11-13):**
+    - **Approved:** Step 0 safety backups of all 10 sites, then the 7 staged sites one at a time.
+    - **adamlehrhaupt: (a) backup sidecar only.** It keeps its current `ravensorb/wordpress-tools` container, with `CRON_ENABLED=false` so the broken nightly job stops. Reason: PHP 7.4 (EOL) and a plugin that crashes WP-CLI.
+    - **getenv_docker sites** (liquidlogiclabs, enterprisearchai, adamlehrhauptbeta): the backup and tools containers get the web container's `WORDPRESS_DB_*` values.
