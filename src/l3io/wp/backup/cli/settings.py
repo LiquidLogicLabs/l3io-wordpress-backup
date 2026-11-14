@@ -44,7 +44,7 @@ import os
 import stat
 import sys
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -79,6 +79,7 @@ __all__ = [
     "SECRET_SETTINGS",
     "SETTING_NAMES",
     "SYSTEM_CONFIG_FILE",
+    "ExplainedType",
     "LayeredArguments",
     "Origin",
     "Settings",
@@ -107,6 +108,26 @@ _EXPOSED: Final = stat.S_IRGRP | stat.S_IROTH
 Origin = Literal["command line", "environment", "config file", "default"]
 #: The namespace attribute :func:`parse_layered` leaves the origins on.
 ORIGINS_ATTR: Final = "setting_origins"
+
+
+@dataclass(frozen=True, slots=True)
+class ExplainedType:
+    """A parser ``type`` whose refusal has a reason in this package's own words.
+
+    Called as ``convert``. A flag's refusal is ``convert``'s own
+    ``ArgumentTypeError`` (argparse prints it); a variable's or a key's names
+    where the value came from, then ``reason(value)`` (:func:`_converted`), a
+    pure function of the value, never an exception's text. Any other
+    ``type``'s refusal (``int``'s, ``Path``'s, a dependency's) is reported
+    without its text. ``reason`` must not echo a secret: no secret setting
+    has a ``type``.
+    """
+
+    convert: Callable[[str], object]
+    reason: Callable[[str], str | None]
+
+    def __call__(self, text: str) -> object:
+        return self.convert(text)
 
 
 def user_config_file() -> Path:
@@ -435,7 +456,9 @@ def _converted(action: argparse.Action, name: str, value: object, where: str) ->
     """A variable's or a key's value through the parser's own ``type``/``choices``.
 
     ``where`` names the variable or the config file key, never the value of a
-    secret (no secret setting has a ``type`` or ``choices``).
+    secret (no secret setting has a ``type`` or ``choices``). An
+    :class:`ExplainedType` adds its ``reason``; any other refusal is reported
+    without its text, which may be a dependency's.
     """
     if isinstance(value, SecretStr):
         return Secret(value.get_secret_value())
@@ -444,6 +467,9 @@ def _converted(action: argparse.Action, name: str, value: object, where: str) ->
             value = action.type(value)
         except (argparse.ArgumentTypeError, TypeError, ValueError):
             msg = f"{where}: {value!r} is not a valid {flag_name(name)} value"
+            if isinstance(action.type, ExplainedType):
+                reason = action.type.reason(str(value))
+                msg += "" if reason is None else f": {reason}"
             raise UsageError(msg, arguments=(name,)) from None
     if action.choices is not None and value not in action.choices:
         choices = ", ".join(map(str, action.choices))

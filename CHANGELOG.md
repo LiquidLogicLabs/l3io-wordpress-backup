@@ -7,6 +7,38 @@ owner asked for, which a commit subject cannot hold.
 
 ## Unreleased
 
+### Fixed: release-gate and wording fixes
+
+- **`make ci-dryrun` now fails when any dry-run leg fails.** It counted failed legs but always exited 0, so `make ci` and `make preflight` would have passed a dry run in which every leg failed. A contract test runs the real recipe with a stub `act` and catches the old recipe (planted).
+- **`ArchiveDirectoryNotWritableError` names the Run.** A prune started as root whose Archive directory the site owner cannot write said "a backup"; the error now carries `operation` (`backup` or `prune`) and names it, and a prune's message no longer suggests `--archive`, which prune does not take.
+
+### Archive subfolders: a flat override, the Dry Run's folders, the reason
+
+- **`--archive-subdir none` writes flat for one Run** when the environment
+  (`L3IO_WP_BACKUP_ARCHIVE_SUBDIR`) or a config file (`archive_subdir`) sets a
+  template. `none` means flat from every spelling, so the variable can also
+  override a config file. `None`, `NONE` or any other capitalisation is
+  refused (exit 2) as ambiguous rather than made a folder; a folder named
+  `none` inside a longer template is still a folder.
+- **`prune --whatIf` lists the folders a real prune would remove**: a
+  `would remove empty folder <path>` line each, `archive_dir_removed` with
+  `performed: false`, and `removed_directories` in `prune_completed` and in
+  the library's `PruneResult` (empty in a Dry Run before). A real prune's
+  `archive_dir_removed` now carries `performed: true`.
+- **A bad template from the variable or a config key says why**, as the flag
+  always did: `L3IO_WP_BACKUP_ARCHIVE_SUBDIR: '../{site}' is not a valid
+  --archive-subdir value: has a '..' segment (...)` instead of only "is not a
+  valid --archive-subdir value". Only this package's own reasons are shown;
+  another refusal's text is still withheld.
+
+### `prune` as root is refused in its own words
+
+- Started as root on a root-owned Site Root, and the library (`api.prune`)
+  run as root, a prune said "refused to back up as root". It now says
+  "refused to prune as root in '<site root>': ..." and raises
+  `RootPruneRefusedError`, a subclass of `RootBackupRefusedError`, so code
+  catching the backup's refusal still catches it. Exit 2 as before.
+
 ### CI: image builds tolerate registry rate limits
 
 - **The 1.1.2 MariaDB image build failed** loading its base image from GHCR
@@ -25,6 +57,17 @@ owner asked for, which a commit subject cannot hold.
   must equal the scanned image's, or the job fails and the digest goes
   nowhere. No build cache is kept between runs: a rebuild still takes a new
   base and new package fixes.
+- **The rest of the image workflow's registry traffic is retried too**: the
+  `publish` job's tagging (`imagetools create`) and anonymous-pull check
+  (`docker manifest inspect`; the job checks out `scripts/` for it), and the
+  `smoke` job's pulls: `tests/sidecar/run.sh` pulls the image under test and
+  every compose image through the retry, then starts the stack with
+  `--pull never`.
+- **A Trivy finding is never retried.** The fatal scan exits 4 for a finding
+  (`--exit-code 4`) and `scripts/registry-retry --no-retry-exit 4` never
+  retries that status, so a vulnerability whose text quotes "429 Too Many
+  Requests" fails at once; Trivy's own failures (exit 1, a 429 fetching its
+  database) are still retried.
 - Nothing changes in the image or in `wpbackup2`.
 
 ## 1.1.2 — 2026-11-14

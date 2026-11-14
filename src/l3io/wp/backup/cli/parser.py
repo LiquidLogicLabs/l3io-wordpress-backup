@@ -55,9 +55,12 @@ from l3io.wp.backup.adapters.credential_providers import (
 )
 from l3io.wp.backup.adapters.database import DB_TLS_MODES
 from l3io.wp.backup.cli.passphrase import PASSPHRASE_ENV
+from l3io.wp.backup.cli.settings import ExplainedType
 from l3io.wp.backup.domain.archive_subdir import (
     ARCHIVE_TREE_DEPTH,
+    FLAT_ARCHIVE_SUBDIR,
     archive_subdir_problem,
+    archive_subdir_reason,
 )
 from l3io.wp.backup.domain.compression import (
     DEFAULT_COMPRESSION_LEVEL,
@@ -159,8 +162,11 @@ def _site_name(text: str) -> str:
     return safe
 
 
-def _archive_subdir(text: str) -> str:
-    """``--archive-subdir``, checked as a template (owner decision 86)."""
+def _archive_subdir(text: str) -> str | None:
+    """``--archive-subdir``, checked as a template (owner decision 86);
+    ``none`` is ``None``, flat, over a template set by a lower layer."""
+    if text == FLAT_ARCHIVE_SUBDIR:
+        return None
     problem = archive_subdir_problem(text)
     if problem is not None:
         raise argparse.ArgumentTypeError(problem)
@@ -527,11 +533,13 @@ def _add_backup(backup: argparse.ArgumentParser) -> None:
     backup.add_argument(
         "--archive-subdir",
         metavar="TEMPLATE",
-        type=_archive_subdir,
+        type=ExplainedType(_archive_subdir, archive_subdir_reason),
         default=None,
         help=(
             "Write the default-named archive into this subfolder of "
-            "--archive-dir, made 0700 when missing (default: none, flat). A "
+            "--archive-dir, made 0700 when missing (default: none, flat; "
+            f"'{FLAT_ARCHIVE_SUBDIR}' turns off a template set in the "
+            "environment or a config file). A "
             "relative path using {site} (the archive name's <site>), {yyyy}, "
             "{mm} and {dd} (the UTC date of the archive name's timestamp), "
             f"e.g. '{{site}}/{{yyyy}}/{{mm}}'; at most {ARCHIVE_TREE_DEPTH} levels. "

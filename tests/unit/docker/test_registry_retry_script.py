@@ -3,7 +3,8 @@ it failed with a transient registry error, and only then.
 
 The script runs as written under ``bash``, around a stub command that answers
 from a plan, one line per call: ``ok``, ``ok-noisy`` (succeeds, printing a 429
-line), ``other`` (fails, exit 3, no registry error), or a transient error
+line), ``other`` (fails, exit 3, no registry error), ``finding`` (a Trivy verdict:
+exit 4, a vulnerability whose text quotes a 429 and a 502), or a transient error
 written as BuildKit, containerd or Docker Hub write it (exit 1). A stub
 ``sleep`` first on ``PATH`` records each wait instead of waiting. Every call's
 arguments are recorded. That docker.yml's build steps run through the script
@@ -53,6 +54,8 @@ case "$answer" in
   ok) echo "built"; exit 0 ;;
   ok-noisy) echo "retrying after 429 Too Many Requests"; echo "built"; exit 0 ;;
   other) echo "ERROR: process \"/bin/sh -c exit 2\" did not complete" >&2; exit 3 ;;
+  finding) echo "CVE-2026-0001 HIGH fixed: a proxy returns 429 Too Many Requests"
+           echo "CVE-2026-0002 HIGH fixed: upstream answers 502 Bad Gateway"; exit 4 ;;
 esac
 line=$(sed -n "s/^$answer	//p" "$STUB_DIR/transient")
 [ -n "$line" ] || { echo "stub: unknown plan answer '$answer'" >&2; exit 99; }
@@ -200,4 +203,62 @@ def test_no_command_is_a_usage_error(tmp_path: Path) -> None:
     result, calls, _ = _run(tmp_path, ["ok"], "--")
     assert result.returncode == 2
     assert "usage" in result.stderr
+    assert calls == []
+
+
+def test_a_verdict_status_is_not_retried_whatever_its_text(tmp_path: Path) -> None:
+    """A Trivy finding whose description quotes a registry error is a finding."""
+    result, calls, sleeps = _run(
+        tmp_path, ["finding", "ok"], "--no-retry-exit", "4", "--", "flaky", "scan"
+    )
+    assert result.returncode == 4
+    assert calls == ["scan"]
+    assert sleeps == []
+    assert "the command's own verdict (--no-retry-exit 4): not retried" in (
+        result.stderr
+    )
+
+
+def test_without_the_verdict_status_such_text_would_be_retried(
+    tmp_path: Path,
+) -> None:
+    """Why the option exists: the output alone cannot tell the two apart."""
+    result, calls, _ = _run(tmp_path, ["finding", "ok"], "--", "flaky", "scan")
+    assert result.returncode == 0, result.stderr
+    assert len(calls) == 2
+
+
+def test_a_transient_error_under_another_status_is_still_retried(
+    tmp_path: Path,
+) -> None:
+    """Trivy's own failure (exit 1, a 429 fetching its database) is retried."""
+    result, calls, _ = _run(
+        tmp_path,
+        ["ghcr-429", "ok"],
+        "--no-retry-exit",
+        "4",
+        "--no-retry-exit",
+        "5",
+        "flaky",
+        "scan",
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls == ["scan"] * 2
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--no-retry-exit",),
+        ("--no-retry-exit", "four", "flaky"),
+        ("--no-retry-exit", "0", "flaky"),
+        ("--no-retry-exit", "256", "flaky"),
+    ],
+)
+def test_a_bad_verdict_status_is_refused_before_the_command_runs(
+    tmp_path: Path, args: tuple[str, ...]
+) -> None:
+    result, calls, _ = _run(tmp_path, ["ok"], *args)
+    assert result.returncode == 2
+    assert "--no-retry-exit" in result.stderr
     assert calls == []

@@ -146,13 +146,15 @@ Each backup then writes `/backups/shop/2026/wpbak-shop-20261112T030000Z.tar.gz`.
 The template is a relative path using `{site}` (the Archive name's `<site>`:
 `L3IO_WP_BACKUP_SITE_NAME`, else the database name), `{yyyy}`, `{mm}` and
 `{dd}` (the UTC date of the name's timestamp), at most 6 levels; a bad one
-stops each Run with exit 2 before anything is read. The folders are made
+stops each Run with exit 2, and its reason, before anything is read. One
+one-shot Run can still write flat: `wpbackup2 backup --archive-subdir none`
+(`none` is the setting's word for no subfolder). The folders are made
 `0700`, owned by the user the backup runs as, like the Archives. It is `wpbackup2`'s own setting, not a `WPBACKUP_*` one:
 the scheduled job and a one-shot `backup` both read it. `restore --archive
 latest` and the scheduled prune search every subfolder (never through a
 symlinked folder), matching by Manifest, so flat Archives from before the
 change are still found and pruned, and the prune removes the folders it
-empties. `tests/sidecar/run.sh` runs the schedule with
+empties (`prune --whatIf` lists them: `would remove empty folder ...`). `tests/sidecar/run.sh` runs the schedule with
 `{site}/{yyyy}/{mm}`.
 
 ### How retention works
@@ -304,7 +306,8 @@ The restored files are the Site Root owner's because the Run is that user
 directory must be that user's too (the same rule as every Run,
 [Ownership](#ownership)): a Site Root owned by 1000 needs a state volume owned
 by 1000. A Site Root owned by root has no owner to switch to and is refused
-(exit 2); `chown -R 33:33` it first.
+(exit 2: "refused to restore as root", "back up" or "prune", each in its own
+words); `chown -R 33:33` it first.
 
 Run instead as a uid that is not the Site Root's owner (the default 33
 against a Site Root owned by 1000, say), the restore is refused before it

@@ -36,7 +36,10 @@ the path from a removed Archive up to the Archive directory that is now empty
 is removed, deepest first, logging INFO ``archive_dir_removed``
 (``adapters/archive_dir.remove_emptied_directories``). Never the Archive
 directory itself, a folder still holding anything, a symlink, or a folder no
-removed Archive was in. A Dry Run removes none.
+removed Archive was in. A Dry Run removes none and lists the same folders
+(``archive_dir_removed`` with ``performed`` ``false``,
+``removed_directories``, ``would remove empty folder``;
+``adapters/archive_dir.directories_to_empty``).
 
 Started as root, the CLI runs as the Site Root's owner, as a backup does
 (owner decision 67); the library refuses to run as root (decision 68).
@@ -54,6 +57,7 @@ import structlog
 
 from l3io.wp.backup.adapters.archive_dir import (
     delete_archive,
+    directories_to_empty,
     list_archives,
     remove_emptied_directories,
 )
@@ -145,7 +149,8 @@ class PruneResult:
     for what they are (path, reason). ``considered`` is how many Archives
     were read, ``matched`` how many are this Site's. ``removed_directories``
     are the folders under the Archive directory the removals emptied and the
-    prune removed, deepest first (owner decision 86; none in a Dry Run).
+    prune removed, deepest first (owner decision 86); in a Dry Run, those it
+    would remove.
     """
 
     directory: PurePosixPath
@@ -252,7 +257,7 @@ def drive_prune(
                 )
             )
         emptied = (
-            ()
+            directories_to_empty(directory, [p.path for p in pruned])
             if run.dry_run
             else remove_emptied_directories(directory, [p.path for p in pruned])
         )
@@ -310,7 +315,8 @@ def summary_lines(result: PruneResult) -> list[str]:
     ``kept <path> (created <t>): daily, weekly`` for each kept, newest first;
     ``pruned <path> (<n> bytes, created <t>): <why>; <why>`` for each removed
     (``would prune`` in a Dry Run); ``removed empty folder <path>`` for each
-    folder the removals emptied; then one line of totals and the rules.
+    folder the removals emptied (``would remove empty folder`` in a Dry Run);
+    then one line of totals and the rules.
     """
     verb = "pruned" if result.performed else "would prune"
     lines = [
@@ -322,7 +328,8 @@ def summary_lines(result: PruneResult) -> list[str]:
         f"{'; '.join(p.reasons)}"
         for p in result.pruned
     ]
-    lines += [f"removed empty folder {d}" for d in result.removed_directories]
+    removal = "removed" if result.performed else "would remove"
+    lines += [f"{removal} empty folder {d}" for d in result.removed_directories]
     total = sum(p.bytes for p in result.pruned)
     lines.append(
         f"{verb} {len(result.pruned)} of this site's {result.matched} archives "
@@ -359,7 +366,9 @@ def run_prune(args: argparse.Namespace, *, secrets: SecretRegistry) -> ExitCode:
     if owner is not None:
         privileges.switch_to(owner, environ=os.environ, operation="prune")
         site_root = Path(request.site_root).resolve()
-        privileges.require_writable(_directory(request, site_root), owner)
+        privileges.require_writable(
+            _directory(request, site_root), owner, operation="prune"
+        )
     # Owner decision 87: as the user the Run runs as, before it opens.
     require_run_access(
         environ=os.environ,

@@ -275,7 +275,9 @@ ci-dryrun: ## Replay every workflow leg as a dry run (no tags, no publishes)
 	  fi; \
 	  rm -f /tmp/act-leg.$$$$; \
 	done < <(uv run scripts/act-legs.py); \
-	echo "  $$(uv run scripts/act-legs.py | wc -l) legs run"
+	echo "  $$n legs run, $$fail failed"; \
+	[ "$$n" -gt 0 ] || { echo "ci-dryrun: no legs ran"; exit 1; }; \
+	[ "$$fail" -eq 0 ] || { echo "ci-dryrun FAILED: $$fail of $$n legs"; exit 1; }
 
 
 # ---- the official image (owner decisions 77-80) -----------------------------

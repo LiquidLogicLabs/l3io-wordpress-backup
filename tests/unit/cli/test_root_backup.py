@@ -299,3 +299,28 @@ def test_api_backup_as_root_is_refused_and_writes_nothing(
         api.backup(site, scope=BackupScope.FILES, target=target)
     assert "drop privileges to the Site Root's owner first" in str(caught.value)
     assert not target.exists()
+
+
+# ---- the refusal names the Run that was refused (backup or prune) ----------------
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write any directory")
+@pytest.mark.parametrize("operation", ["backup", "prune"])
+def test_an_unwritable_archive_directory_names_the_run(
+    tmp_path: Path, operation: str
+) -> None:
+    locked = tmp_path / "archives"
+    locked.mkdir(mode=0o500)
+    owner = privileges.SiteOwner(
+        uid=os.geteuid(), gid=os.getegid(), user=None, home="/"
+    )
+    from l3io.wp.backup.domain.errors import ArchiveDirectoryNotWritableError
+
+    with pytest.raises(ArchiveDirectoryNotWritableError) as caught:
+        privileges.require_writable(locked, owner, operation=operation)
+    assert caught.value.operation == operation
+    assert f"whom a {operation} started as root runs as" in str(caught.value)
+    other = "backup" if operation == "prune" else "prune"
+    assert f"a {other} started" not in str(caught.value)
+    if operation == "prune":
+        assert "--archive;" not in str(caught.value)  # prune takes no --archive

@@ -14,6 +14,13 @@ relative, with no empty, ``.`` or ``..`` segment; at most
 :data:`ARCHIVE_TREE_DEPTH` levels, the depth ``restore --archive latest`` and
 ``prune`` search, so every Archive a backup writes is one they find.
 
+**Flat, said outright:** the setting's value :data:`FLAT_ARCHIVE_SUBDIR`
+(``none``) means no subfolder, so a flag or a variable can turn off a
+template a config file or the environment sets, for one Run. It names no
+folder (:func:`check_archive_subdir` refuses it as a template); any other
+capitalisation (``None``, ``NONE``) is refused as ambiguous rather than made
+a folder. A segment named ``none`` in a longer template is a folder.
+
 **Resolved per backup** (:func:`resolve_archive_subdir`): ``{site}`` is the
 default Archive name's ``<site>`` (``storage_target.archive_site_name``), and
 the date tokens are the UTC date of the instant the name stamps, so the
@@ -36,7 +43,9 @@ from l3io.wp.backup.domain.storage_target import archive_site_name
 __all__ = [
     "ARCHIVE_SUBDIR_TOKENS",
     "ARCHIVE_TREE_DEPTH",
+    "FLAT_ARCHIVE_SUBDIR",
     "archive_subdir_problem",
+    "archive_subdir_reason",
     "check_archive_subdir",
     "resolve_archive_subdir",
 ]
@@ -47,17 +56,19 @@ ARCHIVE_SUBDIR_TOKENS: Final = ("site", "yyyy", "mm", "dd")
 #: and how deep ``latest`` and ``prune`` search: ``{site}/{yyyy}/{mm}/{dd}``
 #: is four, and two more leave room for a fixed prefix or a host level.
 ARCHIVE_TREE_DEPTH: Final = 6
+#: The setting's value for no subfolder: the Archive directory, flat.
+FLAT_ARCHIVE_SUBDIR: Final = "none"
 _ARGUMENT: Final = ("archive_subdir",)
 _FLAG: Final = "--archive-subdir"
 #: A validity check of the whole template, not a substitution.
 _ALLOWED: Final = re.compile(r"[A-Za-z0-9._\-{}/]+")
 
 
-def _message(template: str, why: str) -> str:
+def _explained(why: str) -> str:
     tokens = ", ".join(f"{{{t}}}" for t in ARCHIVE_SUBDIR_TOKENS)
     return (
-        f"{_FLAG} {template!r}: {why} (a relative path under the archive "
-        f"directory, using {tokens})"
+        f"{why} (a relative path under the archive directory, using {tokens}; "
+        f"or {FLAT_ARCHIVE_SUBDIR!r} for none)"
     )
 
 
@@ -65,6 +76,13 @@ def _why(template: str) -> str | None:
     """The first rule ``template`` breaks, or ``None``."""
     if template == "":
         return "is empty"
+    if template == FLAT_ARCHIVE_SUBDIR:
+        return "is the setting's word for no subfolder and names no folder"
+    if template.lower() == FLAT_ARCHIVE_SUBDIR:
+        return (
+            f"is ambiguous: write {FLAT_ARCHIVE_SUBDIR!r} for no subfolder, or "
+            "a template"
+        )
     try:
         parsed = list(string.Formatter().parse(template))
     except ValueError:
@@ -93,11 +111,19 @@ def _why(template: str) -> str | None:
     return None
 
 
-def archive_subdir_problem(template: str) -> str | None:
-    """Why ``template`` is not a valid ``archive_subdir``, as the refusal says
-    it; ``None`` when it is valid."""
+def archive_subdir_reason(template: str) -> str | None:
+    """Why ``template`` is not a valid ``archive_subdir`` template, without
+    naming the setting or the value (the caller names where it came from);
+    ``None`` when it is valid."""
     why = _why(template)
-    return None if why is None else _message(template, why)
+    return None if why is None else _explained(why)
+
+
+def archive_subdir_problem(template: str) -> str | None:
+    """Why ``template`` is not a valid ``archive_subdir``, as the flag's
+    refusal says it; ``None`` when it is valid."""
+    reason = archive_subdir_reason(template)
+    return None if reason is None else f"{_FLAG} {template!r}: {reason}"
 
 
 def check_archive_subdir(template: str) -> str:

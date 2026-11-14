@@ -9,6 +9,7 @@ unique sentinel and the scope of what it drives is one setting at a time.
 
 from __future__ import annotations
 
+import argparse
 import os
 import uuid
 from pathlib import Path
@@ -19,6 +20,7 @@ from l3io.wp.backup.adapters.redaction import SecretRegistry
 from l3io.wp.backup.cli import main, settings
 from l3io.wp.backup.cli.parser import build_parser
 from l3io.wp.backup.cli.settings import parse_layered, user_config_file
+from l3io.wp.backup.domain.errors import UsageError
 from l3io.wp.backup.domain.secret import Secret
 from tests.conftest import pipeline_events
 
@@ -243,6 +245,62 @@ def test_a_bad_key_value_names_its_key(
         _layered(["--config", str(config), *RESTORE])
     err = capsys.readouterr().err
     assert "setting force from key 'force' in" in err
+
+
+def _refusal_of(type_: object, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A variable's refusal when ``--archive-dir``'s ``type`` is ``type_``."""
+    parser = build_parser()
+    action = next(
+        a
+        for a in parser.commands["backup"]._actions  # noqa: SLF001
+        if a.dest == "archive_dir"
+    )
+    monkeypatch.setattr(action, "type", type_)
+    monkeypatch.setenv("L3IO_WP_BACKUP_ARCHIVE_DIR", "/srv/x")
+    with pytest.raises(UsageError) as caught:
+        settings._layer(  # noqa: SLF001
+            parser,
+            {"action": "backup"},
+            {"archive_dir": (None, False)},
+            "backup",
+        )
+    return str(caught.value)
+
+
+def test_a_types_own_reason_reaches_a_variables_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An :class:`ExplainedType`'s reason, computed from the value, is added;
+    the exception's own text still is not."""
+
+    def typed(text: str) -> str:
+        msg = "DEPENDENCY-TEXT " + text
+        raise argparse.ArgumentTypeError(msg)
+
+    explained = settings.ExplainedType(typed, lambda text: f"why {text}")
+    refusal = _refusal_of(explained, monkeypatch)
+    assert refusal == (
+        "L3IO_WP_BACKUP_ARCHIVE_DIR: '/srv/x' is not a valid --archive-dir value: "
+        "why /srv/x"
+    )
+    assert "DEPENDENCY-TEXT" not in refusal
+
+
+@pytest.mark.parametrize("error", [ValueError, TypeError, argparse.ArgumentTypeError])
+def test_any_other_refusal_reaches_it_without_its_text(
+    monkeypatch: pytest.MonkeyPatch, error: type[Exception]
+) -> None:
+    """A dependency's text never does: only this package's own reasons."""
+
+    def typed(text: str) -> str:
+        msg = "DEPENDENCY-TEXT " + text
+        raise error(msg)
+
+    refusal = _refusal_of(typed, monkeypatch)
+    assert refusal == (
+        "L3IO_WP_BACKUP_ARCHIVE_DIR: '/srv/x' is not a valid --archive-dir value"
+    )
+    assert "DEPENDENCY-TEXT" not in refusal
 
 
 # --------------------------------------------------------------------------

@@ -399,7 +399,7 @@ Returns: `tuple[str, ...]`.
 
 ### `prune`
 
-Owner decisions 83 and 84: delete this Site's older Archives, keeping what the retention rules keep, as `wpbackup2 prune` does. `keep` keeps the newest N; `keep_daily`, `keep_weekly`, `keep_monthly` and `keep_yearly` each keep the newest Archive of each of the last N UTC days, ISO weeks, months or years that have one ([how retention works](docker.md#how-retention-works)). An Archive kept by any rule stays, and the newest always does. At least one rule must be given and each must be at least 1; otherwise `UsageError` before anything is read. Only Archives under `archive_dir` (`None`: the directory the CLI's backup writes to by default), flat or in subfolders (owner decision 86: up to 6 levels down, never through a symlinked folder), whose Manifest is this Site's count, by the matching `restore --archive latest` uses; a Safety Snapshot, another site's Archive, a file whose Manifest cannot be read, a symlink and a `.partial` file are never deleted. The subfolders the removals empty are removed too (`archive_dir_removed`; never `archive_dir` itself, nor a folder still holding anything). `dry_run=True` deletes nothing and returns what would go. Takes the Site Lock. Each deletion is logged (`archive_pruned`, with `reasons`), each Archive kept at DEBUG (`archive_kept`, with the rules that keep it).
+Owner decisions 83 and 84: delete this Site's older Archives, keeping what the retention rules keep, as `wpbackup2 prune` does. `keep` keeps the newest N; `keep_daily`, `keep_weekly`, `keep_monthly` and `keep_yearly` each keep the newest Archive of each of the last N UTC days, ISO weeks, months or years that have one ([how retention works](docker.md#how-retention-works)). An Archive kept by any rule stays, and the newest always does. At least one rule must be given and each must be at least 1; otherwise `UsageError` before anything is read. Only Archives under `archive_dir` (`None`: the directory the CLI's backup writes to by default), flat or in subfolders (owner decision 86: up to 6 levels down, never through a symlinked folder), whose Manifest is this Site's count, by the matching `restore --archive latest` uses; a Safety Snapshot, another site's Archive, a file whose Manifest cannot be read, a symlink and a `.partial` file are never deleted. The subfolders the removals empty are removed too (`archive_dir_removed`; never `archive_dir` itself, nor a folder still holding anything). `dry_run=True` deletes nothing and returns what would go, the folders included. Takes the Site Lock. Each deletion is logged (`archive_pruned`, with `reasons`), each Archive kept at DEBUG (`archive_kept`, with the rules that keep it).
 
 ```python
 prune(site: str | os.PathLike[str], *, keep: int | None = None, keep_daily: int | None = None, keep_weekly: int | None = None, keep_monthly: int | None = None, keep_yearly: int | None = None, archive_dir: str | os.PathLike[str] | None = None, wp_config: str | os.PathLike[str] | None = None, dry_run: bool = False) -> PruneResult
@@ -419,7 +419,7 @@ prune(site: str | os.PathLike[str], *, keep: int | None = None, keep_daily: int 
 
 Returns: `PruneResult`.
 
-Raises: `UsageError` (no rule, a rule below 1, a missing Archive directory), `SiteLockedError`, `PruneFailedError` (a chosen Archive could not be removed; the others were), `RootBackupRefusedError` (running as root), and `UnexpectedError`, with the original on `__cause__`, for any defect.
+Raises: `UsageError` (no rule, a rule below 1, a missing Archive directory), `SiteLockedError`, `PruneFailedError` (a chosen Archive could not be removed; the others were), `RootPruneRefusedError` (running as root; a `RootBackupRefusedError`), and `UnexpectedError`, with the original on `__cause__`, for any defect.
 
 ### `Diagnosis`
 
@@ -514,7 +514,7 @@ Defined in the CLI layer; import it from l3io.wp.backup.api.
 
 ### `PruneResult`
 
-What a prune did, or in a Dry Run would do (owner decisions 83, 84): `directory`, `policy` (the `RetentionPolicy` applied), `kept` (one `KeptArchive` per Archive of this Site's left, newest first, with the rules that keep it), `pruned` (one `PrunedArchive` per Archive removed, newest first, with why), `skipped` (each `*.tar.gz` entry that was no candidate for what it is, with the reason), `considered` (Archives read), `matched` (this Site's), `performed` (`False` in a Dry Run) and `removed_directories` (the subfolders of the Archive directory the removals emptied and the prune removed, deepest first; owner decision 86; empty in a Dry Run).
+What a prune did, or in a Dry Run would do (owner decisions 83, 84): `directory`, `policy` (the `RetentionPolicy` applied), `kept` (one `KeptArchive` per Archive of this Site's left, newest first, with the rules that keep it), `pruned` (one `PrunedArchive` per Archive removed, newest first, with why), `skipped` (each `*.tar.gz` entry that was no candidate for what it is, with the reason), `considered` (Archives read), `matched` (this Site's), `performed` (`False` in a Dry Run) and `removed_directories` (the subfolders of the Archive directory the removals emptied and the prune removed, deepest first; owner decision 86; in a Dry Run, those it would remove).
 
 ```python
 PruneResult(directory: PurePosixPath, policy: RetentionPolicy, kept: tuple[KeptArchive, ...], pruned: tuple[PrunedArchive, ...], skipped: tuple[tuple[PurePosixPath, str], ...], considered: int, matched: int, performed: bool, removed_directories: tuple[PurePosixPath, ...] = ())
@@ -1707,17 +1707,31 @@ Base: `UsageError`. Exit code: `USAGE` (2).
 
 Fields: `site_root`, `reason`, each holding the argument of the same name; `arguments` is `("site_root",)`.
 
-### `ArchiveDirectoryNotWritableError`
+### `RootPruneRefusedError`
 
-The `wpbackup2` command, started as root, switched to the Site Root's owner for a backup, and that owner cannot write the Archive directory (the target's directory, `--archive-dir`, or the default one); a directory not made yet is checked where it would be made (owner decision 67). Raised after the switch and before the Run opens, a Dry Run too; nothing was changed.
+A prune as root that cannot run as the Site Root's owner (owner decisions 67, 68, 83), refused in a prune's words ("refused to prune as root in ..."): the `wpbackup2` command refuses a Site Root owned by root, and the library refuses any prune running as root (`api.prune`; drop privileges first, or use the command). Raised before the Run opens. A `RootBackupRefusedError`, so code that catches the backup's refusal, all a prune raised in 1.1, still catches it.
 
 ```python
-ArchiveDirectoryNotWritableError(*, directory: str, uid: int, user: str | None)
+RootPruneRefusedError(*, site_root: str, reason: str)
+```
+
+Base: `RootBackupRefusedError`. Exit code: `USAGE` (2).
+
+Fields: `site_root`, `reason`, each holding the argument of the same name; `arguments` is `("site_root",)`.
+
+### `ArchiveDirectoryNotWritableError`
+
+The `wpbackup2` command, started as root, switched to the Site Root's owner for a backup or a prune, and that owner cannot write the Archive directory (the target's directory, `--archive-dir`, or the default one); a directory not made yet is checked where it would be made (owner decision 67). Raised after the switch and before the Run opens, a Dry Run too; nothing was changed.
+
+```python
+ArchiveDirectoryNotWritableError(
+    *, directory: str, uid: int, user: str | None, operation: str = "backup"
+)
 ```
 
 Base: `RefusedError`. Exit code: `REFUSED` (3).
 
-Fields: `directory`, `uid`, `user`, each holding the argument of the same name (`user` is `None` when the uid has no password entry).
+Fields: `directory`, `uid`, `user`, `operation`, each holding the argument of the same name (`user` is `None` when the uid has no password entry; `operation` is `"backup"` or `"prune"`, the Run that was refused).
 
 ### `RelocationTargetNotEmptyError`
 

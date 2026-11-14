@@ -27,6 +27,7 @@ from l3io.wp.backup.domain.errors import (
     InstallationNotReadableError,
     PrivilegeDropError,
     RootBackupRefusedError,
+    RootPruneRefusedError,
     RootRestoreRefusedError,
     SiteRootNotFoundError,
 )
@@ -240,6 +241,7 @@ def test_a_backup_switch_logs_its_own_event() -> None:
     [
         ("backup", RootBackupRefusedError, "back up"),
         ("restore", RootRestoreRefusedError, "restore"),
+        ("prune", RootPruneRefusedError, "prune"),
     ],
 )
 def test_each_operation_refuses_with_its_own_error(
@@ -256,6 +258,7 @@ def test_each_operation_refuses_with_its_own_error(
     with pytest.raises(error) as owned:
         privileges.owner_to_run_as(Path("/srv/site"), operation=operation)
     assert f"refused to {verb} as root" in str(owned.value)
+    assert operation == "backup" or "back up" not in str(owned.value)
     with pytest.raises(error) as library:
         privileges.require_not_root(Path("/srv/site"), operation=operation)
     assert getattr(library.value, "reason") == privileges.LIBRARY_RUNS_AS_HOST  # noqa: B009
@@ -321,3 +324,13 @@ def test_the_cli_reads_everything_before_it_switches(
         ]
     )
     assert order == ["password", "passphrase", "archive", "switch", "drive"]
+
+
+def test_a_prune_refusal_is_still_a_backup_refusal() -> None:
+    """Prune is part of the backup cycle: a caller catching the backup's
+    refusal (all that 1.1 raised for a prune) still catches it."""
+    refusal = RootPruneRefusedError(site_root="/srv/site", reason="r")
+    assert isinstance(refusal, RootBackupRefusedError)
+    assert str(refusal) == "refused to prune as root in '/srv/site': r"
+    assert refusal.arguments == ("site_root",)
+    assert (refusal.site_root, refusal.reason) == ("/srv/site", "r")

@@ -85,6 +85,7 @@ __all__ = [
     "RefusedError",
     "RelocationNeedsDatabaseRestoreError",
     "RootBackupRefusedError",
+    "RootPruneRefusedError",
     "RootRestoreRefusedError",
     "RunContextActiveError",
     "RunTerminated",
@@ -1381,27 +1382,60 @@ class RootBackupRefusedError(UsageError):
         )
 
 
-class ArchiveDirectoryNotWritableError(RefusedError):
-    """A backup started as root whose Archive directory its site owner cannot write.
+class RootPruneRefusedError(RootBackupRefusedError):
+    """A prune as root that cannot run as the Site Root's owner (decisions 67, 68, 83).
 
-    Owner decision 67: the backup runs as the Site Root's owner, so the
-    Archive is written by that user. Refused after the switch and before the
-    Run opens, a Dry Run too. ``directory`` is the Archive directory (the
-    target's directory, ``--archive-dir``, or the default one), ``uid`` and
-    ``user`` the owner it was checked for (``user`` ``None`` when the uid has
-    no password entry).
+    The backup's refusal, in a prune's words: started as root, the CLI runs
+    a prune as the Site Root's owner, as a backup; refused (``USAGE``, before
+    the Run opens) when the Site Root is owned by root, and when a library
+    caller runs as root. A :class:`RootBackupRefusedError`, so a caller that
+    catches the backup's refusal (all a prune raised in 1.1) still
+    catches it. ``site_root``, ``reason`` and ``arguments`` as there.
     """
 
-    def __init__(self, *, directory: str, uid: int, user: str | None) -> None:
+    def __init__(self, *, site_root: str, reason: str) -> None:
+        self.site_root = site_root
+        self.reason = reason
+        UsageError.__init__(
+            self,
+            f"refused to prune as root in {site_root!r}: {reason}",
+            arguments=("site_root",),
+        )
+
+
+class ArchiveDirectoryNotWritableError(RefusedError):
+    """A Run started as root whose Archive directory its site owner cannot write.
+
+    Owner decisions 67 and 83: a backup or a prune started as root runs as the
+    Site Root's owner, so that user writes (or removes) the Archives. Refused
+    after the switch and before the Run opens, a Dry Run too. ``directory`` is
+    the Archive directory (the target's directory, ``--archive-dir``, or the
+    default one), ``uid`` and ``user`` the owner it was checked for (``user``
+    ``None`` when the uid has no password entry), ``operation`` the Run that
+    was refused (``"backup"`` or ``"prune"``).
+    """
+
+    def __init__(
+        self,
+        *,
+        directory: str,
+        uid: int,
+        user: str | None,
+        operation: str = "backup",
+    ) -> None:
         self.directory = directory
         self.uid = uid
         self.user = user
+        self.operation = operation
         who = f"uid {uid}" if user is None else f"{user} (uid {uid})"
+        other = (
+            "--archive-dir or --archive" if operation == "backup" else "--archive-dir"
+        )
         super().__init__(
             f"the Archive directory {directory!r} is not writable by the Site "
-            f"Root's owner, {who}, whom a backup started as root runs as; give "
-            "that user write access to it, or name another with --archive-dir "
-            "or --archive; nothing was changed"
+            f"Root's owner, {who}, whom a {operation} started as root runs as; "
+            f"give that user write access to it, or name another with {other}; "
+            "nothing was changed"
         )
 
 

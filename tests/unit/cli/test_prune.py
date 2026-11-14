@@ -23,7 +23,7 @@ import pytest
 from l3io.wp.backup import api
 from l3io.wp.backup.adapters.archive_dir import delete_archive, list_archives
 from l3io.wp.backup.adapters.clock import SystemClock
-from l3io.wp.backup.cli import main
+from l3io.wp.backup.cli import main, privileges
 from l3io.wp.backup.domain.exit_codes import ExitCode
 from tests.conftest import pipeline_events
 from tests.site_lock_holder import held_elsewhere
@@ -353,3 +353,39 @@ def test_a_file_swapped_after_it_was_read_is_left_alone(tmp_path: Path) -> None:
     assert archive.read_bytes() == b"another file under the same name"
     archive.unlink()
     assert delete_archive(listed) is not None  # gone: reported, not raised
+
+
+# --------------------------------------------------------------------------
+# As root: refused in prune's own words (owner decisions 67, 68)
+# --------------------------------------------------------------------------
+
+
+def test_a_root_owned_site_root_is_refused_as_a_prune(
+    layout: Layout,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(privileges, "running_as_root", lambda: True)
+    monkeypatch.setattr(
+        privileges, "site_owner", lambda _root: privileges.SiteOwner(0, 0, "root", "/")
+    )
+    before = _present(layout)
+    assert main(layout.prune("--keep", "1")) == int(ExitCode.USAGE)
+    err = capsys.readouterr().err
+    assert f"refused to prune as root in {str(layout.site)!r}" in err
+    assert "back up" not in err
+    assert _present(layout) == before
+
+
+def test_api_prune_as_root_is_refused_as_a_prune(
+    layout: Layout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(privileges, "running_as_root", lambda: True)
+    before = _present(layout)
+    with pytest.raises(api.RootPruneRefusedError) as caught:
+        api.prune(layout.site, keep=1, archive_dir=layout.backups)
+    assert isinstance(caught.value, api.RootBackupRefusedError)
+    assert str(caught.value).startswith("refused to prune as root in ")
+    assert "drop privileges to the Site Root's owner first" in str(caught.value)
+    assert caught.value.exit_code is ExitCode.USAGE
+    assert _present(layout) == before

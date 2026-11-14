@@ -138,3 +138,63 @@ def test_every_named_payload_file_exists() -> None:
                 f"{leg['workflow']} leg names {payload}, which does not exist -- act "
                 f"would synthesise a default event and validate the wrong job set"
             )
+
+
+# ---- the recipe's verdict ------------------------------------------------------
+#
+# `make ci-dryrun` counted failed legs but always exited 0, so `make ci` and
+# `make preflight` (which treat its exit status as the verdict) would have
+# reported a dry run where every leg failed as green (found 2026-11-14). These
+# run the real recipe with a stub `act` and a stub `gh` on PATH; nothing reaches
+# the network or Docker.
+
+
+def _run_dryrun(tmp_path: pathlib.Path, act_exit: int, makefile: pathlib.Path) -> int:
+    import os
+    import shutil
+    import subprocess
+
+    make = shutil.which("make")
+    assert make is not None, "make is required for this contract"
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "act").write_text(f"#!/bin/sh\nexit {act_exit}\n", encoding="utf-8")
+    (bin_dir / "gh").write_text(
+        '#!/bin/sh\n[ "$1 $2" = "auth token" ] && echo stub-token\nexit 0\n',
+        encoding="utf-8",
+    )
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    result = subprocess.run(  # noqa: S603 - make on the repo's own Makefile
+        [make, "-s", "-f", str(makefile), "-C", str(ROOT), "ci-dryrun"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    return result.returncode
+
+
+def test_the_dry_run_fails_when_a_leg_fails(tmp_path: pathlib.Path) -> None:
+    assert _run_dryrun(tmp_path, act_exit=1, makefile=ROOT / "Makefile") != 0
+
+
+def test_the_dry_run_passes_when_every_leg_passes(tmp_path: pathlib.Path) -> None:
+    assert _run_dryrun(tmp_path, act_exit=0, makefile=ROOT / "Makefile") == 0
+
+
+def test_a_recipe_without_the_verdict_is_caught(tmp_path: pathlib.Path) -> None:
+    """The planted violation: the recipe as it was, counting but never exiting."""
+    text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    verdict = (
+        '\t[ "$$n" -gt 0 ] || { echo "ci-dryrun: no legs ran"; exit 1; }; \\\n'
+        '\t[ "$$fail" -eq 0 ] || '
+        '{ echo "ci-dryrun FAILED: $$fail of $$n legs"; exit 1; }\n'
+    )
+    assert verdict in text, "the verdict lines moved; update this plant"
+    planted = tmp_path / "Makefile"
+    planted.write_text(text.replace(verdict, "\ttrue\n"), encoding="utf-8")
+    assert _run_dryrun(tmp_path, act_exit=1, makefile=planted) == 0

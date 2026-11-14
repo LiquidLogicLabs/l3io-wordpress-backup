@@ -74,6 +74,7 @@ __all__ = [
     "SkippedFile",
     "archive_subdirectory",
     "delete_archive",
+    "directories_to_empty",
     "find_in_tree",
     "list_archives",
     "remove_emptied_directories",
@@ -250,19 +251,8 @@ def delete_archive(archive: ArchiveFile) -> str | None:
         os.close(directory)
 
 
-def remove_emptied_directories(
-    root: Path, removed: Iterable[PurePosixPath]
-) -> tuple[Path, ...]:
-    """Remove the folders under ``root`` that ``removed`` Archives left empty.
-
-    Only the folders on the path from each removed Archive up to ``root``,
-    never ``root`` itself, deepest first. Each must still be a directory and
-    not a symlink (``lstat``), and ``rmdir`` removes only an empty one: a
-    folder holding anything (another Archive, a ``.partial``) stays, and so
-    do the folders above it. Each removal logs INFO ``archive_dir_removed``;
-    a failure other than "not empty" is logged at DEBUG and skipped.
-    Returns what was removed, in order.
-    """
+def _emptied_candidates(root: Path, removed: Iterable[PurePosixPath]) -> list[Path]:
+    """The folders between each removed Archive and ``root``, deepest first."""
     candidates: set[Path] = set()
     for archive in removed:
         path = Path(archive)
@@ -272,9 +262,25 @@ def remove_emptied_directories(
             if parent == root or not parent.is_relative_to(root):
                 break
             candidates.add(parent)
+    return sorted(candidates, key=lambda d: (-len(d.parts), d))
+
+
+def remove_emptied_directories(
+    root: Path, removed: Iterable[PurePosixPath]
+) -> tuple[Path, ...]:
+    """Remove the folders under ``root`` that ``removed`` Archives left empty.
+
+    Only the folders on the path from each removed Archive up to ``root``,
+    never ``root`` itself, deepest first. Each must still be a directory and
+    not a symlink (``lstat``), and ``rmdir`` removes only an empty one: a
+    folder holding anything (another Archive, a ``.partial``) stays, and so
+    do the folders above it. Each removal logs INFO ``archive_dir_removed``
+    (``performed`` ``true``); a failure other than "not empty" is logged at
+    DEBUG and skipped. Returns what was removed, in order.
+    """
     done: list[Path] = []
     blocked: set[Path] = set()
-    for directory in sorted(candidates, key=lambda d: (-len(d.parts), d)):
+    for directory in _emptied_candidates(root, removed):
         if any(b.is_relative_to(directory) for b in blocked):
             blocked.add(directory)
             continue
@@ -291,9 +297,37 @@ def remove_emptied_directories(
                 )
             blocked.add(directory)
             continue
-        _log.info("archive_dir_removed", path=str(directory))
+        _log.info("archive_dir_removed", path=str(directory), performed=True)
         done.append(directory)
     return tuple(done)
+
+
+def directories_to_empty(
+    root: Path, removed: Iterable[PurePosixPath]
+) -> tuple[Path, ...]:
+    """The folders :func:`remove_emptied_directories` would remove, were the
+    ``removed`` Archives gone; nothing is changed (a Dry Run's prune).
+
+    The same folders, in the same order: one is listed when it is a directory
+    and not a symlink (``lstat``) and every entry in it is a removed Archive
+    or a folder already listed. Each logs INFO ``archive_dir_removed`` with
+    ``performed`` ``false``. A folder that cannot be read is not listed.
+    """
+    removed = list(removed)
+    gone = {Path(p) for p in removed}
+    would: list[Path] = []
+    for directory in _emptied_candidates(root, removed):
+        try:
+            if not stat.S_ISDIR(os.lstat(directory).st_mode):
+                continue
+            with os.scandir(directory) as entries:
+                names = [Path(e.path) for e in entries]
+        except OSError:
+            continue
+        if all(n in gone or n in would for n in names):
+            _log.info("archive_dir_removed", path=str(directory), performed=False)
+            would.append(directory)
+    return tuple(would)
 
 
 def archive_subdirectory(root: Path, relative: PurePosixPath) -> Path:

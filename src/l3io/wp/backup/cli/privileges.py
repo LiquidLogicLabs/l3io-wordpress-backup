@@ -34,8 +34,9 @@ PHP, running as the same user, cannot read this process's environment.
 
 A Site Root owned by root has no owner to switch to: refused
 (:class:`~l3io.wp.backup.domain.errors.RootRestoreRefusedError`,
-:class:`~l3io.wp.backup.domain.errors.RootBackupRefusedError`). The library
-(``api.restore``, ``api.backup``) never changes its host's user:
+:class:`~l3io.wp.backup.domain.errors.RootBackupRefusedError`,
+:class:`~l3io.wp.backup.domain.errors.RootPruneRefusedError`). The library
+(``api.restore``, ``api.backup``, ``api.prune``) never changes its host's user:
 :func:`require_not_root` refuses a library Run as root the same way (owner
 decision 68). ``api.verify`` touches no Site, takes no Site Lock and leaves
 nothing behind, so it neither switches nor refuses.
@@ -64,6 +65,7 @@ from l3io.wp.backup.domain.errors import (
     InstallationNotReadableError,
     PrivilegeDropError,
     RootBackupRefusedError,
+    RootPruneRefusedError,
     RootRestoreRefusedError,
     SiteRootNotFoundError,
 )
@@ -88,7 +90,8 @@ __all__ = [
 _log = structlog.get_logger(__name__)
 
 #: The Runs that switch (the CLI) or refuse (the library) as root. ``prune``
-#: (owner decision 83) is part of the backup cycle: refused as a backup is.
+#: (owner decision 83) is part of the backup cycle: refused as a backup is,
+#: in its own words (``RootPruneRefusedError``, a ``RootBackupRefusedError``).
 Operation = Literal["backup", "restore", "prune"]
 
 #: Why a root-owned Site Root is refused.
@@ -135,7 +138,9 @@ def running_as_root() -> bool:
 def _refusal(
     operation: Operation, site_root: Path, reason: str
 ) -> RootBackupRefusedError | RootRestoreRefusedError:
-    if operation in ("backup", "prune"):
+    if operation == "prune":
+        return RootPruneRefusedError(site_root=str(site_root), reason=reason)
+    if operation == "backup":
         return RootBackupRefusedError(site_root=str(site_root), reason=reason)
     return RootRestoreRefusedError(site_root=str(site_root), reason=reason)
 
@@ -285,8 +290,10 @@ def require_installation_readable(
             )
 
 
-def require_writable(directory: Path, owner: SiteOwner) -> None:
-    """Owner decision 67: the owner a backup switched to can write ``directory``.
+def require_writable(
+    directory: Path, owner: SiteOwner, *, operation: str = "backup"
+) -> None:
+    """Owner decision 67: the owner a Run switched to can write ``directory``.
 
     Called after the switch, so ``os.access`` answers for that owner. A
     directory not made yet (the per-user data directory) is checked at its
@@ -298,7 +305,7 @@ def require_writable(directory: Path, owner: SiteOwner) -> None:
     if probe.is_dir() and os.access(probe, os.W_OK | os.X_OK):
         return
     raise ArchiveDirectoryNotWritableError(
-        directory=str(directory), uid=owner.uid, user=owner.user
+        directory=str(directory), uid=owner.uid, user=owner.user, operation=operation
     )
 
 

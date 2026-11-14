@@ -22,7 +22,7 @@ import stat
 import tarfile
 import time
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -158,6 +158,127 @@ def test_a_bad_template_is_a_usage_error_from_every_spelling(
     err = capsys.readouterr().err
     assert "archive-subdir" in err or "ARCHIVE_SUBDIR" in err or "archive_subdir" in err
     assert SECRET not in err
+    assert _tree(backups) == set()
+
+
+# Each bad template's own reason, from every spelling: the flag's through
+# argparse, the variable's and the key's through the layering.
+REASONS = {
+    "{host}/{yyyy}": "has an unknown token {host}",
+    "../{site}": "has a '..' segment",
+    "/abs": "is absolute",
+    "{site:>4}": "has a format spec or conversion in a token",
+    "a//b": "has an empty segment",
+    "None": "is ambiguous",
+}
+
+
+@pytest.mark.parametrize("spelling", ["flag", "variable", "config"])
+@pytest.mark.parametrize("template", REASONS)
+def test_a_bad_template_gets_its_reason_from_every_spelling(
+    site: Path,
+    backups: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    spelling: str,
+    template: str,
+) -> None:
+    monkeypatch.setenv("L3IO_WP_BACKUP_PASSPHRASE", SECRET)
+    argv = _backup_argv(site, backups)
+    where = "--archive-subdir"
+    if spelling == "flag":
+        argv += ["--archive-subdir", template]
+    elif spelling == "variable":
+        monkeypatch.setenv("L3IO_WP_BACKUP_ARCHIVE_SUBDIR", template)
+        where = "L3IO_WP_BACKUP_ARCHIVE_SUBDIR"
+    else:
+        config = tmp_path / "config.toml"
+        config.write_text(f"archive_subdir = {template!r}\n", encoding="utf-8")
+        argv = ["--config", str(config), *argv]
+        where = "config file key 'archive_subdir'"
+    with pytest.raises(SystemExit) as caught:
+        main(argv)
+    assert caught.value.code == ExitCode.USAGE
+    err = capsys.readouterr().err
+    assert where in err
+    assert REASONS[template] in err
+    assert "a relative path under the archive directory" in err
+    assert SECRET not in err
+    assert _tree(backups) == set()
+
+
+@pytest.mark.parametrize("spelling", ["flag", "variable", "config"])
+def test_none_is_flat_from_every_spelling(
+    site: Path,
+    backups: Path,
+    clock: Clock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    spelling: str,
+) -> None:
+    argv = _backup_argv(site, backups)
+    if spelling == "flag":
+        argv += ["--archive-subdir", "none"]
+    elif spelling == "variable":
+        monkeypatch.setenv("L3IO_WP_BACKUP_ARCHIVE_SUBDIR", "none")
+    else:
+        config = tmp_path / "config.toml"
+        config.write_text('archive_subdir = "none"\n', encoding="utf-8")
+        argv = ["--config", str(config), *argv]
+    assert main(argv) == 0
+    (written,) = backups.iterdir()
+    assert written.name == "wpbak-wptest-20261112T100000Z.tar.gz"
+
+
+@pytest.mark.parametrize("over", ["variable", "config"])
+def test_none_on_the_command_line_overrides_a_template_for_one_run(
+    site: Path,
+    backups: Path,
+    clock: Clock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    over: str,
+) -> None:
+    argv = _backup_argv(site, backups, "--archive-subdir", "none")
+    if over == "variable":
+        monkeypatch.setenv("L3IO_WP_BACKUP_ARCHIVE_SUBDIR", TEMPLATE)
+    else:
+        config = tmp_path / "config.toml"
+        config.write_text(f'archive_subdir = "{TEMPLATE}"\n', encoding="utf-8")
+        argv = ["--config", str(config), *argv]
+    assert main(argv) == 0
+    (written,) = backups.iterdir()
+    assert written.is_file()
+    assert written.name == "wpbak-wptest-20261112T100000Z.tar.gz"
+
+
+def test_none_in_the_environment_overrides_the_config_file(
+    site: Path,
+    backups: Path,
+    clock: Clock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(f'archive_subdir = "{TEMPLATE}"\n', encoding="utf-8")
+    monkeypatch.setenv("L3IO_WP_BACKUP_ARCHIVE_SUBDIR", "none")
+    assert main(["--config", str(config), *_backup_argv(site, backups)]) == 0
+    (written,) = backups.iterdir()
+    assert written.is_file()
+
+
+@pytest.mark.parametrize("ambiguous", ["None", "NONE", "nOnE"])
+def test_a_case_variant_of_none_is_refused_not_made_a_folder(
+    site: Path,
+    backups: Path,
+    capsys: pytest.CaptureFixture[str],
+    ambiguous: str,
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        main(_backup_argv(site, backups, "--archive-subdir", ambiguous))
+    assert caught.value.code == ExitCode.USAGE
+    assert "write 'none'" in capsys.readouterr().err
     assert _tree(backups) == set()
 
 
@@ -403,15 +524,55 @@ def test_a_prune_that_empties_a_whole_branch_removes_it_up_to_the_root(
     assert estate.backups.is_dir()
 
 
-def test_a_dry_run_prune_removes_no_folder(
-    estate: Estate, caplog: pytest.LogCaptureFixture
+def test_a_dry_run_prune_removes_no_folder_and_lists_those_it_would(
+    estate: Estate,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     before = _tree(estate.backups)
+    capsys.readouterr()
     assert main(["--whatIf", *_prune(estate, "--keep", "1")]) == 0
     assert _tree(estate.backups) == before
-    assert not [
-        e for e in pipeline_events(caplog) if e["event"] == "archive_dir_removed"
-    ]
+    november = estate.backups / "shopdb" / "2026" / "11"
+    events = pipeline_events(caplog)
+    removed = [e for e in events if e["event"] == "archive_dir_removed"]
+    assert [(e["path"], e["performed"]) for e in removed] == [(str(november), False)]
+    (done,) = [e for e in events if e["event"] == "prune_completed"]
+    assert done["removed_directories"] == [str(november)]
+    assert done["performed"] is False
+    out = capsys.readouterr().out.splitlines()
+    assert f"would remove empty folder {november}" in out
+    assert not [line for line in out if line.startswith("removed empty folder")]
+
+
+def test_a_dry_run_lists_exactly_what_the_real_prune_then_removes(
+    estate: Estate, clock: Clock
+) -> None:
+    """A whole branch, a folder holding a stranger and a symlink: the Dry Run
+    predicts the real prune's folders, in its order."""
+    estate.ours.pop().unlink()
+    (estate.backups / "shopdb" / "2026" / "12").rmdir()
+    clock.now = datetime(2026, 12, 5, tzinfo=UTC)
+    estate._backup(estate.site)  # noqa: SLF001
+    (estate.backups / "shopdb" / "2026" / "10").mkdir()
+    (estate.backups / "shopdb" / "2026" / "10" / "notes.txt").write_text("x\n")
+    dry = api.prune(estate.site, keep=1, archive_dir=estate.backups, dry_run=True)
+    assert dry.performed is False
+    assert dry.removed_directories == (
+        PurePosixPath(estate.backups / "shopdb" / "2026" / "11"),
+    )
+    real = api.prune(estate.site, keep=1, archive_dir=estate.backups)
+    assert real.removed_directories == dry.removed_directories
+    assert (estate.backups / "shopdb" / "2026" / "10" / "notes.txt").exists()
+
+
+def test_a_dry_run_never_lists_a_symlinked_folder(estate: Estate) -> None:
+    target = estate.backups.parent / "elsewhere"
+    target.mkdir()
+    link = estate.backups / "shopdb" / "2026" / "11" / "link"
+    link.symlink_to(target, target_is_directory=True)
+    dry = api.prune(estate.site, keep=1, archive_dir=estate.backups, dry_run=True)
+    assert dry.removed_directories == ()
 
 
 def test_the_library_reports_the_folders_it_removed(estate: Estate) -> None:

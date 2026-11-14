@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# registry-retry [--] COMMAND [ARG...]
+# registry-retry [--no-retry-exit STATUS]... [--] COMMAND [ARG...]
 #
 # Run COMMAND; if it fails and its output shows a transient registry error,
 # run it again, with backoff, a bounded number of times. Any other failure
@@ -23,6 +23,14 @@
 # addressed), a scan is. COMMAND must not read stdin: a retry would find it
 # already consumed (`docker buildx build -f -` would build nothing).
 #
+# --no-retry-exit STATUS (repeatable): an exit STATUS that is COMMAND's own
+# verdict, never a transport failure, so it is never retried whatever the
+# output says. Trivy's: a scan given `--exit-code 4` exits 4 for a finding and
+# 1 for its own errors (a 429 fetching its database); a finding's text can
+# quote "429 Too Many Requests" or "502 Bad Gateway", and must still fail at
+# once. STATUS is 1-255; give the command a verdict status it uses for nothing
+# else.
+#
 # Environment (whole numbers):
 #   REGISTRY_RETRY_ATTEMPTS   tries in all, the first included (4)
 #   REGISTRY_RETRY_DELAY      seconds before the first retry (30); doubled
@@ -43,8 +51,21 @@ whole REGISTRY_RETRY_DELAY "$delay"
 whole REGISTRY_RETRY_MAX_DELAY "$max_delay"
 [ "$attempts" -ge 1 ] || die "REGISTRY_RETRY_ATTEMPTS must be at least 1"
 
-[ "${1:-}" != -- ] || shift
-[ "$#" -ge 1 ] || die "usage: registry-retry [--] COMMAND [ARG...]"
+verdicts=' '
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --no-retry-exit)
+            [ "$#" -ge 2 ] || die "--no-retry-exit needs an exit status"
+            whole --no-retry-exit "$2"
+            [ "$2" -ge 1 ] && [ "$2" -le 255 ] || die "--no-retry-exit must be 1-255, not '$2'"
+            verdicts="$verdicts$2 "
+            shift 2
+            ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+[ "$#" -ge 1 ] || die "usage: registry-retry [--no-retry-exit STATUS]... [--] COMMAND [ARG...]"
 
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
@@ -56,6 +77,12 @@ while :; do
     rc=${PIPESTATUS[0]}
     set -e
     [ "$rc" -ne 0 ] || exit 0
+    case "$verdicts" in
+        *" $rc "*)
+            echo "registry-retry: attempt $attempt of $attempts failed (exit $rc), the command's own verdict (--no-retry-exit $rc): not retried" >&2
+            exit "$rc"
+            ;;
+    esac
     if ! grep -Eqi "$TRANSIENT" "$log"; then
         echo "registry-retry: attempt $attempt of $attempts failed (exit $rc), and not with a transient registry error: not retried" >&2
         exit "$rc"

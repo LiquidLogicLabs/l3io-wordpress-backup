@@ -72,11 +72,15 @@
 # the job (no type=gha/registry cache): a rebuild must take a new base and new
 # package fixes, and a cache from an earlier run would serve the old ones.
 #
-# REGISTRY ERRORS. Every build, the push, the read-back and Trivy run through
-# scripts/registry-retry: a 429 (run 43573435626: GHCR, though logged in), a
-# 5xx or a connection reset is retried, bounded, with backoff; any other
-# failure fails at once (tests/unit/docker/test_registry_retry_script.py;
-# that the steps use it, tests/contracts/test_docker_image.py).
+# REGISTRY ERRORS. Every build, the push, the read-back, Trivy, the tagging,
+# the anonymous-pull check and the smoke run's pulls (tests/sidecar/run.sh)
+# run through scripts/registry-retry: a 429 (run 43573435626: GHCR, though
+# logged in), a 5xx or a connection reset is retried, bounded, with backoff;
+# any other failure fails at once. A fixable finding exits Trivy with 4
+# (`--exit-code 4`), which is never retried (`--no-retry-exit 4`): its text may
+# quote a registry error; Trivy's own failures exit 1 and stay retryable
+# (tests/unit/docker/test_registry_retry_script.py; that the steps and scripts
+# use it, tests/contracts/test_docker_image.py).
 #
 # act: every job as a dry run (make ci-dryrun), and the `resolve` job for real
 # (make image-resolve: PyPI, the registries, the credential refusals). build,
@@ -337,12 +341,12 @@ jobs:
               --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
               --build-arg "DB_CLIENT=$DB_CLIENT" \
               -f "$DOCKER_FILE" -t "$tag" docker
-            trivy() { scripts/registry-retry docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            trivy() { scripts/registry-retry --no-retry-exit 4 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
                         -v trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE" image --quiet "$@" "$tag"; }
             echo "== $VARIANT $platform: every CRITICAL/HIGH, fixed or not (reported)"
             trivy --severity CRITICAL,HIGH --exit-code 0
             echo "== $VARIANT $platform: fixable CRITICAL/HIGH (fatal)"
-            trivy --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+            trivy --severity CRITICAL,HIGH --ignore-unfixed --exit-code 4
           done
 
       - name: push every platform, by digest only, with SBOM and provenance
@@ -456,6 +460,13 @@ jobs:
     env:
       DIGEST: ${{ needs.build.outputs[format('digest_{0}', matrix.variant)] }}
     steps:
+      # scripts/ only, for scripts/registry-retry; full history per the
+      # checkout contract (tests/contracts/test_workflow_invariants.py).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: scripts
       - name: the variant's digest
         env:
           VARIANT: ${{ matrix.variant }}
@@ -499,7 +510,7 @@ jobs:
               case "$tag" in "$name":*) args+=(-t "$tag") ;; esac
             done <<<"$TAGS"
             [ "${#args[@]}" -gt 0 ] || { echo "::error::no tags for $name"; exit 1; }
-            docker buildx imagetools create "${args[@]}" "$name@$DIGEST"
+            scripts/registry-retry docker buildx imagetools create "${args[@]}" "$name@$DIGEST"
             echo "$name@$DIGEST tagged: ${args[*]}"
           done
       - name: attest build provenance (primary registry)
@@ -528,7 +539,7 @@ jobs:
           fail=0
           while IFS= read -r tag; do
             [ -n "$tag" ] || continue
-            if DOCKER_CONFIG="$anon" docker manifest inspect "$tag" >/dev/null 2>&1; then
+            if DOCKER_CONFIG="$anon" scripts/registry-retry docker manifest inspect "$tag" >/dev/null 2>&1; then
               echo "public: $tag"
             else
               echo "::error::$tag does not pull anonymously; make the package public (RELEASING.md)"; fail=1

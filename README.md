@@ -90,9 +90,13 @@ To sort Archives into subfolders, set `--archive-subdir TEMPLATE`
 (`L3IO_WP_BACKUP_ARCHIVE_SUBDIR`, `archive_subdir`): a relative path under the
 Archive directory using `{site}`, `{yyyy}`, `{mm}` and `{dd}` (the UTC date of
 the name's timestamp), such as `{site}/{yyyy}/{mm}`; missing folders are made
-`0700`. Unset, the Archive directory stays flat. `--archive latest` and `prune`
-search the Archive directory and its subfolders (up to 6 levels, never through
-a symlinked folder), so changing the layout strands no Archive.
+`0700`. Unset, the Archive directory stays flat; `none` means flat too, so
+`--archive-subdir none` turns off, for one Run, a template set in the
+environment or a config file (`None` or `NONE` is refused as ambiguous). A bad
+template is refused with its reason from every spelling. `--archive latest`
+and `prune` search the Archive directory and its subfolders (up to 6 levels,
+never through a symlinked folder), so changing the layout strands no Archive;
+`prune --whatIf` lists the folders a prune would remove.
 The Archive's payload is gzip at level 6 unless `--compression-level N`
 (`L3IO_WP_BACKUP_COMPRESSION_LEVEL`, `compression_level`) sets 1 (fastest) to
 9 (smallest); `restore --compression-level` sets the Safety Snapshot's. Before
@@ -362,7 +366,8 @@ options:
                         characters other than A-Z, a-z, 0-9, '.', '_' and '-' become '-'
   --archive-subdir TEMPLATE
                         Write the default-named archive into this subfolder of --archive-dir, made
-                        0700 when missing (default: none, flat). A relative path using {site} (the
+                        0700 when missing (default: none, flat; 'none' turns off a template set in
+                        the environment or a config file). A relative path using {site} (the
                         archive name's <site>), {yyyy}, {mm} and {dd} (the UTC date of the archive
                         name's timestamp), e.g. '{site}/{yyyy}/{mm}'; at most 6 levels. Ignored
                         with --archive. restore --archive latest and prune search subfolders

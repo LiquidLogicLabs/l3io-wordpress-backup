@@ -18,6 +18,8 @@ import pytest
 from l3io.wp.backup.domain.archive_subdir import (
     ARCHIVE_SUBDIR_TOKENS,
     ARCHIVE_TREE_DEPTH,
+    FLAT_ARCHIVE_SUBDIR,
+    archive_subdir_reason,
     check_archive_subdir,
     resolve_archive_subdir,
 )
@@ -66,6 +68,9 @@ def test_a_good_template_is_accepted_as_written(template: str) -> None:
         ("café", "only A-Z"),
         ("a\x00b", "only A-Z"),
         ("/".join(["a"] * (ARCHIVE_TREE_DEPTH + 1)), "levels"),
+        ("None", "is ambiguous"),
+        ("NONE", "is ambiguous"),
+        ("none", "names no folder"),
     ],
 )
 def test_each_bad_template_is_refused_naming_the_setting(
@@ -76,6 +81,19 @@ def test_each_bad_template_is_refused_naming_the_setting(
     assert caught.value.arguments == ("archive_subdir",)
     assert why in str(caught.value)
     assert "--archive-subdir" in str(caught.value)
+
+
+def test_none_is_the_flat_sentinel_and_a_segment_named_none_is_a_folder() -> None:
+    assert FLAT_ARCHIVE_SUBDIR == "none"
+    assert check_archive_subdir("none/{yyyy}") == "none/{yyyy}"
+    assert check_archive_subdir("{site}/None") == "{site}/None"
+
+
+def test_the_reason_is_the_message_without_the_flag() -> None:
+    reason = archive_subdir_reason("../{site}")
+    assert reason is not None
+    assert reason.startswith("has a '..' segment (a relative path")
+    assert archive_subdir_reason("{site}") is None
 
 
 def test_the_tokens_are_the_owners_four() -> None:

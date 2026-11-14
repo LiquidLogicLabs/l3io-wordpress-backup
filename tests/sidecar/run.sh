@@ -52,9 +52,12 @@ ENGINE=$1
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
+# Every pull and build here runs through $REPO/scripts/registry-retry, as
+# docker.yml's steps do: a registry's 429 or 5xx is retried, not a failed leg
+# (tests/contracts/test_docker_image.py checks the commands are wrapped).
 if [[ -n ${IMAGE:-} ]]; then
     BUILT=0
-    docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull -q "$IMAGE" >/dev/null
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || "$REPO/scripts/registry-retry" docker pull -q "$IMAGE" >/dev/null
     L3IO_DB_CLIENT=$(docker image inspect -f '{{index .Config.Labels "io.l3io.wp-backup.db-client"}}' "$IMAGE")
 else
     BUILT=1
@@ -257,7 +260,7 @@ if [[ $BUILT == 1 && ${SKIP_BUILD:-0} != 1 ]]; then
         log "local wheels: $(cd "$L3IO_SCRATCH/ctx" && echo ./*.whl)"
     fi
     VERSION=$(basename "$(ls "$L3IO_SCRATCH"/ctx/l3io_wordpress_backup-*.whl)" | cut -d- -f2)
-    step build-image 0 docker buildx build --load -f "$REPO/docker/Dockerfile" \
+    step build-image 0 "$REPO/scripts/registry-retry" docker buildx build --load -f "$REPO/docker/Dockerfile" \
         --build-context "wheels=$L3IO_SCRATCH/ctx" --build-arg "VERSION=$VERSION" \
         --build-arg "DB_CLIENT=$L3IO_DB_CLIENT" -t "$IMAGE" "$REPO/docker"
     [[ $FAILED == 0 ]] || { printf '%s\n' "${RESULTS[@]}"; exit 1; }
@@ -334,7 +337,13 @@ check image:bad-keep-yearly-refused keep_refused WPBACKUP_KEEP_YEARLY '1.5'
 check image:default-retention-is-7-4-6 default_retention_job
 
 # ---- stack -----------------------------------------------------------------------
-step stack-up 0 dc up -d --wait --wait-timeout 300
+# Every service image of every profile the run uses, pulled up front with the
+# retry, so no later `up` or `run` pulls (unretried) on its own. `missing`
+# skips the image under test, built or pulled above.
+step pull-images 0 "$REPO/scripts/registry-retry" docker compose -f "$HERE/compose.yaml" -p "$PROJECT" \
+    --profile "$ENGINE" --profile tools --profile schedule pull --policy missing --quiet
+[[ $FAILED == 0 ]] || { printf '%s\n' "${RESULTS[@]}"; exit 1; }
+step stack-up 0 dc up -d --pull never --wait --wait-timeout 300
 [[ $FAILED == 0 ]] || { printf '%s\n' "${RESULTS[@]}"; exit 1; }
 in_backup sh -c 'id; wpbackup2 --version; age --version; (mysqldump --version || mariadb-dump --version) 2>&1; ls -ld /var/www/html /backups "$XDG_STATE_HOME" "$TMPDIR"' \
     >"$LOGS/sidecar-env.txt" 2>&1 || true

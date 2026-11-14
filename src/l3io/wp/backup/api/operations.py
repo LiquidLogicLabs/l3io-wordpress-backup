@@ -473,7 +473,8 @@ def prune(
     ``.partial`` files are never deleted. ``dry_run=True`` deletes nothing and
     returns what would go. Takes the Site Lock. A file chosen but not
     removable raises ``PruneFailedError`` after the others are removed; a
-    process running as root is refused (``RootBackupRefusedError``).
+    process running as root is refused (``RootPruneRefusedError``, a
+    ``RootBackupRefusedError``).
     """
     policy = RetentionPolicy(
         keep=keep,

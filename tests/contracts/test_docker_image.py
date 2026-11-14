@@ -491,42 +491,103 @@ def test_least_privilege() -> None:
 # ---- registry operations retry transient errors (run 43573435626) -----------
 #
 # The 1.1.2 mariadb build failed on a 429 from GHCR while loading its base
-# image's metadata; a rerun passed. Every command in a workflow `run:` that
-# pulls or pushes through BuildKit or Trivy -- `docker build`, `docker buildx
-# build`, `imagetools inspect`, a `docker run` of $TRIVY_IMAGE -- must run
-# through scripts/registry-retry (what it retries:
+# image's metadata; a rerun passed. Every registry command -- `docker build`,
+# `docker buildx build`, `imagetools inspect|create`, `docker manifest
+# inspect`, `docker pull`, `docker compose ... pull`, a `docker run` of
+# $TRIVY_IMAGE -- must run through scripts/registry-retry (what it retries:
 # tests/unit/docker/test_registry_retry_script.py), and no workflow may build
 # with docker/build-push-action, which no wrapper can retry. The scope is every
-# workflow file and every step's `run:`, continuation lines joined; a command is
-# covered when the wrapper precedes it on its logical line. Not covered:
-# registry traffic inside scripts a step calls (tests/sidecar/run.sh), and
-# `imagetools create` / `docker manifest inspect` in docker.yml's publish job.
+# workflow file's every step `run:`, AND every shell script in the repository a
+# `run:` names by path (tests/sidecar/run.sh), continuation lines joined,
+# comment lines skipped; a command is covered when the wrapper precedes it on
+# its logical line. A Trivy run whose `--exit-code N` is not 0 must pass
+# `--no-retry-exit N` (N not 1, Trivy's own error status), or a finding whose
+# text quotes a registry error is retried. Not covered: implicit pulls (a
+# `docker run` or `compose up` of an absent image; run.sh pulls every compose
+# image up front and starts the stack with `--pull never`), and scripts reached
+# only through `make` or another script.
 
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 RETRY = "scripts/registry-retry"
 REGISTRY_COMMAND = re.compile(
-    r"\bdocker\s+(?:buildx\s+)?build\b|\bimagetools\s+inspect\b|\$\{?TRIVY_IMAGE\b"
+    r"\bdocker\s+(?:buildx\s+)?build\b"
+    r"|\bimagetools\s+(?:inspect|create)\b"
+    r"|\bdocker\s+manifest\s+inspect\b"
+    r"|\bdocker\s+pull\b"
+    r"|\bdocker\s+compose\b.*?(?<![-\w])pull\b"
+    r"|\$\{?TRIVY_IMAGE\b"
 )
+SCRIPT_PATH = re.compile(r"(?<![\w./$-])((?:[\w.-]+/)+[\w.-]+)")
+SHELL_SHEBANG = re.compile(r"^#!.*\b(?:ba|da|z)?sh\b")
+TRIVY_EXIT = re.compile(r"--exit-code[ =](\d+)")
+NO_RETRY_EXIT = re.compile(r"--no-retry-exit[ =](\d+)")
 
 
 def _logical_lines(run: str) -> list[str]:
-    return re.sub(r"\\\n", " ", run).splitlines()
+    lines = re.sub(r"\\\n", " ", run).splitlines()
+    return [line for line in lines if not line.lstrip().startswith("#")]
 
 
-def retry_findings(workflows: dict[str, dict]) -> list[str]:
+def _read_script(rel: str) -> str | None:
+    """The text of the repository's shell script at ``rel``, else None."""
+    path = ROOT / rel
+    if rel == RETRY or not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return text if SHELL_SHEBANG.match(text) else None
+
+
+def _runs(workflows: dict[str, dict]) -> list[tuple[str, str]]:
+    return [
+        (f"{wf} {job_name}/{step.get('name') or step.get('id')}", str(step["run"]))
+        for wf, doc in workflows.items()
+        for job_name, job in (doc.get("jobs") or {}).items()
+        for step in job.get("steps") or []
+        if "run" in step
+    ]
+
+
+def called_scripts(
+    workflows: dict[str, dict], read: Callable[[str], str | None] = _read_script
+) -> dict[str, str]:
+    """Every shell script a step's `run:` names by path -> its text."""
+    found = {}
+    for _, run in _runs(workflows):
+        for rel in SCRIPT_PATH.findall(run):
+            text = read(rel)
+            if text is not None:
+                found[rel] = text
+    return found
+
+
+def retry_findings(
+    workflows: dict[str, dict], read: Callable[[str], str | None] = _read_script
+) -> list[str]:
     findings = []
     for wf, doc in workflows.items():
         for job_name, job in (doc.get("jobs") or {}).items():
             for step in job.get("steps") or []:
-                where = f"{wf} {job_name}/{step.get('name') or step.get('id')}"
                 if str(step.get("uses", "")).startswith("docker/build-push-action"):
+                    where = f"{wf} {job_name}/{step.get('name') or step.get('id')}"
                     findings.append(f"{where}: docker/build-push-action cannot retry")
-                for line in _logical_lines(str(step.get("run", ""))):
-                    for m in REGISTRY_COMMAND.finditer(line):
-                        if RETRY not in line[: m.start()]:
-                            findings.append(
-                                f"{where}: `{m[0]}` does not run through {RETRY}"
-                            )
+    sources = _runs(workflows) + list(called_scripts(workflows, read).items())
+    for where, text in sources:
+        for line in _logical_lines(text):
+            for m in REGISTRY_COMMAND.finditer(line):
+                if RETRY not in line[: m.start()]:
+                    findings.append(f"{where}: `{m[0]}` does not run through {RETRY}")
+        if "TRIVY_IMAGE" in text:
+            verdicts = set(NO_RETRY_EXIT.findall(text))
+            for code in sorted(set(TRIVY_EXIT.findall(text)) - {"0"}):
+                if code == "1":
+                    findings.append(
+                        f"{where}: Trivy's --exit-code 1 is its own error status too"
+                    )
+                elif code not in verdicts:
+                    findings.append(
+                        f"{where}: Trivy's --exit-code {code} is retried "
+                        f"(no --no-retry-exit {code})"
+                    )
     return findings
 
 
@@ -534,18 +595,45 @@ def _workflows() -> dict[str, dict]:
     return {p.name: _load(p) for p in sorted(WORKFLOWS_DIR.glob("*.yml"))}
 
 
+def _count(workflows: dict[str, dict], job: str) -> int:
+    run = "\n".join(
+        str(s.get("run", "")) for s in workflows["docker.yml"]["jobs"][job]["steps"]
+    )
+    return len(REGISTRY_COMMAND.findall(run))
+
+
 def test_every_registry_command_runs_through_the_retry() -> None:
     workflows = _workflows()
-    # The scope holds what the rule is for: docker.yml's build job's builds,
-    # push, read-back and scans.
-    build = "\n".join(
-        str(s.get("run", "")) for s in workflows["docker.yml"]["jobs"]["build"]["steps"]
-    )
-    assert len(REGISTRY_COMMAND.findall(build)) >= 4
+    # The scope holds what the rule is for: the build job's builds, push,
+    # read-back and scans; publish's tagging and anonymous-pull check; the
+    # smoke job's script and its pulls.
+    assert _count(workflows, "build") >= 4
+    assert _count(workflows, "publish") >= 2
+    scripts = called_scripts(workflows)
+    assert "tests/sidecar/run.sh" in scripts
+    run_sh = "\n".join(_logical_lines(scripts["tests/sidecar/run.sh"]))
+    assert len(REGISTRY_COMMAND.findall(run_sh)) >= 3
     assert retry_findings(workflows) == []
     script = ROOT / RETRY
     assert script.is_file()
     assert script.stat().st_mode & 0o111, f"{RETRY} is not executable"
+
+
+def test_every_job_that_calls_the_retry_has_it_checked_out() -> None:
+    """publish had no checkout: its `scripts/registry-retry` would not exist."""
+    for wf, doc in _workflows().items():
+        for name, job in (doc.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            if not any(RETRY in str(s.get("run", "")) for s in steps):
+                continue
+            checkouts = [
+                s
+                for s in steps
+                if str(s.get("uses", "")).startswith("actions/checkout")
+            ]
+            assert checkouts, f"{wf} {name} calls {RETRY} with no checkout"
+            sparse = str((checkouts[0].get("with") or {}).get("sparse-checkout", ""))
+            assert not sparse or "scripts" in sparse.split(), (wf, name, sparse)
 
 
 def _plant_unwrapped_push(wfs: dict[str, dict]) -> None:
@@ -559,7 +647,32 @@ def _plant_unwrapped_push(wfs: dict[str, dict]) -> None:
 def _plant_unwrapped_trivy(wfs: dict[str, dict]) -> None:
     for step in wfs["docker.yml"]["jobs"]["build"]["steps"]:
         step["run"] = str(step.get("run", "")).replace(
-            f"{RETRY} docker run", "docker run"
+            f"{RETRY} --no-retry-exit 4 docker run", "docker run"
+        )
+
+
+def _plant_trivy_verdict_retried(wfs: dict[str, dict]) -> None:
+    for step in wfs["docker.yml"]["jobs"]["build"]["steps"]:
+        step["run"] = str(step.get("run", "")).replace("--no-retry-exit 4 ", "")
+
+
+def _plant_trivy_finding_exits_1(wfs: dict[str, dict]) -> None:
+    for step in wfs["docker.yml"]["jobs"]["build"]["steps"]:
+        step["run"] = str(step.get("run", "")).replace("--exit-code 4", "--exit-code 1")
+
+
+def _plant_unwrapped_tagging(wfs: dict[str, dict]) -> None:
+    for step in wfs["docker.yml"]["jobs"]["publish"]["steps"]:
+        step["run"] = str(step.get("run", "")).replace(
+            f"{RETRY} docker buildx imagetools create",
+            "docker buildx imagetools create",
+        )
+
+
+def _plant_unwrapped_anonymous_check(wfs: dict[str, dict]) -> None:
+    for step in wfs["docker.yml"]["jobs"]["publish"]["steps"]:
+        step["run"] = str(step.get("run", "")).replace(
+            f"{RETRY} docker manifest inspect", "docker manifest inspect"
         )
 
 
@@ -578,6 +691,10 @@ def _plant_build_push_action(wfs: dict[str, dict]) -> None:
 RETRY_PLANTS = {
     "the push build without the retry": _plant_unwrapped_push,
     "Trivy without the retry": _plant_unwrapped_trivy,
+    "a Trivy finding retried": _plant_trivy_verdict_retried,
+    "a Trivy finding with Trivy's own status": _plant_trivy_finding_exits_1,
+    "imagetools create without the retry": _plant_unwrapped_tagging,
+    "the anonymous-pull check without the retry": _plant_unwrapped_anonymous_check,
     "a build in another workflow": _plant_build_in_another_workflow,
     "docker/build-push-action again": _plant_build_push_action,
 }
@@ -586,8 +703,53 @@ RETRY_PLANTS = {
 @pytest.mark.parametrize("plant", RETRY_PLANTS.values(), ids=RETRY_PLANTS.keys())
 def test_a_planted_retry_violation_is_reported(plant) -> None:  # noqa: ANN001
     workflows = copy.deepcopy(_workflows())
+    assert retry_findings(workflows) == []
     plant(workflows)
     assert retry_findings(workflows)
+
+
+def _unwrap_in_run_sh(command: str) -> Callable[[str], str | None]:
+    def read(rel: str) -> str | None:
+        text = _read_script(rel)
+        if rel == "tests/sidecar/run.sh" and text is not None:
+            assert f'"$REPO/{RETRY}" {command}' in text, command
+            text = text.replace(f'"$REPO/{RETRY}" {command}', command)
+        return text
+
+    return read
+
+
+def _new_script_that_pulls(rel: str) -> str | None:
+    if rel == "tests/other/pull.sh":
+        return "#!/usr/bin/env bash\nset -eu\ndocker pull \\\n  busybox\n"
+    return _read_script(rel)
+
+
+SCRIPT_PLANTS = {
+    "run.sh pulls the image under test without the retry": (
+        None,
+        _unwrap_in_run_sh("docker pull"),
+    ),
+    "run.sh pulls the compose images without the retry": (
+        None,
+        _unwrap_in_run_sh("docker compose"),
+    ),
+    "a new script a step calls pulls without the retry": (
+        "tests/other/pull.sh",
+        _new_script_that_pulls,
+    ),
+}
+
+
+@pytest.mark.parametrize("plant", SCRIPT_PLANTS.values(), ids=SCRIPT_PLANTS.keys())
+def test_a_planted_script_violation_is_reported(plant) -> None:  # noqa: ANN001
+    called, read = plant
+    workflows = copy.deepcopy(_workflows())
+    if called:
+        wfs_ci = workflows["ci.yml"]["jobs"]
+        wfs_ci["later"] = {"steps": [{"name": "s", "run": f"bash {called} x\n"}]}
+    assert retry_findings(workflows) == []
+    assert retry_findings(workflows, read)
 
 
 # ---- registries: each enabled one has its login, its credential check, a leg ----
@@ -846,7 +1008,7 @@ def variant_findings(doc: dict, ci: dict, dockerfile: str, makefile: str) -> lis
     if not scan or not any(
         str((s.get("env") or {}).get("DB_CLIENT")) == "${{ matrix.db_client }}"
         and '--build-arg "DB_CLIENT=$DB_CLIENT"' in s["run"]
-        and "--ignore-unfixed --exit-code 1" in s["run"]
+        and "--ignore-unfixed --exit-code 4" in s["run"]
         for s in scan
     ):
         findings.append("build's scan does not build and gate each variant's client")

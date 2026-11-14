@@ -1151,9 +1151,11 @@ user can read the site's `wp-config.php` and the Archive, exit 4
 
 Refused (exit 2 `USAGE`, before the Run opens): a Site Root owned by root,
 which has no owner to switch to (`RootRestoreRefusedError`, or
-`RootBackupRefusedError` for a backup, before anything else is read). A
-switch that does not hold stops the Run (exit 3, `PrivilegeDropError`). The
-library (`api.restore`, `api.backup`) never changes its host's user, so it
+`RootBackupRefusedError` for a backup and `RootPruneRefusedError`, a
+`RootBackupRefusedError` in a prune's words, for a prune; before anything else
+is read). A switch that does not hold stops the Run (exit 3,
+`PrivilegeDropError`). The library (`api.restore`, `api.backup`, `api.prune`)
+never changes its host's user, so it
 refuses a Run as root (owner decision 68); drop privileges to the site's
 owner first, or use the `wpbackup2` command. `verify` touches no Site, so it
 neither switches nor refuses.
