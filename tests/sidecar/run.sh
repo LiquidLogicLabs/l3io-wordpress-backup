@@ -197,7 +197,14 @@ step() {
     local secs
     secs=$(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.1f", (b - a) / 1e9 }')
     local verdict=ok
-    if [[ $want != '*' && $rc != "$want" ]]; then verdict=MISMATCH; FAILED=1; fi
+    if [[ $want != '*' && $rc != "$want" ]]; then
+        verdict=MISMATCH
+        FAILED=1
+        # The step's own output lives in $LOGS, which CI discards with the runner:
+        # show its tail here so a failure is diagnosable from the job log. The
+        # values in it are this run's throwaway test credentials, never real ones.
+        { echo "---- $name: last lines of stderr ----"; tail -n 25 "$LOGS/$name.err"; } >&2 || true
+    fi
     [[ $want == '*' ]] && verdict=probe
     RESULTS+=("$(printf '%-34s want=%-2s got=%-3s %6ss  %s' "$name" "$want" "$rc" "$secs" "$verdict")")
     log "  -> rc=$rc (${secs}s) $verdict"
@@ -336,6 +343,20 @@ step passphrase-passthrough 0 env L3IO_WP_BACKUP_PASSPHRASE="$PASSPHRASE" \
     exec -T -e L3IO_WP_BACKUP_PASSPHRASE backup sh -c 'test -n "$L3IO_WP_BACKUP_PASSPHRASE"'
 
 # ---- WordPress install and content ---------------------------------------------
+# `up --wait` returns once the containers report healthy, which can be before the
+# official image has written wp-config.php or the database accepts the site's
+# user; wp-install then failed in 0.5 s (CI, 2026-11-14). Wait for both, bounded.
+wordpress_ready() {
+    local _
+    for _ in $(seq 1 60); do
+        if in_backup test -s "$SITE/wp-config.php" && wp db query 'SELECT 1' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+step wordpress-ready 0 wordpress_ready
 step wp-install 0 wp core install --url=http://wordpress --title="l3io sidecar $TAG" \
     --admin_user="admin_$TAG" --admin_password="$WP_ADMIN_PW" --admin_email="admin-$TAG@example.invalid" --skip-email
 POST_ID=$(wp post create --post_title="Post $SENTINEL" --post_content="Body $SENTINEL" \
