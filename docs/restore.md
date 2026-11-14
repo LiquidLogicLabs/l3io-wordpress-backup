@@ -634,6 +634,22 @@ place of a newer one, is genuine, so it passes. Detecting that needs a record
 kept outside the Archive, such as the name or checksum of the latest backup,
 which this package does not keep.
 
+**A good Archive refused on a busy host (`l3io-age-passphrase` 0.1.2 and
+earlier).** Those releases of the encryption binder let `age` pick the
+passphrase's scrypt work factor by timing a small scrypt run, and refuse any
+file whose work factor is more than 4 above what that timing suggests. On a
+heavily loaded host the timing runs long, so `verify --authenticate` or a
+restore's `VERIFY` can refuse an intact Archive with `PayloadDamagedError`
+(exit 8, ERROR `member_decryption_failed` with `reason` `corrupt`) although the
+structural check passed. Nothing in the Archive is wrong: run the same command
+again on an idle host, or decrypt the payload with stock `age -d`. The other side of the same defect: an Archive *written*
+on a busy host may have a low work factor, so its passphrase is cheaper to
+guess. The work factor is the last field of the payload's `age` header line
+`-> scrypt <salt> <log_n>`, readable without the passphrase, for example with
+`tar -xzOf <archive> payload.tar.gz.age | head -c 200 | grep -a '^-> scrypt'`;
+stock `age -p` uses 18. Re-encrypt (take a new backup of) any Archive whose
+value is well below that, once a fixed binder is installed.
+
 **Encryption protects file contents only.** `manifest.json` is never
 encrypted: the Site Root path, the database name, every file path and size and
 the exclusions stay readable in clear in an encrypted Archive, to anyone who
