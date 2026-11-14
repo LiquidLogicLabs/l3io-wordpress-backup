@@ -346,14 +346,23 @@ step passphrase-passthrough 0 env L3IO_WP_BACKUP_PASSPHRASE="$PASSPHRASE" \
 # `up --wait` returns once the containers report healthy, which can be before the
 # official image has written wp-config.php or the database accepts the site's
 # user; wp-install then failed in 0.5 s (CI, 2026-11-14). Wait for both, bounded.
+# The probe goes through PHP (mysqli), as WordPress does: `wp db query` would use
+# the cli image's MariaDB client, which cannot authenticate against MySQL 8's
+# caching_sha2_password, so it never succeeded on the mysql legs. Before install,
+# `wp core is-installed` exits 1 without an error; an unreachable database prints
+# "Error establishing a database connection".
 wordpress_ready() {
-    local _
+    local _ err
     for _ in $(seq 1 60); do
-        if in_backup test -s "$SITE/wp-config.php" && wp db query 'SELECT 1' >/dev/null 2>&1; then
-            return 0
+        if in_backup test -s "$SITE/wp-config.php"; then
+            err=$(wp core is-installed 2>&1 >/dev/null) || true
+            if [[ $err != *"database connection"* && $err != *"Error:"* ]]; then
+                return 0
+            fi
         fi
         sleep 2
     done
+    printf 'last probe stderr: %s\n' "${err:-<wp-config.php missing>}" >&2
     return 1
 }
 step wordpress-ready 0 wordpress_ready
